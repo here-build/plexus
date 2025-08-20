@@ -1,0 +1,63 @@
+{
+  "name": "@dappsnap/plexus",
+  "version": "0.1.0",
+  "description": "Constraint network for object state superposition through mathematical field dynamics",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./generator": {
+      "types": "./dist/generator.d.ts",
+      "import": "./dist/generator.js",
+      "require": "./dist/generator.js",
+      "default": "./dist/generator.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js",
+      "require": "./dist/runtime.js",
+      "default": "./dist/runtime.js"
+    }
+  },
+  "files": [
+    "dist/**/*",
+    "src/**/*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "nanoid": "^5.0.0",
+    "tiny-invariant": "^1.3.0",
+    "type-fest": "^4.0.0",
+    "yjs": "^13.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "prettier": "^3.3.0",
+    "dedent": "^1.5.0",
+    "@types/node": "^20.0.0"
+  },
+  "peerDependencies": {
+    "prettier": "^3.0.0"
+  },
+  "keywords": [
+    "proxy",
+    "model",
+    "constraint",
+    "field",
+    "superposition",
+    "mathematics"
+  ],
+  "author": "DappSnap",
+  "license": "MIT"
+}

@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plexus vs MobX Benchmark Report</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+    .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
+    h2 { color: #34495e; margin-top: 30px; }
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 20px 0; }
+    .metric { background: #ecf0f1; padding: 20px; border-radius: 6px; text-align: center; }
+    .metric-value { font-size: 2em; font-weight: bold; color: #2c3e50; }
+    .metric-label { color: #7f8c8d; font-size: 0.9em; }
+    .test-suite { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 6px; }
+    .status-success { color: #27ae60; }
+    .status-failed { color: #e74c3c; }
+    .output { background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 4px; font-family: 'Monaco', 'Consolas', monospace; font-size: 0.85em; overflow-x: auto; }
+    .system-info { background: #f8f9fa; padding: 15px; border-radius: 6px; margin: 20px 0; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+    th { background: #f8f9fa; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 Plexus vs MobX Performance Benchmark</h1>
+    
+    <div class="system-info">
+      <h3>System Information</h3>
+      <table>
+        <tr><td><strong>Generated:</strong></td><td>Invalid Date</td></tr>
+        <tr><td><strong>Platform:</strong></td><td>darwin arm64</td></tr>
+        <tr><td><strong>CPU Cores:</strong></td><td>16</td></tr>
+        <tr><td><strong>Memory:</strong></td><td>128GB</td></tr>
+        <tr><td><strong>Node.js:</strong></td><td>v22.8.0</td></tr>
+      </table>
+    </div>
+    
+    <h2>Summary</h2>
+    <div class="summary">
+      <div class="metric">
+        <div class="metric-value">3</div>
+        <div class="metric-label">Total Test Suites</div>
+      </div>
+      <div class="metric">
+        <div class="metric-value status-success">0</div>
+        <div class="metric-label">Successful</div>
+      </div>
+      <div class="metric">
+        <div class="metric-value status-failed">3</div>
+        <div class="metric-label">Failed</div>
+      </div>
+      <div class="metric">
+        <div class="metric-value">0%</div>
+        <div class="metric-label">Success Rate</div>
+      </div>
+      <div class="metric">
+        <div class="metric-value">77051</div>
+        <div class="metric-label">Total Duration (ms)</div>
+      </div>
+    </div>
+    
+    <h2>Test Results</h2>
+    
+      <div class="test-suite">
+        <h3>Core Performance Benchmarks</h3>
+        <p><strong>Status:</strong> <span class="status-failed">FAILED</span></p>
+        <p><strong>Duration:</strong> 49920ms</p>
+        <p><strong>Description:</strong> Object creation, property access, mutations, reactivity</p>
+        <p><strong>Error:</strong> <span class="status-failed">Command failed: npx vitest bench --reporter=verbose src/__tests__/performance-benchmark.bench.ts
+Benchmarking is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+stderr | configure (/Users/jabher/WebstormProjects/dappsnap/packages/plexus/node_modules/mobx/src/api/configure.ts:58:17)
+WARNING: Debug feature only. MobX will NOT recover from errors when `disableErrorBoundaries` is enabled.
+
+stderr | configure (/Users/jabher/WebstormProjects/dappsnap/packages/plexus/node_modules/mobx/src/api/configure.ts:58:17)
+WARNING: Debug feature only. MobX will NOT recover from errors when `disableErrorBoundaries` is enabled.
+
+
+<--- Last few GCs --->
+
+[45600:0x148008000]    49499 ms: Scavenge (interleaved) 4040.2 (4127.2) -> 4040.2 (4128.2) MB, pooled: 0 MB, 12.08 / 0.00 ms  (average mu = 0.656, current mu = 0.323) allocation failure; 
+[45600:0x148008000]    49532 ms: Scavenge (interleaved) 4041.1 (4128.2) -> 4041.1 (4151.2) MB, pooled: 0 MB, 32.79 / 0.00 ms  (average mu = 0.656, current mu = 0.323) allocation failure; 
+
+
+<--- JS stacktrace --->
+
+FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+----- Native stack trace -----
+
+ 1: 0x104b39270 node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 2: 0x104d14a40 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 3: 0x104eebb30 v8::internal::Heap::stack() [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 4: 0x104eea0d4 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 5: 0x104edf484 v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 6: 0x104edfcb0 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 7: 0x104ec2ca8 v8::internal::Factory::NewFillerObject(int, v8::internal::AllocationAlignment, v8::internal::AllocationType, v8::internal::AllocationOrigin) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 8: 0x1052b7bd4 v8::internal::Runtime_AllocateInYoungGeneration(int, unsigned long*, v8::internal::Isolate*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 9: 0x105835c74 Builtins_CEntry_Return1_ArgvOnStack_NoBuiltinExit [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+10: 0x105819250 Builtins_SetConstructor [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+11: 0x10579dfbc Builtins_JSBuiltinsConstructStub [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+12: 0x10bde3d98 
+13: 0x10bde25c8 
+14: 0x1058acb5c Builtins_ProxySetProperty [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+15: 0x10590c1f0 Builtins_SetNamedPropertyHandler [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+16: 0x1057a0ef0 Builtins_InterpreterEntryTrampoline [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+17: 0x10bcda914 
+18: 0x10bcef2f4 
+19: 0x1057dd410 Builtins_AsyncFunctionAwaitResolveClosure [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+20: 0x1058a8658 Builtins_PromiseFulfillReactionJob [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+21: 0x1057cd714 Builtins_RunMicrotasks [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+22: 0x10579eaf4 Builtins_JSRunMicrotasksEntry [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+23: 0x104e4483c v8::internal::(anonymous namespace)::Invoke(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+24: 0x104e44ccc v8::internal::(anonymous namespace)::InvokeWithTryCatch(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+25: 0x104e44e08 v8::internal::Execution::TryRunMicrotasks(v8::internal::Isolate*, v8::internal::MicrotaskQueue*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+26: 0x104e6ed90 v8::internal::MicrotaskQueue::RunMicrotasks(v8::internal::Isolate*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+27: 0x104e6f530 v8::internal::MicrotaskQueue::PerformCheckpoint(v8::Isolate*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+28: 0x104a59980 node::InternalCallbackScope::Close() [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+29: 0x104a593d4 node::InternalCallbackScope::~InternalCallbackScope() [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+30: 0x104ad9130 node::Environment::RunTimers(uv_timer_s*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+31: 0x10577aa80 uv__run_timers [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+32: 0x10577e2f4 uv_run [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+33: 0x104a5a46c node::SpinEventLoopInternal(node::Environment*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+34: 0x104b7dd80 node::NodeMainInstance::Run(node::ExitCode*, node::Environment*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+35: 0x104b7db18 node::NodeMainInstance::Run() [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+36: 0x104aff750 node::Start(int, char**) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+37: 0x184762b98 start [/usr/lib/dyld]
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+Error: Channel closed
+ ❯ target.send node:internal/child_process:754:16
+ ❯ ProcessWorker.send node_modules/tinypool/dist/index.js:140:41
+ ❯ MessagePort.<anonymous> node_modules/tinypool/dist/index.js:149:62
+ ❯ [nodejs.internal.kHybridDispatch] node:internal/event_target:816:20
+ ❯ MessagePort.<anonymous> node:internal/per_context/messageport:23:28
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'ERR_IPC_CHANNEL_CLOSED' }
+
+
+
+</span></p>
+        
+          <h4>Output</h4>
+          <div class="output"><br> RUN  v3.2.4 /Users/jabher/WebstormProjects/dappsnap/packages/plexus<br><br><br> RUN  v3.2.4 /Users/jabher/WebstormProjects/dappsnap/packages/plexus<br><br><br> ✓ src/__tests__/performance-benchmark.bench.ts > Array Operations Performance 2595ms<br>     name                                  hz     min     max    mean     p75     p99    p995    p999     rme  samples<br>   · Plexus: Array push operations   3,503.71  0.2254  2.0582  0.2854  0.2653  1.3804  1.8820  2.0476  ±2.92%     1752<br>   · MobX: Array push operations     3,875.51  0.1856  2.2278  0.2580  0.2191  1.7983  2.0481  2.2262  ±4.19%     1938<br>   · Plexus: Array access patterns  96,840.49  0.0063  1.7526  0.0103  0.0077  0.0110  0.0295  0.7148  ±3.71%    48423<br>   · MobX: Array access patterns     4,153.37  0.1776  2.5739  0.2408  0.2085  1.6178  1.9163  2.3253  ±3.92%     2077<br><br> ✓ src/__tests__/performance-benchmark.bench.ts > Array Operations Performance 2595ms<br>     name                                  hz     min     max    mean     p75     p99    p995    p999     rme  samples<br>   · Plexus: Array push operations   3,503.71  0.2254  2.0582  0.2854  0.2653  1.3804  1.8820  2.0476  ±2.92%     1752<br>   · MobX: Array push operations     3,875.51  0.1856  2.2278  0.2580  0.2191  1.7983  2.0481  2.2262  ±4.19%     1938<br>   · Plexus: Array access patterns  96,840.49  0.0063  1.7526  0.0103  0.0077  0.0110  0.0295  0.7148  ±3.71%    48423<br>   · MobX: Array access patterns     4,153.37  0.1776  2.5739  0.2408  0.2085  1.6178  1.9163  2.3253  ±3.92%     2077<br><br> ✓ src/__tests__/performance-benchmark.bench.ts > Map Operations Performance 1208ms<br>     name                               hz     min     max    mean     p75     p99    p995    p999     rme  samples<br>   · Plexus: Map set operations  11,570.37  0.0643  1.9531  0.0864  0.0751  0.6436  1.0311  1.8030  ±3.46%     5786<br>   · MobX: Map set operations     3,605.65  0.1940  3.0176  0.2773  0.2297  1.9295  2.0387  2.3537  ±4.61%     1803<br><br> ✓ src/__tests__/performance-benchmark.bench.ts > Map Operations Performance 1208ms<br>     name                               hz     min     max    mean     p75     p99    p995    p999     rme  samples<br>   · Plexus: Map set operations  11,570.37  0.0643  1.9531  0.0864  0.0751  0.6436  1.0311  1.8030  ±3.46%     5786<br>   · MobX: Map set operations     3,605.65  0.1940  3.0176  0.2773  0.2297  1.9295  2.0387  2.3537  ±4.61%     1803<br></div>
+        
+      </div>
+    
+      <div class="test-suite">
+        <h3>Edge Case Performance</h3>
+        <p><strong>Status:</strong> <span class="status-failed">FAILED</span></p>
+        <p><strong>Duration:</strong> 21447ms</p>
+        <p><strong>Description:</strong> Sparse arrays, deep chains, circular references, concurrent access</p>
+        <p><strong>Error:</strong> <span class="status-failed">Command failed: npx vitest bench --reporter=verbose src/__tests__/edge-case-performance.bench.ts
+Benchmarking is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+stderr | configure (/Users/jabher/WebstormProjects/dappsnap/packages/plexus/node_modules/mobx/src/api/configure.ts:58:17)
+WARNING: Debug feature only. MobX will NOT recover from errors when `disableErrorBoundaries` is enabled.
+
+stderr | configure (/Users/jabher/WebstormProjects/dappsnap/packages/plexus/node_modules/mobx/src/api/configure.ts:58:17)
+WARNING: Debug feature only. MobX will NOT recover from errors when `disableErrorBoundaries` is enabled.
+
+
+<--- Last few GCs --->
+
+[45952:0x128008000]    21010 ms: Scavenge 4046.7 (4127.7) -> 4045.3 (4129.5) MB, pooled: 0 MB, 6.46 / 0.00 ms  (average mu = 0.488, current mu = 0.345) allocation failure; 
+[45952:0x128008000]    21036 ms: Scavenge 4047.8 (4129.5) -> 4047.2 (4150.5) MB, pooled: 0 MB, 21.25 / 0.00 ms  (average mu = 0.488, current mu = 0.345) allocation failure; 
+
+
+<--- JS stacktrace --->
+
+FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+----- Native stack trace -----
+
+ 1: 0x102319270 node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 2: 0x1024f4a40 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 3: 0x1026cbb30 v8::internal::Heap::stack() [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 4: 0x1026ca0d4 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 5: 0x1026bf484 v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 6: 0x1026bfcb0 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 7: 0x1026a2ca8 v8::internal::Factory::NewFillerObject(int, v8::internal::AllocationAlignment, v8::internal::AllocationType, v8::internal::AllocationOrigin) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 8: 0x102a97bd4 v8::internal::Runtime_AllocateInYoungGeneration(int, unsigned long*, v8::internal::Isolate*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+ 9: 0x103015c74 Builtins_CEntry_Return1_ArgvOnStack_NoBuiltinExit [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+10: 0x102ff9250 Builtins_SetConstructor [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+11: 0x102f7dfbc Builtins_JSBuiltinsConstructStub [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+12: 0x109892d2c 
+13: 0x1098657b4 
+14: 0x102f7ec0c Builtins_JSEntryTrampoline [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+15: 0x102f7e8f4 Builtins_JSEntry [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+16: 0x102624864 v8::internal::(anonymous namespace)::Invoke(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+17: 0x102623ddc v8::internal::Execution::Call(v8::internal::Isolate*, v8::internal::Handle<v8::internal::Object>, v8::internal::Handle<v8::internal::Object>, int, v8::internal::Handle<v8::internal::Object>*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+18: 0x10298a6b0 v8::internal::JSProxy::SetProperty(v8::internal::Handle<v8::internal::JSProxy>, v8::internal::Handle<v8::internal::Name>, v8::internal::Handle<v8::internal::Object>, v8::internal::Handle<v8::internal::Object>, v8::Maybe<v8::internal::ShouldThrow>) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+19: 0x10298a228 v8::internal::Object::SetPropertyInternal(v8::internal::LookupIterator*, v8::internal::Handle<v8::internal::Object>, v8::Maybe<v8::internal::ShouldThrow>, v8::internal::StoreOrigin, bool*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+20: 0x10298a020 v8::internal::Object::SetProperty(v8::internal::LookupIterator*, v8::internal::Handle<v8::internal::Object>, v8::internal::StoreOrigin, v8::Maybe<v8::internal::ShouldThrow>) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+21: 0x102a9da88 v8::internal::Runtime::SetObjectProperty(v8::internal::Isolate*, v8::internal::Handle<v8::internal::Object>, v8::internal::Handle<v8::internal::Object>, v8::internal::Handle<v8::internal::Object>, v8::internal::StoreOrigin, v8::Maybe<v8::internal::ShouldThrow>) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+22: 0x102a9ea88 v8::internal::Runtime_SetKeyedProperty(int, unsigned long*, v8::internal::Isolate*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+23: 0x103015c74 Builtins_CEntry_Return1_ArgvOnStack_NoBuiltinExit [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+24: 0x1098b826c 
+25: 0x10984e0b8 
+26: 0x10984b6f4 
+27: 0x102fbd410 Builtins_AsyncFunctionAwaitResolveClosure [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+28: 0x103088658 Builtins_PromiseFulfillReactionJob [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+29: 0x102fad714 Builtins_RunMicrotasks [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+30: 0x102f7eaf4 Builtins_JSRunMicrotasksEntry [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+31: 0x10262483c v8::internal::(anonymous namespace)::Invoke(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+32: 0x102624ccc v8::internal::(anonymous namespace)::InvokeWithTryCatch(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+33: 0x102624e08 v8::internal::Execution::TryRunMicrotasks(v8::internal::Isolate*, v8::internal::MicrotaskQueue*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+34: 0x10264ed90 v8::internal::MicrotaskQueue::RunMicrotasks(v8::internal::Isolate*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+35: 0x10264f530 v8::internal::MicrotaskQueue::PerformCheckpoint(v8::Isolate*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+36: 0x102239980 node::InternalCallbackScope::Close() [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+37: 0x1022393d4 node::InternalCallbackScope::~InternalCallbackScope() [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+38: 0x1022b9130 node::Environment::RunTimers(uv_timer_s*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+39: 0x102f5aa80 uv__run_timers [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+40: 0x102f5e2f4 uv_run [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+41: 0x10223a46c node::SpinEventLoopInternal(node::Environment*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+42: 0x10235dd80 node::NodeMainInstance::Run(node::ExitCode*, node::Environment*) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+43: 0x10235db18 node::NodeMainInstance::Run() [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+44: 0x1022df750 node::Start(int, char**) [/Users/jabher/.nvm/versions/node/v22.8.0/bin/node]
+45: 0x184762b98 start [/usr/lib/dyld]
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+Error: Channel closed
+ ❯ target.send node:internal/child_process:754:16
+ ❯ ProcessWorker.send node_modules/tinypool/dist/index.js:140:41
+ ❯ MessagePort.<anonymous> node_modules/tinypool/dist/index.js:149:62
+ ❯ [nodejs.internal.kHybridDispatch] node:internal/event_target:816:20
+ ❯ MessagePort.<anonymous> node:internal/per_context/messageport:23:28
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'ERR_IPC_CHANNEL_CLOSED' }
+
+
+
+</span></p>
+        
+          <h4>Output</h4>
+          <div class="output"><br> RUN  v3.2.4 /Users/jabher/WebstormProjects/dappsnap/packages/plexus<br><br><br> RUN  v3.2.4 /Users/jabher/WebstormProjects/dappsnap/packages/plexus<br><br><br> ✓ src/__tests__/edge-case-performance.bench.ts > Sparse Array Performance 2421ms<br>     name                                      hz     min     max    mean     p75     p99    p995    p999     rme  samples<br>   · Plexus: Sparse array with holes    13,205.04  0.0716  0.2655  0.0757  0.0745  0.1659  0.1837  0.2402  ±0.44%     6603<br>   · MobX: Sparse array with holes       3,640.19  0.2481  0.6762  0.2747  0.2647  0.5612  0.5767  0.6681  ±0.93%     1821<br>   · Plexus: Array length manipulation  12,387.99  0.0680  1.2925  0.0807  0.0748  0.1835  0.1969  0.3587  ±0.93%     6194<br>   · MobX: Array length manipulation     1,281.68  0.7260  1.2436  0.7802  0.7556  1.0977  1.1313  1.2436  ±0.95%      641<br><br> ✓ src/__tests__/edge-case-performance.bench.ts > Sparse Array Performance 2421ms<br>     name                                      hz     min     max    mean     p75     p99    p995    p999     rme  samples<br>   · Plexus: Sparse array with holes    13,205.04  0.0716  0.2655  0.0757  0.0745  0.1659  0.1837  0.2402  ±0.44%     6603<br>   · MobX: Sparse array with holes       3,640.19  0.2481  0.6762  0.2747  0.2647  0.5612  0.5767  0.6681  ±0.93%     1821<br>   · Plexus: Array length manipulation  12,387.99  0.0680  1.2925  0.0807  0.0748  0.1835  0.1969  0.3587  ±0.93%     6194<br>   · MobX: Array length manipulation     1,281.68  0.7260  1.2436  0.7802  0.7556  1.0977  1.1313  1.2436  ±0.95%      641<br><br> ✓ src/__tests__/edge-case-performance.bench.ts > Deep Proxy Chain Performance 2456ms<br>     name                                              hz     min     max    mean     p75     p99    p995    p999     rme  samples<br>   · Plexus: Deep chain traversal (100 nodes)   63,578.48  0.0126  0.6075  0.0157  0.0144  0.0649  0.0730  0.1097  ±0.66%    31790<br>   · MobX: Deep chain traversal (100 nodes)      4,434.50  0.2131  0.5280  0.2255  0.2193  0.3995  0.4123  0.4414  ±0.65%     2218<br>   · Plexus: Chain modification at depth       275,111.93  0.0027  1.1939  0.0036  0.0032  0.0248  0.0314  0.0712  ±0.80%   137556<br>   · MobX: Chain modification at depth           9,049.45  0.1037  1.3046  0.1105  0.1061  0.2774  0.2887  0.3179  ±0.82%     4525<br><br> ✓ src/__tests__/edge-case-performance.bench.ts > Deep Proxy Chain Performance 2456ms<br>     name                                              hz     min     max    mean     p75     p99    p995    p999     rme  samples<br>   · Plexus: Deep chain traversal (100 nodes)   63,578.48  0.0126  0.6075  0.0157  0.0144  0.0649  0.0730  0.1097  ±0.66%    31790<br>   · MobX: Deep chain traversal (100 nodes)      4,434.50  0.2131  0.5280  0.2255  0.2193  0.3995  0.4123  0.4414  ±0.65%     2218<br>   · Plexus: Chain modification at depth       275,111.93  0.0027  1.1939  0.0036  0.0032  0.0248  0.0314  0.0712  ±0.80%   137556<br>   · MobX: Chain modification at depth           9,049.45  0.1037  1.3046  0.1105  0.1061  0.2774  0.2887  0.3179  ±0.82%     4525<br><br> ✓ src/__tests__/edge-case-performance.bench.ts > Circular Reference Performance 1320ms<br>     name                                                    hz     min     max    mean     p75     p99    p995    p999     rme  samples<br>   · Plexus: Circular reference creation and access  764,514.51  0.0011  1.0886  0.0013  0.0013  0.0016  0.0018  0.0147  ±0.53%   382258<br>   · MobX: Circular reference creation and access    207,227.08  0.0042  1.8158  0.0048  0.0045  0.0167  0.0172  0.0198  ±0.95%   103614<br><br> ✓ src/__tests__/edge-case-performance.bench.ts > Circular Reference Performance 1320ms<br>     name                                                    hz     min     max    mean     p75     p99    p995    p999     rme  samples<br>   · Plexus: Circular reference creation and access  764,514.51  0.0011  1.0886  0.0013  0.0013  0.0016  0.0018  0.0147  ±0.53%   382258<br>   · MobX: Circular reference creation and access    207,227.08  0.0042  1.8158  0.0048  0.0045  0.0167  0.0172  0.0198  ±0.95%   103614<br><br> ✓ src/__tests__/edge-case-performance.bench.ts > Property Enumeration Performance 1206ms<br>     name                                            hz     min     max    mean     p75     p99    p995    p999     rme  samples<br>   · Plexus: Object.keys() on complex objects  5,630.67  0.1595  1.1284  0.1776  0.1724  0.3102  0.3157  0.4552  ±0.82%     2816<br>   · MobX: keys() on complex objects           4,711.40  0.1985  0.5291  0.2123  0.2050  0.4295  0.4512  0.4949  ±0.79%     2356<br><br> ✓ src/__tests__/edge-case-performance.bench.ts > Property Enumeration Performance 1206ms<br>     name                                            hz     min     max    mean     p75     p99    p995    p999     rme  samples<br>   · Plexus: Object.keys() on complex objects  5,630.67  0.1595  1.1284  0.1776  0.1724  0.3102  0.3157  0.4552  ±0.82%     2816<br>   · MobX: keys() on complex objects           4,711.40  0.1985  0.5291  0.2123  0.2050  0.4295  0.4512  0.4949  ±0.79%     2356<br></div>
+        
+      </div>
+    
+      <div class="test-suite">
+        <h3>Memory Usage Analysis</h3>
+        <p><strong>Status:</strong> <span class="status-failed">FAILED</span></p>
+        <p><strong>Duration:</strong> 5684ms</p>
+        <p><strong>Description:</strong> Memory profiling, leak detection, GC behavior</p>
+        <p><strong>Error:</strong> <span class="status-failed">Command failed: npx vitest run --reporter=verbose src/__tests__/memory-usage.test.ts
+stderr | src/__tests__/memory-usage.test.ts
+WARNING: Debug feature only. MobX will NOT recover from errors when `disableErrorBoundaries` is enabled.
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should profile memory usage over time
+AssertionError: expected 2 to be greater than 10
+ ❯ src/__tests__/memory-usage.test.ts:183:38
+    181|     console.log(report);
+    182|     
+    183|     expect(profile.snapshots.length).toBeGreaterThan(10);
+       |                                      ^
+    184|     expect(profile.peakHeapUsed).toBeGreaterThan(0);
+    185|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should detect memory leaks in tracking systems
+AssertionError: expected 165348312 to be less than 52428800
+ ❯ src/__tests__/memory-usage.test.ts:229:32
+    227|     // Memory should not grow excessively if there are no leaks
+    228|     const maxAcceptableGrowth = 50 * 1024 * 1024; // 50MB
+    229|     expect(profile.heapGrowth).toBeLessThan(maxAcceptableGrowth);
+       |                                ^
+    230|   });
+    231| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should analyze memory usage with deep object hierarchies
+AssertionError: expected 11874464 to be greater than 11874464
+ ❯ src/__tests__/memory-usage.test.ts:351:34
+    349|     console.log(report);
+    350|     
+    351|     expect(profile.peakHeapUsed).toBeGreaterThan(profile.snapshots[0].…
+       |                                  ^
+    352|   });
+    353| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+</span></p>
+        
+          <h4>Output</h4>
+          <div class="output"><br> RUN  v3.2.4 /Users/jabher/WebstormProjects/dappsnap/packages/plexus<br><br>stdout | src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should compare memory usage of object creation<br>=== Memory Profile Comparison ===<br>Plexus Object Creation-average vs MobX Object Creation-average<br><br>Heap Growth:<br>  Plexus Object Creation-average: 828.14 KB<br>  MobX Object Creation-average: 4.77 MB<br>  Difference: 3.97 MB (+490.38%)<br><br>Peak Heap Usage:<br>  Plexus Object Creation-average: 10.62 MB<br>  MobX Object Creation-average: 10.73 MB<br>  Difference: 112.68 KB (+1.04%)<br><br>Average Heap Usage:<br>  Plexus Object Creation-average: 11.02 MB<br>  MobX Object Creation-average: 13.11 MB<br>  Difference: 2.09 MB (+18.99%)<br><br>Winner: Plexus Object Creation-average (better on all metrics)<br><br> ✓ src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should compare memory usage of object creation 459ms<br>stdout | src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should compare memory usage with reactivity<br>=== Memory Profile Comparison ===<br>Plexus Reactivity-average vs MobX Reactivity-average<br><br>Heap Growth:<br>  Plexus Reactivity-average: 1.79 MB<br>  MobX Reactivity-average: 707.14 KB<br>  Difference: NaN undefined (-61.36%)<br><br>Peak Heap Usage:<br>  Plexus Reactivity-average: 17.08 MB<br>  MobX Reactivity-average: 18.52 MB<br>  Difference: 1.44 MB (+8.42%)<br><br>Average Heap Usage:<br>  Plexus Reactivity-average: 17.97 MB<br>  MobX Reactivity-average: 18.86 MB<br>  Difference: 911.33 KB (+4.95%)<br><br>Winner: Mixed results - check individual metrics<br><br> ✓ src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should compare memory usage with reactivity 471ms<br>stdout | src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should profile memory usage over time<br>=== Memory Profile Report: Plexus Memory Over Time ===<br>Duration: 458ms<br>Samples: 2<br><br>Memory Usage:<br>  Start Heap: 317.37 MB<br>  End Heap: 475.62 MB<br>  Peak Heap: 317.37 MB<br>  Average Heap: 396.49 MB<br>  Heap Growth: 158.24 MB (+49.86%)<br><br>Peak Memory:<br>  RSS: 591.83 MB<br>  External: 3.00 MB<br>  Array Buffers: 46.41 KB<br><br> × src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should profile memory usage over time 1712ms<br>   → expected 2 to be greater than 10<br>stdout | src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should detect memory leaks in tracking systems<br>=== Memory Profile Report: Tracking Memory Leak Test ===<br>Duration: 328ms<br>Samples: 2<br><br>Memory Usage:<br>  Start Heap: 1.02 GB<br>  End Heap: 1.17 GB<br>  Peak Heap: 1.02 GB<br>  Average Heap: 1.10 GB<br>  Heap Growth: 157.69 MB (+15.08%)<br><br>Peak Memory:<br>  RSS: 1.32 GB<br>  External: 3.00 MB<br>  Array Buffers: 46.40 KB<br><br> × src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should detect memory leaks in tracking systems 1538ms<br>   → expected 165348312 to be less than 52428800<br>stdout | src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should compare array operation memory patterns<br>=== Memory Profile Comparison ===<br>Plexus Array Operations-average vs MobX Array Operations-average<br><br>Heap Growth:<br>  Plexus Array Operations-average: 11.33 MB<br>  MobX Array Operations-average: 5.13 MB<br>  Difference: NaN undefined (-54.74%)<br><br>Peak Heap Usage:<br>  Plexus Array Operations-average: 11.31 MB<br>  MobX Array Operations-average: 11.36 MB<br>  Difference: 43.39 KB (+0.37%)<br><br>Average Heap Usage:<br>  Plexus Array Operations-average: 16.98 MB<br>  MobX Array Operations-average: 13.92 MB<br>  Difference: NaN undefined (-18.01%)<br><br>Winner: Mixed results - check individual metrics<br><br> ✓ src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should compare array operation memory patterns 821ms<br>stdout | src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should analyze memory usage with deep object hierarchies<br>=== Memory Profile Report: Deep Hierarchy Memory Usage ===<br>Duration: 0ms<br>Samples: 2<br><br>Memory Usage:<br>  Start Heap: 11.32 MB<br>  End Heap: 11.35 MB<br>  Peak Heap: 11.32 MB<br>  Average Heap: 11.34 MB<br>  Heap Growth: 23.64 KB (+0.20%)<br><br>Peak Memory:<br>  RSS: 1.08 GB<br>  External: 3.00 MB<br>  Array Buffers: 46.25 KB<br><br> × src/__tests__/memory-usage.test.ts > Memory Usage Comparison > should analyze memory usage with deep object hierarchies 16ms<br>   → expected 11874464 to be greater than 11874464<br><br> Test Files  1 failed (1)<br>      Tests  3 failed | 3 passed (6)<br>   Start at  18:50:13<br>   Duration  5.27s (transform 38ms, setup 0ms, collect 61ms, tests 5.02s, environment 0ms, prepare 32ms)<br><br></div>
+        
+      </div>
+    
+    
+    <footer style="margin-top: 50px; text-align: center; color: #7f8c8d; font-size: 0.9em;">
+      Generated by Plexus Benchmark Suite • 2025
+    </footer>
+  </div>
+</body>
+</html>

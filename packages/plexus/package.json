@@ -36,7 +36,12 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:perf": "vitest run src/__tests__/performance-benchmark.test.ts --reporter=verbose"
+    "test:perf": "vitest run src/__tests__/performance-benchmark.test.ts --reporter=verbose",
+    "benchmark": "node --expose-gc scripts/run-benchmarks.mjs",
+    "benchmark:core": "vitest bench src/__tests__/performance-benchmark.bench.ts --reporter=verbose",
+    "benchmark:edge": "vitest bench src/__tests__/edge-case-performance.bench.ts --reporter=verbose",
+    "benchmark:memory": "node --expose-gc vitest run src/__tests__/memory-usage.test.ts --reporter=verbose",
+    "benchmark:all": "npm run benchmark:core && npm run benchmark:edge && npm run benchmark:memory"
   },
   "dependencies": {
     "nanoid": "^5.0.0",

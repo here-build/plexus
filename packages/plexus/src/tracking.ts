@@ -55,10 +55,52 @@ export function trackAccess(entity: any, field: string | symbol): void {
   }
 }
 
+// Development-only DevTools integration
+let pendingMutations: Set<{ entity: any, field: string | symbol }> = new Set();
+let batchScheduled = false;
+
+function collectMutation(entity: any, field: string | symbol) {
+  pendingMutations.add({ entity, field });
+  
+  if (!batchScheduled) {
+    batchScheduled = true;
+    setImmediate(() => {
+      flushMutationBatch();
+      batchScheduled = false;
+    });
+  }
+}
+
+function flushMutationBatch() {
+  if (pendingMutations.size === 0) return;
+  
+  const mutations = Array.from(pendingMutations).map(({ entity, field }) => ({
+    entity: entity.constructor?.name || 'Object',
+    field: String(field),
+    value: entity[field]
+  }));
+  
+  // Send to Redux DevTools if available
+  if (typeof window !== 'undefined' && (window as any).__REDUX_DEVTOOLS_EXTENSION__) {
+    const devTools = (window as any).__REDUX_DEVTOOLS_EXTENSION__.connect();
+    devTools.send({
+      type: 'PLEXUS_BATCH_UPDATE',
+      payload: { mutations, count: mutations.length }
+    }, { mutations });
+  }
+  
+  pendingMutations.clear();
+}
+
 /**
  * Built-in modification reporter - notifies interested TrackedFunctions when data changes
  */
 export function trackModification(entity: any, field: string | symbol): void {
+  // Development-only DevTools collection
+  if (process.env.NODE_ENV !== 'production') {
+    collectMutation(entity, field);
+  }
+  
   for (const notifier of unconsumedNotifiers) {
     const entityKeyset = notifier.fieldset.get(entity);
     if (!entityKeyset) {

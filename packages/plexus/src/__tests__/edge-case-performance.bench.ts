@@ -43,7 +43,7 @@ const ComponentClass = buildModelClass<ComponentType>("Component", {
 
 const SiteClass = buildModelClass<SiteType>("Site", {
   name: "val",
-  components: "map"
+  components: "record"
 });
 
 function createYJSSetup() {

@@ -35,7 +35,7 @@ import { buildModelClass } from '@dappsnap/plexus';
 const UserSchema = {
   name: "val",
   posts: "list",
-  metadata: "map"
+  metadata: "record"
 } as const;
 
 // Create model class

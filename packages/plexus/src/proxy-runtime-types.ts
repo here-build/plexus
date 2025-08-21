@@ -87,7 +87,7 @@ export type RecordSchema<
         [key in keyof TT]: TT[key] extends AllowedYJSValue | null
           ? "val"
           : TT[key] extends AllowedYJSValueMap | null
-            ? "map"
+            ? "record"
             : TT[key] extends AllowedYJSValueSet | null
               ? "set"
               : TT[key] extends AllowedYJSValueList | null

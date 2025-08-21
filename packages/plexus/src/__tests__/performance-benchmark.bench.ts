@@ -56,15 +56,15 @@ const SimpleModelClass = buildModelClass<SimpleModel>("SimpleModel", {
 
 const ComplexModelClass = buildModelClass<ComplexModel>("ComplexModel", {
   id: "val",
-  metadata: "map",
+  metadata: "record",
   tags: "list",
   nested: "val"
 });
 
 const LargeModelClass = buildModelClass<LargeModel>("LargeModel", {
   items: "list",
-  lookup: "map",
-  counters: "map"
+  lookup: "record",
+  counters: "record"
 });
 
 // Helper to create YJS document setup

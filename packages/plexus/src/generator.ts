@@ -310,11 +310,11 @@ function generateGuards(cls: Class, meta: MetaRuntime): string {
     const instanceChecks = concreteDescendants.map((subCls) => `isKnown${subCls.name}(x)`).join(" || ");
 
     return `
-export function isKnown${className}<T>(x: T): x is Extract<T, ${className}> {
+export function isKnown${className}<T>(x: T): x is ${className} {
   return ${instanceChecks || "false"};
 }
 
-export function ensureKnown${className}<T>(x: T): Extract<T, ${className}> {
+export function ensureKnown${className}<T>(x: T): ${className} {
   invariant(isKnown${className}(x), \`Expected ${className}, got \${typeof x}: \${x}\`);
   return x;
 }
@@ -322,11 +322,11 @@ export function ensureKnown${className}<T>(x: T): Extract<T, ${className}> {
   } else {
     // Concrete classes can use instanceof
     return `
-export function isKnown${className}<T>(x: T): x is Extract<T, ${className}> {
+export function isKnown${className}<T>(x: T): x is ${className} {
   return x instanceof ${className};
 }
 
-export function ensureKnown${className}<T>(x: T): Extract<T, ${className}> {
+export function ensureKnown${className}<T>(x: T): ${className} {
   invariant(isKnown${className}(x), \`Expected ${className}, got \${typeof x}: \${x}\`);
   return x;
 }

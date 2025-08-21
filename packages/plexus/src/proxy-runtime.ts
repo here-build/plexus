@@ -104,6 +104,8 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
     internal__ephemeralExternalObject?: ModelType<ExtractRecordSchema<T>, ExtractClassName<T>>
   ) => {
     const boundMaybeReference = curryMaybeReference(projectId, doc);
+    const localReference = [entityId];
+    const globalReference = [entityId, projectId];
     const cacheKey = `${projectId}.${entityId}`;
     const cached = documentEntityCaches.get(doc).get(cacheKey)?.deref();
     if (cached) {
@@ -156,10 +158,10 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
     // - "ref-list" → Proxy wrapping Y.Array<Reference>  (Array interface)
     const subproxyCache = new DefaultedMap<
       string,
-      Record<string, AllowedYJSValue> | Array<AllowedYJSValue>
+      Record<string, AllowedYJSValue> | Array<AllowedYJSValue> | Set<AllowedYJSValue>
       // eslint-disable-next-line sonarjs/function-return-type
     >((key) => {
-      const keyType = schema[key] as "map" | "list";
+      const keyType = schema[key] as "record" | "list" | "set";
 
       // PROXY FACTORY: Create JavaScript interface wrapper for YJS collection
       switch (keyType) {
@@ -330,7 +332,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           });
           return arrayProxy;
         }
-        case "map": {
+        case "record": {
           let map = yprojectObjectInstanceFields.get(`${entityId}.${key}`) as Y.Map<AllowedYValue> | undefined;
           if (!map) {
             map = new Y.Map();
@@ -410,6 +412,125 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           });
           return mapProxy;
         }
+        case "set": {
+          // Sets are small collections (params, states) backed by YJS Array
+          // Present Record<string, T> interface but use array storage + includes()
+          let underlyingArray = yprojectObjectInstanceFields.get(`${entityId}.${key}`) as
+            | Y.Array<AllowedYValue>
+            | undefined;
+          if (!underlyingArray) {
+            underlyingArray = new Y.Array();
+            yprojectObjectInstanceFields.set(`${entityId}.${key}`, underlyingArray);
+          }
+
+          const setProxyInit: ProxyHandler<Y.Array<AllowedYValue>> = {
+            get(target, elementKey) {
+              switch (elementKey) {
+                case "size":
+                  return target.length;
+                case "add":
+                  return (value: AllowedYJSValue) => {
+                    // here and below we're using deref and not boundRef to ensure that entities are unique,
+                    // allowing us to directly compare instead of structural checks
+                    if (!target.toArray().map(deref).includes(value)) {
+                      trackModification(setProxy, ACCESS_ALL_SYMBOL);
+                      target.push([boundMaybeReference(value)]);
+                      return true;
+                    }
+                    return false;
+                  };
+                case "clear":
+                  return () => {
+                    const outputLength = target.length;
+                    if (outputLength === 0) {
+                      return 0;
+                    }
+                    trackModification(setProxy, ACCESS_ALL_SYMBOL);
+                    target?.delete(0, outputLength);
+                    return outputLength;
+                  };
+                case "delete":
+                  return (value: AllowedYJSValue) => {
+                    const index = target.toArray().map(deref).indexOf(value);
+                    if (index === -1) {
+                      return false;
+                    }
+                    target.delete(index, 1);
+                    trackModification(setProxy, ACCESS_ALL_SYMBOL);
+                    return true;
+                  };
+                case "entries":
+                  return () => {
+                    trackAccess(setProxy, ACCESS_ALL_SYMBOL);
+                    return target
+                      .toArray()
+                      .map(deref)
+                      .map((v) => [v, v]);
+                  };
+                case "values":
+                case "keys":
+                  return () => {
+                    trackAccess(setProxy, ACCESS_ALL_SYMBOL);
+                    return target.toArray().map(deref);
+                  };
+                // todo Symbol.iterator
+                case "forEach":
+                  return (
+                    callbackfn: (value: AllowedYJSValue, value2: AllowedYJSValue, set: Set<AllowedYJSValue>) => void,
+                    thisArg?: any
+                  ) => {
+                    trackAccess(setProxy, ACCESS_ALL_SYMBOL);
+                    return new Set(target.toArray().map(deref)).forEach(callbackfn, thisArg);
+                  };
+                case "has":
+                  return (value: AllowedYJSValue) => {
+                    trackAccess(setProxy, ACCESS_ALL_SYMBOL);
+                    return target.toArray().map(deref).includes(value);
+                  };
+                case "intersection":
+                  throw new Error("not implemented yet");
+                case "isDisjointFrom":
+                  return (set: Set<AllowedYJSValue>) => {
+                    trackAccess(setProxy, ACCESS_ALL_SYMBOL);
+                    return new Set(target.toArray().map(deref)).isDisjointFrom(set);
+                  };
+                case "isSubsetOf":
+                  return (set: Set<AllowedYJSValue>) => {
+                    trackAccess(setProxy, ACCESS_ALL_SYMBOL);
+                    return new Set(target.toArray().map(deref)).isSubsetOf(set);
+                  };
+                case "isSupersetOf":
+                  return (set: Set<AllowedYJSValue>) => {
+                    trackAccess(setProxy, ACCESS_ALL_SYMBOL);
+                    return new Set(target.toArray().map(deref)).isSupersetOf(set);
+                  };
+                default:
+                  return false;
+              }
+            },
+            set() {
+              throw new Error("cannot set properties to syncing Set");
+            },
+            deleteProperty() {
+              throw new Error("cannot set properties to syncing Set");
+            },
+            has() {
+              return false;
+            },
+            ownKeys() {
+              return [];
+            },
+            getPrototypeOf() {
+              return Set.prototype;
+            },
+            isExtensible(): boolean {
+              return false;
+            }
+          };
+
+          const setProxy = new Proxy(underlyingArray, setProxyInit);
+          return setProxy as any as Set<AllowedYJSValue>;
+        }
         default:
           never(keyType);
       }
@@ -434,11 +555,15 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           if (key === referenceSymbol) {
             // REFERENCE TYPE SELECTION.
             // This allows entities to reference dependencies while maintaining project boundaries
-            return (assertedProjectId: string, assertedDoc: Y.Doc) => {
-              invariant(doc === assertedDoc, "document misalignment");
+            return (assertedProjectId: string, assertedDoc: ExtendedYDoc) => {
+              invariant(
+                doc === assertedDoc,
+                `document misalignment: expected project<${doc.rootProjectId}> doc, got project<${assertedDoc.rootProjectId}> doc`
+              );
+              // we're explicitly using pre-materialized references so we will be able to directly compare them
               return projectId === assertedProjectId
-                ? [entityId] // Local reference tuple: [entityId]
-                : [entityId, projectId]; // Cross-project reference tuple: [entityId, projectId]
+                ? localReference // Local reference tuple: [entityId]
+                : globalReference; // Cross-project reference tuple: [entityId, projectId]
             };
           }
           if (typeof key === "string" && Object.hasOwn(schema, key)) {
@@ -514,8 +639,10 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
   const ModelConstructor = Object.defineProperties(
     function ModelConstructor(this: any, initialState: ReadonlyDeep<StrictRecordSchema<T>>) {
       let manifestedState: ModelType<ExtractRecordSchema<T>, ExtractClassName<T>> | null = null;
-      let semiEphemeralReference: ReferenceTuple | null = null;
-      const ephemeralUUID = nanoid();
+      const entityId = nanoid();
+      const localReference: ReferenceTuple = [entityId];
+      let globalReference: ReferenceTuple | null = null; // we will materialize it later
+
       const ephemeralModel = new Proxy(initialState as ModelType<ExtractRecordSchema<T>, ExtractClassName<T>>, {
         // QUANTUM SUPERPOSITION HANDLER:
         // This proxy exists in two states simultaneously:
@@ -529,7 +656,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             return Reflect.get(manifestedState, key);
           }
           if (key === "uuid") {
-            return ephemeralUUID;
+            return entityId;
           }
           if (key === referenceSymbol) {
             return function reference(
@@ -537,9 +664,10 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               projectId: ProjectId,
               doc: ExtendedYDoc
             ): ReferenceTuple {
-              if (semiEphemeralReference) {
-                return semiEphemeralReference;
+              if (globalReference) {
+                return projectId === globalReference[1] ? localReference : globalReference;
               }
+              globalReference = [entityId, projectId];
               if (manifestedState) {
                 return manifestedState[referenceSymbol](projectId, doc);
               }
@@ -548,10 +676,12 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               return doc.transact(() => {
                 const yprojectObjectInstanceFields = doc.getMap<Storageable>(`project:${projectId}:models`);
                 const yprojectEntityType = doc.getMap<string>(`project:${projectId}:models:types`);
-                const entityId = ephemeralUUID;
-                semiEphemeralReference = [entityId];
+
                 yprojectEntityType.set(entityId, typeName);
-                for (const [schemaKey, type] of Object.entries(schema) as [string, "val" | "list" | "map"][]) {
+                for (const [schemaKey, type] of Object.entries(schema) as [
+                  string,
+                  "val" | "list" | "record" | "set"
+                ][]) {
                   switch (type) {
                     case "val":
                       yprojectObjectInstanceFields.set(
@@ -570,16 +700,28 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                         )
                       );
                       break;
-                    case "map":
+                    case "record":
                       yprojectObjectInstanceFields.set(
                         `${entityId}.${schemaKey}`,
                         new Y.Map<AllowedYValue | null>(
                           Object.entries((target[schemaKey] as Record<string, AllowedYJSValue> | null) ?? {}).map(
-                            ([recordKey, val]) => [recordKey, maybeReference(val, projectId, doc)]
+                            ([recordKey, val]) => [recordKey, boundMaybeReference(val)]
                           )
                         )
                       );
                       break;
+                    case "set":
+                      yprojectObjectInstanceFields.set(
+                        `${entityId}.${schemaKey}`,
+                        // @ts-expect-error todo yjs Array.from not supporting boolean
+                        Y.Array.from(
+                          // @ts-expect-error todo yjs Array.from not supporting boolean
+                          (target[schemaKey] as Set<AllowedYJSValue>).values().map(boundMaybeReference)
+                        )
+                      );
+                      break;
+                    default:
+                      never(type);
                   }
                 }
 
@@ -602,8 +744,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                   manifestedState ??= spawn(entityId, projectId, doc);
                   entityCache.set(cacheKey, new WeakRef(ephemeralModel)); // Cache SELF, not spawn result
                 }
-                semiEphemeralReference = null;
-                return projectId === doc.rootProjectId ? [entityId] : [entityId, projectId];
+                return projectId === doc.rootProjectId ? localReference : globalReference!;
               });
             };
           }
@@ -683,7 +824,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               return ephemeralListProxy;
             }
 
-            if (schemaType === "map") {
+            if (schemaType === "record") {
               const ephemeralMapProxy = new Proxy(fieldValue as Record<string, ModelPattern | null>, {
                 get(mapTarget, mapKey) {
                   // todo support well known symbols
@@ -729,6 +870,112 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               return ephemeralMapProxy;
             }
 
+            if (schemaType === "set") {
+              const setProxyInit: ProxyHandler<Set<AllowedYJSValue>> = {
+                get(target, elementKey) {
+                  switch (elementKey) {
+                    case "size":
+                      return target.size;
+                    case "add":
+                      return (value: AllowedYJSValue) => {
+                        if (target.add(value)) {
+                          trackModification(ephemeralSetProxy, ACCESS_ALL_SYMBOL);
+                          const disclosure = (value as ModelPattern)?.[referenceDisclosureSymbol]?.();
+                          if (disclosure) {
+                            definitelyReference(ephemeralModel, disclosure.projectId, disclosure.doc);
+                          }
+                          return true;
+                        }
+                        return false;
+                      };
+                    case "clear":
+                      return () => {
+                        if (target.size === 0) {
+                          return 0;
+                        }
+                        trackModification(ephemeralSetProxy, ACCESS_ALL_SYMBOL);
+                        return target.clear();
+                      };
+                    case "delete":
+                      return (value: AllowedYJSValue) => {
+                        if (target.has(value)) {
+                          trackModification(ephemeralSetProxy, ACCESS_ALL_SYMBOL);
+                        }
+                        return target.delete(value);
+                      };
+                    case "entries":
+                      return () => {
+                        trackAccess(ephemeralSetProxy, ACCESS_ALL_SYMBOL);
+                        return target.entries();
+                      };
+                    case "keys":
+                    case "values":
+                      return () => {
+                        trackAccess(ephemeralSetProxy, ACCESS_ALL_SYMBOL);
+                        return target.values();
+                      };
+                    // todo Symbol.iterator
+                    case "forEach":
+                      return (
+                        callbackfn: (
+                          value: AllowedYJSValue,
+                          value2: AllowedYJSValue,
+                          set: Set<AllowedYJSValue>
+                        ) => void,
+                        thisArg?: any
+                      ) => {
+                        trackAccess(ephemeralSetProxy, ACCESS_ALL_SYMBOL);
+                        return target.forEach(callbackfn, thisArg);
+                      };
+                    case "has":
+                      return (value: AllowedYJSValue) => {
+                        trackAccess(ephemeralSetProxy, ACCESS_ALL_SYMBOL);
+                        return target.has(value);
+                      };
+                    case "intersection":
+                      throw new Error("not implemented yet");
+                    case "isDisjointFrom":
+                      return (set: Set<AllowedYJSValue>) => {
+                        trackAccess(ephemeralSetProxy, ACCESS_ALL_SYMBOL);
+                        return target.isDisjointFrom(set);
+                      };
+                    case "isSubsetOf":
+                      return (set: Set<AllowedYJSValue>) => {
+                        trackAccess(ephemeralSetProxy, ACCESS_ALL_SYMBOL);
+                        return target.isSubsetOf(set);
+                      };
+                    case "isSupersetOf":
+                      return (set: Set<AllowedYJSValue>) => {
+                        trackAccess(ephemeralSetProxy, ACCESS_ALL_SYMBOL);
+                        return target.isSupersetOf(set);
+                      };
+                    default:
+                      return false;
+                  }
+                },
+                set() {
+                  throw new Error("cannot set properties to syncing Set");
+                },
+                deleteProperty() {
+                  throw new Error("cannot set properties to syncing Set");
+                },
+                has() {
+                  return false;
+                },
+                ownKeys() {
+                  return [];
+                },
+                getPrototypeOf() {
+                  return Set.prototype;
+                },
+                isExtensible(): boolean {
+                  return false;
+                }
+              };
+              const ephemeralSetProxy = new Proxy(fieldValue as Set<AllowedYJSValue>, setProxyInit);
+              return ephemeralSetProxy;
+            }
+
             // Simple field access for "val" type
             trackAccess(ephemeralModel, key);
             return fieldValue;
@@ -741,7 +988,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           if (manifestedState) {
             return Reflect.set(manifestedState, elementKey, value);
           }
-          if (!(Object.hasOwn(schema, elementKey))) {
+          if (!Object.hasOwn(schema, elementKey)) {
             console.warn(
               `cannot set property ${elementKey.toString()} of ${typeName} as it is not declared in type schema`
             );

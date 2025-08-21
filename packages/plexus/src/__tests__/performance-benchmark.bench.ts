@@ -43,8 +43,8 @@ type ComplexModel = ModelType<{
 
 type LargeModel = ModelType<{
   readonly items: SimpleModel[];
-  lookup: "map";
-  counters: "map";
+  readonly lookup: Record<string, SimpleModel>;
+  readonly counters: Record<string, number>;
 }, "LargeModel">;
 
 // Model classes
@@ -94,7 +94,7 @@ function createMobXComplex() {
 
 describe('Object Creation Performance', () => {
   bench('Plexus: Ephemeral object creation', () => {
-    const obj = SimpleModelClass({
+    const obj = new SimpleModelClass({
       name: "test",
       count: 42,
       enabled: true
@@ -105,7 +105,7 @@ describe('Object Creation Performance', () => {
 
   bench('Plexus: Materialized object creation', () => {
     const { doc, projectId } = createYJSSetup();
-    const obj = SimpleModelClass({
+    const obj = new SimpleModelClass({
       name: "test",
       count: 42,
       enabled: true
@@ -121,13 +121,13 @@ describe('Object Creation Performance', () => {
   });
 
   bench('Plexus: Complex object creation (ephemeral)', () => {
-    const nested = SimpleModelClass({
+    const nested = new SimpleModelClass({
       name: "nested",
       count: 1,
       enabled: false
     });
 
-    const obj = ComplexModelClass({
+    const obj = new ComplexModelClass({
       id: "complex-test",
       metadata: {},
       tags: [],
@@ -143,7 +143,7 @@ describe('Object Creation Performance', () => {
 });
 
 describe('Property Access Performance', () => {
-  const plexusSimple = SimpleModelClass({
+  const plexusSimple = new SimpleModelClass({
     name: "test",
     count: 42,
     enabled: true
@@ -166,11 +166,11 @@ describe('Property Access Performance', () => {
   });
 
   // Complex nested access
-  const plexusNested = ComplexModelClass({
+  const plexusNested = new ComplexModelClass({
     id: "test",
     metadata: { key1: "value1", key2: "value2" },
     tags: ["tag1", "tag2", "tag3"],
-    nested: SimpleModelClass({
+    nested: new SimpleModelClass({
       name: "nested",
       count: 10,
       enabled: true
@@ -203,7 +203,7 @@ describe('Property Access Performance', () => {
   // Test ephemeral objects within tracking context
   bench('Plexus: Ephemeral property access (tracked)', () => {
     // Create ephemeral objects (never materialized)
-    const ephemeralObj = SimpleModelClass({
+    const ephemeralObj = new SimpleModelClass({
       name: "ephemeral",
       count: 42,
       enabled: true
@@ -224,7 +224,7 @@ describe('Property Access Performance', () => {
 
   bench('MobX: Property access (tracked)', () => {
     const mobxObj = createMobXSimple();
-    
+
     const dispose = autorun(() => {
       const name = mobxObj.name;
       const count = mobxObj.count;
@@ -239,7 +239,7 @@ describe('Property Access Performance', () => {
   // Test ephemeral vs materialized property access
   bench('Plexus: Ephemeral property access (untracked)', () => {
     // Pure ephemeral - no YJS involvement
-    const ephemeralObj = SimpleModelClass({
+    const ephemeralObj = new SimpleModelClass({
       name: "ephemeral",
       count: 42,
       enabled: true
@@ -254,7 +254,7 @@ describe('Property Access Performance', () => {
   bench('Plexus: Materialized property access (untracked)', () => {
     // Force materialization first
     const { doc, projectId } = createYJSSetup();
-    const materializedObj = SimpleModelClass({
+    const materializedObj = new SimpleModelClass({
       name: "materialized",
       count: 42,
       enabled: true
@@ -272,7 +272,7 @@ describe('Property Access Performance', () => {
 
 describe('Array Operations Performance', () => {
   bench('Plexus: Array push operations', () => {
-    const obj = LargeModelClass({
+    const obj = new LargeModelClass({
       items: [],
       lookup: {},
       counters: {}
@@ -280,7 +280,7 @@ describe('Array Operations Performance', () => {
 
     // Perform multiple pushes (reduced from 100 to avoid heap exhaustion)
     for (let i = 0; i < 50; i++) {
-      obj.items.push(SimpleModelClass({
+      obj.items.push(new SimpleModelClass({
         name: `item-${i}`,
         count: i,
         enabled: i % 2 === 0
@@ -301,9 +301,9 @@ describe('Array Operations Performance', () => {
   });
 
   bench('Plexus: Array access patterns', () => {
-    const obj = LargeModelClass({
+    const obj = new LargeModelClass({
       items: Array.from({ length: 100 }, (_, i) =>
-        SimpleModelClass({
+        new SimpleModelClass({
           name: `item-${i}`,
           count: i,
           enabled: true
@@ -342,14 +342,14 @@ describe('Array Operations Performance', () => {
 
 describe('Map Operations Performance', () => {
   bench('Plexus: Map set operations', () => {
-    const obj = LargeModelClass({
+    const obj = new LargeModelClass({
       items: [],
       lookup: {},
       counters: {}
     });
 
     for (let i = 0; i < 100; i++) {
-      obj.lookup[`key-${i}`] = SimpleModelClass({
+      obj.lookup[`key-${i}`] = new SimpleModelClass({
         name: `value-${i}`,
         count: i,
         enabled: true
@@ -375,7 +375,7 @@ describe('Map Operations Performance', () => {
 
 describe('Reactivity Performance', () => {
   bench('Plexus: Tracking function creation', () => {
-    const obj = SimpleModelClass({
+    const obj = new SimpleModelClass({
       name: "test",
       count: 0,
       enabled: true
@@ -405,7 +405,7 @@ describe('Reactivity Performance', () => {
   });
 
   bench('Plexus: Change notification speed', () => {
-    const obj = SimpleModelClass({
+    const obj = new SimpleModelClass({
       name: "test",
       count: 0,
       enabled: true
@@ -443,7 +443,7 @@ describe('Reactivity Performance', () => {
   });
 
   bench('Plexus: Multiple observers', () => {
-    const obj = SimpleModelClass({
+    const obj = new SimpleModelClass({
       name: "shared",
       count: 0,
       enabled: true
@@ -489,7 +489,7 @@ describe('Reactivity Performance', () => {
 
 describe('Batch Update Performance', () => {
   bench('Plexus: Batch property updates', () => {
-    const obj = SimpleModelClass({
+    const obj = new SimpleModelClass({
       name: "test",
       count: 0,
       enabled: true
@@ -547,14 +547,14 @@ describe('Batch Update Performance', () => {
 describe('Deep Hierarchy Performance', () => {
   function createDeepPlexusHierarchy(depth: number): any {
     if (depth <= 0) {
-      return SimpleModelClass({
+      return new SimpleModelClass({
         name: `leaf`,
         count: depth,
         enabled: true
       });
     }
 
-    return ComplexModelClass({
+    return new ComplexModelClass({
       id: `level-${depth}`,
       metadata: { level: depth.toString() },
       tags: [`tag-${depth}`],
@@ -624,7 +624,7 @@ describe('Memory and Garbage Collection Patterns', () => {
 
     // Create many objects
     for (let i = 0; i < 1000; i++) {
-      objects.push(SimpleModelClass({
+      objects.push(new SimpleModelClass({
         name: `obj-${i}`,
         count: i,
         enabled: i % 2 === 0
@@ -670,7 +670,7 @@ describe('YJS Collaboration Performance', () => {
   bench('Plexus: Ephemeral to Materialized conversion', () => {
     const { doc, projectId } = createYJSSetup();
 
-    const obj = SimpleModelClass({
+    const obj = new SimpleModelClass({
       name: "test",
       count: 42,
       enabled: true
@@ -693,7 +693,7 @@ describe('YJS Collaboration Performance', () => {
     doc2.rootProjectId = "project1";
 
     // Create objects in first document
-    const obj1 = SimpleModelClass({
+    const obj1 = new SimpleModelClass({
       name: "shared",
       count: 100,
       enabled: true
@@ -708,7 +708,7 @@ describe('YJS Collaboration Performance', () => {
   bench('Plexus: Large collaborative dataset', () => {
     const { doc, projectId } = createYJSSetup();
 
-    const largeDataset = LargeModelClass({
+    const largeDataset = new LargeModelClass({
       items: [],
       lookup: {},
       counters: {}
@@ -716,7 +716,7 @@ describe('YJS Collaboration Performance', () => {
 
     // Add many items to collaborative structure
     for (let i = 0; i < 50; i++) {
-      largeDataset.items.push(SimpleModelClass({
+      largeDataset.items.push(new SimpleModelClass({
         name: `collaborative-item-${i}`,
         count: i,
         enabled: true
@@ -736,7 +736,7 @@ describe('YJS Collaboration Performance', () => {
 describe('Complex Real-World Scenarios', () => {
   bench('Plexus: Simulation of React component tree', () => {
     // Simulate a React component tree with state management
-    const appState = ComplexModelClass({
+    const appState = new ComplexModelClass({
       id: "app",
       metadata: {
         theme: "dark",
@@ -744,7 +744,7 @@ describe('Complex Real-World Scenarios', () => {
         version: "1.0.0"
       },
       tags: ["production", "stable"],
-      nested: SimpleModelClass({
+      nested: new SimpleModelClass({
         name: "user-prefs",
         count: 0,
         enabled: true

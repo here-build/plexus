@@ -1,6 +1,6 @@
 import type { Constructor, OptionalKeysOf, ReadonlyKeysOf, Tagged, Writable } from "type-fest";
 import type * as Y from "yjs";
-import type { RemoveAllTags, tag } from "type-fest/source/tagged";
+import type { tag } from "type-fest/source/tagged";
 
 // For standalone usage - ProjectId can be overridden by consuming applications
 export type ProjectId = string;
@@ -19,13 +19,15 @@ export type AllowedPrimitive = string | number | boolean | null;
 export type AllowedYValue = AllowedPrimitive | ReferenceTuple;
 export type ModelPattern = Tagged<object, "syncing", string>;
 export type AllowedYJSValue = AllowedPrimitive | ModelPattern;
-export type AllowedYJSValueMap = Record<string, AllowedPrimitive | ModelPattern>;
-export type AllowedYJSValueList = Array<AllowedPrimitive | ModelPattern>;
+export type AllowedYJSValueSet = Set<AllowedYJSValue>;
+export type AllowedYJSValueMap = Record<string, AllowedYJSValue>;
+export type AllowedYJSValueList = Array<AllowedYJSValue>;
 export type Storageable = AllowedYValue | Y.Map<AllowedYValue> | Y.Array<AllowedYValue>;
 
 type ModelInternals = {
-  [referenceSymbol]: (projectId: string, doc: Y.Doc) => ReferenceTuple;
-  [referenceDisclosureSymbol]?: () => {
+  readonly uuid: string;
+  readonly [referenceSymbol]: (projectId: string, doc: Y.Doc) => ReferenceTuple;
+  readonly [referenceDisclosureSymbol]?: () => {
     projectId: ProjectId;
     doc: Y.Doc;
   };
@@ -35,22 +37,25 @@ export type ModelType<
   T extends Exclude<MaterializedRecordSchemaReadonlyKeys<T>, ReadonlyKeysOf<T>> | OptionalKeysOf<T> extends never
     ? RecordSchemaInput
     : never,
-  Class extends string = string,
+  Class extends string = string
 > = Tagged<T & ModelInternals, "syncing", Class>;
 
 export type SpecificModelType<
   T extends Exclude<MaterializedRecordSchemaReadonlyKeys<T>, ReadonlyKeysOf<T>> | OptionalKeysOf<T> extends never
     ? RecordSchemaInput
     : never,
-  Name extends string = string,
+  Name extends string = string
 > = ModelType<T, Name>;
 export type ModelTypeConstructor<
   T extends Exclude<MaterializedRecordSchemaReadonlyKeys<T>, ReadonlyKeysOf<T>> | OptionalKeysOf<T> extends never
     ? RecordSchemaInput
     : never,
-  Name extends string,
+  Name extends string
 > = Tagged<
-  Constructor<SpecificModelType<T, Name>, [Writable<Omit<T, typeof referenceSymbol | typeof referenceDisclosureSymbol | typeof tag>>]> & {
+  Constructor<
+    SpecificModelType<T, Name>,
+    [Writable<Omit<T, keyof ModelInternals | typeof tag>>]
+  > & {
     __type: Name;
     schema: RecordSchema<T>;
     spawn: (entityId: string, projectId: string, yjs: Y.Doc) => SpecificModelType<T, Name>;
@@ -58,22 +63,24 @@ export type ModelTypeConstructor<
   "syncingConstructor",
   string
 >;
-export type RecordSchemaInput = Record<string, AllowedYJSValue | AllowedYJSValueMap | AllowedYJSValueList>;
+export type RecordSchemaInput = Record<string, AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList>;
 
 export type MaterializedRecordSchemaReadonlyKeys<T extends RecordSchemaInput> = keyof {
-  [key in keyof T as T[key] extends ModelPattern | AllowedPrimitive ? never : key]: key extends typeof tag ? never : key;
+  [key in keyof T as T[key] extends ModelPattern | AllowedPrimitive ? never : key]: key extends typeof tag
+    ? never
+    : key;
 };
 
 type PureSchema<
   T extends Exclude<MaterializedRecordSchemaReadonlyKeys<T>, ReadonlyKeysOf<T>> | OptionalKeysOf<T> extends never
     ? RecordSchemaInput
-    : never,
-> = Extract<Omit<T, typeof referenceSymbol | typeof referenceDisclosureSymbol | typeof tag>, RecordSchemaInput>;
+    : never
+> = Extract<Omit<T, keyof ModelInternals | typeof tag>, RecordSchemaInput>;
 
 export type RecordSchema<
   T extends Exclude<MaterializedRecordSchemaReadonlyKeys<T>, ReadonlyKeysOf<T>> | OptionalKeysOf<T> extends never
     ? RecordSchemaInput
-    : never,
+    : never
 > =
   PureSchema<T> extends infer TT
     ? {
@@ -81,15 +88,17 @@ export type RecordSchema<
           ? "val"
           : TT[key] extends AllowedYJSValueMap | null
             ? "map"
-            : TT[key] extends AllowedYJSValueList | null
-              ? "list"
-              : never;
+            : TT[key] extends AllowedYJSValueSet | null
+              ? "set"
+              : TT[key] extends AllowedYJSValueList | null
+                ? "list"
+                : never;
       }
     : never;
 export type StrictRecordSchema<
   T extends Exclude<MaterializedRecordSchemaReadonlyKeys<T>, ReadonlyKeysOf<T>> | OptionalKeysOf<T> extends never
     ? RecordSchemaInput
-    : never,
+    : never
 > = T extends infer ReadonlyProps extends Record<keyof T, AllowedYJSValue>
   ? Readonly<Pick<T, keyof ReadonlyProps>> & Omit<T, keyof ReadonlyProps>
   : T;

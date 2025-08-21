@@ -53,17 +53,17 @@ function mapTypeToProxySchema(type: Type): string {
     case "Bool":
       return "val";
 
-    // Schema Set = object map (e.g. {Component} -> "map")
+    // Schema Set = small collections, use array backing (e.g. {Component} -> "set")
     case "Set":
-      return "map";
+      return "set";
 
     // Schema List = array (e.g. [Variant] -> "list")
     case "List":
       return "list";
 
-    // Schema Map = explicit maps (e.g. Map[String, String] -> "map")
+    // Schema Map = records with keys (e.g. Map[String, String] -> "record")
     case "Map":
-      return "map";
+      return "record";
 
     // Union types (Or) - treat as values since they're usually string literals
     case "Or":
@@ -115,7 +115,7 @@ function generateTypeInterface(cls: Class, meta: MetaRuntime): string {
       const optionalMarker = ""; // Never optional for YJS
       const nullSuffix = needsNull ? " | null" : "";
       // Mark collections and @Const fields as readonly
-      const readonlyMarker = (isConst || isArrayOrMap) ? "readonly " : "";
+      const readonlyMarker = isConst || isArrayOrMap ? "readonly " : "";
 
       return `    ${readonlyMarker}${field.name}${optionalMarker}: ${baseType}${nullSuffix};`;
     })
@@ -144,7 +144,6 @@ function generateFieldTypeScript(type: Type, meta?: MetaRuntime): string {
     case "Bool":
       return "boolean";
 
-    // Schema Set = object map (e.g. {Component} -> Record<string, typeof Component>)
     case "Set":
       if (type.params.length === 1) {
         const paramType = type.params[0];
@@ -158,13 +157,11 @@ function generateFieldTypeScript(type: Type, meta?: MetaRuntime): string {
                   ? "boolean"
                   : paramType === "Any"
                     ? "any"
-                    : meta
-                      ? generateClassTypeScript(paramType, meta)
-                      : `typeof ${paramType}`
+                    : paramType
             : generateFieldTypeScript(paramType, meta);
-        return `Record<string, ${valueTs}>`;
+        return `Set<${valueTs}>`;
       }
-      return "Record<string, any>";
+      return "Set<any>";
 
     // Schema List = array (e.g. [Variant] -> (typeof Variant)[])
     case "List":
@@ -175,7 +172,7 @@ function generateFieldTypeScript(type: Type, meta?: MetaRuntime): string {
           if (paramType === "Number") return "number[]";
           if (paramType === "Bool") return "boolean[]";
           if (paramType === "Any") return "any[]";
-          return meta ? `(${generateClassTypeScript(paramType, meta)})[]` : `(typeof ${paramType})[]`;
+          return `(${paramType})[]`;
         } else if (paramType && typeof paramType === "object" && "type" in paramType) {
           return `(${generateFieldTypeScript(paramType as Type, meta)})[]`;
         }
@@ -203,9 +200,7 @@ function generateFieldTypeScript(type: Type, meta?: MetaRuntime): string {
                   ? "boolean"
                   : valueType === "Any"
                     ? "any"
-                    : meta
-                      ? generateClassTypeScript(valueType, meta)
-                      : `typeof ${valueType}`
+                    : valueType
             : generateFieldTypeScript(valueType as Type, meta);
         return `Record<${keyTs}, ${valueTs}>`;
       }
@@ -224,9 +219,7 @@ function generateFieldTypeScript(type: Type, meta?: MetaRuntime): string {
                   ? "boolean"
                   : param === "Any"
                     ? "any"
-                    : meta
-                      ? generateClassTypeScript(param, meta)
-                      : `typeof ${param}`;
+                    : param;
           } else if (param && typeof param === "object" && "type" in param) {
             const paramType = param as Type;
             if (paramType.type === "StringLiteral" && paramType.params.length === 1) {
@@ -261,16 +254,14 @@ function generateFieldTypeScript(type: Type, meta?: MetaRuntime): string {
                   ? "boolean"
                   : wrappedType === "Any"
                     ? "any"
-                    : meta
-                      ? generateClassTypeScript(wrappedType, meta)
-                      : `typeof ${wrappedType}`
+                    : wrappedType
             : generateFieldTypeScript(wrappedType as Type, meta);
         return baseType; // The optionality is handled in the interface generation
       }
       return "any";
 
     default:
-      return type.type === "Any" ? "any" : meta ? generateClassTypeScript(type.type, meta) : `typeof ${type.type}`;
+      return type.type === "Any" ? "any" : type.type;
   }
 }
 
@@ -287,24 +278,38 @@ const generateSchemaObject = (cls: Class, meta: MetaRuntime): string => dedent`
 `;
 
 /**
+ * Gets all concrete descendant classes (recursive)
+ */
+function getAllConcreteDescendants(cls: Class, meta: MetaRuntime): Class[] {
+  const subclasses = meta.getStrictSubclasses(cls);
+  const concreteDescendants: Class[] = [];
+
+  for (const subCls of subclasses) {
+    if (meta.isAbstract(subCls)) {
+      // Recursively get concrete descendants of abstract subclass
+      concreteDescendants.push(...getAllConcreteDescendants(subCls, meta));
+    } else {
+      // Direct concrete subclass
+      concreteDescendants.push(subCls);
+    }
+  }
+
+  return concreteDescendants;
+}
+
+/**
  * Generates guard functions for a class
  */
 function generateGuards(cls: Class, meta: MetaRuntime): string {
   const className = cls.name;
-  const subclasses = meta.getStrictSubclasses(cls);
   const isAbstract = meta.isAbstract(cls);
-
-  // Union type for all known subtypes
-  const knownSubtypes = [...subclasses.map((subCls) => `Known${subCls.name}`), ...(isAbstract ? [] : [className])];
-  const unionType = `type Known${className} = ${knownSubtypes.join(" | ") || "never"};`;
 
   if (isAbstract) {
     // Abstract classes need different guard logic since there's no constructor
-    const instanceChecks = subclasses.map((subCls) => `isKnown${subCls.name}(x)`).join(" || ");
+    const concreteDescendants = getAllConcreteDescendants(cls, meta);
+    const instanceChecks = concreteDescendants.map((subCls) => `isKnown${subCls.name}(x)`).join(" || ");
 
     return `
-${unionType}
-
 export function isKnown${className}<T>(x: T): x is Extract<T, ${className}> {
   return ${instanceChecks || "false"};
 }
@@ -317,8 +322,6 @@ export function ensureKnown${className}<T>(x: T): Extract<T, ${className}> {
   } else {
     // Concrete classes can use instanceof
     return `
-${unionType}
-
 export function isKnown${className}<T>(x: T): x is Extract<T, ${className}> {
   return x instanceof ${className};
 }
@@ -338,11 +341,7 @@ export function ensureKnown${className}<T>(x: T): Extract<T, ${className}> {
  * @param metaRuntime - Runtime meta information
  * @param outputPath - Path to write the generated file
  */
-export async function generateProxyModelSchemas(
-  classes: Class[],
-  metaRuntime: MetaRuntime,
-  outputPath: string
-) {
+export async function generateProxyModelSchemas(classes: Class[], metaRuntime: MetaRuntime, outputPath: string) {
   const meta = metaRuntime;
 
   // Generate abstract class type definitions and concrete class implementations
@@ -352,13 +351,26 @@ export async function generateProxyModelSchemas(
     const isAbstract = meta.isAbstract(cls);
 
     if (isAbstract) {
-      // Abstract classes - use type alias to handle recursion
-      return `
+      // Abstract classes - create discriminated union of all concrete descendants
+      const concreteDescendants = getAllConcreteDescendants(cls, meta);
+
+      if (concreteDescendants.length > 0) {
+        const unionTypes = concreteDescendants.map((subCls) => subCls.name).join(" | ");
+        return `
+// Abstract class: ${cls.name}
+export type ${cls.name} = ${unionTypes};
+
+${guards}
+`;
+      } else {
+        // No concrete descendants found - fall back to ModelType
+        return `
 // Abstract class: ${cls.name}
 export type ${cls.name} = ModelType<${typeInterface}>;
 
 ${guards}
 `;
+      }
     } else {
       // Concrete classes - use ModelType for branding and consistency
       const schemaObject = generateSchemaObject(cls, meta);
@@ -390,6 +402,13 @@ import { type ModelType } from "@dappsnap/plexus";
 ${modelClassParts.join("\n")}
 
 export const allModelClasses = {
+${classes
+  .filter((cls) => !meta.isAbstract(cls))
+  .map((cls) => `  ${cls.name}`)
+  .join(",\n")}
+} as const;
+
+export const justClasses = {
 ${classes
   .filter((cls) => !meta.isAbstract(cls))
   .map((cls) => `  ${cls.name}`)

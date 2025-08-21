@@ -51,19 +51,19 @@ const Component = buildModelClass<ComponentType>("Component", {
   type: "val",
   tplTree: "val",
   children: "list",
-  metadata: "map"
+  metadata: "record"
 });
 
 const Site = buildModelClass<SiteType>("Site", {
   name: "val",
-  components: "map"
+  components: "record"
 });
 
 const TplTag = buildModelClass<TplTagType>("TplTag", {
   tag: "val",
   name: "val",
   children: "list",
-  attrs: "map"
+  attrs: "record"
 });
 
 // Sync helper function

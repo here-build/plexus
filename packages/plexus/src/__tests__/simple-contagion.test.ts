@@ -35,7 +35,7 @@ const Component = buildModelClass<ComponentType>("Component", {
 
 const Site = buildModelClass<SiteType>("Site", {
   name: "val",
-  components: "map"
+  components: "record"
 });
 
 describe("Simple Contagion Test", () => {

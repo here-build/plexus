@@ -30,7 +30,7 @@ const Component = buildModelClass<ComponentType>("Component", {
   name: "val",
   type: "val",
   children: "list",
-  metadata: "map"
+  metadata: "record"
 });
 
 type SiteType = ModelType<
@@ -43,7 +43,7 @@ type SiteType = ModelType<
 
 const Site = buildModelClass<SiteType>("Site", {
   name: "val",
-  components: "map"
+  components: "record"
 });
 
 // Sync helper function

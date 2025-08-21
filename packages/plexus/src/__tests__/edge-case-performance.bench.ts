@@ -1,6 +1,6 @@
 /**
  * Edge Case Performance Tests for Plexus vs MobX
- * 
+ *
  * Tests focusing on pathological cases and edge conditions that might
  * reveal performance characteristics not visible in normal usage patterns.
  */
@@ -21,28 +21,29 @@ configure({
   disableErrorBoundaries: true
 });
 
-// Sparse array model
-type SparseArrayModel = ModelType<{
-  sparseItems: "list";
-  indices: "map";
-}, "SparseArrayModel">;
+// Copy the working pattern from simple-contagion.test.ts
+type ComponentType = ModelType<
+  {
+    name: string;
+  },
+  "Component"
+>;
 
-// Deep chain model  
-type ChainNode = ModelType<{
-  id: string;
-  next: ChainNode | null;
-  metadata: "map";
-}, "ChainNode">;
+type SiteType = ModelType<
+  {
+    name: string;
+    readonly components: Record<string, ComponentType>;
+  },
+  "Site"
+>;
 
-const SparseArrayModelClass = buildModelClass<SparseArrayModel>("SparseArrayModel", {
-  sparseItems: "list",
-  indices: "map"
+const ComponentClass = buildModelClass<ComponentType>("Component", {
+  name: "val"
 });
 
-const ChainNodeClass = buildModelClass<ChainNode>("ChainNode", {
-  id: "val",
-  next: "val", 
-  metadata: "map"
+const SiteClass = buildModelClass<SiteType>("Site", {
+  name: "val",
+  components: "map"
 });
 
 function createYJSSetup() {
@@ -53,14 +54,14 @@ function createYJSSetup() {
 
 describe('Sparse Array Performance', () => {
   bench('Plexus: Sparse array with holes', () => {
-    const model = SparseArrayModelClass({
+    const model = new new SparseArrayModelClass({
       sparseItems: [],
       indices: {}
     });
 
     // Create sparse array with holes (every 10th index)
     for (let i = 0; i < 1000; i += 10) {
-      model.sparseItems[i] = ChainNodeClass({
+      model.sparseItems[i] = new ChainNodeClass({
         id: `node-${i}`,
         next: null,
         metadata: {}
@@ -102,9 +103,9 @@ describe('Sparse Array Performance', () => {
   });
 
   bench('Plexus: Array length manipulation', () => {
-    const model = SparseArrayModelClass({
-      sparseItems: Array.from({ length: 100 }, (_, i) => 
-        ChainNodeClass({ id: `item-${i}`, next: null, metadata: {} })
+    const model = new SparseArrayModelClass({
+      sparseItems: Array.from({ length: 100 }, (_, i) =>
+        new ChainNodeClass({ id: `item-${i}`, next: null, metadata: {} })
       ),
       indices: {}
     });
@@ -113,10 +114,10 @@ describe('Sparse Array Performance', () => {
     for (let i = 0; i < 10; i++) {
       model.sparseItems.length = 50; // Truncate
       model.sparseItems.length = 100; // Extend (creates holes)
-      
+
       // Fill some of the holes
       for (let j = 50; j < 75; j++) {
-        model.sparseItems[j] = ChainNodeClass({
+        model.sparseItems[j] = new ChainNodeClass({
           id: `new-${j}`,
           next: null,
           metadata: {}
@@ -127,7 +128,7 @@ describe('Sparse Array Performance', () => {
 
   bench('MobX: Array length manipulation', () => {
     const items = observable.array(
-      Array.from({ length: 100 }, (_, i) => 
+      Array.from({ length: 100 }, (_, i) =>
         observable({ id: `item-${i}`, next: null, metadata: observable.map() })
       )
     );
@@ -136,7 +137,7 @@ describe('Sparse Array Performance', () => {
     for (let i = 0; i < 10; i++) {
       items.length = 50; // Truncate
       items.length = 100; // Extend
-      
+
       // Fill holes
       for (let j = 50; j < 75; j++) {
         items[j] = observable({
@@ -152,23 +153,23 @@ describe('Sparse Array Performance', () => {
 describe('Deep Proxy Chain Performance', () => {
   function createPlexusChain(length: number): ChainNode {
     let head: ChainNode | null = null;
-    
+
     // Build chain backwards
     for (let i = length - 1; i >= 0; i--) {
-      const node = ChainNodeClass({
+      const node = new ChainNodeClass({
         id: `node-${i}`,
         next: head,
         metadata: { index: i.toString() }
       });
       head = node;
     }
-    
+
     return head!;
   }
 
   function createMobXChain(length: number): any {
     let head: any = null;
-    
+
     for (let i = length - 1; i >= 0; i--) {
       const node = observable({
         id: `node-${i}`,
@@ -177,13 +178,13 @@ describe('Deep Proxy Chain Performance', () => {
       });
       head = node;
     }
-    
+
     return head;
   }
 
   bench('Plexus: Deep chain traversal (100 nodes)', () => {
     const head = createPlexusChain(100);
-    
+
     // Traverse entire chain
     let current = head;
     let count = 0;
@@ -197,7 +198,7 @@ describe('Deep Proxy Chain Performance', () => {
 
   bench('MobX: Deep chain traversal (100 nodes)', () => {
     const head = createMobXChain(100);
-    
+
     // Traverse entire chain
     let current = head;
     let count = 0;
@@ -211,13 +212,13 @@ describe('Deep Proxy Chain Performance', () => {
 
   bench('Plexus: Chain modification at depth', () => {
     const head = createPlexusChain(50);
-    
+
     // Navigate to middle and modify
     let current = head;
     for (let i = 0; i < 25; i++) {
       current = current.next!;
     }
-    
+
     // Modify metadata deep in chain
     current.metadata["modified"] = "true";
     current.metadata["timestamp"] = Date.now().toString();
@@ -225,13 +226,13 @@ describe('Deep Proxy Chain Performance', () => {
 
   bench('MobX: Chain modification at depth', () => {
     const head = createMobXChain(50);
-    
+
     // Navigate to middle and modify
     let current = head;
     for (let i = 0; i < 25; i++) {
       current = current.next;
     }
-    
+
     // Modify metadata deep in chain
     current.metadata.set("modified", "true");
     current.metadata.set("timestamp", Date.now().toString());
@@ -240,21 +241,21 @@ describe('Deep Proxy Chain Performance', () => {
 
 describe('Circular Reference Performance', () => {
   bench('Plexus: Circular reference creation and access', () => {
-    const node1 = ChainNodeClass({
+    const node1 = new ChainNodeClass({
       id: "node1",
       next: null,
       metadata: {}
     });
-    
-    const node2 = ChainNodeClass({
-      id: "node2", 
+
+    const node2 = new ChainNodeClass({
+      id: "node2",
       next: node1,
       metadata: {}
     });
-    
+
     // Create circular reference
     node1.next = node2;
-    
+
     // Access properties through circular chain
     let current = node1;
     for (let i = 0; i < 10; i++) {
@@ -269,16 +270,16 @@ describe('Circular Reference Performance', () => {
       next: null as any,
       metadata: observable.map()
     });
-    
+
     const node2 = observable({
       id: "node2",
       next: node1,
       metadata: observable.map()
     });
-    
+
     // Create circular reference
     node1.next = node2;
-    
+
     // Access properties through circular chain
     let current = node1;
     for (let i = 0; i < 10; i++) {
@@ -290,21 +291,21 @@ describe('Circular Reference Performance', () => {
 
 describe('Property Enumeration Performance', () => {
   bench('Plexus: Object.keys() on complex objects', () => {
-    const node = ChainNodeClass({
+    const node = new ChainNodeClass({
       id: "test",
       next: null,
       metadata: {}
     });
-    
+
     // Add many metadata properties
     for (let i = 0; i < 100; i++) {
-      node.metadata[`key-${i}`] = ChainNodeClass({
+      node.metadata[`key-${i}`] = new ChainNodeClass({
         id: `value-${i}`,
         next: null,
         metadata: {}
       });
     }
-    
+
     // Enumerate keys multiple times
     for (let i = 0; i < 10; i++) {
       const keys = Object.keys(node.metadata);
@@ -314,7 +315,7 @@ describe('Property Enumeration Performance', () => {
 
   bench('MobX: keys() on complex objects', () => {
     const metadata = observable.map();
-    
+
     // Add many properties
     for (let i = 0; i < 100; i++) {
       metadata.set(`key-${i}`, observable({
@@ -323,7 +324,7 @@ describe('Property Enumeration Performance', () => {
         metadata: observable.map()
       }));
     }
-    
+
     // Enumerate keys multiple times
     for (let i = 0; i < 10; i++) {
       const keys = Array.from(metadata.keys());
@@ -334,9 +335,9 @@ describe('Property Enumeration Performance', () => {
 
 describe('Concurrent Access Patterns', () => {
   bench('Plexus: Simultaneous readers on shared object', () => {
-    const sharedObject = SparseArrayModelClass({
-      sparseItems: Array.from({ length: 50 }, (_, i) => 
-        ChainNodeClass({ id: `shared-${i}`, next: null, metadata: {} })
+    const sharedObject = new SparseArrayModelClass({
+      sparseItems: Array.from({ length: 50 }, (_, i) =>
+        new ChainNodeClass({ id: `shared-${i}`, next: null, metadata: {} })
       ),
       indices: {}
     });
@@ -350,7 +351,7 @@ describe('Concurrent Access Patterns', () => {
         // Each reader accesses different slice
         const start = readerId * 5;
         const end = start + 5;
-        
+
         for (let i = start; i < end && i < sharedObject.sparseItems.length; i++) {
           const item = sharedObject.sparseItems[i];
           if (item) {
@@ -367,7 +368,7 @@ describe('Concurrent Access Patterns', () => {
 
   bench('MobX: Simultaneous readers on shared object', () => {
     const sharedItems = observable.array(
-      Array.from({ length: 50 }, (_, i) => 
+      Array.from({ length: 50 }, (_, i) =>
         observable({ id: `shared-${i}`, next: null, metadata: observable.map() })
       )
     );
@@ -378,7 +379,7 @@ describe('Concurrent Access Patterns', () => {
         let sum = 0;
         const start = readerId * 5;
         const end = start + 5;
-        
+
         for (let i = start; i < end && i < sharedItems.length; i++) {
           const item = sharedItems[i];
           if (item) {
@@ -394,7 +395,7 @@ describe('Concurrent Access Patterns', () => {
   });
 
   bench('Plexus: Writer with multiple readers conflict', () => {
-    const contestedObject = ChainNodeClass({
+    const contestedObject = new ChainNodeClass({
       id: "contested",
       next: null,
       metadata: {}
@@ -416,7 +417,7 @@ describe('Concurrent Access Patterns', () => {
     // Writer rapidly modifies while readers are watching
     for (let i = 0; i < 20; i++) {
       contestedObject.metadata[`rapid-${i}`] = null;
-      
+
       // Some readers might read during modification
       if (i % 3 === 0) {
         readers[i % readers.length]();
@@ -453,14 +454,14 @@ describe('Memory Stress Patterns', () => {
   bench('Plexus: Rapid object creation/destruction', () => {
     for (let cycle = 0; cycle < 10; cycle++) {
       // Create batch of objects
-      const batch = Array.from({ length: 100 }, (_, i) => 
-        ChainNodeClass({
+      const batch = Array.from({ length: 100 }, (_, i) =>
+        new ChainNodeClass({
           id: `temp-${cycle}-${i}`,
           next: null,
           metadata: { cycle: cycle.toString() }
         })
       );
-      
+
       // Use objects briefly
       batch.forEach((obj, i) => {
         if (i % 10 === 0) {
@@ -468,7 +469,7 @@ describe('Memory Stress Patterns', () => {
           void obj.metadata["cycle"];
         }
       });
-      
+
       // Objects go out of scope (eligible for GC)
     }
   });
@@ -476,14 +477,14 @@ describe('Memory Stress Patterns', () => {
   bench('MobX: Rapid object creation/destruction', () => {
     for (let cycle = 0; cycle < 10; cycle++) {
       // Create batch of objects
-      const batch = Array.from({ length: 100 }, (_, i) => 
+      const batch = Array.from({ length: 100 }, (_, i) =>
         observable({
           id: `temp-${cycle}-${i}`,
           next: null,
           metadata: observable.map([["cycle", cycle.toString()]])
         })
       );
-      
+
       // Use objects briefly
       batch.forEach((obj, i) => {
         if (i % 10 === 0) {
@@ -491,7 +492,7 @@ describe('Memory Stress Patterns', () => {
           void obj.metadata.get("cycle");
         }
       });
-      
+
       // Objects go out of scope
     }
   });

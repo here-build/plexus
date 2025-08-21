@@ -1,6 +1,6 @@
 /**
  * Focused Property Access Benchmarks: Ephemeral vs Materialized vs MobX
- * 
+ *
  * Lightweight test focused specifically on property access patterns
  * to avoid memory exhaustion while testing the core hypothesis.
  */
@@ -51,10 +51,10 @@ function createMobXSimple() {
 }
 
 describe('Property Access Performance Comparison', () => {
-  
+
   bench('Plexus: Ephemeral property access (untracked)', () => {
     // Pure ephemeral - no YJS involvement, no tracking
-    const ephemeralObj = SimpleModelClass({
+    const ephemeralObj = new SimpleModelClass({
       name: "ephemeral",
       count: 42,
       enabled: true
@@ -69,7 +69,7 @@ describe('Property Access Performance Comparison', () => {
   bench('Plexus: Materialized property access (untracked)', () => {
     // Force materialization first
     const { doc, projectId } = createYJSSetup();
-    const materializedObj = SimpleModelClass({
+    const materializedObj = new SimpleModelClass({
       name: "materialized",
       count: 42,
       enabled: true
@@ -86,7 +86,7 @@ describe('Property Access Performance Comparison', () => {
 
   bench('MobX: Property access (untracked)', () => {
     const mobxObj = createMobXSimple();
-    
+
     const name = mobxObj.name;
     const count = mobxObj.count;
     const enabled = mobxObj.enabled;
@@ -95,7 +95,7 @@ describe('Property Access Performance Comparison', () => {
 
   bench('Plexus: Ephemeral property access (tracked)', () => {
     // Create ephemeral objects (never materialized)
-    const ephemeralObj = SimpleModelClass({
+    const ephemeralObj = new SimpleModelClass({
       name: "ephemeral",
       count: 42,
       enabled: true
@@ -116,7 +116,7 @@ describe('Property Access Performance Comparison', () => {
 
   bench('MobX: Property access (tracked)', () => {
     const mobxObj = createMobXSimple();
-    
+
     const dispose = autorun(() => {
       const name = mobxObj.name;
       const count = mobxObj.count;
@@ -131,7 +131,7 @@ describe('Property Access Performance Comparison', () => {
   bench('Plexus: Materialized property access (tracked)', () => {
     // Force materialization first
     const { doc, projectId } = createYJSSetup();
-    const materializedObj = SimpleModelClass({
+    const materializedObj = new SimpleModelClass({
       name: "materialized-tracked",
       count: 42,
       enabled: true

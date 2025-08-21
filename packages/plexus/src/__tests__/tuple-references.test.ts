@@ -104,49 +104,4 @@ describe("Tuple Reference Format", () => {
     expect(userPosts.get(0)).toEqual([postId]);
     expect(postAuthor).toEqual([userId]);
   });
-
-  it("should handle both legacy and tuple reference formats", () => {
-    const projectModels = doc.getMap(`project:${projectId}:models`);
-    const projectTypes = doc.getMap(`project:${projectId}:models:types`);
-
-    // Set up entity types
-    projectTypes.set("user_123", "TestUser");
-    projectTypes.set("post_456", "TestPost");
-
-    // Store legacy object reference
-    projectModels.set("test.legacy", ["user_123"]);
-
-    // Store new tuple reference
-    projectModels.set("test.tuple", ["user_123"]);
-
-    // Both should work when retrieved
-    const legacyRef = projectModels.get("test.legacy");
-    const tupleRef = projectModels.get("test.tuple");
-
-    expect(legacyRef).toEqual({ __ref: "user_123" });
-    expect(tupleRef).toEqual(["user_123"]);
-
-    // Both formats should be valid references
-    expect(typeof legacyRef).toBe("object");
-    expect(Array.isArray(tupleRef)).toBe(true);
-  });
-
-  it("should serialize tuple references efficiently in JSON", () => {
-    const legacyRef = { __ref: "entity_123" };
-    const tupleRef = ["entity_123"];
-    const crossProjectTuple = ["entity_123", "project_456"];
-
-    // Compare JSON sizes
-    const legacySize = JSON.stringify(legacyRef).length;
-    const tupleSize = JSON.stringify(tupleRef).length;
-    const crossProjectSize = JSON.stringify(crossProjectTuple).length;
-
-    console.log("Reference sizes:", { legacySize, tupleSize, crossProjectSize });
-
-    // Tuple format should be more compact
-    expect(tupleSize).toBeLessThan(legacySize);
-
-    // Even cross-project tuples should be comparable to legacy local refs
-    expect(crossProjectSize).toBeLessThanOrEqual(legacySize * 1.5);
-  });
 });

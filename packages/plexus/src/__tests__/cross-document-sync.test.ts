@@ -79,7 +79,7 @@ function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
 function createTestSite(name: string, projectId: ProjectId, doc: TestYDoc) {
   const ephemeralSite = new Site({ name, components: {} });
   const siteRef = (ephemeralSite as any)[referenceSymbol](projectId, doc);
-  const entityId = siteRef.__ref || siteRef.__xref?.iid;
+  const entityId = siteRef[0];
   return { site: Site.spawn(entityId, projectId, doc), entityId };
 }
 

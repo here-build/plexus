@@ -17,7 +17,6 @@ import { nanoid } from "nanoid";
 import invariant from "tiny-invariant";
 import type { ReadonlyDeep } from "type-fest";
 import * as Y from "yjs";
-import type { RemoveAllTags } from "type-fest/source/tagged";
 
 import {
   type AllowedYJSValue,
@@ -28,9 +27,9 @@ import {
   type ModelTypeConstructor,
   type RecordSchema,
   type RecordSchemaInput,
-  type Reference,
   referenceDisclosureSymbol,
   referenceSymbol,
+  type ReferenceTuple,
   type Storageable,
   type StrictRecordSchema
 } from "./proxy-runtime-types.js";
@@ -74,7 +73,7 @@ function never(value: never): never {
 // PROJECT DEPENDENCY ARCHITECTURE:
 // - ONE root project (editable, can create/modify entities)
 // - MANY dependency projects (readonly, can only read entities)
-// - Entities can reference across projects via __xref
+// - Entities can reference across projects via cross-ref
 // - Only root project entities can be mutated
 type ExtendedYDoc = Y.Doc & {
   rootProjectId: ProjectId; // The single editable project in this document
@@ -115,7 +114,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
     const type = yprojectEntityType.get(entityId);
     invariant(type === typeName, `spawn type mismatch, ${type} !== ${typeName}`);
 
-    // todo this can actually be stored way more efficiently as [entityId, projectId?] (not as primitive for magic to happen - thus we will be able to separate primitives and "not primitives") - yet I'm unsure it will actually work for yjs
+    // Dereference both tuple and legacy object references
     // eslint-disable-next-line sonarjs/function-return-type
     const deref = (pointer: AllowedYValue): AllowedYJSValue => {
       if (pointer == null) {
@@ -124,17 +123,23 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
       if (typeof pointer !== "object") {
         return pointer;
       }
-      const targetEntityId = "__ref" in pointer ? pointer.__ref : pointer.__xref.iid;
-      const targetProjectId = "__ref" in pointer ? projectId : pointer.__xref.uuid;
 
-      const targetYProjectEntityType = doc.getMap<string>(`project:${projectId}:models:types`);
+      if (!isTupleReference(pointer)) {
+        // Not a reference, return as-is
+        return pointer;
+      }
+      // New tuple format: [entityId] or [entityId, projectId]
+      const targetEntityId = pointer[0];
+      const targetProjectId = pointer[1] || projectId; // Default to current project
+
+      const targetYProjectEntityType = doc.getMap<string>(`project:${targetProjectId}:models:types`);
       const targetType = targetYProjectEntityType.get(targetEntityId);
       invariant(targetType, `missing type for ${targetProjectId}.${targetEntityId}`);
 
       const constructor = entityClasses.get(targetType);
       invariant(constructor, `missing constructor ${targetType} for ${targetProjectId}.${targetEntityId}`);
 
-      return constructor.spawn(targetEntityId, projectId, doc);
+      return constructor.spawn(targetEntityId, targetProjectId, doc);
     };
 
     // COLLECTION PROXY FACTORY & CACHE
@@ -421,28 +426,22 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               doc
             };
           }
+          if (key === "uuid") {
+            // Expose entity ID as uuid field for DappSnap compatibility
+            // Non-enumerable to maintain clean iteration behavior
+            return entityId;
+          }
           if (key === referenceSymbol) {
-            // REFERENCE TYPE SELECTION:
-            // - Root project entities: Use __ref (local reference)
-            // - Dependency project entities: Use __xref (cross-project reference)
+            // REFERENCE TYPE SELECTION.
             // This allows entities to reference dependencies while maintaining project boundaries
             return (assertedProjectId: string, assertedDoc: Y.Doc) => {
               invariant(doc === assertedDoc, "document misalignment");
-              return projectId === doc.rootProjectId
-                ? {
-                    // Local reference within root project
-                    __ref: entityId
-                  }
-                : {
-                    // Cross-project reference to readonly dependency
-                    __xref: {
-                      iid: entityId,
-                      uuid: projectId
-                    }
-                  };
+              return projectId === assertedProjectId
+                ? [entityId] // Local reference tuple: [entityId]
+                : [entityId, projectId]; // Cross-project reference tuple: [entityId, projectId]
             };
           }
-          if (typeof key === "string" && key in schema) {
+          if (typeof key === "string" && Object.hasOwn(schema, key)) {
             // Specific field access on the main entity
             trackAccess(trackingPointer, key);
 
@@ -485,14 +484,15 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
         },
         has(target, key) {
           // "in" operator checks for field existence (materialized entity)
-          if (key in schema) {
+          if (Object.hasOwn(schema, key)) {
             trackAccess(trackingPointer, key);
             return true;
           }
-          return key === referenceSymbol;
+          return key === referenceSymbol || key === "uuid";
         },
         ownKeys() {
           // ownKeys accesses all entity field names (materialized entity)
+          // uuid is not included to keep it non-enumerable
           trackAccess(trackingPointer, ACCESS_INDICES_SET_SYMBOL);
           return Object.keys(schema);
         },
@@ -514,7 +514,8 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
   const ModelConstructor = Object.defineProperties(
     function ModelConstructor(this: any, initialState: ReadonlyDeep<StrictRecordSchema<T>>) {
       let manifestedState: ModelType<ExtractRecordSchema<T>, ExtractClassName<T>> | null = null;
-      let semiEphemeralReference: Reference | null = null;
+      let semiEphemeralReference: ReferenceTuple | null = null;
+      const ephemeralUUID = nanoid();
       const ephemeralModel = new Proxy(initialState as ModelType<ExtractRecordSchema<T>, ExtractClassName<T>>, {
         // QUANTUM SUPERPOSITION HANDLER:
         // This proxy exists in two states simultaneously:
@@ -527,12 +528,15 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           if (manifestedState) {
             return Reflect.get(manifestedState, key);
           }
+          if (key === "uuid") {
+            return ephemeralUUID;
+          }
           if (key === referenceSymbol) {
             return function reference(
               this: ModelType<ExtractRecordSchema<T>, ExtractClassName<T>>,
               projectId: ProjectId,
               doc: ExtendedYDoc
-            ): Reference {
+            ): ReferenceTuple {
               if (semiEphemeralReference) {
                 return semiEphemeralReference;
               }
@@ -544,8 +548,8 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               return doc.transact(() => {
                 const yprojectObjectInstanceFields = doc.getMap<Storageable>(`project:${projectId}:models`);
                 const yprojectEntityType = doc.getMap<string>(`project:${projectId}:models:types`);
-                const entityId = nanoid();
-                semiEphemeralReference = { __ref: entityId };
+                const entityId = ephemeralUUID;
+                semiEphemeralReference = [entityId];
                 yprojectEntityType.set(entityId, typeName);
                 for (const [schemaKey, type] of Object.entries(schema) as [string, "val" | "list" | "map"][]) {
                   switch (type) {
@@ -599,16 +603,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                   entityCache.set(cacheKey, new WeakRef(ephemeralModel)); // Cache SELF, not spawn result
                 }
                 semiEphemeralReference = null;
-                return projectId === doc.rootProjectId
-                  ? {
-                      __ref: entityId
-                    }
-                  : {
-                      __xref: {
-                        iid: entityId,
-                        uuid: projectId
-                      }
-                    };
+                return projectId === doc.rootProjectId ? [entityId] : [entityId, projectId];
               });
             };
           }
@@ -616,7 +611,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           if (key in Object.prototype) {
             return target[key as keyof typeof target];
           }
-          if (key in schema) {
+          if (Object.hasOwn(schema, key)) {
             const schemaType = schema[key];
             const fieldValue = target[key as keyof typeof target];
 
@@ -746,46 +741,36 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           if (manifestedState) {
             return Reflect.set(manifestedState, elementKey, value);
           }
-          if (elementKey in schema) {
-            if (schema[elementKey] === "val") {
-              const disclosure = (value as ModelPattern | null)?.[referenceDisclosureSymbol]?.();
-              if (disclosure) {
-                definitelyReference(ephemeralModel, disclosure.projectId, disclosure.doc);
-                ephemeralModel[elementKey] = value;
-              } else {
-                target[elementKey] = value;
-                // in other branch we are doing tracking with manifested state
-                trackModification(ephemeralModel, elementKey);
-              }
-              return true;
-            } else if (schema[elementKey] === "map" || schema[elementKey] === "list") {
-              for (const entity of Object.values(value) as Array<ModelPattern | null>) {
-                const disclosure = (entity as ModelPattern | null)?.[referenceDisclosureSymbol]?.();
-                if (disclosure) {
-                  definitelyReference(ephemeralModel, disclosure.projectId, disclosure.doc);
-                }
-              }
-              return true;
-            } else {
-              console.warn(
-                `cannot set property ${elementKey.toString()} of ${typeName} as it is readonly property - use property methods instead`
-              );
-              return false;
-            }
+          if (!(Object.hasOwn(schema, elementKey))) {
+            console.warn(
+              `cannot set property ${elementKey.toString()} of ${typeName} as it is not declared in type schema`
+            );
+            return false;
           }
-          console.warn(
-            `cannot set property Symbol(${elementKey.toString()}) of ${typeName} as only string properties are supported`
+          invariant(
+            schema[elementKey] === "val",
+            `cannot directly assign ${schema[elementKey]}-typed ${typeName}.${elementKey.toString()}; instead manipulate the existing object`
           );
-          return false;
+          const disclosure = (value as ModelPattern | null)?.[referenceDisclosureSymbol]?.();
+          if (disclosure) {
+            definitelyReference(ephemeralModel, disclosure.projectId, disclosure.doc);
+            ephemeralModel[elementKey] = value;
+          } else {
+            target[elementKey] = value;
+            // in other branch we are doing tracking with manifested state
+            trackModification(ephemeralModel, elementKey);
+          }
+          return true;
         },
 
         deleteProperty(target, key) {
-          trackModification(ephemeralModel, key);
-          trackModification(ephemeralModel, ACCESS_INDICES_SET_SYMBOL);
           if (manifestedState) {
             return Reflect.deleteProperty(manifestedState, key);
           }
-          if (key in target) {
+          if (schema[key] === "val") {
+            trackModification(ephemeralModel, key);
+            trackModification(ephemeralModel, ACCESS_INDICES_SET_SYMBOL);
+
             delete target[key as keyof typeof target];
             return true;
           }
@@ -797,13 +782,14 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
         },
         has(target, key) {
           // "in" operator checks for field existence (ephemeral entity)
-          if (key in schema) {
+          if (Object.hasOwn(schema, key)) {
             trackAccess(ephemeralModel, key);
           }
-          return key === referenceSymbol || key in schema;
+          return key === referenceSymbol || key === "uuid" || Object.hasOwn(schema, key);
         },
         ownKeys() {
           // ownKeys accesses all entity field names (ephemeral entity)
+          // Include _ephemeralUuid if it exists to satisfy proxy invariants
           trackAccess(ephemeralModel, ACCESS_INDICES_SET_SYMBOL);
           return Object.keys(schema);
         },
@@ -830,8 +816,13 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
 
 const isModel = (val: any): val is ModelPattern => val && typeof val === "object" && referenceSymbol in val;
 
+// Tuple reference helpers
+export const isTupleReference = (val: any): val is ReferenceTuple =>
+  Array.isArray(val) && val.length >= 1 && val.length <= 2 && typeof val[0] === "string";
+
 const definitelyReference = (val: ModelPattern, projectId: ProjectId, doc: Y.Doc): AllowedYValue =>
   val[referenceSymbol](projectId, doc);
+
 const maybeReference = (val: AllowedYJSValue, projectId: ProjectId, doc: Y.Doc): AllowedYValue =>
   (isModel(val) ? val[referenceSymbol](projectId, doc) : val) ?? null;
 

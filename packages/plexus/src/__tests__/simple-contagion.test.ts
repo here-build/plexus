@@ -60,7 +60,7 @@ describe("Simple Contagion Test", () => {
 
     // Step 2: Materialize it to YJS
     const siteRef = (ephemeralSite as any)[referenceSymbol](projectId, doc);
-    const entityId = siteRef.__ref || siteRef.__xref?.iid;
+    const entityId = siteRef[0];
 
     console.log("2. Materialized site, entityId:", entityId);
     console.log("3. Site ref:", siteRef);

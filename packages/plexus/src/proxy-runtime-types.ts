@@ -10,16 +10,13 @@ export const isProxyEntity = Symbol("isProxyEntity");
 export const referenceSymbol = Symbol("reference");
 export const referenceDisclosureSymbol = Symbol("referenceDisclosure");
 
-interface Addr {
-  iid: string;
-  uuid: ProjectId | ProjectVersionId;
-}
+// New tuple-based references (memory optimized)
+type LocalReferenceeTuple = [entityId: string];
+type CrossProjectReferenceTuple = [entityId: string, projectId: string];
+export type ReferenceTuple = LocalReferenceeTuple | CrossProjectReferenceTuple;
 
-type InternalReference = { __ref: string };
-type ExternalReference = { __xref: Addr };
-export type Reference = InternalReference | ExternalReference;
 export type AllowedPrimitive = string | number | boolean | null;
-export type AllowedYValue = AllowedPrimitive | Reference;
+export type AllowedYValue = AllowedPrimitive | ReferenceTuple;
 export type ModelPattern = Tagged<object, "syncing", string>;
 export type AllowedYJSValue = AllowedPrimitive | ModelPattern;
 export type AllowedYJSValueMap = Record<string, AllowedPrimitive | ModelPattern>;
@@ -27,7 +24,7 @@ export type AllowedYJSValueList = Array<AllowedPrimitive | ModelPattern>;
 export type Storageable = AllowedYValue | Y.Map<AllowedYValue> | Y.Array<AllowedYValue>;
 
 type ModelInternals = {
-  [referenceSymbol]: (projectId: string, doc: Y.Doc) => Reference;
+  [referenceSymbol]: (projectId: string, doc: Y.Doc) => ReferenceTuple;
   [referenceDisclosureSymbol]?: () => {
     projectId: ProjectId;
     doc: Y.Doc;

@@ -10,7 +10,7 @@ import * as Y from "yjs";
 
 import type { ProjectId } from "../index.js";
 
-import { isProxyEntity, referenceSymbol, type ModelType } from "../proxy-runtime-types.js";
+import { isProxyEntity, type ModelType, referenceSymbol } from "../proxy-runtime-types.js";
 import { buildModelClass } from "../proxy-runtime.js";
 
 // Extended Y.Doc type for testing
@@ -22,8 +22,8 @@ type ComponentType = ModelType<
     name: string;
     type: string;
     tplTree: TplTagType | null;
-    children: ComponentType[];
-    metadata: Record<string, string>;
+    readonly children: ComponentType[];
+    readonly metadata: Record<string, string>;
   },
   "Component"
 >;
@@ -31,7 +31,7 @@ type ComponentType = ModelType<
 type SiteType = ModelType<
   {
     name: string;
-    components: Record<string, ComponentType>;
+    readonly components: Record<string, ComponentType>;
   },
   "Site"
 >;
@@ -40,8 +40,8 @@ type TplTagType = ModelType<
   {
     tag: string;
     name: string;
-    children: TplTagType[];
-    attrs: Record<string, string>;
+    readonly children: TplTagType[];
+    readonly attrs: Record<string, string>;
   },
   "TplTag"
 >;

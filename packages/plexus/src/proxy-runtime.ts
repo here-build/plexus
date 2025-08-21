@@ -823,8 +823,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
     }
   ) as any as ModelTypeConstructor<ExtractRecordSchema<T>, ExtractClassName<T>>;
 
-  // @ts-expect-error todo idk
-  entityClasses.set(typeName, ModelConstructor);
+  entityClasses.set(typeName, ModelConstructor as any);
 
   return ModelConstructor;
 }

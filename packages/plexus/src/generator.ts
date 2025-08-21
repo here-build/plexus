@@ -55,7 +55,7 @@ function mapTypeToProxySchema(type: Type): string {
 
     // Schema Set = small collections, use array backing (e.g. {Component} -> "set")
     case "Set":
-      return "set";
+      return "list";
 
     // Schema List = array (e.g. [Variant] -> "list")
     case "List":
@@ -159,9 +159,9 @@ function generateFieldTypeScript(type: Type, meta?: MetaRuntime): string {
                     ? "any"
                     : paramType
             : generateFieldTypeScript(paramType, meta);
-        return `Set<${valueTs}>`;
+        return `Array<${valueTs}>`;
       }
-      return "Set<any>";
+      return "Array<any>";
 
     // Schema List = array (e.g. [Variant] -> (typeof Variant)[])
     case "List":

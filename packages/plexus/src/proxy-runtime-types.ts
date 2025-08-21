@@ -1,6 +1,6 @@
-import type { Constructor, OptionalKeysOf, ReadonlyKeysOf, Tagged } from "type-fest";
+import type { Constructor, OptionalKeysOf, ReadonlyKeysOf, Tagged, Writable } from "type-fest";
 import type * as Y from "yjs";
-import type { RemoveAllTags } from "type-fest/source/tagged";
+import type { RemoveAllTags, tag } from "type-fest/source/tagged";
 
 // For standalone usage - ProjectId can be overridden by consuming applications
 export type ProjectId = string;
@@ -53,7 +53,7 @@ export type ModelTypeConstructor<
     : never,
   Name extends string,
 > = Tagged<
-  Constructor<SpecificModelType<T, Name>, [T]> & {
+  Constructor<SpecificModelType<T, Name>, [Writable<Omit<T, typeof referenceSymbol | typeof referenceDisclosureSymbol | typeof tag>>]> & {
     __type: Name;
     schema: RecordSchema<T>;
     spawn: (entityId: string, projectId: string, yjs: Y.Doc) => SpecificModelType<T, Name>;
@@ -64,14 +64,14 @@ export type ModelTypeConstructor<
 export type RecordSchemaInput = Record<string, AllowedYJSValue | AllowedYJSValueMap | AllowedYJSValueList>;
 
 export type MaterializedRecordSchemaReadonlyKeys<T extends RecordSchemaInput> = keyof {
-  [key in keyof T as T[key] extends ModelPattern | AllowedPrimitive ? never : key]: key;
+  [key in keyof T as T[key] extends ModelPattern | AllowedPrimitive ? never : key]: key extends typeof tag ? never : key;
 };
 
 type PureSchema<
   T extends Exclude<MaterializedRecordSchemaReadonlyKeys<T>, ReadonlyKeysOf<T>> | OptionalKeysOf<T> extends never
     ? RecordSchemaInput
     : never,
-> = Extract<Omit<RemoveAllTags<T>, typeof referenceSymbol | typeof referenceDisclosureSymbol>, RecordSchemaInput>;
+> = Extract<Omit<T, typeof referenceSymbol | typeof referenceDisclosureSymbol | typeof tag>, RecordSchemaInput>;
 
 export type RecordSchema<
   T extends Exclude<MaterializedRecordSchemaReadonlyKeys<T>, ReadonlyKeysOf<T>> | OptionalKeysOf<T> extends never

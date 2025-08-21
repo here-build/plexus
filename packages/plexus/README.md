@@ -77,10 +77,6 @@ await writeProxyModelSchemas(
 - `ModelType` - TypeScript type for model instances
 - All runtime types and symbols
 
-### Runtime Only (`@dappsnap/plexus/runtime`)
-- Focused exports for runtime-only usage
-- Same as main package but more explicit
-
 ### Generator (`@dappsnap/plexus/generator`)
 - `generateProxyModelSchemas` - Core generator function
 - `writeProxyModelSchemas` - Convenience wrapper

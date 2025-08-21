@@ -1,13 +1,16 @@
 /**
  * @dappsnap/plexus
- * 
+ *
  * Constraint network for object state superposition through mathematical field dynamics.
- * 
+ *
  * Transforms traditional inheritance hierarchies into proxy networks where objects
  * exist in quantum superposition until materialization collapses them into specific instances.
  */
 
 // Runtime exports
-export { buildModelClass } from './proxy-runtime.js';
-export type { ProjectId as PlexusProjectId } from './proxy-runtime.js';
-export * from './proxy-runtime-types.js';
+export { buildModelClass } from "./proxy-runtime.js";
+export type { ProjectId as PlexusProjectId } from "./proxy-runtime.js";
+export * from "./proxy-runtime-types.js";
+
+// Built-in tracking system
+export * from "./tracking.js";

@@ -3,7 +3,7 @@
  *
  * Generates proxy-model schemas using buildModelClass factory approach
  * instead of traditional TypeScript class inheritance.
- * 
+ *
  * This module exports the generator functions but requires the consuming
  * application to provide the schema parsing and meta runtime logic.
  */
@@ -333,7 +333,7 @@ export function ensureKnown${className}<T>(x: T): Extract<T, ${className}> {
 
 /**
  * Main generator function for proxy-model schemas
- * 
+ *
  * @param classes - Array of parsed class definitions
  * @param metaRuntime - Runtime meta information
  * @param outputPath - Path to write the generated file
@@ -384,8 +384,8 @@ ${guards}
 
 import invariant from "tiny-invariant";
 
-import { buildModelClass } from "@dappsnap/plexus/runtime";
-import { type ModelType } from "@dappsnap/plexus/runtime";
+import { buildModelClass } from "@dappsnap/plexus";
+import { type ModelType } from "@dappsnap/plexus";
 
 ${modelClassParts.join("\n")}
 

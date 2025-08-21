@@ -5,37 +5,37 @@
 import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { ProjectId } from "@/wab/apiSchema/apiSchema";
+import type { ProjectId } from "../";
 
-import { isProxyEntity, referenceSymbol, type SpecificModelType } from "../proxy-runtime-types.js";
+import { isProxyEntity, type ModelType, referenceSymbol } from "../proxy-runtime-types.js";
 import { buildModelClass } from "../proxy-runtime.js"; // Extended Y.Doc type for testing
 
 // Extended Y.Doc type for testing
 type TestYDoc = Y.Doc & { rootProjectId: ProjectId };
 
+type ComponentType = ModelType<
+  {
+    name: string;
+  },
+  "Component"
+>;
+
+type SiteType = ModelType<
+  {
+    name: string;
+    readonly components: Record<string, ComponentType>;
+  },
+  "Site"
+>;
+
 // Simple test schema
-const Component = buildModelClass<
-  SpecificModelType<
-    {
-      name: string;
-    },
-    "Component"
-  >
->("Component", {
-  name: "val",
+const Component = buildModelClass<ComponentType>("Component", {
+  name: "val"
 });
 
-const Site = buildModelClass<
-  SpecificModelType<
-    {
-      name: string;
-      components: Record<string, typeof Component>;
-    },
-    "Site"
-  >
->("Site", {
+const Site = buildModelClass<SiteType>("Site", {
   name: "val",
-  components: "map",
+  components: "map"
 });
 
 describe("Simple Contagion Test", () => {

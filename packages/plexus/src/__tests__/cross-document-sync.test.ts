@@ -8,62 +8,62 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import type { ProjectId } from "@/wab/apiSchema/apiSchema";
+import type { ProjectId } from "../index.js";
 
-import { isProxyEntity, referenceSymbol, type SpecificModelType } from "../proxy-runtime-types.js";
+import { isProxyEntity, referenceSymbol, type ModelType } from "../proxy-runtime-types.js";
 import { buildModelClass } from "../proxy-runtime.js";
 
 // Extended Y.Doc type for testing
 type TestYDoc = Y.Doc & { rootProjectId: ProjectId };
 
 // Test schema definitions
-const Site = buildModelClass<
-  SpecificModelType<
-    {
-      name: string;
-      components: Record<string, typeof Component>;
-    },
-    "Site"
-  >
->("Site", {
-  name: "val",
-  components: "map",
-});
+type ComponentType = ModelType<
+  {
+    name: string;
+    type: string;
+    tplTree: TplTagType | null;
+    children: ComponentType[];
+    metadata: Record<string, string>;
+  },
+  "Component"
+>;
 
-const Component = buildModelClass<
-  SpecificModelType<
-    {
-      name: string;
-      type: string;
-      tplTree: typeof TplTag | null;
-      children: (typeof Component)[];
-      metadata: Record<string, string>;
-    },
-    "Component"
-  >
->("Component", {
+type SiteType = ModelType<
+  {
+    name: string;
+    components: Record<string, ComponentType>;
+  },
+  "Site"
+>;
+
+type TplTagType = ModelType<
+  {
+    tag: string;
+    name: string;
+    children: TplTagType[];
+    attrs: Record<string, string>;
+  },
+  "TplTag"
+>;
+
+const Component = buildModelClass<ComponentType>("Component", {
   name: "val",
   type: "val",
   tplTree: "val",
   children: "list",
-  metadata: "map",
+  metadata: "map"
 });
 
-const TplTag = buildModelClass<
-  SpecificModelType<
-    {
-      tag: string;
-      name: string;
-      children: (typeof TplTag)[];
-      attrs: Record<string, string>;
-    },
-    "TplTag"
-  >
->("TplTag", {
+const Site = buildModelClass<SiteType>("Site", {
+  name: "val",
+  components: "map"
+});
+
+const TplTag = buildModelClass<TplTagType>("TplTag", {
   tag: "val",
   name: "val",
   children: "list",
-  attrs: "map",
+  attrs: "map"
 });
 
 // Sync helper function
@@ -108,7 +108,7 @@ describe("Cross-Document Proxy Sync", () => {
       type: "component",
       tplTree: null,
       children: [],
-      metadata: {},
+      metadata: {}
     });
 
     // Verify ephemeral state
@@ -143,7 +143,7 @@ describe("Cross-Document Proxy Sync", () => {
       type: "component",
       tplTree: null,
       children: [],
-      metadata: { version: "1.0" },
+      metadata: { version: "1.0" }
     });
     expect(component1.metadata["version"]).toBe("1.0"); // success
     console.log(component1.metadata); // { version: '1.0' }
@@ -192,21 +192,21 @@ describe("Cross-Document Proxy Sync", () => {
       type: "container",
       tplTree: null,
       children: [],
-      metadata: {},
+      metadata: {}
     });
 
     const tplRoot = new TplTag({
       tag: "div",
       name: "Root",
       children: [],
-      attrs: { className: "container" },
+      attrs: { className: "container" }
     });
 
     const tplChild = new TplTag({
       tag: "span",
       name: "Child",
       children: [],
-      attrs: { id: "child-1" },
+      attrs: { id: "child-1" }
     });
 
     // Build nested structure
@@ -257,7 +257,7 @@ describe("Cross-Document Proxy Sync", () => {
       type: "container",
       tplTree: null,
       children: [],
-      metadata: { tags: "react,component" },
+      metadata: { tags: "react,component" }
     });
 
     const child1 = new Component({
@@ -265,7 +265,7 @@ describe("Cross-Document Proxy Sync", () => {
       type: "child",
       tplTree: null,
       children: [],
-      metadata: {},
+      metadata: {}
     });
 
     const child2 = new Component({
@@ -273,7 +273,7 @@ describe("Cross-Document Proxy Sync", () => {
       type: "child",
       tplTree: null,
       children: [],
-      metadata: {},
+      metadata: {}
     });
 
     // Add to collections
@@ -321,7 +321,7 @@ describe("Cross-Document Proxy Sync", () => {
       type: "child",
       tplTree: null,
       children: [],
-      metadata: {},
+      metadata: {}
     });
 
     parent2.children.push(child3);
@@ -359,7 +359,7 @@ describe("Cross-Document Proxy Sync", () => {
       type: "parent",
       tplTree: null,
       children: [],
-      metadata: {},
+      metadata: {}
     });
 
     const comp2 = new Component({
@@ -367,7 +367,7 @@ describe("Cross-Document Proxy Sync", () => {
       type: "child",
       tplTree: null,
       children: [],
-      metadata: {},
+      metadata: {}
     });
 
     // Create cross-reference

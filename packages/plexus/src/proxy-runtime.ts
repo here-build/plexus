@@ -17,9 +17,9 @@ import { nanoid } from "nanoid";
 import invariant from "tiny-invariant";
 import type { ReadonlyDeep } from "type-fest";
 import * as Y from "yjs";
+import type { RemoveAllTags } from "type-fest/source/tagged";
 
 import {
-  type AllowedPrimitive,
   type AllowedYJSValue,
   type AllowedYValue,
   isProxyEntity,
@@ -32,8 +32,9 @@ import {
   referenceDisclosureSymbol,
   referenceSymbol,
   type Storageable,
-  type StrictRecordSchema,
+  type StrictRecordSchema
 } from "./proxy-runtime-types.js";
+import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "./tracking.js"; // For packages that use plexus, ProjectId should be string
 
 // For packages that use plexus, ProjectId should be string
 // This can be overridden by the consuming application
@@ -44,7 +45,7 @@ class DefaultedMap<K, V> extends Map<K, V> {
   constructor(private factory: (key: K) => V) {
     super();
   }
-  
+
   get(key: K): V {
     if (!super.has(key)) {
       super.set(key, this.factory(key));
@@ -57,7 +58,7 @@ class DefaultedWeakMap<K extends object, V> extends WeakMap<K, V> {
   constructor(private factory: () => V) {
     super();
   }
-  
+
   get(key: K): V {
     if (!super.has(key)) {
       super.set(key, this.factory());
@@ -81,11 +82,12 @@ type ExtendedYDoc = Y.Doc & {
 
 // Entity cache
 const documentEntityCaches = new DefaultedWeakMap<ExtendedYDoc, Map<string, WeakRef<ModelPattern>>>(
-  () => new Map<string, WeakRef<ModelPattern>>(),
+  () => new Map<string, WeakRef<ModelPattern>>()
 );
 const entityClasses = new Map<string, ModelTypeConstructor<{}, string>>();
 
 const mutableArrayMethods = new Set<symbol | string>(["fill", "pop", "push", "reverse", "shift", "sort", "splice"]);
+const mutableArrayMethodsPreservingLength = new Set<symbol | string>(["fill", "reverse", "sort"]);
 
 type ExtractRecordSchema<T extends RecordSchemaInput | ModelPattern> =
   T extends ModelType<infer S extends RecordSchemaInput> ? S : T;
@@ -94,9 +96,15 @@ type ExtractClassName<T extends RecordSchemaInput | ModelPattern> = T extends Mo
 // Model class factory
 export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
   typeName: string,
-  schema: RecordSchema<T>,
+  schema: RecordSchema<T>
 ): ModelTypeConstructor<ExtractRecordSchema<T>, ExtractClassName<T>> {
-  const spawn = (entityId: string, projectId: ProjectId, doc: ExtendedYDoc) => {
+  const spawn = (
+    entityId: string,
+    projectId: ProjectId,
+    doc: ExtendedYDoc,
+    internal__ephemeralExternalObject?: ModelType<ExtractRecordSchema<T>, ExtractClassName<T>>
+  ) => {
+    const boundMaybeReference = curryMaybeReference(projectId, doc);
     const cacheKey = `${projectId}.${entityId}`;
     const cached = documentEntityCaches.get(doc).get(cacheKey)?.deref();
     if (cached) {
@@ -110,7 +118,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
     // todo this can actually be stored way more efficiently as [entityId, projectId?] (not as primitive for magic to happen - thus we will be able to separate primitives and "not primitives") - yet I'm unsure it will actually work for yjs
     // eslint-disable-next-line sonarjs/function-return-type
     const deref = (pointer: AllowedYValue): AllowedYJSValue => {
-      if (!pointer) {
+      if (pointer == null) {
         return null;
       }
       if (typeof pointer !== "object") {
@@ -161,7 +169,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
 
           // ARRAY PROXY: Presents JavaScript Array interface over YJS Array
           // Usage: entity.children.push(childEntity) → yArray.push(childEntity.reference())
-          return new Proxy([] as Array<ModelPattern | null>, {
+          const arrayProxy = new Proxy([] as Array<ModelPattern | null>, {
             // eslint-disable-next-line sonarjs/cognitive-complexity
             get(target, elementKey) {
               // MUTATING ARRAY METHODS: Convert entities to references, sync to YJS
@@ -169,8 +177,8 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                 // arr.push(entity) → yArray.push(entity.reference())
                 // eslint-disable-next-line sonarjs/no-nested-functions
                 return (...elements: Array<ModelPattern | null>) => {
+                  trackModification(arrayProxy, ACCESS_ALL_SYMBOL);
                   list.push(elements.map((element) => maybeReference(element, projectId, doc)));
-                  // todo tracking event
                   return list.length;
                 };
               }
@@ -178,12 +186,15 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                 // arr.unshift(entity) → yArray.unshift(entity.reference())
                 // eslint-disable-next-line sonarjs/no-nested-functions
                 return (...elements: Array<ModelPattern | null>) => {
+                  trackModification(arrayProxy, ACCESS_ALL_SYMBOL);
                   list.unshift(elements.map((element) => maybeReference(element, projectId, doc)));
-                  // todo tracking event
                   return list.length;
                 };
               }
               if (elementKey === "length") {
+                // Report length access to this array
+                trackAccess(arrayProxy, ACCESS_INDICES_SET_SYMBOL);
+
                 return list.length;
               }
               // eslint-disable-next-line sonarjs/no-in-misuse
@@ -192,23 +203,32 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                   return mutableArrayMethods.has(elementKey)
                     ? // eslint-disable-next-line sonarjs/no-nested-functions
                       (...args) => {
+                        trackModification(arrayProxy, ACCESS_ALL_SYMBOL);
+                        if (!mutableArrayMethodsPreservingLength.has(elementKey)) {
+                          trackModification(arrayProxy, ACCESS_INDICES_SET_SYMBOL);
+                        }
                         const array = list.toArray().map(deref);
                         const result = array[elementKey](...args);
+
                         doc.transact(() => {
+                          // todo optimized update strategy
                           list.delete(0, list.length);
-                          list.push(array.map((element) => element?.[referenceSymbol](projectId, doc) ?? null));
+                          list.push(array.map((element) => maybeReference(element, projectId, doc)));
                         });
-                        // todo optimized update strategy
                         return result;
                       }
                     : // eslint-disable-next-line sonarjs/no-nested-functions
                       (...args) => {
+                        // Non-mutating array methods that iterate over all elements
+                        trackAccess(arrayProxy, ACCESS_ALL_SYMBOL);
                         return list
                           .toArray()
                           .map(deref)
                           [elementKey](...args);
                       };
                 } else {
+                  // Report keyset access to this array for Array.prototype property access
+                  trackAccess(arrayProxy, elementKey);
                   return Array.prototype[elementKey];
                 }
               }
@@ -217,15 +237,18 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               if (typeof elementKey === "string") {
                 const parsedElementKey = Number.parseInt(elementKey);
                 if (Number.isSafeInteger(parsedElementKey)) {
+                  // Report specific index access
+                  trackAccess(arrayProxy, elementKey);
                   return deref(list.get(parsedElementKey)); // Reference → live entity
                 }
               }
             },
             // eslint-disable-next-line sonarjs/cognitive-complexity
             set(target, elementKey, value) {
+              trackModification(arrayProxy, elementKey);
               if (projectId !== doc.rootProjectId) {
                 console.warn(
-                  `cannot set property ${elementKey.toString()} of ${type} as it's readonly dependency reference`,
+                  `cannot set property ${elementKey.toString()} of ${type} as it's readonly dependency reference`
                 );
                 return false;
               }
@@ -251,18 +274,16 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                     return false;
                   } else if (parsedElementKey > list.length) {
                     // eslint-disable-next-line sonarjs/no-nested-functions
-                    doc.transact(() => {
-                      const postfix: null[] = [];
-                      while (postfix.length + list.length < parsedElementKey - 1) {
-                        postfix.push(null);
-                      }
-                      list.push([...postfix, value?.[referenceSymbol](projectId, doc) ?? null]);
-                    });
+                    const postfix: null[] = [];
+                    while (postfix.length + list.length < parsedElementKey - 1) {
+                      postfix.push(null);
+                    }
+                    list.push([...postfix, boundMaybeReference(value)]);
                   } else {
                     // eslint-disable-next-line sonarjs/no-nested-functions
                     doc.transact(() => {
                       list.delete(parsedElementKey, 1);
-                      list.insert(parsedElementKey, value?.[referenceSymbol](projectId, doc) ?? null);
+                      list.insert(parsedElementKey, [boundMaybeReference(value)]);
                     });
                   }
                   return true;
@@ -292,6 +313,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               return elementKey in Array.prototype;
             },
             ownKeys() {
+              trackAccess(arrayProxy, ACCESS_ALL_SYMBOL);
               return Reflect.ownKeys(list.toArray());
             },
             getPrototypeOf() {
@@ -299,8 +321,9 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             },
             isExtensible(): boolean {
               return true;
-            },
+            }
           });
+          return arrayProxy;
         }
         case "map": {
           let map = yprojectObjectInstanceFields.get(`${entityId}.${key}`) as Y.Map<AllowedYValue> | undefined;
@@ -308,27 +331,32 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             map = new Y.Map();
             yprojectObjectInstanceFields.set(`${entityId}.${key}`, map);
           }
-          return new Proxy({} as Record<string, ModelPattern>, {
+          const mapProxy = new Proxy({} as Record<string, ModelPattern>, {
             get(target, elementKey) {
               if (elementKey in Object.prototype) {
+                // Accessing Object prototype methods. Todo make more precise
+                trackAccess(mapProxy, ACCESS_ALL_SYMBOL);
                 return Object.prototype[elementKey];
-              }
-              if (typeof elementKey === "string") {
+              } else if (typeof elementKey === "string") {
+                // Specific field access
+                trackAccess(mapProxy, elementKey);
                 return deref(map.get(elementKey) ?? null);
               }
             },
             set(target, elementKey, value) {
               if (projectId !== doc.rootProjectId) {
                 console.warn(
-                  `cannot set property ${elementKey.toString()} of ${type} as it's readonly dependency reference`,
+                  `cannot set property ${elementKey.toString()} of ${type} as it's readonly dependency reference`
                 );
                 return false;
               }
               if (typeof elementKey === "string") {
-                if (value) {
+                trackModification(mapProxy, elementKey);
+                if (value != null) {
                   map.set(elementKey, maybeReference(value, projectId, doc));
                   return true;
                 } else {
+                  trackModification(mapProxy, ACCESS_INDICES_SET_SYMBOL);
                   map.delete(elementKey);
                   return true;
                 }
@@ -346,6 +374,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                   console.warn(`cannot delete property ${elementKey} of ${type} as it's readonly dependency reference`);
                   return false;
                 }
+                trackModification(mapProxy, ACCESS_INDICES_SET_SYMBOL);
                 map.delete(elementKey);
                 return true;
               }
@@ -357,10 +386,14 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               return false;
             },
             has(target, elementKey) {
-              // noinspection SuspiciousTypeOfGuard
-              return typeof elementKey !== "symbol" && map.has(elementKey);
+              if (typeof elementKey === "string") {
+                trackAccess(mapProxy, elementKey);
+                return map.has(elementKey);
+              }
+              return false;
             },
             ownKeys() {
+              trackAccess(mapProxy, ACCESS_INDICES_SET_SYMBOL);
               return [...map.keys()];
             },
             getPrototypeOf() {
@@ -368,8 +401,9 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             },
             isExtensible(): boolean {
               return true;
-            },
+            }
           });
+          return mapProxy;
         }
         default:
           never(keyType);
@@ -384,7 +418,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           if (key === referenceDisclosureSymbol) {
             return {
               projectId,
-              doc,
+              doc
             };
           }
           if (key === referenceSymbol) {
@@ -397,18 +431,21 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               return projectId === doc.rootProjectId
                 ? {
                     // Local reference within root project
-                    __ref: entityId,
+                    __ref: entityId
                   }
                 : {
                     // Cross-project reference to readonly dependency
                     __xref: {
                       iid: entityId,
-                      uuid: projectId,
-                    },
+                      uuid: projectId
+                    }
                   };
             };
           }
           if (typeof key === "string" && key in schema) {
+            // Specific field access on the main entity
+            trackAccess(trackingPointer, key);
+
             if (subproxyCache.has(key)) {
               return subproxyCache.get(key);
             }
@@ -418,27 +455,27 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           }
           return Object.prototype[key];
         },
-
         set(target, elementKey, value) {
           // READONLY DEPENDENCY ENFORCEMENT:
           // Only entities from the root project can be modified
           // Dependency entities are immutable from this document's perspective
           if (projectId !== doc.rootProjectId) {
             console.warn(
-              `cannot set property ${elementKey.toString()} of ${type} as it's readonly dependency reference`,
+              `cannot set property ${elementKey.toString()} of ${type} as it's readonly dependency reference`
             );
             return false; // Silently reject writes to readonly dependencies
           }
           if (typeof elementKey === "string") {
             const keyType = schema[elementKey];
             if (keyType === "val") {
+              trackModification(trackingPointer, elementKey);
               yprojectObjectInstanceFields.set(`${entityId}.${elementKey}`, maybeReference(value, projectId, doc));
               return true;
             }
             invariant(!keyType, "cannot directly set complex type");
           }
           console.warn(
-            `cannot set property Symbol(${elementKey.toString()}) of ${type} as only string properties are supported`,
+            `cannot set property Symbol(${elementKey.toString()}) of ${type} as only string properties are supported`
           );
           return false;
         },
@@ -447,9 +484,16 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           return false;
         },
         has(target, key) {
-          return key === referenceSymbol || key in schema;
+          // "in" operator checks for field existence (materialized entity)
+          if (key in schema) {
+            trackAccess(trackingPointer, key);
+            return true;
+          }
+          return key === referenceSymbol;
         },
         ownKeys() {
+          // ownKeys accesses all entity field names (materialized entity)
+          trackAccess(trackingPointer, ACCESS_INDICES_SET_SYMBOL);
           return Object.keys(schema);
         },
         getPrototypeOf() {
@@ -457,10 +501,13 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
         },
         isExtensible(): boolean {
           return false;
-        },
-      },
+        }
+      }
     ) as ModelType<ExtractRecordSchema<T>, ExtractClassName<T>>;
-    documentEntityCaches.get(doc).set(cacheKey, new WeakRef(proxy as ModelPattern));
+    const trackingPointer = internal__ephemeralExternalObject ?? proxy;
+    if (!internal__ephemeralExternalObject) {
+      documentEntityCaches.get(doc).set(cacheKey, new WeakRef(proxy as ModelPattern));
+    }
     return proxy;
   };
 
@@ -484,7 +531,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             return function reference(
               this: ModelType<ExtractRecordSchema<T>, ExtractClassName<T>>,
               projectId: ProjectId,
-              doc: ExtendedYDoc,
+              doc: ExtendedYDoc
             ): Reference {
               if (semiEphemeralReference) {
                 return semiEphemeralReference;
@@ -492,6 +539,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               if (manifestedState) {
                 return manifestedState[referenceSymbol](projectId, doc);
               }
+              const boundMaybeReference = curryMaybeReference(projectId, doc);
               // eslint-disable-next-line sonarjs/no-nested-functions
               return doc.transact(() => {
                 const yprojectObjectInstanceFields = doc.getMap<Storageable>(`project:${projectId}:models`);
@@ -504,7 +552,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                     case "val":
                       yprojectObjectInstanceFields.set(
                         `${entityId}.${schemaKey}`,
-                        maybeReference(target[schemaKey] as AllowedYJSValue, projectId, doc),
+                        boundMaybeReference(target[schemaKey] as AllowedYJSValue)
                       );
                       break;
                     case "list":
@@ -512,13 +560,10 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                         `${entityId}.${schemaKey}`,
                         // @ts-expect-error todo yjs Array.from not supporting boolean
                         Y.Array.from(
-                          // Convert sparse arrays to dense arrays (holes become null)
                           // @ts-expect-error todo yjs Array.from not supporting boolean
-                          Array.from(
-                            (target[schemaKey] as Array<AllowedPrimitive | ModelPattern> | null) ?? [],
-                            (val) => maybeReference(val, projectId, doc) ?? null,
-                          ),
-                        ),
+                          // Convert sparse arrays to dense arrays (holes become null)
+                          Array.from<AllowedYJSValue, AllowedYValue>(target[schemaKey] ?? [], boundMaybeReference)
+                        )
                       );
                       break;
                     case "map":
@@ -526,9 +571,9 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                         `${entityId}.${schemaKey}`,
                         new Y.Map<AllowedYValue | null>(
                           Object.entries((target[schemaKey] as Record<string, AllowedYJSValue> | null) ?? {}).map(
-                            ([recordKey, val]) => [recordKey, maybeReference(val, projectId, doc)],
-                          ),
-                        ),
+                            ([recordKey, val]) => [recordKey, maybeReference(val, projectId, doc)]
+                          )
+                        )
                       );
                       break;
                   }
@@ -556,13 +601,13 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                 semiEphemeralReference = null;
                 return projectId === doc.rootProjectId
                   ? {
-                      __ref: entityId,
+                      __ref: entityId
                     }
                   : {
                       __xref: {
                         iid: entityId,
-                        uuid: projectId,
-                      },
+                        uuid: projectId
+                      }
                     };
               });
             };
@@ -571,28 +616,46 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           if (key in Object.prototype) {
             return target[key as keyof typeof target];
           }
-          if (typeof key === "string" && key in schema) {
+          if (key in schema) {
             const schemaType = schema[key];
             const fieldValue = target[key as keyof typeof target];
 
             // CONTAGION-AWARE COLLECTION PROXIES FOR EPHEMERAL STATE
             // Return proxies that can trigger contagion when items are added
             if (schemaType === "list") {
-              return new Proxy(fieldValue as Array<ModelPattern | null>, {
+              const ephemeralListProxy = new Proxy(fieldValue as Array<ModelPattern | null>, {
                 get(listTarget, listKey) {
-                  if (mutableArrayMethods.has(listKey)) {
-                    // eslint-disable-next-line sonarjs/no-nested-functions
-                    return (...args) => {
-                      const result = listTarget[listKey](...args);
-                      for (const item of listTarget) {
-                        const disclosure = item?.[referenceDisclosureSymbol]?.();
-                        if (disclosure) {
-                          maybeReference(ephemeralModel, disclosure.projectId, disclosure.doc);
+                  if (listKey === "length") {
+                    trackAccess(ephemeralListProxy, ACCESS_INDICES_SET_SYMBOL);
+                  } else if (typeof listKey === "string" && Number.isSafeInteger(Number.parseInt(listKey))) {
+                    // Index access for ephemeral arrays
+                    trackAccess(ephemeralListProxy, listKey);
+                  } else if (listKey in Array.prototype) {
+                    if (mutableArrayMethods.has(listKey)) {
+                      // eslint-disable-next-line sonarjs/no-nested-functions
+                      return (...args) => {
+                        const result = listTarget[listKey](...args);
+                        for (const item of listTarget) {
+                          const disclosure = item?.[referenceDisclosureSymbol]?.();
+                          if (disclosure) {
+                            definitelyReference(ephemeralModel, disclosure.projectId, disclosure.doc);
+                          }
                         }
-                      }
-                      return result;
-                    };
+                        trackModification(ephemeralListProxy, ACCESS_ALL_SYMBOL);
+                        if (!mutableArrayMethodsPreservingLength.has(key)) {
+                          // sometimes it is a lie, but it's cheaper to do redundant update notification than incorporate all the logic inside setters
+                          trackModification(ephemeralListProxy, ACCESS_INDICES_SET_SYMBOL);
+                        }
+                        return result;
+                      };
+                    } else if (typeof Array.prototype[listKey] === "function") {
+                      return (...args) => {
+                        trackAccess(ephemeralListProxy, ACCESS_ALL_SYMBOL);
+                        return listTarget[listKey](...args);
+                      };
+                    }
                   }
+
                   // Let everything else pass through to target
                   return Reflect.get(listTarget, listKey);
                 },
@@ -602,30 +665,77 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                   if (typeof listKey === "string" && Number.isSafeInteger(Number.parseInt(listKey))) {
                     const disclosure = (value as ModelPattern)?.[referenceDisclosureSymbol]?.();
                     if (disclosure) {
-                      maybeReference(ephemeralModel, disclosure.projectId, disclosure.doc);
+                      definitelyReference(ephemeralModel, disclosure.projectId, disclosure.doc);
                     }
+                    trackModification(ephemeralModel, key);
+                    trackModification(ephemeralListProxy, listKey);
                   }
                   return result;
                 },
+                has(listTarget, listKey) {
+                  // Array "in" operator for index checks
+                  if (typeof listKey === "string" && Number.isSafeInteger(Number.parseInt(listKey))) {
+                    trackAccess(ephemeralListProxy, ACCESS_INDICES_SET_SYMBOL);
+                  }
+                  return Reflect.has(listTarget, listKey);
+                },
+                ownKeys(listTarget) {
+                  // Object.keys() or array enumeration
+                  trackAccess(ephemeralListProxy, ACCESS_INDICES_SET_SYMBOL);
+                  return Reflect.ownKeys(listTarget);
+                }
               });
+              return ephemeralListProxy;
             }
 
             if (schemaType === "map") {
-              return new Proxy(fieldValue as Record<string, ModelPattern | null>, {
+              const ephemeralMapProxy = new Proxy(fieldValue as Record<string, ModelPattern | null>, {
+                get(mapTarget, mapKey) {
+                  // todo support well known symbols
+                  if (mapKey in Object.prototype && typeof Object.prototype[mapKey] === "function") {
+                    return (...args) => {
+                      // Object prototype method access
+                      trackAccess(ephemeralMapProxy, ACCESS_ALL_SYMBOL);
+                      // @ts-expect-error todo
+                      return mapTarget[mapKey](...args);
+                    };
+                  }
+                  if (typeof mapKey === "string") {
+                    // Specific key access in ephemeral map
+                    trackAccess(ephemeralMapProxy, mapKey);
+                  }
+                  return Reflect.get(mapTarget, mapKey);
+                },
                 set(mapTarget, mapKey, value) {
+                  trackModification(ephemeralMapProxy, mapKey);
+                  // we actually should check if we created a new key but it's more expensive than marking keyset updated
+                  trackModification(ephemeralMapProxy, ACCESS_INDICES_SET_SYMBOL);
                   const result = Reflect.set(mapTarget, mapKey, value);
                   // Trigger contagion when setting an entity
                   if (typeof mapKey === "string") {
                     const disclosure = (value as ModelPattern)?.[referenceDisclosureSymbol]?.();
                     if (disclosure) {
-                      maybeReference(ephemeralModel, disclosure.projectId, disclosure.doc);
+                      definitelyReference(ephemeralModel, disclosure.projectId, disclosure.doc);
                     }
                   }
                   return result;
                 },
+                has(mapTarget, mapKey) {
+                  // "in" operator checks for key existence
+                  trackAccess(ephemeralMapProxy, mapKey);
+                  return Reflect.has(mapTarget, mapKey);
+                },
+                ownKeys(mapTarget) {
+                  // Object.keys() accesses all map keys
+                  trackAccess(ephemeralMapProxy, ACCESS_INDICES_SET_SYMBOL);
+                  return Reflect.ownKeys(mapTarget);
+                }
               });
+              return ephemeralMapProxy;
             }
 
+            // Simple field access for "val" type
+            trackAccess(ephemeralModel, key);
             return fieldValue;
           }
           return;
@@ -636,38 +746,42 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           if (manifestedState) {
             return Reflect.set(manifestedState, elementKey, value);
           }
-          if (typeof elementKey === "string" && elementKey in schema) {
+          if (elementKey in schema) {
             if (schema[elementKey] === "val") {
               const disclosure = (value as ModelPattern | null)?.[referenceDisclosureSymbol]?.();
               if (disclosure) {
-                maybeReference(ephemeralModel, disclosure.projectId, disclosure.doc);
+                definitelyReference(ephemeralModel, disclosure.projectId, disclosure.doc);
                 ephemeralModel[elementKey] = value;
               } else {
                 target[elementKey] = value;
+                // in other branch we are doing tracking with manifested state
+                trackModification(ephemeralModel, elementKey);
               }
               return true;
             } else if (schema[elementKey] === "map" || schema[elementKey] === "list") {
               for (const entity of Object.values(value) as Array<ModelPattern | null>) {
                 const disclosure = (entity as ModelPattern | null)?.[referenceDisclosureSymbol]?.();
                 if (disclosure) {
-                  maybeReference(ephemeralModel, disclosure.projectId, disclosure.doc);
+                  definitelyReference(ephemeralModel, disclosure.projectId, disclosure.doc);
                 }
               }
               return true;
             } else {
               console.warn(
-                `cannot set property ${elementKey} of ${typeName} as it is readonly property - use property methods instead`,
+                `cannot set property ${elementKey.toString()} of ${typeName} as it is readonly property - use property methods instead`
               );
               return false;
             }
           }
           console.warn(
-            `cannot set property Symbol(${elementKey.toString()}) of ${typeName} as only string properties are supported`,
+            `cannot set property Symbol(${elementKey.toString()}) of ${typeName} as only string properties are supported`
           );
           return false;
         },
 
         deleteProperty(target, key) {
+          trackModification(ephemeralModel, key);
+          trackModification(ephemeralModel, ACCESS_INDICES_SET_SYMBOL);
           if (manifestedState) {
             return Reflect.deleteProperty(manifestedState, key);
           }
@@ -682,9 +796,15 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           return false;
         },
         has(target, key) {
+          // "in" operator checks for field existence (ephemeral entity)
+          if (key in schema) {
+            trackAccess(ephemeralModel, key);
+          }
           return key === referenceSymbol || key in schema;
         },
         ownKeys() {
+          // ownKeys accesses all entity field names (ephemeral entity)
+          trackAccess(ephemeralModel, ACCESS_INDICES_SET_SYMBOL);
           return Object.keys(schema);
         },
         getPrototypeOf() {
@@ -692,15 +812,15 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
         },
         isExtensible(): boolean {
           return false;
-        },
+        }
       });
       return ephemeralModel;
     },
     {
       __type: { value: typeName },
       schema: { value: schema },
-      spawn: { value: spawn },
-    },
+      spawn: { value: spawn }
+    }
   ) as any as ModelTypeConstructor<ExtractRecordSchema<T>, ExtractClassName<T>>;
 
   // @ts-expect-error todo idk
@@ -711,5 +831,12 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
 
 const isModel = (val: any): val is ModelPattern => val && typeof val === "object" && referenceSymbol in val;
 
+const definitelyReference = (val: ModelPattern, projectId: ProjectId, doc: Y.Doc): AllowedYValue =>
+  val[referenceSymbol](projectId, doc);
 const maybeReference = (val: AllowedYJSValue, projectId: ProjectId, doc: Y.Doc): AllowedYValue =>
-  isModel(val) ? val[referenceSymbol](projectId, doc) : val;
+  (isModel(val) ? val[referenceSymbol](projectId, doc) : val) ?? null;
+
+const curryMaybeReference =
+  (projectId: ProjectId, doc: Y.Doc) =>
+  (val: AllowedYJSValue): AllowedYValue =>
+    (isModel(val) ? val[referenceSymbol](projectId, doc) : val) ?? null;

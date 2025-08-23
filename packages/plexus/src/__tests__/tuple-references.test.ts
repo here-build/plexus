@@ -51,24 +51,21 @@ describe("Tuple Reference Format", () => {
     const doc1 = new Y.Doc();
     (doc1 as any).rootProjectId = "project1";
 
-    const doc2 = new Y.Doc();
-    (doc2 as any).rootProjectId = "project2";
-
     // Create user in project1
     const user = new TestUser({ name: "Alice", posts: [] });
-    const entityId = "user_123";
 
     // Simulate materialization in project1
     user[referenceSymbol]("project1", doc1 as any);
 
-    // Get reference from project2 (cross-project)
-    const crossRef = user[referenceSymbol]("project2", doc2 as any);
+    // Get reference for project2 (cross-project) using the same document but different target project
+    const crossRef = user[referenceSymbol]("project2", doc1 as any);
 
     // Should be a tuple with entity ID and project ID
     expect(Array.isArray(crossRef)).toBe(true);
     expect(crossRef).toHaveLength(2);
     expect(typeof crossRef[0]).toBe("string"); // entity ID
-    expect(typeof crossRef[1]).toBe("string"); // project ID
+    expect(typeof crossRef[1]).toBe("string"); // project ID (should be "project1")
+    expect(crossRef[1]).toBe("project1"); // The project ID where the entity is materialized
   });
 
   it("should store tuple references in YJS arrays efficiently", () => {

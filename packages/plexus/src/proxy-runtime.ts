@@ -180,29 +180,44 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             // eslint-disable-next-line sonarjs/cognitive-complexity
             get(target, elementKey) {
               // MUTATING ARRAY METHODS: Convert entities to references, sync to YJS
-              if (elementKey === "push") {
-                // arr.push(entity) → yArray.push(entity.reference())
-                // eslint-disable-next-line sonarjs/no-nested-functions
-                return (...elements: Array<ModelPattern | null>) => {
-                  trackModification(arrayProxy, ACCESS_ALL_SYMBOL);
-                  list.push(elements.map((element) => maybeReference(element, projectId, doc)));
-                  return list.length;
-                };
-              }
-              if (elementKey === "unshift") {
-                // arr.unshift(entity) → yArray.unshift(entity.reference())
-                // eslint-disable-next-line sonarjs/no-nested-functions
-                return (...elements: Array<ModelPattern | null>) => {
-                  trackModification(arrayProxy, ACCESS_ALL_SYMBOL);
-                  list.unshift(elements.map((element) => maybeReference(element, projectId, doc)));
-                  return list.length;
-                };
-              }
-              if (elementKey === "length") {
-                // Report length access to this array
-                trackAccess(arrayProxy, ACCESS_INDICES_SET_SYMBOL);
+              switch (elementKey) {
+                case "push":
+                  // arr.push(entity) → yArray.push(entity.reference())
+                  // eslint-disable-next-line sonarjs/no-nested-functions
+                  return (...elements: Array<ModelPattern | null>) => {
+                    trackModification(arrayProxy, ACCESS_ALL_SYMBOL);
+                    list.push(elements.map((element) => maybeReference(element, projectId, doc)));
+                    return list.length;
+                  };
+                case "unshift": // arr.unshift(entity) → yArray.unshift(entity.reference())
+                  // eslint-disable-next-line sonarjs/no-nested-functions
+                  return (...elements: Array<ModelPattern | null>) => {
+                    trackModification(arrayProxy, ACCESS_ALL_SYMBOL);
+                    list.unshift(elements.map((element) => maybeReference(element, projectId, doc)));
+                    return list.length;
+                  };
+                case "clear": // arr.assign(newElements) → replace entire array contents
+                  // eslint-disable-next-line sonarjs/no-nested-functions
+                  return () => {
+                    trackModification(arrayProxy, ACCESS_ALL_SYMBOL);
+                    trackModification(arrayProxy, ACCESS_INDICES_SET_SYMBOL);
+                    // Clear existing contents
+                    list.delete(0, list.length);
+                  };
+                case "assign": // arr.assign(newElements) → replace entire array contents
+                  // eslint-disable-next-line sonarjs/no-nested-functions
+                  return (newElements: Array<ModelPattern | null>) => {
+                    trackModification(arrayProxy, ACCESS_ALL_SYMBOL);
+                    trackModification(arrayProxy, ACCESS_INDICES_SET_SYMBOL);
+                    // Clear existing contents
+                    list.delete(0, list.length);
+                    // Add new elements
+                    list.push(newElements.map((element) => maybeReference(element, projectId, doc)));
+                  };
+                case "length": // Report length access to this array
+                  trackAccess(arrayProxy, ACCESS_INDICES_SET_SYMBOL);
 
-                return list.length;
+                  return list.length;
               }
               // eslint-disable-next-line sonarjs/no-in-misuse
               if (elementKey in Array.prototype) {
@@ -340,6 +355,33 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           }
           const mapProxy = new Proxy({} as Record<string, ModelPattern>, {
             get(target, elementKey) {
+              switch (elementKey) {
+                case "clear":
+                  return () => {
+                    trackModification(mapProxy, ACCESS_ALL_SYMBOL);
+                    trackModification(mapProxy, ACCESS_INDICES_SET_SYMBOL);
+                    map.clear();
+                  };
+                case "assign":
+                  return (newEntries: Record<string, ModelPattern> | Iterable<[string, ModelPattern]>) => {
+                    trackModification(mapProxy, ACCESS_ALL_SYMBOL);
+                    trackModification(mapProxy, ACCESS_INDICES_SET_SYMBOL);
+                    // Clear existing contents
+                    map.clear();
+                    // Add new entries
+                    if (Symbol.iterator in Object(newEntries)) {
+                      // Iterable of [key, value] pairs
+                      for (const [k, v] of newEntries as Iterable<[string, ModelPattern]>) {
+                        map.set(k, maybeReference(v, projectId, doc));
+                      }
+                    } else {
+                      // Record object
+                      for (const [k, v] of Object.entries(newEntries as Record<string, ModelPattern>)) {
+                        map.set(k, maybeReference(v, projectId, doc));
+                      }
+                    }
+                  };
+              }
               if (elementKey in Object.prototype) {
                 // Accessing Object prototype methods. Todo make more precise
                 trackAccess(mapProxy, ACCESS_ALL_SYMBOL);
@@ -448,6 +490,18 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                     trackModification(setProxy, ACCESS_ALL_SYMBOL);
                     target?.delete(0, outputLength);
                     return outputLength;
+                  };
+                case "assign":
+                  return (newValues: Iterable<AllowedYJSValue>) => {
+                    trackModification(setProxy, ACCESS_ALL_SYMBOL);
+                    // Clear existing contents
+                    target?.delete(0, target.length);
+                    // Add new values
+                    for (const value of newValues) {
+                      if (!target.toArray().map(deref).includes(value)) {
+                        target.push([boundMaybeReference(value)]);
+                      }
+                    }
                   };
                 case "delete":
                   return (value: AllowedYJSValue) => {
@@ -564,6 +618,44 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               return projectId === assertedProjectId
                 ? localReference // Local reference tuple: [entityId]
                 : globalReference; // Cross-project reference tuple: [entityId, projectId]
+            };
+          }
+          if (key === "clone") {
+            // SHALLOW CLONE: Creates a new entity using constructor pattern
+            // Automatically handles ephemeral/materialized and triggers proper tracking
+            return () => {
+              const props: any = {};
+
+              // Read all fields from this entity (triggers access tracking)
+              for (const fieldKey of Object.keys(schema)) {
+                const fieldValue = proxy[fieldKey];
+                if (fieldValue !== undefined) {
+                  if (schema[fieldKey] === "val") {
+                    // Primitive value - copy directly
+                    props[fieldKey] = fieldValue;
+                  } else {
+                    // Collections - spread clone to new instances
+                    if (Array.isArray(fieldValue)) {
+                      props[fieldKey] = [...fieldValue];
+                    } else if (fieldValue instanceof Set) {
+                      props[fieldKey] = new Set(fieldValue);
+                    } else if (
+                      typeof fieldValue === "object" &&
+                      fieldValue != null &&
+                      !(fieldValue as any)[isProxyEntity]
+                    ) {
+                      // Record/map - spread clone
+                      props[fieldKey] = { ...fieldValue };
+                    } else {
+                      // Reference to entity or primitive - copy as-is
+                      props[fieldKey] = fieldValue;
+                    }
+                  }
+                }
+              }
+
+              // Use constructor pattern - works for both ephemeral and materialized
+              return spawn(nanoid(), projectId, doc, props as any);
             };
           }
           if (typeof key === "string" && Object.hasOwn(schema, key)) {
@@ -749,6 +841,43 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             };
           }
           if (key === isProxyEntity) return true;
+          if (key === "clone") {
+            // EPHEMERAL CLONE: Creates a new ephemeral entity with same structure and field values
+            return () => {
+              const props: any = {};
+
+              // Read all fields from this ephemeral entity
+              for (const fieldKey of Object.keys(schema)) {
+                const fieldValue = target[fieldKey as keyof typeof target];
+                if (fieldValue !== undefined) {
+                  if (schema[fieldKey] === "val") {
+                    // Primitive value - copy directly
+                    props[fieldKey] = fieldValue;
+                  } else {
+                    // Collections - spread clone to new instances
+                    if (Array.isArray(fieldValue)) {
+                      props[fieldKey] = [...fieldValue];
+                    } else if (fieldValue instanceof Set) {
+                      props[fieldKey] = new Set(fieldValue);
+                    } else if (
+                      typeof fieldValue === "object" &&
+                      fieldValue != null &&
+                      !(fieldValue as any)[isProxyEntity]
+                    ) {
+                      // Record/map - spread clone
+                      props[fieldKey] = { ...fieldValue };
+                    } else {
+                      // Reference to entity or primitive - copy as-is
+                      props[fieldKey] = fieldValue;
+                    }
+                  }
+                }
+              }
+
+              // Create new ephemeral entity
+              return ModelConstructor(props as any);
+            };
+          }
           if (key in Object.prototype) {
             return target[key as keyof typeof target];
           }
@@ -766,6 +895,34 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                   } else if (typeof listKey === "string" && Number.isSafeInteger(Number.parseInt(listKey))) {
                     // Index access for ephemeral arrays
                     trackAccess(ephemeralListProxy, listKey);
+                  } else if (listKey === "clear") {
+                    // arr.assign(newElements) → replace entire array contents
+                    return () => {
+                      if (listTarget.length > 0) {
+                        trackModification(ephemeralListProxy, ACCESS_ALL_SYMBOL);
+                        trackModification(ephemeralListProxy, ACCESS_INDICES_SET_SYMBOL);
+                      }
+                      // Clear existing contents
+                      listTarget.length = 0;
+                    };
+                  } else if (listKey === "assign") {
+                    // arr.assign(newElements) → replace entire array contents
+                    return (newElements: Array<ModelPattern | null>) => {
+                      trackModification(ephemeralListProxy, ACCESS_ALL_SYMBOL);
+                      trackModification(ephemeralListProxy, ACCESS_INDICES_SET_SYMBOL);
+                      // Clear existing contents
+                      listTarget.length = 0;
+                      // Add new elements
+                      listTarget.push(...newElements);
+
+                      // Check for contagion
+                      for (const item of listTarget) {
+                        const disclosure = item?.[referenceDisclosureSymbol]?.();
+                        if (disclosure) {
+                          definitelyReference(ephemeralModel, disclosure.projectId, disclosure.doc);
+                        }
+                      }
+                    };
                   } else if (listKey in Array.prototype) {
                     if (mutableArrayMethods.has(listKey)) {
                       // eslint-disable-next-line sonarjs/no-nested-functions
@@ -827,6 +984,47 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             if (schemaType === "record") {
               const ephemeralMapProxy = new Proxy(fieldValue as Record<string, ModelPattern | null>, {
                 get(mapTarget, mapKey) {
+                  if (mapKey === "clear") {
+                    return () => {
+                      if (Object.keys(mapTarget).length > 0) {
+                        trackModification(ephemeralMapProxy, ACCESS_ALL_SYMBOL);
+                        trackModification(ephemeralMapProxy, ACCESS_INDICES_SET_SYMBOL);
+                      }
+                      for (const key of Object.keys(mapTarget)) {
+                        delete mapTarget[key];
+                      }
+                    };
+                  }
+                  if (mapKey === "assign") {
+                    return (newEntries: Record<string, ModelPattern> | Iterable<[string, ModelPattern]>) => {
+                      trackModification(ephemeralMapProxy, ACCESS_ALL_SYMBOL);
+                      trackModification(ephemeralMapProxy, ACCESS_INDICES_SET_SYMBOL);
+                      // Clear existing contents
+                      for (const key of Object.keys(mapTarget)) {
+                        delete mapTarget[key];
+                      }
+                      // Add new entries
+                      if (Symbol.iterator in Object(newEntries)) {
+                        // Iterable of [key, value] pairs
+                        for (const [k, v] of newEntries as Iterable<[string, ModelPattern]>) {
+                          mapTarget[k] = v;
+                          const disclosure = (v as ModelPattern)?.[referenceDisclosureSymbol]?.();
+                          if (disclosure) {
+                            definitelyReference(ephemeralModel, disclosure.projectId, disclosure.doc);
+                          }
+                        }
+                      } else {
+                        // Record object
+                        for (const [k, v] of Object.entries(newEntries as Record<string, ModelPattern>)) {
+                          mapTarget[k] = v;
+                          const disclosure = (v as ModelPattern)?.[referenceDisclosureSymbol]?.();
+                          if (disclosure) {
+                            definitelyReference(ephemeralModel, disclosure.projectId, disclosure.doc);
+                          }
+                        }
+                      }
+                    };
+                  }
                   // todo support well known symbols
                   if (mapKey in Object.prototype && typeof Object.prototype[mapKey] === "function") {
                     return (...args) => {
@@ -890,11 +1088,24 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                       };
                     case "clear":
                       return () => {
-                        if (target.size === 0) {
-                          return 0;
+                        if (target.size > 0) {
+                          trackModification(ephemeralSetProxy, ACCESS_ALL_SYMBOL);
+                          target.clear();
                         }
+                      };
+                    case "assign":
+                      return (newValues: Iterable<AllowedYJSValue>) => {
                         trackModification(ephemeralSetProxy, ACCESS_ALL_SYMBOL);
-                        return target.clear();
+                        // Clear existing contents
+                        target.clear();
+                        // Add new values
+                        for (const value of newValues) {
+                          target.add(value);
+                          const disclosure = (value as ModelPattern)?.[referenceDisclosureSymbol]?.();
+                          if (disclosure) {
+                            definitelyReference(ephemeralModel, disclosure.projectId, disclosure.doc);
+                          }
+                        }
                       };
                     case "delete":
                       return (value: AllowedYJSValue) => {

@@ -100,24 +100,32 @@ function generateTypeInterface(cls: Class, meta: MetaRuntime): string {
     .map((field) => {
       const isTransient = field.annotations.includes("Transient");
       const isOptionalType = field.type.type === "Optional";
+      const isOptionalAnnotation = field.annotations.includes("Optional");
       const isConst = field.annotations.includes("Const");
+
+      // Check if field type is a union that contains null/undefined (indicating it was originally optional)
+      const isUnionWithNull = field.type.type === "Or" && field.type.params.some(param =>
+        (typeof param === "string" && (param === "null" || param === "undefined")) ||
+        (typeof param === "object" && param !== null && "type" in param &&
+         (param.type === "null" || param.type === "undefined"))
+      );
+
+      // Check if field type is a union type (which often indicates optional field in original TypeScript)
+      const isUnionType = field.type.type === "Or";
 
       // Arrays and Maps are never optional, even if they're Transient or Optional
       const isArrayOrMap = field.type.type === "List" || field.type.type === "Set" || field.type.type === "Map";
 
-      // No optional fields for YJS - all fields are required
-      const isOptional = false;
-
-      // Use | null for Optional and Transient types (but not for arrays/maps)
-      const needsNull = (isTransient || isOptionalType) && !isArrayOrMap;
+      // Check if field should allow null values (but still be required)
+      // Union types often represent optional fields from TypeScript (field?: A | B)
+      const allowsNull = (isTransient || isOptionalType || isOptionalAnnotation || isUnionWithNull || isUnionType) && !isArrayOrMap;
 
       const baseType = generateFieldTypeScript(field.type, meta);
-      const optionalMarker = ""; // Never optional for YJS
-      const nullSuffix = needsNull ? " | null" : "";
+      const nullSuffix = allowsNull ? " | null" : "";
       // Mark collections and @Const fields as readonly
       const readonlyMarker = isConst || isArrayOrMap ? "readonly " : "";
 
-      return `    ${readonlyMarker}${field.name}${optionalMarker}: ${baseType}${nullSuffix};`;
+      return `    ${readonlyMarker}${field.name}: ${baseType}${nullSuffix};`;
     })
     .join("\n");
 
@@ -209,6 +217,17 @@ function generateFieldTypeScript(type: Type, meta?: MetaRuntime): string {
     // Union types (Or) - create proper union type
     case "Or":
       const unionTypes = type.params
+        .filter((param) => {
+          // Filter out null and undefined from unions - we'll add clean | null at interface level
+          if (typeof param === "string") {
+            return param !== "null" && param !== "undefined";
+          }
+          if (param && typeof param === "object" && "type" in param) {
+            const paramType = param as Type;
+            return paramType.type !== "null" && paramType.type !== "undefined";
+          }
+          return true;
+        })
         .map((param) => {
           if (typeof param === "string") {
             return param === "String"
@@ -303,30 +322,44 @@ function getAllConcreteDescendants(cls: Class, meta: MetaRuntime): Class[] {
 function generateGuards(cls: Class, meta: MetaRuntime): string {
   const className = cls.name;
   const isAbstract = meta.isAbstract(cls);
+  const allDescendants = getAllConcreteDescendants(cls, meta);
 
   if (isAbstract) {
     // Abstract classes need different guard logic since there's no constructor
-    const concreteDescendants = getAllConcreteDescendants(cls, meta);
-    const instanceChecks = concreteDescendants.map((subCls) => `isKnown${subCls.name}(x)`).join(" || ");
+    const instanceChecks = allDescendants.map((subCls) => `isKnown${subCls.name}(x)`).join(" || ");
 
     return `
-export function isKnown${className}<T>(x: T): x is ${className} {
+export function isKnown${className}(x: any): x is ${className} {
   return ${instanceChecks || "false"};
 }
 
-export function ensureKnown${className}<T>(x: T): ${className} {
+export function ensureKnown${className}<T>(x: T): any extends T ? ${className} : Extract<T, ${className}> {
+  invariant(isKnown${className}(x), \`Expected ${className}, got \${typeof x}: \${x}\`);
+  return x;
+}
+`;
+  } else if (allDescendants.length > 0) {
+    // Concrete class with subclasses - check instanceof this class OR any subclass
+    const subclassChecks = allDescendants.map((subCls) => `x instanceof ${subCls.name}`).join(" || ");
+
+    return `
+export function isKnown${className}(x: any): x is ${className} {
+  return x instanceof ${className} || ${subclassChecks};
+}
+
+export function ensureKnown${className}(x: any): ${className} {
   invariant(isKnown${className}(x), \`Expected ${className}, got \${typeof x}: \${x}\`);
   return x;
 }
 `;
   } else {
-    // Concrete classes can use instanceof
+    // Concrete classes without subclasses can use simple instanceof
     return `
-export function isKnown${className}<T>(x: T): x is ${className} {
+export function isKnown${className}(x: any): x is ${className} {
   return x instanceof ${className};
 }
 
-export function ensureKnown${className}<T>(x: T): ${className} {
+export function ensureKnown${className}(x: any): ${className} {
   invariant(isKnown${className}(x), \`Expected ${className}, got \${typeof x}: \${x}\`);
   return x;
 }
@@ -359,6 +392,7 @@ export async function generateProxyModelSchemas(classes: Class[], metaRuntime: M
         return `
 // Abstract class: ${cls.name}
 export type ${cls.name} = ${unionTypes};
+export type I${cls.name} = ${cls.name};
 
 ${guards}
 `;
@@ -366,21 +400,45 @@ ${guards}
         // No concrete descendants found - fall back to ModelType
         return `
 // Abstract class: ${cls.name}
-export type ${cls.name} = ModelType<${typeInterface}>;
+export type ${cls.name}Params = ${typeInterface};
+export type ${cls.name} = ModelType<${cls.name}Params, "${cls.name}">;
+export type I${cls.name} = ${cls.name};
 
 ${guards}
 `;
       }
     } else {
-      // Concrete classes - use ModelType for branding and consistency
+      // Concrete classes - check if they have subclasses
+      const directSubclasses = meta.getStrictSubclasses(cls);
+      const allDescendants = getAllConcreteDescendants(cls, meta);
       const schemaObject = generateSchemaObject(cls, meta);
-      return `
+
+      if (allDescendants.length > 0) {
+        // Concrete class with subclasses - create union type
+        const baseTypeName = `ModelType<${cls.name}Params, "${cls.name}">`;
+        const unionTypes = [baseTypeName, ...allDescendants.map(subCls => subCls.name)].join(" | ");
+
+        return `
+// ${cls.name} model class (with subclasses)
+export type ${cls.name}Params = ${typeInterface};
+export type ${cls.name} = ${unionTypes};
+export type I${cls.name} = ${cls.name};
+export const ${cls.name} = buildModelClass<${baseTypeName}>("${cls.name}", ${schemaObject});
+
+${guards}
+`;
+      } else {
+        // Concrete class without subclasses - simple ModelType
+        return `
 // ${cls.name} model class
-export type ${cls.name} = ModelType<${typeInterface}, "${cls.name}">;
+export type ${cls.name}Params = ${typeInterface};
+export type ${cls.name} = ModelType<${cls.name}Params, "${cls.name}">;
+export type I${cls.name} = ${cls.name};
 export const ${cls.name} = buildModelClass<${cls.name}>("${cls.name}", ${schemaObject});
 
 ${guards}
 `;
+      }
     }
   });
 
@@ -415,7 +473,7 @@ ${classes
   .join(",\n")}
 } as const;
 
-export type ModelInstance = 
+export type ObjInst = 
 ${classes
   .filter((cls) => !meta.isAbstract(cls))
   .map((cls) => `| ${cls.name}`)

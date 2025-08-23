@@ -261,7 +261,7 @@ describe("Set Proxy Implementation", () => {
       });
 
       expect(model.tags.size).toBe(0);
-      expect(model.tags.clear()).toBe(0); // Should return 0 for empty set
+      expect(model.tags.clear()).toBe(undefined); // Native Set.clear() returns undefined
       expect(model.tags.delete("nonexistent")).toBe(false);
       expect(model.tags.has("anything")).toBe(false);
 

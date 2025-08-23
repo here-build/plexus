@@ -61,7 +61,7 @@ let batchScheduled = false;
 
 function collectMutation(entity: any, field: string | symbol) {
   pendingMutations.add({ entity, field });
-  
+
   if (!batchScheduled) {
     batchScheduled = true;
     setImmediate(() => {
@@ -73,13 +73,13 @@ function collectMutation(entity: any, field: string | symbol) {
 
 function flushMutationBatch() {
   if (pendingMutations.size === 0) return;
-  
+
   const mutations = Array.from(pendingMutations).map(({ entity, field }) => ({
     entity: entity.constructor?.name || 'Object',
     field: String(field),
     value: entity[field]
   }));
-  
+
   // Send to Redux DevTools if available
   if (typeof window !== 'undefined' && (window as any).__REDUX_DEVTOOLS_EXTENSION__) {
     const devTools = (window as any).__REDUX_DEVTOOLS_EXTENSION__.connect();
@@ -88,7 +88,7 @@ function flushMutationBatch() {
       payload: { mutations, count: mutations.length }
     }, { mutations });
   }
-  
+
   pendingMutations.clear();
 }
 
@@ -100,13 +100,13 @@ export function trackModification(entity: any, field: string | symbol): void {
   if (process.env.NODE_ENV !== 'production') {
     collectMutation(entity, field);
   }
-  
+
   for (const notifier of unconsumedNotifiers) {
-    const entityKeyset = notifier.fieldset.get(entity);
-    if (!entityKeyset) {
+    if (!notifier.fieldset.has(entity)) {
       continue;
     }
-    if (field === ACCESS_ALL_SYMBOL || entityKeyset.has(field)) {
+    const entityKeyset = notifier.fieldset.get(entity)!;
+    if (field === ACCESS_ALL_SYMBOL || entityKeyset.has(field) || entityKeyset.has(ACCESS_ALL_SYMBOL)) {
       unconsumedNotifiers.delete(notifier);
       notifier.trackingFunction();
     }

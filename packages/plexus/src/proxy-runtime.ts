@@ -116,6 +116,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
       return cloneTransactionMapping.get(target);
     }
     try {
+      trackAccess(target, ACCESS_ALL_SYMBOL);
       const clonedModel = new ModelConstructor(
         Object.fromEntries(
           Object.entries(schema).map(([fieldKey, type]) => {
@@ -128,17 +129,23 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               // Child value - deep clone if it has .clone(), otherwise copy as-is
               return [fieldKey, null];
             } else if (type === "list") {
+              trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
               // Regular list - shallow clone collection
               return [fieldKey, [...(fieldValue as any[])]];
             } else if (type === "child-list") {
+              trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
               return [fieldKey, []];
             } else if (type === "set") {
+              trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
               return [fieldKey, new Set(fieldValue as Set<any>)];
             } else if (type === "child-set") {
+              trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
               return [fieldKey, new Set()];
             } else if (type === "record") {
+              trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
               return [fieldKey, { ...fieldValue }];
             } else if (type === "child-record") {
+              trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
               return [fieldKey, {}];
             } else {
               return [fieldKey, fieldValue];
@@ -232,10 +239,11 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
       Record<string, AllowedYJSValue> | Array<AllowedYJSValue> | Set<AllowedYJSValue>
       // eslint-disable-next-line sonarjs/function-return-type
     >((key) => {
-      const keyType = schema[key] as "record" | "list" | "set";
+      const keyType = schema[key] as "record" | "list" | "set" | "child-record" | "child-list" | "child-set";
 
       // PROXY FACTORY: Create JavaScript interface wrapper for YJS collection
       switch (keyType) {
+        case "child-list":
         case "list": {
           // REFERENCE LIST: Array of entity pointers
           // Get or create YJS Array for this field
@@ -290,6 +298,22 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
 
                   return list.length;
               }
+
+              // Well-known Symbol support
+              if (typeof elementKey === "symbol") {
+                switch (elementKey) {
+                  case Symbol.iterator:
+                    return () => {
+                      trackAccess(arrayProxy, ACCESS_ALL_SYMBOL);
+                      return list.toArray().map(deref)[Symbol.iterator]();
+                    };
+                  case Symbol.toStringTag:
+                    return "Array";
+                  case Symbol.isConcatSpreadable:
+                    return true;
+                }
+              }
+
               // eslint-disable-next-line sonarjs/no-in-misuse
               if (elementKey in Array.prototype) {
                 if (typeof Array.prototype[elementKey] === "function") {
@@ -418,6 +442,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           });
           return arrayProxy;
         }
+        case "child-record":
         case "record": {
           let map = yprojectObjectInstanceFields.get(`${entityId}.${key}`) as Y.Map<AllowedYValue> | undefined;
           if (!map) {
@@ -453,6 +478,15 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                     }
                   };
               }
+
+              // Well-known Symbol support for record/map
+              if (typeof elementKey === "symbol") {
+                switch (elementKey) {
+                  case Symbol.toStringTag:
+                    return "Object";
+                }
+              }
+
               if (elementKey in Object.prototype) {
                 // Accessing Object prototype methods. Todo make more precise
                 trackAccess(mapProxy, ACCESS_ALL_SYMBOL);
@@ -525,6 +559,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           });
           return mapProxy;
         }
+        case "child-set":
         case "set": {
           // Sets are small collections (params, states) backed by YJS Array
           // Present Record<string, T> interface but use array storage + includes()
@@ -598,7 +633,13 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                     trackAccess(setProxy, ACCESS_ALL_SYMBOL);
                     return target.toArray().map(deref);
                   };
-                // todo Symbol.iterator
+                case Symbol.iterator:
+                  return () => {
+                    trackAccess(setProxy, ACCESS_ALL_SYMBOL);
+                    return target.toArray().map(deref)[Symbol.iterator]();
+                  };
+                case Symbol.toStringTag:
+                  return "Set";
                 case "forEach":
                   return (
                     callbackfn: (value: AllowedYJSValue, value2: AllowedYJSValue, set: Set<AllowedYJSValue>) => void,
@@ -672,6 +713,9 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               doc
             };
           }
+          if (key === "constructor") {
+            return ModelConstructor;
+          }
           if (key === "uuid") {
             // Expose entity ID as uuid field for DappSnap compatibility
             // Non-enumerable to maintain clean iteration behavior
@@ -694,7 +738,8 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           if (key === "clone") {
             // TRANSACTIONAL CLONE: Creates a new entity using constructor pattern
             // Handles cycles and deduplication via clone transaction mapping
-            return () => clone(proxy);
+            // note that we're using trackingPointer to provide proper notifications mechanics
+            return () => clone(trackingPointer);
           }
           if (typeof key === "string" && Object.hasOwn(schema, key)) {
             // Specific field access on the main entity
@@ -703,10 +748,26 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             if (subproxyCache.has(key)) {
               return subproxyCache.get(key);
             }
-            return schema[key] === "val"
+            return schema[key] === "val" || schema[key] === "child-val"
               ? deref(yprojectObjectInstanceFields.get(`${entityId}.${key}`) as AllowedYValue)
               : subproxyCache.get(key);
           }
+
+          // Handle well-known symbols for model root
+          if (typeof key === "symbol") {
+            switch (key) {
+              case Symbol.toStringTag:
+                return type; // Return the model class name
+              case Symbol.hasInstance:
+                return (instance: any) => {
+                  // Check if instance is of this model type
+                  return isModelType(instance) && instance[referenceSymbol] !== undefined;
+                };
+              // Note: Symbol.iterator and Symbol.isConcatSpreadable don't make sense for model objects
+              // as they're not iterable collections
+            }
+          }
+
           return Object.prototype[key];
         },
         set(target, elementKey, value) {
@@ -721,7 +782,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           }
           if (typeof elementKey === "string") {
             const keyType = schema[elementKey];
-            if (keyType === "val") {
+            if (keyType === "val" || keyType === "child-val") {
               trackModification(trackingPointer, elementKey);
               yprojectObjectInstanceFields.set(`${entityId}.${elementKey}`, maybeReference(value, projectId, doc));
               return true;
@@ -786,6 +847,10 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           if (manifestedState) {
             return Reflect.get(manifestedState, key);
           }
+
+          if (key === "constructor") {
+            return ModelConstructor;
+          }
           if (key === "uuid") {
             return entityId;
           }
@@ -811,16 +876,19 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                 yprojectEntityType.set(entityId, typeName);
                 for (const [schemaKey, type] of Object.entries(schema) as [
                   string,
-                  "val" | "list" | "record" | "set"
+                  "val" | "list" | "record" | "set" |
+                  "child-val" | "child-list" | "child-record" | "child-set"
                 ][]) {
                   switch (type) {
                     case "val":
+                    case "child-val":
                       yprojectObjectInstanceFields.set(
                         `${entityId}.${schemaKey}`,
                         boundMaybeReference(target[schemaKey] as AllowedYJSValue)
                       );
                       break;
                     case "list":
+                    case "child-list":
                       yprojectObjectInstanceFields.set(
                         `${entityId}.${schemaKey}`,
                         // @ts-expect-error todo yjs Array.from not supporting boolean
@@ -832,6 +900,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                       );
                       break;
                     case "record":
+                    case "child-record":
                       yprojectObjectInstanceFields.set(
                         `${entityId}.${schemaKey}`,
                         new Y.Map<AllowedYValue | null>(
@@ -842,6 +911,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                       );
                       break;
                     case "set":
+                    case "child-set":
                       yprojectObjectInstanceFields.set(
                         `${entityId}.${schemaKey}`,
                         // @ts-expect-error todo yjs Array.from not supporting boolean
@@ -881,7 +951,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           }
           if (key === "clone") {
             // EPHEMERAL CLONE: Creates a new ephemeral entity with same structure and field values
-            return () => clone(target);
+            return () => clone(ephemeralModel);
           }
           if (key in Object.prototype) {
             return target[key as keyof typeof target];
@@ -892,7 +962,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
 
             // CONTAGION-AWARE COLLECTION PROXIES FOR EPHEMERAL STATE
             // Return proxies that can trigger contagion when items are added
-            if (schemaType === "list") {
+            if (schemaType === "list" || schemaType === "child-list") {
               const ephemeralListProxy = new Proxy(fieldValue as Array<ModelPattern | null>, {
                 get(listTarget, listKey) {
                   if (listKey === "length") {
@@ -928,6 +998,21 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                         }
                       }
                     };
+                  } else if (typeof listKey === "symbol") {
+                    // Well-known Symbol support for ephemeral arrays
+                    switch (listKey) {
+                      case Symbol.iterator:
+                        return () => {
+                          trackAccess(ephemeralListProxy, ACCESS_ALL_SYMBOL);
+                          return listTarget[Symbol.iterator]();
+                        };
+                      case Symbol.toStringTag:
+                        return "Array";
+                      case Symbol.hasInstance:
+                        return (instance: any) => Array.isArray(instance);
+                      case Symbol.isConcatSpreadable:
+                        return true;
+                    }
                   } else if (listKey in Array.prototype) {
                     if (mutableArrayMethods.has(listKey)) {
                       // eslint-disable-next-line sonarjs/no-nested-functions
@@ -986,7 +1071,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               return ephemeralListProxy;
             }
 
-            if (schemaType === "record") {
+            if (schemaType === "record" || schemaType === "child-record") {
               const ephemeralMapProxy = new Proxy(fieldValue as Record<string, ModelPattern | null>, {
                 get(mapTarget, mapKey) {
                   if (mapKey === "clear") {
@@ -1030,7 +1115,16 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                       }
                     };
                   }
-                  // todo support well known symbols
+                  // Well-known Symbol support for ephemeral maps
+                  if (typeof mapKey === "symbol") {
+                    switch (mapKey) {
+                      case Symbol.toStringTag:
+                        return "Object";
+                      case Symbol.hasInstance:
+                        return (instance: any) => instance instanceof Object;
+                    }
+                  }
+
                   if (mapKey in Object.prototype && typeof Object.prototype[mapKey] === "function") {
                     return (...args) => {
                       // Object prototype method access
@@ -1073,7 +1167,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               return ephemeralMapProxy;
             }
 
-            if (schemaType === "set") {
+            if (schemaType === "set" || schemaType === "child-set") {
               const setProxyInit: ProxyHandler<Set<AllowedYJSValue>> = {
                 get(target, elementKey) {
                   switch (elementKey) {
@@ -1130,7 +1224,15 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
                         trackAccess(ephemeralSetProxy, ACCESS_ALL_SYMBOL);
                         return target.values();
                       };
-                    // todo Symbol.iterator
+                    case Symbol.iterator:
+                      return () => {
+                        trackAccess(ephemeralSetProxy, ACCESS_ALL_SYMBOL);
+                        return target[Symbol.iterator]();
+                      };
+                    case Symbol.toStringTag:
+                      return "Set";
+                    case Symbol.hasInstance:
+                      return (instance: any) => instance instanceof Set;
                     case "forEach":
                       return (
                         callbackfn: (
@@ -1196,6 +1298,15 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             trackAccess(ephemeralModel, key);
             return fieldValue;
           }
+
+          // Handle well-known symbols for ephemeral model root
+          if (typeof key === "symbol") {
+            switch (key) {
+              case Symbol.toStringTag:
+                return typeName; // Return the model class name
+            }
+          }
+
           return;
         },
 
@@ -1211,7 +1322,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             return false;
           }
           invariant(
-            schema[elementKey] === "val",
+            schema[elementKey] === "val" || schema[elementKey] === "child-val",
             `cannot directly assign ${schema[elementKey]}-typed ${typeName}.${elementKey.toString()}; instead manipulate the existing object`
           );
           const disclosure = (value as ModelPattern | null)?.[referenceDisclosureSymbol]?.();
@@ -1230,7 +1341,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
           if (manifestedState) {
             return Reflect.deleteProperty(manifestedState, key);
           }
-          if (schema[key] === "val") {
+          if (schema[key] === "val" || schema[key] === "child-val") {
             trackModification(ephemeralModel, key);
             trackModification(ephemeralModel, ACCESS_INDICES_SET_SYMBOL);
 

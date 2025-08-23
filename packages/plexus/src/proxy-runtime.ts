@@ -41,7 +41,7 @@ const isModelType = (object: any): object is ModelType<{}> => object?.[isProxyEn
 
 function maybeClone<T>(object: T): T {
   if (isModelType(object)) {
-    return object.clone();
+    return object.clone() as T;
   } else {
     return object;
   }

@@ -1,4 +1,4 @@
-import type { Constructor, OptionalKeysOf, Tagged, UnionToTuple, Writable } from "type-fest";
+import type { Constructor, OptionalKeysOf, Tagged, Writable } from "type-fest";
 import type * as Y from "yjs";
 import type { tag } from "type-fest/source/tagged";
 import { LastOfUnion } from "type-fest/source/union-to-tuple";
@@ -27,7 +27,7 @@ export type Storageable = AllowedYValue | Y.Map<AllowedYValue> | Y.Array<Allowed
 
 type ModelInternals<T extends LegitimateSchema<T>, Class extends string = string> = {
   readonly uuid: string;
-  clone<TT extends ModelType<T, Class>>(this: TT): TT;
+  clone<TT extends ModelPattern>(this: TT): TT;
   readonly [referenceSymbol]: (projectId: string, doc: Y.Doc) => ReferenceTuple;
   readonly [referenceDisclosureSymbol]?: () => {
     projectId: ProjectId;
@@ -49,11 +49,13 @@ type ReadonlyFields<A extends RecordSchemaInput, ExcludedKeys extends keyof A = 
     ? IsFieldReadonly<A, Head> | ReadonlyFields<A, ExcludedKeys | Head>
     : never;
 
+declare class ReadonlyField<T> {
+  assign(value: T): void;
+  clear(): void;
+}
+
 type EnrichedModel<T extends LegitimateSchema<T>> = {
-  readonly [key in ReadonlyFields<T>]: {
-    assign<P extends keyof T>(key: P, value: T[P]): void;
-    clear(): void;
-  };
+  readonly [key in ReadonlyFields<T>]: ReadonlyField<T[key]>;
 };
 
 type LegitimateSchema<T extends RecordSchemaInput> =

@@ -44,26 +44,29 @@ export type MetaRuntimeConstructor = new (classes: Class[], version: number) => 
 
 /**
  * Maps model schema types to proxy-model schema field types
+ * Respects @WeakRef annotations for ownership semantics
  */
-function mapTypeToProxySchema(type: Type): string {
+export function mapTypeToProxySchema(type: Type, field: Field): string {
+  const isWeakRef = field.annotations.includes("WeakRef");
+  
   switch (type.type) {
-    // Primitive types
+    // Primitive types - always "val" regardless of @WeakRef
     case "String":
     case "Number":
     case "Bool":
       return "val";
 
-    // Schema Set = small collections, use array backing (e.g. {Component} -> "set")
+    // Schema Set = small collections
     case "Set":
-      return "list";
+      return isWeakRef ? "list" : "child-list";
 
-    // Schema List = array (e.g. [Variant] -> "list")
+    // Schema List = array 
     case "List":
-      return "list";
+      return isWeakRef ? "list" : "child-list";
 
-    // Schema Map = records with keys (e.g. Map[String, String] -> "record")
+    // Schema Map = records with keys
     case "Map":
-      return "record";
+      return isWeakRef ? "record" : "child-record";
 
     // Union types (Or) - treat as values since they're usually string literals
     case "Or":
@@ -76,7 +79,7 @@ function mapTypeToProxySchema(type: Type): string {
         if (typeof innerType === "string") {
           return "val";
         } else if (innerType instanceof Object && "type" in innerType) {
-          return mapTypeToProxySchema(innerType as Type);
+          return mapTypeToProxySchema(innerType as Type, field);
         }
       }
       return "val"; // Default for unknown optionals
@@ -86,8 +89,9 @@ function mapTypeToProxySchema(type: Type): string {
       return "val";
 
     // Everything else is treated as object reference
+    // @WeakRef = weak reference, no @WeakRef = owned child
     default:
-      return "val";
+      return isWeakRef ? "val" : "child-val";
   }
 }
 
@@ -291,7 +295,7 @@ const generateSchemaObject = (cls: Class, meta: MetaRuntime): string => dedent`
   {
     ${meta
       .allFields(cls)
-      .map((field) => `  ${field.name}: "${mapTypeToProxySchema(field.type)}"`)
+      .map((field) => `  ${field.name}: "${mapTypeToProxySchema(field.type, field)}"`)
       .join(",\n")}
     }
 `;

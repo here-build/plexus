@@ -17,7 +17,6 @@ import { nanoid } from "nanoid";
 import invariant from "tiny-invariant";
 import type { ReadonlyDeep } from "type-fest";
 import * as Y from "yjs";
-
 import {
   type AllowedYJSValue,
   type AllowedYValue,
@@ -34,6 +33,19 @@ import {
   type StrictRecordSchema
 } from "./proxy-runtime-types.js";
 import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "./tracking.js"; // For packages that use plexus, ProjectId should be string
+
+// Global clone transaction mapping for handling cycles and deduplication
+let cloneTransactionMapping: WeakMap<any, any> | null = null;
+
+const isModelType = (object: any): object is ModelType<{}> => object?.[isProxyEntity] as boolean;
+
+function maybeClone<T>(object: T): T {
+  if (isModelType(object)) {
+    return object.clone();
+  } else {
+    return object;
+  }
+}
 
 // For packages that use plexus, ProjectId should be string
 // This can be overridden by the consuming application
@@ -97,6 +109,65 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
   typeName: string,
   schema: RecordSchema<T>
 ): ModelTypeConstructor<ExtractRecordSchema<T>, ExtractClassName<T>> {
+  const clone = (target: ModelType<ExtractRecordSchema<T>, ExtractClassName<T>>) => {
+    const isTopLevel = cloneTransactionMapping === null;
+    cloneTransactionMapping ??= new WeakMap();
+    if (cloneTransactionMapping.has(target)) {
+      return cloneTransactionMapping.get(target);
+    }
+    try {
+      const clonedModel = new ModelConstructor(
+        Object.fromEntries(
+          Object.entries(schema).map(([fieldKey, type]) => {
+            const fieldValue = target[fieldKey as keyof typeof target];
+
+            if (type === "val") {
+              // Primitive value or reference - copy directly
+              return [fieldKey, fieldValue as AllowedYJSValue];
+            } else if (type === "child-val") {
+              // Child value - deep clone if it has .clone(), otherwise copy as-is
+              return [fieldKey, null];
+            } else if (type === "list") {
+              // Regular list - shallow clone collection
+              return [fieldKey, [...(fieldValue as any[])]];
+            } else if (type === "child-list") {
+              return [fieldKey, []];
+            } else if (type === "set") {
+              return [fieldKey, new Set(fieldValue as Set<any>)];
+            } else if (type === "child-set") {
+              return [fieldKey, new Set()];
+            } else if (type === "record") {
+              return [fieldKey, { ...fieldValue }];
+            } else if (type === "child-record") {
+              return [fieldKey, {}];
+            } else {
+              return [fieldKey, fieldValue];
+            }
+          })
+        )
+      );
+      cloneTransactionMapping.set(target, clonedModel);
+      for (const [fieldKey, type] of Object.entries(schema)) {
+        const fieldValue = target[fieldKey as keyof typeof target];
+
+        if (type === "child-val") {
+          clonedModel[fieldKey] = maybeClone(fieldValue);
+        } else if (type === "child-list") {
+          clonedModel[fieldKey].assign((fieldValue as any[]).map(maybeClone));
+        } else if (type === "child-set") {
+          clonedModel[fieldKey].assign(new Set([...(fieldValue as Set<any>)].map(maybeClone)));
+        } else if (type === "child-record") {
+          clonedModel[fieldKey].assign(Object.fromEntries(Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [key, maybeClone(item)])));
+        }
+      }
+      return clonedModel;
+    } finally {
+      if (isTopLevel) {
+        cloneTransactionMapping = null;
+      }
+    }
+  };
+
   const spawn = (
     entityId: string,
     projectId: ProjectId,
@@ -621,42 +692,9 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             };
           }
           if (key === "clone") {
-            // SHALLOW CLONE: Creates a new entity using constructor pattern
-            // Automatically handles ephemeral/materialized and triggers proper tracking
-            return () => {
-              const props: any = {};
-
-              // Read all fields from this entity (triggers access tracking)
-              for (const fieldKey of Object.keys(schema)) {
-                const fieldValue = proxy[fieldKey];
-                if (fieldValue !== undefined) {
-                  if (schema[fieldKey] === "val") {
-                    // Primitive value - copy directly
-                    props[fieldKey] = fieldValue;
-                  } else {
-                    // Collections - spread clone to new instances
-                    if (Array.isArray(fieldValue)) {
-                      props[fieldKey] = [...fieldValue];
-                    } else if (fieldValue instanceof Set) {
-                      props[fieldKey] = new Set(fieldValue);
-                    } else if (
-                      typeof fieldValue === "object" &&
-                      fieldValue != null &&
-                      !(fieldValue as any)[isProxyEntity]
-                    ) {
-                      // Record/map - spread clone
-                      props[fieldKey] = { ...fieldValue };
-                    } else {
-                      // Reference to entity or primitive - copy as-is
-                      props[fieldKey] = fieldValue;
-                    }
-                  }
-                }
-              }
-
-              // Use constructor pattern - works for both ephemeral and materialized
-              return spawn(nanoid(), projectId, doc, props as any);
-            };
+            // TRANSACTIONAL CLONE: Creates a new entity using constructor pattern
+            // Handles cycles and deduplication via clone transaction mapping
+            return () => clone(proxy);
           }
           if (typeof key === "string" && Object.hasOwn(schema, key)) {
             // Specific field access on the main entity
@@ -743,6 +781,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
         // Same object reference, different behavior based on internal state.
         // eslint-disable-next-line sonarjs/function-return-type
         get(target, key) {
+          if (key === isProxyEntity) return true;
           // POST-MATERIALIZATION: Forward all access to the YJS-synced version
           if (manifestedState) {
             return Reflect.get(manifestedState, key);
@@ -840,43 +879,9 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               });
             };
           }
-          if (key === isProxyEntity) return true;
           if (key === "clone") {
             // EPHEMERAL CLONE: Creates a new ephemeral entity with same structure and field values
-            return () => {
-              const props: any = {};
-
-              // Read all fields from this ephemeral entity
-              for (const fieldKey of Object.keys(schema)) {
-                const fieldValue = target[fieldKey as keyof typeof target];
-                if (fieldValue !== undefined) {
-                  if (schema[fieldKey] === "val") {
-                    // Primitive value - copy directly
-                    props[fieldKey] = fieldValue;
-                  } else {
-                    // Collections - spread clone to new instances
-                    if (Array.isArray(fieldValue)) {
-                      props[fieldKey] = [...fieldValue];
-                    } else if (fieldValue instanceof Set) {
-                      props[fieldKey] = new Set(fieldValue);
-                    } else if (
-                      typeof fieldValue === "object" &&
-                      fieldValue != null &&
-                      !(fieldValue as any)[isProxyEntity]
-                    ) {
-                      // Record/map - spread clone
-                      props[fieldKey] = { ...fieldValue };
-                    } else {
-                      // Reference to entity or primitive - copy as-is
-                      props[fieldKey] = fieldValue;
-                    }
-                  }
-                }
-              }
-
-              // Create new ephemeral entity
-              return ModelConstructor(props as any);
-            };
+            return () => clone(target);
           }
           if (key in Object.prototype) {
             return target[key as keyof typeof target];

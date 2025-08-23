@@ -27,7 +27,7 @@ export type Storageable = AllowedYValue | Y.Map<AllowedYValue> | Y.Array<Allowed
 
 type ModelInternals<T extends LegitimateSchema<T>, Class extends string = string> = {
   readonly uuid: string;
-  clone(): ModelType<T, Class>;
+  clone<TT extends ModelType<T, Class>>(this: TT): TT;
   readonly [referenceSymbol]: (projectId: string, doc: Y.Doc) => ReferenceTuple;
   readonly [referenceDisclosureSymbol]?: () => {
     projectId: ProjectId;
@@ -63,7 +63,7 @@ type LegitimateSchema<T extends RecordSchemaInput> =
   : never;
 
 export type ModelType<T extends LegitimateSchema<T>, Class extends string = string> = Tagged<
-  T & ModelInternals<T> & EnrichedModel<T>,
+  T & ModelInternals<T, Class> & EnrichedModel<T>,
   "syncing",
   Class
 >;
@@ -97,13 +97,13 @@ export type RecordSchema<T extends LegitimateSchema<T>> =
   PureSchema<T> extends infer TT
     ? {
         [key in keyof TT]: TT[key] extends AllowedYJSValue | null
-          ? "val"
+          ? "val" | "child-val"
           : TT[key] extends AllowedYJSValueMap | null
-            ? "record"
+            ? "record" | "child-record"
             : TT[key] extends AllowedYJSValueSet | null
-              ? "set"
+              ? "set" | "child-set"
               : TT[key] extends AllowedYJSValueList | null
-                ? "list"
+                ? "list" | "child-list"
                 : never;
       }
     : never;

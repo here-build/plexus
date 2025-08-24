@@ -749,10 +749,10 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
         get(target, key) {
           if (key === isProxyEntity) return true;
           if (key === referenceDisclosureSymbol) {
-            return {
+            return () => ({
               projectId,
               doc
-            };
+            });
           }
           if (key === "constructor") {
             return ModelConstructor;
@@ -1437,7 +1437,8 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
     {
       __type: { value: typeName },
       schema: { value: schema },
-      spawn: { value: spawn }
+      spawn: { value: spawn },
+      name: { value: typeName }
     }
   ) as any as ModelTypeConstructor<ExtractRecordSchema<T>, ExtractClassName<T>>;
 

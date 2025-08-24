@@ -4,8 +4,9 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildModelClass } from "../proxy-runtime.js";
-import { ModelType, referenceSymbol } from "../proxy-runtime-types.js";
+import { ModelType, referenceSymbol, Storageable } from "../proxy-runtime-types.js";
 import * as Y from "yjs";
+import { YJS_GLOBALS } from "../YJS_GLOBALS";
 
 // Test model with a set field
 type TestModelWithSet = ModelType<
@@ -42,7 +43,7 @@ describe("Set Proxy Implementation", () => {
 
   beforeEach(() => {
     doc = new Y.Doc();
-    (doc as any).rootProjectId = "test-project";
+    doc.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, "test-project");
     projectId = "test-project";
   });
 
@@ -188,9 +189,9 @@ describe("Set Proxy Implementation", () => {
       expect(ref).toEqual([expect.any(String)]);
 
       // Check that YJS arrays were created
-      const yprojectFields = doc.getMap(`project:${projectId}:models`);
+      const yprojectFields = doc.getMap<Y.Map<Storageable>>(`models`);
       const entityId = ref[0];
-      const tagsArray = yprojectFields.get(`${entityId}.tags`) as Y.Array<any>;
+      const tagsArray = yprojectFields.get(entityId).get("tags") as Y.Array<any>;
 
       expect(tagsArray).toBeInstanceOf(Y.Array);
       expect(tagsArray.length).toBe(2);
@@ -218,8 +219,8 @@ describe("Set Proxy Implementation", () => {
       expect(materializedModel.tags.size).toBe(2);
 
       // Check YJS backing
-      const yprojectFields = doc.getMap(`project:${projectId}:models`);
-      const tagsArray = yprojectFields.get(`${entityId}.tags`) as Y.Array<any>;
+      const yprojectFields = doc.getMap<Y.Map<Storageable>>(`models`);
+      const tagsArray = yprojectFields.get(entityId).get("tags") as Y.Array<any>;
       expect(tagsArray.length).toBe(2);
       expect(tagsArray.toArray()).toEqual(expect.arrayContaining(["tag1", "tag2"]));
     });

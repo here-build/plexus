@@ -11,6 +11,7 @@ import * as Y from 'yjs';
 import { buildModelClass, type ProjectId } from '../proxy-runtime.js';
 import { createTrackedFunction } from '../tracking.js';
 import type { ModelType } from '../proxy-runtime-types.js';
+import { YJS_GLOBALS } from "../YJS_GLOBALS";
 
 // Configure MobX for optimal performance
 configure({
@@ -37,7 +38,7 @@ const SimpleModelClass = buildModelClass<SimpleModel>("SimpleModel", {
 // Helper to create YJS document setup
 function createYJSSetup() {
   const doc = new Y.Doc() as any;
-  doc.rootProjectId = "test-project";
+  doc.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, "test-project");
   return { doc, projectId: "test-project" as ProjectId };
 }
 

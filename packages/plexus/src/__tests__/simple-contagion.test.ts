@@ -5,7 +5,7 @@
 import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { ProjectId } from "../";
+import { ProjectId, YJS_GLOBALS } from "../";
 
 import { isProxyEntity, type ModelType, referenceSymbol } from "../proxy-runtime-types.js";
 import { buildModelClass } from "../proxy-runtime.js"; // Extended Y.Doc type for testing
@@ -39,11 +39,12 @@ const Site = buildModelClass<SiteType>("Site", {
 });
 
 describe("Simple Contagion Test", () => {
-  let doc: TestYDoc;
+  let doc: Y.Doc;
   const projectId: ProjectId = "test-project" as ProjectId;
 
   beforeEach(() => {
-    doc = Object.assign(new Y.Doc(), { rootProjectId: projectId });
+    doc = new Y.Doc();
+    doc.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, projectId)
   });
 
   afterEach(() => {

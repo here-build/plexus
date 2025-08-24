@@ -17,6 +17,7 @@ import * as Y from 'yjs';
 import { buildModelClass, type ProjectId } from '../proxy-runtime.js';
 import { createTrackedFunction } from '../tracking.js';
 import type { ModelType } from '../proxy-runtime-types.js';
+import { YJS_GLOBALS } from "../YJS_GLOBALS";
 
 // Configure MobX for optimal performance
 configure({
@@ -70,7 +71,7 @@ const LargeModelClass = buildModelClass<LargeModel>("LargeModel", {
 // Helper to create YJS document setup
 function createYJSSetup() {
   const doc = new Y.Doc() as any;
-  doc.rootProjectId = "test-project";
+  doc.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, "test-project");
   return { doc, projectId: "test-project" as ProjectId };
 }
 
@@ -687,10 +688,11 @@ describe('YJS Collaboration Performance', () => {
 
   bench('Plexus: Cross-document synchronization setup', () => {
     const doc1 = new Y.Doc() as any;
-    doc1.rootProjectId = "project1";
+    doc1.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, "project1");
 
     const doc2 = new Y.Doc() as any;
-    doc2.rootProjectId = "project1";
+    doc2.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, "project1");
+
 
     // Create objects in first document
     const obj1 = new SimpleModelClass({

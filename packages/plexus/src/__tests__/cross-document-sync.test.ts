@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import type { ProjectId } from "../index.js";
+import { ProjectId, YJS_GLOBALS } from "../index.js";
 
 import { isProxyEntity, type ModelType, referenceSymbol } from "../proxy-runtime-types.js";
 import { buildModelClass } from "../proxy-runtime.js";
@@ -84,13 +84,15 @@ function createTestSite(name: string, projectId: ProjectId, doc: TestYDoc) {
 }
 
 describe("Cross-Document Proxy Sync", () => {
-  let doc1: TestYDoc;
-  let doc2: TestYDoc;
+  let doc1: Y.Doc;
+  let doc2: Y.Doc;
   const projectId: ProjectId = "test-project" as ProjectId;
 
   beforeEach(() => {
-    doc1 = Object.assign(new Y.Doc(), { rootProjectId: projectId });
-    doc2 = Object.assign(new Y.Doc(), { rootProjectId: projectId });
+    doc1 = new Y.Doc();
+    doc2 = new Y.Doc();
+    doc1.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, projectId);
+    doc2.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, projectId);
   });
 
   afterEach(() => {

@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import * as Y from "yjs";
 import { buildModelClass } from "../proxy-runtime";
 import { referenceSymbol } from "../proxy-runtime-types";
+import { YJS_GLOBALS } from "../YJS_GLOBALS";
 
 // Test model schemas
 const TestUser = buildModelClass("TestUser", {
@@ -30,7 +31,7 @@ describe("Tuple Reference Format", () => {
 
   beforeEach(() => {
     doc = new Y.Doc();
-    (doc as any).rootProjectId = projectId;
+    doc.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, projectId);
   });
 
   it("should create local references as single-element tuples", () => {
@@ -49,7 +50,7 @@ describe("Tuple Reference Format", () => {
 
   it("should create cross-project references as two-element tuples", () => {
     const doc1 = new Y.Doc();
-    (doc1 as any).rootProjectId = "project1";
+    doc1.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, "project1");
 
     // Create user in project1
     const user = new TestUser({ name: "Alice", posts: [] });
@@ -78,8 +79,8 @@ describe("Tuple Reference Format", () => {
     const postId = "post_456";
 
     // Simulate storing in YJS with tuple references
-    const projectModels = doc.getMap(`project:${projectId}:models`);
-    const projectTypes = doc.getMap(`project:${projectId}:models:types`);
+    const projectModels = doc.getMap(`models`);
+    const projectTypes = doc.getMap(`models:types`);
 
     // Store types
     projectTypes.set(userId, "TestUser");

@@ -48,13 +48,13 @@ const SiteClass = buildModelClass<SiteType>("Site", {
 
 function createYJSSetup() {
   const doc = new Y.Doc() as any;
-  doc.rootProjectId = "test-project";
+  doc.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, projectId);
   return { doc, projectId: "test-project" as ProjectId };
 }
 
 describe('Sparse Array Performance', () => {
   bench('Plexus: Sparse array with holes', () => {
-    const model = new new SparseArrayModelClass({
+    const model = new SparseArrayModelClass({
       sparseItems: [],
       indices: {}
     });

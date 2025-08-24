@@ -14,3 +14,4 @@ export * from "./proxy-runtime-types.js";
 
 // Built-in tracking system
 export * from "./tracking.js";
+export * from "./YJS_GLOBALS.js"

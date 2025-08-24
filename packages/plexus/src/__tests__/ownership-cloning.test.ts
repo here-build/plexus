@@ -687,4 +687,116 @@ describe("Ownership-aware cloning", () => {
       expect(uniqueUuids.size).toBe(10); // All different
     });
   });
+
+  describe("ephemeral entity reference behavior", () => {
+    it("should keep ephemeral entity ephemeral when referencing stored entity", () => {
+      // Create a stored (materialized) entity
+      const storedChild = new ChildComponent({ name: "stored", value: 100 });
+      
+      // Create ephemeral entity that references the stored one
+      const ephemeralParent = new ParentWithChildVal({
+        name: "ephemeral",
+        child: null,
+        reference: storedChild // Ephemeral entity referencing stored entity
+      });
+      
+      // The ephemeral entity should remain ephemeral despite referencing stored entity
+      expect(ephemeralParent.reference).toBe(storedChild);
+      expect(ephemeralParent.reference!.name).toBe("stored");
+      
+      // Clone the ephemeral parent
+      const cloned = ephemeralParent.clone();
+      
+      // The cloned ephemeral should still reference the original stored entity
+      expect(cloned.reference).toBe(storedChild); // Same reference to stored
+      expect(cloned.reference!.uuid).toBe(storedChild.uuid);
+    });
+
+    it("should handle mixed ephemeral/materialized in lists - clone child-list but preserve list", () => {
+      const materializedChild1 = new ChildComponent({ name: "materialized1", value: 1 });
+      const materializedChild2 = new ChildComponent({ name: "materialized2", value: 2 });
+      const ephemeralChild = new ChildComponent({ name: "ephemeral", value: 3 });
+      
+      const parent = new ParentWithChildList({
+        name: "mixed",
+        children: [ephemeralChild, materializedChild1], // child-list: should clone both
+        references: [ephemeralChild, materializedChild2] // list: should preserve both
+      });
+
+      const cloned = parent.clone();
+
+      // child-list: both items should be cloned (even if original was ephemeral)
+      expect(cloned.children).toHaveLength(2);
+      expect(cloned.children[0].uuid).not.toBe(ephemeralChild.uuid);
+      expect(cloned.children[1].uuid).not.toBe(materializedChild1.uuid);
+      expect(cloned.children[0].name).toBe("ephemeral");
+      expect(cloned.children[1].name).toBe("materialized1");
+
+      // list: both items should be preserved as references (same UUIDs)
+      expect(cloned.references).toHaveLength(2);
+      expect(cloned.references[0]).toBe(ephemeralChild); // Same reference
+      expect(cloned.references[1]).toBe(materializedChild2); // Same reference
+      expect(cloned.references[0].uuid).toBe(ephemeralChild.uuid);
+      expect(cloned.references[1].uuid).toBe(materializedChild2.uuid);
+    });
+
+    it("should handle mixed ephemeral/materialized in records - clone child-record but preserve record", () => {
+      const materializedChild = new ChildComponent({ name: "materialized", value: 1 });
+      const ephemeralChild = new ChildComponent({ name: "ephemeral", value: 2 });
+      
+      const parent = new ParentWithChildRecord({
+        name: "mixed",
+        childMap: { 
+          mat: materializedChild, 
+          eph: ephemeralChild 
+        }, // child-record: should clone both
+        refMap: { 
+          mat: materializedChild, 
+          eph: ephemeralChild 
+        } // record: should preserve both
+      });
+
+      const cloned = parent.clone();
+
+      // child-record: both values should be cloned
+      expect(Object.keys(cloned.childMap)).toEqual(["mat", "eph"]);
+      expect(cloned.childMap.mat.uuid).not.toBe(materializedChild.uuid);
+      expect(cloned.childMap.eph.uuid).not.toBe(ephemeralChild.uuid);
+      expect(cloned.childMap.mat.name).toBe("materialized");
+      expect(cloned.childMap.eph.name).toBe("ephemeral");
+
+      // record: both values should be preserved as references
+      expect(cloned.refMap.mat).toBe(materializedChild);
+      expect(cloned.refMap.eph).toBe(ephemeralChild);
+      expect(cloned.refMap.mat.uuid).toBe(materializedChild.uuid);
+      expect(cloned.refMap.eph.uuid).toBe(ephemeralChild.uuid);
+    });
+
+    it("should handle mixed ephemeral/materialized in sets - clone child-set but preserve set", () => {
+      const materializedChild = new ChildComponent({ name: "materialized", value: 1 });
+      const ephemeralChild = new ChildComponent({ name: "ephemeral", value: 2 });
+      
+      const parent = new ParentWithChildSet({
+        name: "mixed",
+        childSet: new Set([materializedChild, ephemeralChild]), // child-set: should clone both
+        refSet: new Set([materializedChild, ephemeralChild]) // set: should preserve both
+      });
+
+      const cloned = parent.clone();
+
+      // child-set: both items should be cloned
+      expect(cloned.childSet.size).toBe(2);
+      const clonedChildren = Array.from(cloned.childSet);
+      expect(clonedChildren.every(child => 
+        child.uuid !== materializedChild.uuid && child.uuid !== ephemeralChild.uuid
+      )).toBe(true);
+      expect(clonedChildren.some(child => child.name === "materialized")).toBe(true);
+      expect(clonedChildren.some(child => child.name === "ephemeral")).toBe(true);
+
+      // set: both items should be preserved as references
+      expect(cloned.refSet.size).toBe(2);
+      expect(cloned.refSet.has(materializedChild)).toBe(true);
+      expect(cloned.refSet.has(ephemeralChild)).toBe(true);
+    });
+  });
 });

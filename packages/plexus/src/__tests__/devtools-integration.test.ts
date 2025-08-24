@@ -72,12 +72,10 @@ describe("DevTools Integration", () => {
       expect(action.payload.mutations).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            entity: "Object",
             field: "name",
             value: "changed"
           }),
           expect.objectContaining({
-            entity: "Object",
             field: "count",
             value: 42
           })

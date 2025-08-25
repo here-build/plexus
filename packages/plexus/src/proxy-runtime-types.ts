@@ -5,7 +5,6 @@ import { LastOfUnion } from "type-fest/source/union-to-tuple";
 
 // For standalone usage - ProjectId can be overridden by consuming applications
 export type ProjectId = string;
-export type ProjectVersionId = string;
 
 export const isProxyEntity = Symbol("isProxyEntity");
 export const referenceSymbol = Symbol("reference");
@@ -25,9 +24,9 @@ export type AllowedYJSValueMap = Record<string, AllowedYJSValue>;
 export type AllowedYJSValueList = Array<AllowedYJSValue>;
 export type Storageable = AllowedYValue | Y.Map<AllowedYValue> | Y.Array<AllowedYValue>;
 
-type ModelInternals<T extends LegitimateSchema<T>, Class extends string = string> = {
+type ModelInternals<T extends LegitimateSchema<T>> = {
   readonly uuid: string;
-  clone<TT extends ModelPattern>(this: TT): TT;
+  clone<TT extends ModelPattern>(this: TT, newProps?: TT extends ModelType<infer P> ? Partial<P> : never): TT;
   readonly [referenceSymbol]: (projectId: string, doc: Y.Doc) => ReferenceTuple;
   readonly [referenceDisclosureSymbol]?: () => {
     projectId: ProjectId;
@@ -49,6 +48,18 @@ type ReadonlyFields<A extends RecordSchemaInput, ExcludedKeys extends keyof A = 
     ? IsFieldReadonly<A, Head> | ReadonlyFields<A, ExcludedKeys | Head>
     : never;
 
+type IsFieldNullable<A extends RecordSchemaInput, Key extends keyof A> =
+  (<G, G2>() => G extends { [Q in keyof A as Q extends Key ? Q : never]: G2 | null } ? 1 : 2) extends <G, G2>() => G extends A
+      ? 1
+    : 2
+    ? Key
+    : never;
+
+type NullableFields<A extends RecordSchemaInput, ExcludedKeys extends keyof A = never> =
+  LastOfUnion<Exclude<keyof A, ExcludedKeys>> extends infer Head extends keyof A
+    ? IsFieldNullable<A, Head> | NullableFields<A, ExcludedKeys | Head>
+    : never;
+
 declare class ReadonlyField<T> {
   assign(value: T): void;
   clear(): void;
@@ -65,13 +76,27 @@ type LegitimateSchema<T extends RecordSchemaInput> =
   : never;
 
 export type ModelType<T extends LegitimateSchema<T>, Class extends string = string> = Tagged<
-  T & ModelInternals<T, Class> & EnrichedModel<T>,
+  T & ModelInternals<T> & EnrichedModel<T>,
   "syncing",
   Class
 >;
 
 export type ModelTypeConstructor<T extends LegitimateSchema<T>, Name extends string> = Tagged<
-  Constructor<ModelType<T, Name>, [Writable<Omit<T, keyof ModelInternals<{}> | typeof tag>>]> & {
+  Constructor<
+    ModelType<T, Name>,
+    [
+      Writable<
+        Omit<T, keyof ModelInternals<{}> | typeof tag | ReadonlyFields<T> | NullableFields<T>> &
+          Partial<
+            Pick<
+              Omit<T, keyof ModelInternals<{}> | typeof tag>,
+              | ReadonlyFields<Omit<T, keyof ModelInternals<{}> | typeof tag>>
+              | NullableFields<Omit<T, keyof ModelInternals<{}> | typeof tag>>
+            >
+          >
+      >
+    ]
+  > & {
     __type: Name;
     schema: RecordSchema<T>;
     spawn: (entityId: string, projectId: string, yjs: Y.Doc) => ModelType<T, Name>;

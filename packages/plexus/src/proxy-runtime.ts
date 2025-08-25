@@ -107,7 +107,10 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
   typeName: string,
   schema: RecordSchema<T>
 ): ModelTypeConstructor<ExtractRecordSchema<T>, ExtractClassName<T>> {
-  const clone = (target: ModelType<ExtractRecordSchema<T>, ExtractClassName<T>>) => {
+  const clone = (
+    target: ModelType<ExtractRecordSchema<T>, ExtractClassName<T>>,
+    newProps?: Partial<ExtractRecordSchema<T>>
+  ) => {
     const isTopLevel = cloneTransactionMapping === null;
     cloneTransactionMapping ??= new WeakMap();
     if (cloneTransactionMapping.has(target)) {
@@ -119,6 +122,9 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
         Object.fromEntries(
           Object.entries(schema).map(([fieldKey, type]) => {
             const fieldValue = target[fieldKey as keyof typeof target];
+            if (newProps && fieldKey in newProps) {
+              return [fieldKey, newProps[fieldKey] as AllowedYJSValue];
+            }
 
             if (type === "val") {
               // Primitive value or reference - copy directly
@@ -787,7 +793,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             // TRANSACTIONAL CLONE: Creates a new entity using constructor pattern
             // Handles cycles and deduplication via clone transaction mapping
             // note that we're using trackingPointer to provide proper notifications mechanics
-            return () => clone(trackingPointer);
+            return (newProps?: Partial<ExtractRecordSchema<T>>) => clone(trackingPointer, newProps);
           }
           if (typeof key === "string" && Object.hasOwn(schema, key)) {
             // Specific field access on the main entity
@@ -892,10 +898,10 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             switch (type) {
               case "val":
               case "child-val":
-                return [key, value];
+                return [key, value ?? null];
               case "list":
               case "child-list": {
-                const ephemeralListProxy = new Proxy(value as Array<ModelPattern | null>, {
+                const ephemeralListProxy = new Proxy((value ?? []) as Array<ModelPattern | null>, {
                   get(listTarget, listKey) {
                     if (listKey === "length") {
                       trackAccess(ephemeralListProxy, ACCESS_INDICES_SET_SYMBOL);
@@ -1004,7 +1010,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               }
               case "set":
               case "child-set": {
-                const ephemeralSetProxy = new Proxy(value as Set<AllowedYJSValue>, {
+                const ephemeralSetProxy = new Proxy((value ?? new Set()) as Set<AllowedYJSValue>, {
                   get(target, elementKey) {
                     switch (elementKey) {
                       case "size":
@@ -1130,7 +1136,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
               }
               case "record":
               case "child-record": {
-                const ephemeralMapProxy = new Proxy(value as Record<string, ModelPattern | null>, {
+                const ephemeralMapProxy = new Proxy((value ?? {}) as Record<string, ModelPattern | null>, {
                   get(mapTarget, mapKey) {
                     if (mapKey === "clear") {
                       return () => {
@@ -1348,7 +1354,7 @@ export function buildModelClass<T extends RecordSchemaInput | ModelPattern>(
             }
             if (key === "clone") {
               // EPHEMERAL CLONE: Creates a new ephemeral entity with same structure and field values
-              return () => clone(ephemeralModel);
+              return (newProps?: Partial<ExtractRecordSchema<T>>) => clone(ephemeralModel, newProps);
             }
             if (Object.hasOwn(schema, key)) {
               trackAccess(ephemeralModel, key);

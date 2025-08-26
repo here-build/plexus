@@ -37,6 +37,7 @@ export class DefaultedWeakMap<K extends object, V> extends WeakMap<K, V> {
 }
 
 export function never(value: never): never {
+  debugger;
   throw new Error(`Unexpected value: ${value}`);
 }
 

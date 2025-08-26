@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import { ProjectId, referenceSymbol, YJS_GLOBALS } from "../index.js";
+import { isProxyEntity, ProjectId, referenceSymbol, YJS_GLOBALS } from "../index.js";
 
 import { type ModelType } from "../proxy-runtime-types.js";
 import { buildModelClass } from "../proxy-runtime.js";

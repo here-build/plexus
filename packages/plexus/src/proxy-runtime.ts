@@ -19,6 +19,7 @@ import * as Y from "yjs";
 import {
   type AllowedYJSValue,
   type AllowedYValue,
+  materializationSymbol,
   type ModelConstructor,
   ModelConstructorInit,
   ModelName,
@@ -31,15 +32,12 @@ import {
 } from "./proxy-runtime-types.js";
 import { YJS_GLOBALS } from "@dappsnap/plexus";
 import { buildEphemeralProxy } from "./proxies/ephemeral";
-import {
-  buildMaterializedProxyHandler,
-  type MaterializedProxyTarget
-} from "./proxies/materialized";
-import { materializedSetProxyInit, type MaterializedSetProxyInitTarget } from "./proxies/materialized-set";
-import { materializedArrayProxyInit, type MaterializedArrayProxyInitTarget } from "./proxies/materialized-array";
-import { materializedRecordProxyInit, type MaterializedRecordProxyInitTarget } from "./proxies/materialized-map";
+import { buildMaterializedProxyHandler } from "./proxies/materialized";
+import { buildSetProxy } from "./proxies/materialized-set";
+import { buildArrayProxy } from "./proxies/materialized-array";
 import { documentEntityCaches, entityClasses } from "./globals"; // For packages that use plexus, ProjectId should be string
-import { curryMaybeReference } from "./utils"; // PROJECT DEPENDENCY ARCHITECTURE:
+import { curryMaybeReference } from "./utils";
+import { buildRecordProxy } from "./proxies/materialized-map"; // PROJECT DEPENDENCY ARCHITECTURE:
 
 // PROJECT DEPENDENCY ARCHITECTURE:
 // - ONE root project (editable, can create/modify entities)
@@ -121,19 +119,13 @@ export function buildModelClass<T extends ModelPattern>(
               list = new Y.Array();
               yprojectObjectInstanceFields.set(key, list);
             }
+            if (internal__ephemeralExternalObject) {
+              // @ts-expect-error
+              internal__ephemeralExternalObject[key]![materializationSymbol](list, boundMaybeReference);
+              return [key, internal__ephemeralExternalObject[key]];
+            }
 
-            const init: MaterializedArrayProxyInitTarget = {
-              doc,
-              projectId,
-              type,
-              arrayProxy: null as any,
-              list,
-              boundMaybeReference
-            };
-            const arrayProxy = new Proxy(init, materializedArrayProxyInit) as any as AllowedYJSValue[];
-            init.arrayProxy = arrayProxy;
-
-            return [key, arrayProxy];
+            return [key, buildArrayProxy({ list, boundMaybeReference })];
           }
           case "child-record":
           case "record": {
@@ -142,17 +134,18 @@ export function buildModelClass<T extends ModelPattern>(
               map = new Y.Map();
               yprojectObjectInstanceFields.set(key, map);
             }
-            const init: MaterializedRecordProxyInitTarget = {
-              doc,
-              projectId,
-              type,
-              mapProxy: null as any,
-              map,
-              boundMaybeReference
-            };
-            const mapProxy = new Proxy(init, materializedRecordProxyInit) as any as Record<string, AllowedYJSValue>;
-            init.mapProxy = mapProxy;
-            return [key, mapProxy];
+            if (internal__ephemeralExternalObject) {
+              // @ts-expect-error
+              internal__ephemeralExternalObject[key]![materializationSymbol](map, boundMaybeReference);
+              return [key, internal__ephemeralExternalObject[key]];
+            }
+            return [
+              key,
+              buildRecordProxy({
+                boundMaybeReference,
+                map
+              })
+            ];
           }
           case "child-set":
           case "set": {
@@ -163,19 +156,19 @@ export function buildModelClass<T extends ModelPattern>(
               underlyingArray = new Y.Array();
               yprojectObjectInstanceFields.set(key, underlyingArray);
             }
+            if (internal__ephemeralExternalObject) {
+              // @ts-expect-error
+              internal__ephemeralExternalObject[key]![materializationSymbol](underlyingArray, boundMaybeReference);
+              return [key, internal__ephemeralExternalObject[key]];
+            }
 
-            const target: MaterializedSetProxyInitTarget = {
-              doc,
-              projectId,
-              type,
-              setProxy: null as any,
-              list: underlyingArray,
-              boundMaybeReference
-            };
-
-            const setProxy = new Proxy(target, materializedSetProxyInit) as any as Set<AllowedYJSValue>;
-            target.setProxy = setProxy;
-            return [key, setProxy];
+            return [
+              key,
+              buildSetProxy({
+                list: underlyingArray,
+                boundMaybeReference
+              })
+            ];
           }
           default:
             return [key, null];
@@ -183,18 +176,21 @@ export function buildModelClass<T extends ModelPattern>(
       })
     );
 
-    const proxy = buildMaterializedProxyHandler({
-      target,
-      doc,
-      projectId,
-      schema: schema,
-      localReference,
-      globalReference,
-      constructor: ModelConstructor,
-      entityId,
-      type: typeName,
-      fieldMap: yprojectObjectInstanceFields
-    }, internal__ephemeralExternalObject)
+    const proxy = buildMaterializedProxyHandler(
+      {
+        target,
+        doc,
+        projectId,
+        schema,
+        localReference,
+        globalReference,
+        constructor: ModelConstructor,
+        entityId,
+        type: typeName,
+        fieldMap: yprojectObjectInstanceFields
+      },
+      internal__ephemeralExternalObject
+    );
     if (!internal__ephemeralExternalObject) {
       documentEntityCaches.get(doc).set(cacheKey, new WeakRef(proxy as ModelPattern));
     }

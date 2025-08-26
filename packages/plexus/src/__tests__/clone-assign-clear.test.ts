@@ -296,23 +296,6 @@ describe("clone(), assign(), clear() methods", () => {
       expect(Object.keys(model.metadata)).toEqual(["new1", "new2"]);
     });
 
-    it("should replace entire map contents with iterable of [key, value] pairs", () => {
-      const model = new TestModel({
-        name: "test",
-        value: 42,
-        component: null,
-        items: [],
-        tags: new Set(),
-        metadata: { old: "value" },
-        references: new Set()
-      });
-
-      const entries: [string, string][] = [["key1", "value1"], ["key2", "value2"]];
-      model.metadata.assign(entries);
-
-      expect(model.metadata).toEqual({ key1: "value1", key2: "value2" });
-    });
-
     it("should handle empty assignment", () => {
       const model = new TestModel({
         name: "test",

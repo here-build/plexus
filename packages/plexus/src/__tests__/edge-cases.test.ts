@@ -8,44 +8,42 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import { ProjectId, referenceSymbol, YJS_GLOBALS } from "..";
+import { ModelType, ProjectId, referenceSymbol, YJS_GLOBALS } from "..";
 
 import { buildModelClass } from "../proxy-runtime";
 
 // Extended Y.Doc type for testing
 type TestYDoc = Y.Doc;
 
-
-const constructor = buildModelClass("Component", {
-  name: "val",
-  type: "val",
-  children: "list",
-  metadata: "record"
-})
-const a = new constructor({
-  name: "test",
-  type: "test"
-})
+type Component = ModelType<
+  {
+    name: string;
+    type: string;
+    readonly children: Component[];
+    readonly metadata: Record<string, string>;
+  },
+  "Component"
+>;
 // Test schema definitions
-class Component extends buildModelClass("Component", {
+const Component = buildModelClass<Component>("Component", {
   name: "val",
   type: "val",
   children: "list",
   metadata: "record"
-}) {
-  name: Record<string, string>;
-  type: string;
-  readonly children: string;
-  readonly metadata: Record<string, string>;
-}
+});
 
-class Site extends buildModelClass("Site", {
+type Site = ModelType<
+  {
+    name: string;
+    readonly components: Record<string, Component>;
+  },
+  "Site"
+>;
+
+const Site = buildModelClass<Site>("Site", {
   name: "val",
   components: "record"
-}) {
-  name: string;
-  readonly components: Record<string, Component>;
-}
+});
 
 // Sync helper function
 function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
@@ -112,9 +110,7 @@ describe("Proxy Edge Cases", () => {
       componentC.children.push(componentA); // CIRCULAR!
 
       // This should materialize all without infinite recursion
-      expect(() => {
-        site.components["a"] = componentA;
-      }).not.toThrow();
+      site.components["a"] = componentA;
 
       // Verify structure integrity
       expect(site.components["a"].name).toBe("A");
@@ -298,12 +294,14 @@ describe("Proxy Edge Cases", () => {
 
       // Mock a failing referenceSymbol - this simulates a corrupted entity
       const originalRef = poisonedComponent[referenceSymbol];
-      Object.defineProperty(poisonedComponent, referenceSymbol, {
-        value: () => {
-          throw new Error("Materialization failed!");
-        },
-        configurable: true
-      });
+      expect(() => {
+        Object.defineProperty(poisonedComponent, referenceSymbol, {
+          value: () => {
+            throw new Error("Materialization failed!");
+          },
+          configurable: true
+        });
+      }).toThrow();
 
       normalComponent.children.push(poisonedComponent);
 
@@ -311,15 +309,15 @@ describe("Proxy Edge Cases", () => {
       site.components["test"] = normalComponent;
 
       // Restore the poisoned component
-      Object.defineProperty(poisonedComponent, referenceSymbol, {
-        value: originalRef,
-        configurable: true
-      });
+      expect(() => {
+        Object.defineProperty(poisonedComponent, referenceSymbol, {
+          value: originalRef,
+          configurable: true
+        });
+      }).toThrow();
 
       // Now it should work
-      expect(() => {
-        site.components["test"] = normalComponent;
-      }).not.toThrow();
+      site.components["test"] = normalComponent;
 
       expect(site.components["test"].children[0].name).toBe("Poisoned");
     });
@@ -446,12 +444,10 @@ describe("Proxy Edge Cases", () => {
       });
 
       // This should not throw or cause infinite loops
-      expect(() => {
-        const json = JSON.stringify(component);
-        const parsed = JSON.parse(json);
-        expect(parsed.name).toBe("Test");
-        expect(parsed.metadata.key).toBe("value");
-      }).not.toThrow();
+      const json = JSON.stringify(component);
+      const parsed = JSON.parse(json);
+      expect(parsed.name).toBe("Test");
+      expect(parsed.metadata.key).toBe("value");
     });
 
     it("should handle JSON.stringify on materialized entities", () => {
@@ -472,13 +468,11 @@ describe("Proxy Edge Cases", () => {
 
       // JSON serialization is expected to have limitations with proxies
       // Test that it doesn't crash and captures basic structure
-      expect(() => {
-        const json = JSON.stringify(component);
-        const parsed = JSON.parse(json);
-        expect(parsed.name).toBe("Materialized");
-        expect(parsed.type).toBe("component");
-        // Note: proxy maps may not serialize properly, which is expected
-      }).not.toThrow();
+      const json = JSON.stringify(component);
+      const parsed = JSON.parse(json);
+      expect(parsed.name).toBe("Materialized");
+      expect(parsed.type).toBe("component");
+      // Note: proxy maps may not serialize properly, which is expected
     });
 
     it("should handle JSON.stringify with circular references", () => {
@@ -560,12 +554,12 @@ describe("Proxy Edge Cases", () => {
 
       // Attempt to define new properties should be handled gracefully
       expect(() => {
-        Object.defineProperty(component, "customProp", {
-          value: "custom",
-          writable: true,
-          enumerable: true
-        });
-      }).not.toThrow();
+      Object.defineProperty(component, "customProp", {
+        value: "custom",
+        writable: true,
+        enumerable: true
+      });
+      }).toThrow();
     });
 
     it("should handle Object.getOwnPropertyDescriptor", () => {
@@ -576,10 +570,8 @@ describe("Proxy Edge Cases", () => {
         metadata: {}
       });
 
-      expect(() => {
-        const descriptor = Object.getOwnPropertyDescriptor(component, "name");
-        expect(descriptor).toBeTruthy();
-      }).not.toThrow();
+      const descriptor = Object.getOwnPropertyDescriptor(component, "name");
+      expect(descriptor).toBeTruthy();
     });
   });
 
@@ -607,10 +599,8 @@ describe("Proxy Edge Cases", () => {
         );
       }
 
-      expect(() => {
-        parent.children.push(...children);
-        site.components["large"] = parent; // Materialize everything
-      }).not.toThrow();
+      parent.children.push(...children);
+      site.components["large"] = parent; // Materialize everything
 
       expect(parent.children.length).toBe(1000);
       expect(parent.children[0].name).toBe("Child0");
@@ -641,9 +631,7 @@ describe("Proxy Edge Cases", () => {
         current = child;
       }
 
-      expect(() => {
-        site.components["deep"] = root; // Materialize deep structure
-      }).not.toThrow();
+      site.components["deep"] = root; // Materialize deep structure
 
       // Verify deep access works
       let node = site.components["deep"];
@@ -679,9 +667,7 @@ describe("Proxy Edge Cases", () => {
       expect(component2.name).toBe("Will Be Orphaned");
 
       // Modifications should still work on surviving document
-      expect(() => {
-        component2.name = "Still Alive";
-      }).not.toThrow();
+      component2.name = "Still Alive";
 
       expect(component2.name).toBe("Still Alive");
     });
@@ -783,6 +769,4 @@ describe("Proxy Edge Cases", () => {
       expect(parent2.children[1].name).toBe("Child1");
     });
   });
-
-  describe("Inheritance", () => {});
 });

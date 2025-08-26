@@ -2,6 +2,7 @@ import type { Constructor, OptionalKeysOf, Tagged, Writable } from "type-fest";
 import type * as Y from "yjs";
 import type { tag } from "type-fest/source/tagged";
 import { LastOfUnion } from "type-fest/source/union-to-tuple";
+import { curryMaybeReference } from "./utils";
 
 // For standalone usage - ProjectId can be overridden by consuming applications
 export type ProjectId = string;
@@ -9,6 +10,7 @@ export type ProjectId = string;
 export const isProxyEntity = Symbol("is Plexus proxy");
 export const referenceSymbol = Symbol("reference");
 export const referenceDisclosureSymbol = Symbol("referenceDisclosure");
+export const materializationSymbol = Symbol("materialize proxy structure");
 
 // New tuple-based references (memory optimized)
 type LocalReferenceeTuple = [entityId: string];
@@ -68,10 +70,11 @@ type NullableFields<A extends ModelStateInit, ExcludedKeys extends keyof A = nev
 declare class ReadonlyField<T> {
   assign(value: T): void;
   clear(): void;
+  [materializationSymbol](struct: Y.Array<AllowedYValue> | Y.Map<AllowedYJSValue>, boundMaybeReference: ReturnType<typeof curryMaybeReference>): void;
 }
 
 export type ModelState<T extends ModelPattern> =
-  T extends ModelType<infer S, string> ? S : never;
+  T extends ModelType<infer S, string> ? S extends LegitimateSchema<S> ? S : never : never;
 export type ModelName<T extends ModelPattern> = T extends ModelType<{}, infer N> ? N : never;
 
 export type LegitimateSchema<T extends ModelStateInit> =

@@ -15,7 +15,7 @@ describe('DevTools Demo', () => {
   beforeEach(() => {
     User = buildModelClass<UserType>("User", {
       name: "val",
-      email: "val", 
+      email: "val",
       age: "val",
       isActive: "val"
     });
@@ -41,9 +41,9 @@ describe('DevTools Demo', () => {
 
     try {
       // Create a user
-      const user = User({
+      const user = new User({
         name: "Alice",
-        email: "alice@example.com", 
+        email: "alice@example.com",
         age: 25,
         isActive: false
       });
@@ -59,11 +59,11 @@ describe('DevTools Demo', () => {
 
       // Should have logged one batch with all mutations
       expect(devToolsLog).toHaveLength(1);
-      
+
       const logEntry = devToolsLog[0];
       expect(logEntry.action.type).toBe('PLEXUS_BATCH_UPDATE');
       expect(logEntry.action.payload.count).toBe(4); // name, age, email, isActive
-      
+
       // All mutations captured in one batch
       const mutations = logEntry.action.payload.mutations;
       expect(mutations).toContainEqual(

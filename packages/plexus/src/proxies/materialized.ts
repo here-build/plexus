@@ -47,7 +47,8 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
 ) => {
   // minor hack for autoref
   let tracker: ModelType<State, Name> = possibleTracker as ModelType<State, Name>;
-  const self = new Proxy(Object.seal({
+  const ownKeys = [...Object.keys(schema), "uuid", isProxyEntity];
+  const selfTarget = Object.seal({
     ...Object.fromEntries(
       Object.entries(schema).map(([key]) => [
         key,
@@ -76,7 +77,9 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
       configurable: false,
       value: true
     }
-  }), {
+  })
+  Reflect.setPrototypeOf(selfTarget, constructor);
+  const self = new Proxy(Object.seal(selfTarget), {
     get(_, key) {
       if (key === isProxyEntity) return true;
       if (key === referenceDisclosureSymbol) {
@@ -168,24 +171,17 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
       return false;
     },
     has(_, key) {
-      // "in" operator checks for field existence (materialized entity)
-      if (Object.hasOwn(schema, key)) {
-        trackAccess(tracker, key);
+      if (key === referenceSymbol || key === "uuid" || key === isProxyEntity) {
         return true;
       }
-      return key === referenceSymbol || key === "uuid";
+      if (typeof key === "symbol") {
+        return false;
+      }
+      trackAccess(tracker, ACCESS_INDICES_SET_SYMBOL);
+      return Object.hasOwn(schema, key);
     },
     ownKeys(_) {
-      // ownKeys accesses all entity field names (materialized entity)
-      // uuid is not included to keep it non-enumerable
-      trackAccess(tracker, ACCESS_INDICES_SET_SYMBOL);
-      return [...Object.keys(schema), "uuid", isProxyEntity];
-    },
-    getPrototypeOf(_) {
-      return constructor;
-    },
-    isExtensible(): boolean {
-      return false;
+      return ownKeys;
     }
   }) as any as ModelType<State, Name>;
   tracker ??= self;

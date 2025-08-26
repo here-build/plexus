@@ -21,7 +21,9 @@ import { YJS_GLOBALS } from "../YJS_GLOBALS";
 import { curryMaybeReference, definitelyReference, never } from "../utils";
 import { clone } from "../clone";
 import { documentEntityCaches } from "../globals";
-import { materializedSetProxyInit } from "./materialized-set";
+import { buildSetProxy } from "./materialized-set";
+import { buildRecordProxy } from "./materialized-map";
+import { buildArrayProxy } from "./materialized-array";
 
 export type EphemeralProxyTarget<State extends LegitimateSchema<State>, Name extends string> = {
   target: ModelConstructorInit<State, Name>;
@@ -50,23 +52,26 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
   target: originalTarget,
   type
 }: EphemeralProxyTarget<State, Name>) => {
-  const target = Object.fromEntries(Object.entries(originalTarget).map(([key, value]) => {
-    switch (schema[key]) {
-      case "val":
-      case "child-val":
-        return [key, value]
-      case "set":
-      case "child-set":
-        return [key, new Proxy({}, materializedSetProxyInit)]
-      case "record":
-      case "child-record":
-        return [key, value ?? {}]
-      case "list":
-      case "child-list":
-        return [key, value ?? []]
-    }
-  }))
-  const self = new Proxy(Object.seal(Object.defineProperties(
+  const target = Object.fromEntries(
+    Object.entries(originalTarget).map(([key, value]) => {
+      switch (schema[key]) {
+        case "val":
+        case "child-val":
+          return [key, value];
+        case "set":
+        case "child-set":
+          return [key, buildSetProxy({}, value ?? undefined)];
+        case "record":
+        case "child-record":
+          return [key, buildRecordProxy({}, value ?? undefined)];
+        case "list":
+        case "child-list":
+          return [key, buildArrayProxy({}, value ?? undefined)];
+      }
+    })
+  );
+  const ownKeys = [...Object.keys(schema), "uuid", isProxyEntity];
+  const selfTarget = Object.defineProperties(
     {},
     {
       ...Object.fromEntries(
@@ -76,7 +81,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
             enumerable: true,
             configurable: false,
             get() {
-              return self[key]
+              return self[key];
             },
             set(value) {
               // @ts-expect-error
@@ -97,8 +102,10 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
         configurable: false,
         value: true
       }
-    })
-  ), {
+    }
+  );
+  Reflect.setPrototypeOf(selfTarget, constructor);
+  const self = new Proxy(Object.seal(selfTarget), {
     // eslint-disable-next-line sonarjs/function-return-type
     get(_, key) {
       if (key === isProxyEntity) return true;
@@ -204,7 +211,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
             const cacheKey = `${projectId}.${entityId}`;
             const entityCache = documentEntityCaches.get(doc);
             if (!entityCache.has(cacheKey)) {
-              manifestedState ??= spawn(entityId, projectId, doc);
+              manifestedState ??= spawn(entityId, projectId, doc, self);
               entityCache.set(cacheKey, new WeakRef(self)); // Cache SELF, not spawn result
             }
             return projectId === docProjectId ? localReference : globalReference!;
@@ -279,24 +286,17 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
       return false;
     },
     has(_, key) {
-      // "in" operator checks for field existence (ephemeral entity)
-      if (Object.hasOwn(schema, key)) {
-        trackAccess(self, key);
+      if (key === referenceSymbol || key === "uuid" || key === isProxyEntity) {
         return true;
       }
-      return false;
+      if (typeof key === "symbol") {
+        return false;
+      }
+      trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
+      return Object.hasOwn(schema, key);
     },
     ownKeys(_) {
-      // ownKeys accesses all entity field names (ephemeral entity)
-      // Include _ephemeralUuid if it exists to satisfy proxy invariants
-      trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
-      return [...Object.keys(schema), "uuid", isProxyEntity];
-    },
-    getPrototypeOf(_) {
-      return constructor;
-    },
-    isExtensible(): boolean {
-      return false;
+      return ownKeys;
     }
   }) as any as ModelType<State, Name>;
   return self;

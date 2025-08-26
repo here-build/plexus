@@ -9,7 +9,6 @@
 
 // Runtime exports
 export { buildModelClass } from "./proxy-runtime.js";
-export type { ProjectId as PlexusProjectId } from "./proxy-runtime.js";
 export * from "./proxy-runtime-types.js";
 
 // Built-in tracking system

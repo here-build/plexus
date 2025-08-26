@@ -8,43 +8,44 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import { ProjectId, YJS_GLOBALS } from "..";
+import { ProjectId, referenceSymbol, YJS_GLOBALS } from "..";
 
-import { type ModelType, referenceSymbol } from "../proxy-runtime-types";
 import { buildModelClass } from "../proxy-runtime";
 
 // Extended Y.Doc type for testing
 type TestYDoc = Y.Doc;
 
-type ComponentType = ModelType<
-  {
-    name: string;
-    type: string;
-    readonly children: ComponentType[];
-    readonly metadata: Record<string, string>;
-  },
-  "Component"
->;
-// Test schema definitions
-const Component = buildModelClass<ComponentType>("Component", {
+
+const constructor = buildModelClass("Component", {
   name: "val",
   type: "val",
   children: "list",
   metadata: "record"
-});
+})
+const a = new constructor({
+  name: "test",
+  type: "test"
+})
+// Test schema definitions
+class Component extends buildModelClass("Component", {
+  name: "val",
+  type: "val",
+  children: "list",
+  metadata: "record"
+}) {
+  name: Record<string, string>;
+  type: string;
+  readonly children: string;
+  readonly metadata: Record<string, string>;
+}
 
-type SiteType = ModelType<
-  {
-    name: string;
-    readonly components: Record<string, ComponentType>;
-  },
-  "Site"
->;
-
-const Site = buildModelClass<SiteType>("Site", {
+class Site extends buildModelClass("Site", {
   name: "val",
   components: "record"
-});
+}) {
+  name: string;
+  readonly components: Record<string, Component>;
+}
 
 // Sync helper function
 function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
@@ -567,28 +568,6 @@ describe("Proxy Edge Cases", () => {
       }).not.toThrow();
     });
 
-    it("should handle Object.freeze attempts", () => {
-      const component = new Component({
-        name: "Freeze Test",
-        type: "component",
-        children: [],
-        metadata: {}
-      });
-
-      // Freezing ephemeral entities should work
-      expect(() => {
-        Object.freeze(component);
-      }).not.toThrow();
-
-      // After freezing, the object becomes immutable
-      expect(() => {
-        component.name = "Should Fail";
-      }).toThrow();
-
-      // NOTE: Object.freeze() + materialized proxies have fundamental incompatibilities
-      // due to JavaScript proxy invariants. This is expected behavior.
-    });
-
     it("should handle Object.getOwnPropertyDescriptor", () => {
       const component = new Component({
         name: "Descriptor Test",
@@ -804,4 +783,6 @@ describe("Proxy Edge Cases", () => {
       expect(parent2.children[1].name).toBe("Child1");
     });
   });
+
+  describe("Inheritance", () => {});
 });

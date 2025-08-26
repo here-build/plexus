@@ -2,7 +2,7 @@
  * Comprehensive tests for Set proxy implementation in plexus
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { buildModelClass } from "../proxy-runtime.js";
 import { ModelType, referenceSymbol, Storageable } from "../proxy-runtime-types.js";
 import * as Y from "yjs";
@@ -250,7 +250,6 @@ describe("Set Proxy Implementation", () => {
       expect(model.components.has(comp1)).toBe(false);
       expect(model.components.has(comp2)).toBe(true);
     });
-
   });
 
   describe("Set Edge Cases", () => {

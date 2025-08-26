@@ -5,8 +5,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import * as Y from "yjs";
 import { buildModelClass } from "../proxy-runtime";
-import { referenceSymbol } from "../proxy-runtime-types";
 import { YJS_GLOBALS } from "../YJS_GLOBALS";
+import { referenceSymbol } from "../proxy-runtime-types";
 
 // Test model schemas
 const TestUser = buildModelClass("TestUser", {

@@ -5,10 +5,10 @@
 import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { ProjectId, YJS_GLOBALS } from "../";
+import { isProxyEntity, ProjectId, referenceSymbol, YJS_GLOBALS } from "../";
 
-import { isProxyEntity, type ModelType, referenceSymbol } from "../proxy-runtime-types.js";
-import { buildModelClass } from "../proxy-runtime.js"; // Extended Y.Doc type for testing
+import { type ModelType } from "../proxy-runtime-types.js";
+import { buildModelClass } from "../proxy-runtime.js";
 
 // Extended Y.Doc type for testing
 type TestYDoc = Y.Doc & { rootProjectId: ProjectId };

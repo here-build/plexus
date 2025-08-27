@@ -20,6 +20,15 @@ export const buildRecordProxy = (
   init: MaterializedRecordProxyInitTarget,
   target: Record<string, AllowedYJSValue> = {}
 ) => {
+  const observer = (event: Y.YMapEvent<AllowedYValue>) => {
+    for (const key of event.keysChanged){
+      trackModification(self, key);
+      target[key] = deref(init.map!.doc!, init.map!.get(key)!)
+    }
+    trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+  }
+  init.map?.observe(observer)
+
   // We still need to track proxy target state even when we're materialized as it's important for property descriptors.
   // We cannot do dynamic proxy for them so we have to control it directly. Some decisions will look weird without that fact.
   const self = new Proxy(target, {
@@ -61,9 +70,11 @@ export const buildRecordProxy = (
           };
         case materializationSymbol:
           return (struct: Y.Map<AllowedYValue>, boundMaybeReference: ReturnType<typeof curryMaybeReference>) => {
+            init.map?.unobserve(observer);
             init.map = struct;
             init.boundMaybeReference = boundMaybeReference;
-          }
+            init.map.observe(observer);
+          };
       }
 
       // Well-known Symbol support for record/map
@@ -106,15 +117,14 @@ export const buildRecordProxy = (
             init.map.doc!.transact(() => {
               init.map.set(elementKey, init.boundMaybeReference(value));
             });
-            return true;
           } else {
             trackModification(self, ACCESS_INDICES_SET_SYMBOL);
             init.map.doc!.transact(() => {
               init.map.delete(elementKey);
             });
-            return true;
           }
         }
+        return true;
       }
       console.warn(`cannot set property ${elementKey.toString()} as it's non-declared`);
       return false;

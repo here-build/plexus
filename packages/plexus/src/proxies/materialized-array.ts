@@ -17,6 +17,17 @@ export type MaterializedArrayProxyInitTarget =
 export const listProxyInitMap = new Map<AllowedYJSValue[], MaterializedArrayProxyInitTarget>();
 
 export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: AllowedYJSValue[] = []) => {
+  const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
+    // Update target array to maintain target-proxy parity for property descriptors
+    if (init.list) {
+      const newArray = init.list.toArray().map((item) => deref(init.list.doc!, item));
+      target.splice(0, target.length, ...newArray);
+    }
+    trackModification(self, ACCESS_ALL_SYMBOL);
+    trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+  }
+  init.list?.observe(observer)
+
   const self = new Proxy(target, {
     // eslint-disable-next-line sonarjs/cognitive-complexity
     get(_, elementKey) {
@@ -75,8 +86,10 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
           return init.list?.length ?? target.length;
         case materializationSymbol:
           return (struct: Y.Array<AllowedYValue>, boundMaybeReference: ReturnType<typeof curryMaybeReference>) => {
+            init.list?.unobserve(observer)
             init.list = struct;
             init.boundMaybeReference = boundMaybeReference;
+            init.list.observe(observer)
           }
         case Symbol.iterator:
           return () => {

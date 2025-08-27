@@ -79,6 +79,11 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
     }
   })
   Reflect.setPrototypeOf(selfTarget, constructor);
+  fieldMap.observe((event) => {
+    for (const key of event.keysChanged) {
+      trackModification(possibleTracker ?? self, key);
+    }
+  })
   const self = new Proxy(Object.seal(selfTarget), {
     get(_, key) {
       if (key === isProxyEntity) return true;

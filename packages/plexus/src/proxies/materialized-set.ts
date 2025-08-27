@@ -17,6 +17,12 @@ export type MaterializedSetProxyInitTarget =
 export const setProxyInitMap = new Map<Set<any>, MaterializedSetProxyInitTarget>();
 
 export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<AllowedYJSValue> = new Set()) => {
+  const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
+    // todo add adjustments like in record
+    trackModification(self, ACCESS_ALL_SYMBOL)
+  }
+  init.list?.observe(observer)
+
   const self = new Proxy(Object.seal(new Set()), {
     get(_, elementKey) {
       switch (elementKey) {
@@ -197,8 +203,10 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
           };
         case materializationSymbol:
           return (struct: Y.Array<AllowedYValue>, boundMaybeReference: ReturnType<typeof curryMaybeReference>) => {
+            init.list?.unobserve(observer)
             init.list = struct;
             init.boundMaybeReference = boundMaybeReference;
+            init.list.observe(observer)
           }
         default:
           return false;

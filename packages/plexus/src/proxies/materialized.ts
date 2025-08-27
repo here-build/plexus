@@ -13,7 +13,6 @@ import {
 import * as Y from "yjs";
 import invariant from "tiny-invariant";
 import { ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking";
-import { YJS_GLOBALS } from "../YJS_GLOBALS";
 import { clone } from "../clone";
 import { deref } from "../deref";
 import { isModelType, maybeReference } from "../utils";
@@ -155,6 +154,9 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
       }
       trackAccess(tracker, ACCESS_INDICES_SET_SYMBOL);
       return Object.hasOwn(schema, key);
+    },
+    defineProperty() {
+      return false;
     },
     ownKeys(_) {
       return ownKeys;

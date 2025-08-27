@@ -4,9 +4,10 @@ import { YJS_GLOBALS } from "./YJS_GLOBALS";
 import { entityClasses } from "./globals";
 import invariant from "tiny-invariant";
 import { DefaultedMap, never } from "./utils";
+import { clone } from "./clone";
 
 class RestrictedSet extends Set<AllowedYJSValue> {
-  set(): never {
+  add(): never {
     throw new Error("modifications are restricted for that entity");
   }
 
@@ -14,11 +15,12 @@ class RestrictedSet extends Set<AllowedYJSValue> {
     throw new Error("modifications are restricted for that entity");
   }
 
-  assign(): never {
+  clear(): never {
     throw new Error("modifications are restricted for that entity");
   }
 
-  clear(): never {
+  // convenience aliases used elsewhere in API shape
+  assign(): never {
     throw new Error("modifications are restricted for that entity");
   }
 }
@@ -51,18 +53,27 @@ export function load<T extends ModelPattern>(doc: Y.Doc, dependencies: Record<st
   const cache = new DefaultedMap<string, Map<string, ModelPattern>>(() => new Map());
 
   const resolver = (entityId, packageId) => {
+    const cachedEntity = cache.get(packageId).get(entityId);
+    if (cachedEntity) {
+      return cachedEntity;
+    }
+
     const model = dependencies[packageId].getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(entityId);
     const type = dependencies[packageId].getMap<string>(YJS_GLOBALS.modelTypes).get(entityId);
     invariant(model && type, `cannot find model data for ${packageId}:${entityId}`);
     const Constructor = entityClasses.get(type);
     invariant(Constructor, `cannot find model type ${type} for ${packageId}:${entityId}`);
-    const proxyTarget = {} as ModelPattern;
+    const proxyTarget = {} as T;
 
     const manifestation = new Proxy(proxyTarget, {
       get(target, key) {
         switch (key) {
           case "clone":
-            return {}; // todo
+            return (newProperties?: Record<string, any>) => {
+              // Clone the manifestation (not the raw proxyTarget snapshot)
+              // @ts-expect-error generic types
+              return clone(manifestation as any, newProperties);
+            };
           case isProxyEntity:
             return true;
           case "constructor":
@@ -77,6 +88,12 @@ export function load<T extends ModelPattern>(doc: Y.Doc, dependencies: Record<st
       },
       set() {
         return false;
+      },
+      defineProperty() {
+        return false;
+      },
+      has(_, key) {
+        return key === referenceSymbol || key === "uuid" || key === isProxyEntity || Reflect.has(proxyTarget, key);
       }
     });
     cache.get(packageId).set(entityId, manifestation);
@@ -92,45 +109,43 @@ export function load<T extends ModelPattern>(doc: Y.Doc, dependencies: Record<st
             case "set":
             case "child-set":
               invariant(
-                Array.isArray(target),
+                target instanceof Y.Array,
                 `expected array at ${packageId}:${entityId}:${key}, got ${typeof target}`
               );
-              return [
-                key,
-                Object.freeze(
-                  new RestrictedSet(
-                    target.map((val) => (Array.isArray(val) ? resolver(val[0], val[1] ?? packageId) : val))
-                  )
-                )
-              ];
+              const values = target
+                .toArray()
+                .map((val) => (Array.isArray(val) ? resolver(val[0], val[1] ?? packageId) : val));
+              const base = new Set(values);
+              Object.setPrototypeOf(base, RestrictedSet.prototype);
+              return [key, Object.freeze(base as unknown as RestrictedSet)];
             case "list":
             case "child-list":
               invariant(
-                Array.isArray(target),
+                target instanceof Y.Array,
                 `expected array at ${packageId}:${entityId}:${key}, got ${typeof target}`
               );
               return [
                 key,
                 Object.freeze(
                   new RestrictedArray(
-                    ...target.map((val) => (Array.isArray(val) ? resolver(val[0], val[1] ?? packageId) : val))
+                    ...target.toArray().map((val) => (Array.isArray(val) ? resolver(val[0], val[1] ?? packageId) : val))
                   )
                 )
               ];
             case "record":
             case "child-record":
               invariant(
-                typeof target === "object" && target !== null && !Array.isArray(target),
+                target instanceof Y.Map,
                 `expected record at ${packageId}:${entityId}:${key}, got ${typeof target}`
               );
+              const entries = Array.from(target.entries());
               return [
                 key,
                 Object.freeze(
                   new RestrictedRecord(
-                    Object.entries(target).map(([key, val]) => [
-                      key,
-                      Array.isArray(val) ? resolver(val[0], val[1] ?? packageId) : val
-                    ])
+                    Object.fromEntries(
+                      entries.map(([k, val]) => [k, Array.isArray(val) ? resolver(val[0], val[1] ?? packageId) : val])
+                    )
                   )
                 )
               ];
@@ -143,17 +158,16 @@ export function load<T extends ModelPattern>(doc: Y.Doc, dependencies: Record<st
     return manifestation;
   };
 
-
   legitimateRootDocs.add(doc);
   docDependencyResolverMap.set(doc, resolver);
 
   doc.getMap(YJS_GLOBALS.models);
   doc.getMap(YJS_GLOBALS.modelTypes);
   const rootId = doc.getMap<string>(YJS_GLOBALS.metadataMap).get(YJS_GLOBALS.metadataMapFields.root);
-  invariant(rootId, "missing root model id")
+  invariant(rootId, "missing root model id");
   const root = doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(rootId);
   const rootType = doc.getMap<string>(YJS_GLOBALS.modelTypes).get(rootId);
-  invariant(root && rootType, "missing root model description")
+  invariant(root && rootType, "missing root model description");
   const Constructor = entityClasses.get(rootType);
   invariant(Constructor, `missing constructor of ${rootType} for root entity`);
   return Constructor.spawn(rootId, doc) as any as T; // we're unable to validate types against tests anyway, sadly

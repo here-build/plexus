@@ -281,6 +281,9 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
       }
       return false;
     },
+    defineProperty() {
+      return false;
+    },
     has(_, key) {
       if (key === referenceSymbol || key === "uuid" || key === isProxyEntity) {
         return true;

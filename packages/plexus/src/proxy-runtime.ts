@@ -52,13 +52,12 @@ export function buildModelClass<T extends ModelPattern>(
 ): ModelConstructor<ModelState<T>, ModelName<T>> {
   type Model = ModelType<ModelState<T>, ModelName<T>>;
 
-  const spawn = (entityId: string, projectId: string, doc: Y.Doc, internal__ephemeralExternalObject?: Model) => {
-    const boundMaybeReference = curryMaybeReference(projectId, doc);
+  // force is needed to resolve cyclic dependencies in some edge cases
+  const spawn = (entityId: string, doc: Y.Doc, internal__ephemeralExternalObject?: Model, __force?: boolean) => {
+    const boundMaybeReference = curryMaybeReference(doc);
     const localReference: ReferenceTuple = [entityId];
-    const globalReference: ReferenceTuple = [entityId, projectId];
-    const cacheKey = `${projectId}.${entityId}`;
-    const cached = documentEntityCaches.get(doc).get(cacheKey)?.deref();
-    if (cached) {
+    const cached = documentEntityCaches.get(doc).get(entityId)?.deref();
+    if (cached && !__force) {
       return cached as Model;
     }
 
@@ -180,10 +179,8 @@ export function buildModelClass<T extends ModelPattern>(
       {
         target,
         doc,
-        projectId,
         schema,
         localReference,
-        globalReference,
         constructor: ModelConstructor,
         entityId,
         type: typeName,
@@ -192,7 +189,7 @@ export function buildModelClass<T extends ModelPattern>(
       internal__ephemeralExternalObject
     );
     if (!internal__ephemeralExternalObject) {
-      documentEntityCaches.get(doc).set(cacheKey, new WeakRef(proxy as ModelPattern));
+      documentEntityCaches.get(doc).set(entityId, new WeakRef(proxy as ModelPattern));
     }
     return proxy;
   };
@@ -216,7 +213,6 @@ export function buildModelClass<T extends ModelPattern>(
           manifestedState: undefined,
           schema,
           localReference: [entityId],
-          globalReference: undefined,
           constructor: ModelConstructor,
           entityId,
           type: typeName,

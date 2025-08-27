@@ -7,6 +7,7 @@ import { buildModelClass } from "../proxy-runtime.js";
 import { ModelType, referenceSymbol, Storageable } from "../proxy-runtime-types.js";
 import * as Y from "yjs";
 import { YJS_GLOBALS } from "../YJS_GLOBALS";
+import { primeDoc } from "./test-helpers";
 
 // Test model with a set field
 type TestModelWithSet = ModelType<
@@ -39,12 +40,10 @@ const TestModelWithSet = buildModelClass<TestModelWithSet>("TestModelWithSet", {
 
 describe("Set Proxy Implementation", () => {
   let doc: Y.Doc;
-  let projectId: string;
 
   beforeEach(() => {
     doc = new Y.Doc();
-    doc.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, "test-project");
-    projectId = "test-project";
+    primeDoc(doc);
   });
 
   describe("Ephemeral Sets", () => {
@@ -114,7 +113,12 @@ describe("Set Proxy Implementation", () => {
       );
     });
 
-    it("should support Set comparison methods", () => {
+    const hasSetComparators =
+      typeof (new Set() as any).isDisjointFrom === "function" &&
+      typeof (new Set() as any).isSubsetOf === "function" &&
+      typeof (new Set() as any).isSupersetOf === "function";
+
+    (hasSetComparators ? it : it.skip)("should support Set comparison methods", () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(["tag1", "tag2"]),
@@ -126,14 +130,14 @@ describe("Set Proxy Implementation", () => {
       const superSet = new Set(["tag1", "tag2", "tag3"]);
 
       // Test set relationship methods
-      expect(model.tags.isDisjointFrom(new Set(["tag3", "tag4"]))).toBe(true);
-      expect(model.tags.isDisjointFrom(otherSet)).toBe(false);
+      expect((model.tags as any).isDisjointFrom(new Set(["tag3", "tag4"])) ).toBe(true);
+      expect((model.tags as any).isDisjointFrom(otherSet)).toBe(false);
 
-      expect(model.tags.isSubsetOf(superSet)).toBe(true);
-      expect(model.tags.isSubsetOf(subSet)).toBe(false);
+      expect((model.tags as any).isSubsetOf(superSet)).toBe(true);
+      expect((model.tags as any).isSubsetOf(subSet)).toBe(false);
 
-      expect(model.tags.isSupersetOf(subSet)).toBe(true);
-      expect(model.tags.isSupersetOf(superSet)).toBe(false);
+      expect((model.tags as any).isSupersetOf(subSet)).toBe(true);
+      expect((model.tags as any).isSupersetOf(superSet)).toBe(false);
     });
 
     it("should support clear operation", () => {
@@ -185,7 +189,7 @@ describe("Set Proxy Implementation", () => {
       });
 
       // Materialize by getting reference
-      const ref = model[referenceSymbol](projectId, doc as any);
+      const ref = model[referenceSymbol](doc as any);
       expect(ref).toEqual([expect.any(String)]);
 
       // Check that YJS arrays were created
@@ -206,11 +210,11 @@ describe("Set Proxy Implementation", () => {
       });
 
       // Materialize
-      const ref = model[referenceSymbol](projectId, doc as any);
+      const ref = model[referenceSymbol](doc as any);
       const entityId = ref[0];
 
       // Get materialized proxy (should be same reference)
-      const materializedModel = TestModelWithSet.spawn(entityId, projectId, doc as any);
+      const materializedModel = TestModelWithSet.spawn(entityId, doc as any);
       expect(materializedModel).toBe(model); // Same object reference
 
       // Changes should sync through YJS
@@ -236,7 +240,7 @@ describe("Set Proxy Implementation", () => {
       });
 
       // Materialize
-      model[referenceSymbol](projectId, doc as any);
+      model[referenceSymbol](doc as any);
 
       // Add component to materialized set
       model.components.add(comp2);

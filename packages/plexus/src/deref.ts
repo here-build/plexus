@@ -6,6 +6,7 @@ import invariant from "tiny-invariant";
 import { YJS_GLOBALS } from "./YJS_GLOBALS";
 import { entityClasses } from "./globals";
 import { isTupleReference } from "./utils";
+import { docDependencyResolverMap } from "./load";
 
 export const deref = (doc: Y.Doc, pointer: AllowedYValue): AllowedYJSValue => {
   if (pointer == null) {
@@ -19,19 +20,22 @@ export const deref = (doc: Y.Doc, pointer: AllowedYValue): AllowedYJSValue => {
     // Not a reference, return as-is
     return pointer;
   }
-  // New tuple format: [entityId] or [entityId, projectId]
+
+  // cross-project reference
+  if (pointer[1]) {
+    return docDependencyResolverMap.get(doc)!(pointer[0], pointer[1]);
+  }
+
   const targetEntityId = pointer[0];
-  const projectId = doc.getMap<string>(YJS_GLOBALS.metadataMap).get(YJS_GLOBALS.metadataMapFields.projectId)!;
-  const targetProjectId = pointer[1] || projectId; // Default to current project
-  const prefix = targetProjectId === projectId ? "" : `project:${projectId}:`;
+  // Default to current project
 
   // todo switch to subdocs?
-  const targetYProjectEntityType = doc.getMap<string>(`${prefix}${YJS_GLOBALS.modelTypes}`);
+  const targetYProjectEntityType = doc.getMap<string>(YJS_GLOBALS.modelTypes);
   const targetType = targetYProjectEntityType.get(targetEntityId);
-  invariant(targetType, `missing type for ${targetProjectId}.${targetEntityId}`);
+  invariant(targetType, `missing type for ${targetEntityId}`);
 
   const constructor = entityClasses.get(targetType);
-  invariant(constructor, `missing constructor ${targetType} for ${targetProjectId}.${targetEntityId}`);
+  invariant(constructor, `missing constructor ${targetType} for ${targetEntityId}`);
 
-  return constructor.spawn(targetEntityId, targetProjectId, doc);
+  return constructor.spawn(targetEntityId, doc);
 };

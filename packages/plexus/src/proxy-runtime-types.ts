@@ -26,7 +26,7 @@ export type AllowedYJSValueMap = Record<string, AllowedYJSValue>;
 export type AllowedYJSValueList = Array<AllowedYJSValue>;
 export type Storageable = AllowedYValue | Y.Map<AllowedYValue> | Y.Array<AllowedYValue>;
 
-export type ReferenceProjector = (projectId: string, doc: Y.Doc) => ReferenceTuple;
+export type ReferenceProjector = (doc: Y.Doc) => ReferenceTuple;
 
 type ModelInternals<T extends LegitimateSchema<T>, Class extends string> = {
   readonly uuid: string;
@@ -35,7 +35,6 @@ type ModelInternals<T extends LegitimateSchema<T>, Class extends string> = {
   readonly [isProxyEntity]: true;
   readonly [referenceSymbol]: ReferenceProjector;
   readonly [referenceDisclosureSymbol]?: () => {
-    projectId: ProjectId;
     doc: Y.Doc;
   };
 };
@@ -105,8 +104,8 @@ export type ModelConstructorInit<T extends LegitimateSchema<T>, Class extends st
 export type ModelConstructor<T extends LegitimateSchema<T>, Class extends string> = Tagged<
   Constructor<ModelType<T, Class>, [ModelConstructorInit<T, Class>]> & {
     __type: Class;
-    schema: ModelSchema<T>;
-    spawn: (entityId: string, projectId: string, yjs: Y.Doc) => ModelType<T, Class>;
+    schema: ModelSchema<T> & GenericRecordSchema;
+    spawn: (entityId: string, yjs: Y.Doc) => ModelType<T, Class>;
   },
   "syncingConstructor",
   string

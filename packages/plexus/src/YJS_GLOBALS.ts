@@ -3,7 +3,6 @@ export const YJS_GLOBALS = {
   models: "models",
   modelTypes: "models:types",
   metadataMapFields: {
-    siteRoot: "siteRootEntityId",
-    projectId: "projectId",
+    root: "rootEntityId",
   },
 } as const;

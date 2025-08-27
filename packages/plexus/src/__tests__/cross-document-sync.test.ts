@@ -8,13 +8,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import { isProxyEntity, ProjectId, referenceSymbol, YJS_GLOBALS } from "../index.js";
+import { isProxyEntity, referenceSymbol } from "../index.js";
 
 import { type ModelType } from "../proxy-runtime-types.js";
 import { buildModelClass } from "../proxy-runtime.js";
 
-// Extended Y.Doc type for testing
-type TestYDoc = Y.Doc & { rootProjectId: ProjectId };
+import { load } from "../load";
+import { primeDoc, storeAsRoot } from "./test-helpers";
 
 // Test schema definitions
 type ComponentType = ModelType<
@@ -75,24 +75,15 @@ function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
   Y.applyUpdate(doc1, update2);
 }
 
-// Helper to create and materialize a site for testing
-function createTestSite(name: string, projectId: ProjectId, doc: TestYDoc) {
-  const ephemeralSite = new Site({ name, components: {} });
-  const siteRef = (ephemeralSite as any)[referenceSymbol](projectId, doc);
-  const entityId = siteRef[0];
-  return { site: Site.spawn(entityId, projectId, doc), entityId };
-}
-
 describe("Cross-Document Proxy Sync", () => {
   let doc1: Y.Doc;
   let doc2: Y.Doc;
-  const projectId: ProjectId = "test-project" as ProjectId;
 
   beforeEach(() => {
     doc1 = new Y.Doc();
     doc2 = new Y.Doc();
-    doc1.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, projectId);
-    doc2.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, projectId);
+    primeDoc(doc1);
+    primeDoc(doc2);
   });
 
   afterEach(() => {
@@ -101,8 +92,11 @@ describe("Cross-Document Proxy Sync", () => {
   });
 
   it("should sync ephemeral entity contagion across documents", () => {
-    // Doc1: Create materialized site
-    const { site: site1, entityId } = createTestSite("Test Site", projectId, doc1);
+    // Doc1: Create materialized site as root
+    const ephemeralSite = new Site({ name: "Test Site", components: {} });
+    (ephemeralSite as any)[referenceSymbol](doc1);
+    storeAsRoot(doc1, ephemeralSite as any);
+    const site1 = load<SiteType>(doc1);
 
     // Create ephemeral component
     const ephemeralComponent = new Component({
@@ -127,8 +121,8 @@ describe("Cross-Document Proxy Sync", () => {
     // Sync to doc2
     syncDocs(doc1, doc2);
 
-    // Doc2: Access the same entities
-    const site2 = Site.spawn(entityId, projectId, doc2);
+    // Doc2: Access the same entities (after root was synced)
+    const site2 = load<SiteType>(doc2);
     const component2 = site2.components["header"];
 
     // Verify sync worked
@@ -138,8 +132,11 @@ describe("Cross-Document Proxy Sync", () => {
   });
 
   it("should sync bidirectional changes across documents", () => {
-    // Doc1: Setup initial state using helper
-    const { site: site1, entityId: siteEntityId } = createTestSite("Bidirectional Test Site", projectId, doc1);
+    // Doc1: Setup initial state using root
+    const ephemeralSite = new Site({ name: "Bidirectional Test Site", components: {} });
+    (ephemeralSite as any)[referenceSymbol](doc1);
+    storeAsRoot(doc1, ephemeralSite as any);
+    const site1 = load<SiteType>(doc1);
     const component1 = new Component({
       name: "Original",
       type: "component",
@@ -157,7 +154,7 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Get reference to same entities
-    const site2 = Site.spawn(siteEntityId, projectId, doc2);
+    const site2 = load<SiteType>(doc2);
     const component2 = site2.components["comp1"];
 
     // Doc2: Modify the component
@@ -187,7 +184,10 @@ describe("Cross-Document Proxy Sync", () => {
 
   it("should sync nested entities properly", () => {
     // Doc1: Create nested structure
-    const { site: site1, entityId: siteEntityId } = createTestSite("Nested Test Site", projectId, doc1);
+    const ephemeralSite2 = new Site({ name: "Nested Test Site", components: {} });
+    (ephemeralSite2 as any)[referenceSymbol](doc1);
+    storeAsRoot(doc1, ephemeralSite2 as any);
+    const site1 = load<SiteType>(doc1);
 
     const parentComponent = new Component({
       name: "Parent",
@@ -226,7 +226,7 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Access nested structure
-    const site2 = Site.spawn(siteEntityId, projectId, doc2);
+    const site2 = load<SiteType>(doc2);
     const parent2 = site2.components["parent"];
 
     // Verify nested structure synced completely
@@ -253,7 +253,10 @@ describe("Cross-Document Proxy Sync", () => {
 
   it("should sync arrays and primitive collections", () => {
     // Doc1: Setup component with collections
-    const { site: site1, entityId: siteEntityId } = createTestSite("Collections Test Site", projectId, doc1);
+    const ephemeralSite3 = new Site({ name: "Collections Test Site", components: {} });
+    (ephemeralSite3 as any)[referenceSymbol](doc1);
+    storeAsRoot(doc1, ephemeralSite3 as any);
+    const site1 = load<SiteType>(doc1);
     const parent = new Component({
       name: "Parent",
       type: "container",
@@ -305,7 +308,7 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Access collections
-    const site2 = Site.spawn(siteEntityId, projectId, doc2);
+    const site2 = load<SiteType>(doc2);
     const parent2 = site2.components["parent"];
 
     // Verify array sync
@@ -354,7 +357,10 @@ describe("Cross-Document Proxy Sync", () => {
 
   it("should handle entity identity across documents", () => {
     // Doc1: Create entities with cross-references
-    const { site: site1, entityId: siteEntityId } = createTestSite("Identity Test Site", projectId, doc1);
+    const ephemeralSite4 = new Site({ name: "Identity Test Site", components: {} });
+    (ephemeralSite4 as any)[referenceSymbol](doc1);
+    storeAsRoot(doc1, ephemeralSite4 as any);
+    const site1 = load<SiteType>(doc1);
 
     const comp1 = new Component({
       name: "Component1",
@@ -381,7 +387,7 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Verify identity relationships
-    const site2 = Site.spawn(siteEntityId, projectId, doc2);
+    const site2 = load<SiteType>(doc2);
     const comp1_doc2 = site2.components["comp1"];
     const comp2_doc2 = site2.components["comp2"];
 

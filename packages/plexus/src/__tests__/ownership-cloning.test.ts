@@ -19,7 +19,7 @@ type ChildComponent = ModelType<
 type ParentWithChildVal = ModelType<
   {
     name: string;
-    child: ChildComponent | null; // Will use "child-val" 
+    child: ChildComponent | null; // Will use "child-val"
     reference: ChildComponent | null; // Will use "val" (reference-only)
   },
   "ParentWithChildVal"
@@ -83,7 +83,7 @@ const ParentWithChildRecord = buildModelClass<ParentWithChildRecord>("ParentWith
 
 describe("Ownership-aware cloning", () => {
   let doc: Y.Doc;
-  
+
   beforeEach(() => {
     doc = new Y.Doc();
   });
@@ -91,7 +91,7 @@ describe("Ownership-aware cloning", () => {
   describe("child-val ownership", () => {
     it("should deep clone child-val but preserve val references", () => {
       const child = new ChildComponent({ name: "child", value: 1 });
-      
+
       const parent = new ParentWithChildVal({
         name: "parent",
         child: child, // Will be cloned
@@ -132,7 +132,7 @@ describe("Ownership-aware cloning", () => {
     it("should deep clone child-list elements but preserve list references", () => {
       const child1 = new ChildComponent({ name: "child1", value: 1 });
       const child2 = new ChildComponent({ name: "child2", value: 2 });
-      
+
       const parent = new ParentWithChildList({
         name: "parent",
         children: [child1, child2], // Will be cloned
@@ -162,7 +162,7 @@ describe("Ownership-aware cloning", () => {
 
     it("should handle modifications to cloned children independently", () => {
       const child1 = new ChildComponent({ name: "child1", value: 1 });
-      
+
       const parent = new ParentWithChildList({
         name: "parent",
         children: [child1],
@@ -177,10 +177,10 @@ describe("Ownership-aware cloning", () => {
       // Original child should be unchanged
       expect(child1.name).toBe("child1");
       expect(parent.children[0].name).toBe("child1");
-      
+
       // Cloned child should be changed
       expect(cloned.children[0].name).toBe("modified");
-      
+
       // Reference should still point to original
       expect(cloned.references[0].name).toBe("child1");
       expect(cloned.references[0]).toBe(child1);
@@ -191,7 +191,7 @@ describe("Ownership-aware cloning", () => {
     it("should deep clone child-set elements but preserve set references", () => {
       const child1 = new ChildComponent({ name: "child1", value: 1 });
       const child2 = new ChildComponent({ name: "child2", value: 2 });
-      
+
       const parent = new ParentWithChildSet({
         name: "parent",
         childSet: new Set([child1, child2]), // Will be cloned
@@ -205,7 +205,7 @@ describe("Ownership-aware cloning", () => {
       const clonedChildren = Array.from(cloned.childSet);
       expect(clonedChildren[0].uuid).not.toBe(child1.uuid);
       expect(clonedChildren[1].uuid).not.toBe(child2.uuid);
-      
+
       // set: references should be preserved
       expect(cloned.refSet.size).toBe(2);
       expect(cloned.refSet.has(child1)).toBe(true);
@@ -217,7 +217,7 @@ describe("Ownership-aware cloning", () => {
     it("should deep clone child-record values but preserve record references", () => {
       const child1 = new ChildComponent({ name: "child1", value: 1 });
       const child2 = new ChildComponent({ name: "child2", value: 2 });
-      
+
       const parent = new ParentWithChildRecord({
         name: "parent",
         childMap: { first: child1, second: child2 }, // Will be cloned
@@ -232,7 +232,7 @@ describe("Ownership-aware cloning", () => {
       expect(cloned.childMap.second.uuid).not.toBe(child2.uuid);
       expect(cloned.childMap.first.name).toBe("child1"); // Same values
       expect(cloned.childMap.second.name).toBe("child2");
-      
+
       // record: references should be preserved
       expect(cloned.refMap.first.uuid).toBe(child1.uuid);
       expect(cloned.refMap.second.uuid).toBe(child2.uuid);
@@ -247,19 +247,19 @@ describe("Ownership-aware cloning", () => {
       name: string;
       nodeB: NodeB | null; // child-val ownership
     }, "NodeA">;
-    
+
     type NodeB = ModelType<{
       name: string;
       nodeA: NodeA | null; // child-val ownership - creates cycle
     }, "NodeB">;
-    
+
     const NodeA = buildModelClass<NodeA>("NodeA", {
       name: "val",
       nodeB: "child-val" // Owns NodeB - will clone recursively
     });
-    
+
     const NodeB = buildModelClass<NodeB>("NodeB", {
-      name: "val", 
+      name: "val",
       nodeA: "child-val" // Owns NodeA - creates circular ownership
     });
 
@@ -285,15 +285,15 @@ describe("Ownership-aware cloning", () => {
 
     it("should handle shared references in collections", () => {
       const sharedChild = new ChildComponent({ name: "shared", value: 42 });
-      
+
       const parent1 = new ParentWithChildList({
         name: "parent1",
         children: [sharedChild], // Will clone the shared child
         references: []
       });
-      
+
       const parent2 = new ParentWithChildList({
-        name: "parent2", 
+        name: "parent2",
         children: [sharedChild, parent1], // Shared child + parent with shared child
         references: []
       });
@@ -302,15 +302,15 @@ describe("Ownership-aware cloning", () => {
 
       // Should have 2 children
       expect(clonedParent2.children).toHaveLength(2);
-      
+
       // First child should be a clone of sharedChild
       expect(clonedParent2.children[0].uuid).not.toBe(sharedChild.uuid);
       expect(clonedParent2.children[0].name).toBe("shared");
-      
+
       // Second child should be a clone of parent1
       expect((clonedParent2.children[1] as any).uuid).not.toBe(parent1.uuid);
       expect((clonedParent2.children[1] as any).name).toBe("parent1");
-      
+
       // Both references to the shared child should point to the SAME cloned instance
       const clonedSharedInParent2 = clonedParent2.children[0];
       const clonedSharedInParent1 = (clonedParent2.children[1] as any).children[0];
@@ -320,19 +320,19 @@ describe("Ownership-aware cloning", () => {
 
     it("should handle deeply nested shared references", () => {
       const leafChild = new ChildComponent({ name: "leaf", value: 1 });
-      
+
       const level2a = new ParentWithChildList({
         name: "level2a",
         children: [leafChild], // Shared leaf
         references: []
       });
-      
+
       const level2b = new ParentWithChildList({
-        name: "level2b", 
+        name: "level2b",
         children: [leafChild], // Same shared leaf
         references: []
       });
-      
+
       const root = new ParentWithChildList({
         name: "root",
         children: [level2a, level2b], // Both contain same shared leaf
@@ -359,18 +359,18 @@ describe("Ownership-aware cloning", () => {
       expect(clonedLeafFromA.name).toBe("leaf");
     });
 
-    it.skip("should handle self-referential collections", () => {
+    it("should handle self-referential collections", () => {
       // KNOWN LIMITATION: Self-referential collections (where parent contains itself)
       // currently break the proxy creation mechanism. This is an extremely unusual
       // edge case that would need special handling in the proxy runtime.
-      
+
       // Test a parent that contains itself in its children list
       const selfRef = new ParentWithChildList({
         name: "selfRef",
         children: [], // Start empty, will add self via push
         references: []
       });
-      
+
       // Add itself to its own children list (circular reference)
       // Use push since assign() only works on materialized collections
       selfRef.children.push(selfRef as any);
@@ -380,7 +380,7 @@ describe("Ownership-aware cloning", () => {
       // Cloned should be different from original
       expect(cloned.uuid).not.toBe(selfRef.uuid);
       expect(cloned.name).toBe("selfRef");
-      
+
       // The child should be the cloned version pointing to itself
       expect(cloned.children).toHaveLength(1);
       expect(cloned.children[0]).toBe(cloned); // Points to itself
@@ -390,24 +390,24 @@ describe("Ownership-aware cloning", () => {
     it("should handle complex diamond-shaped shared references", () => {
       //     root
       //    /    \
-      //  left   right  
+      //  left   right
       //   \      /
       //    shared
       //
       const shared = new ChildComponent({ name: "shared", value: 42 });
-      
+
       const left = new ParentWithChildList({
         name: "left",
         children: [shared],
         references: []
       });
-      
+
       const right = new ParentWithChildList({
-        name: "right", 
+        name: "right",
         children: [shared], // Same shared reference
         references: []
       });
-      
+
       const root = new ParentWithChildList({
         name: "root",
         children: [left, right],
@@ -416,7 +416,7 @@ describe("Ownership-aware cloning", () => {
 
       const clonedRoot = root.clone();
 
-      // Extract all cloned references  
+      // Extract all cloned references
       const clonedLeft = clonedRoot.children[0] as any;
       const clonedRight = clonedRoot.children[1] as any;
       const sharedFromLeft = clonedLeft.children[0];
@@ -438,7 +438,7 @@ describe("Ownership-aware cloning", () => {
 
     it("should handle mixed ownership and reference semantics", () => {
       const sharedChild = new ChildComponent({ name: "shared", value: 100 });
-      
+
       const mixedParent = new ParentWithChildList({
         name: "mixed",
         children: [sharedChild], // child-list: will clone
@@ -451,15 +451,15 @@ describe("Ownership-aware cloning", () => {
       expect(cloned.children[0].uuid).not.toBe(sharedChild.uuid);
       expect(cloned.children[0].name).toBe("shared");
       expect(cloned.children[0].value).toBe(100);
-      
+
       // The child in references should be the original
       expect(cloned.references[0]).toBe(sharedChild);
       expect(cloned.references[0].uuid).toBe(sharedChild.uuid);
-      
+
       // They should be different objects
       expect(cloned.children[0]).not.toBe(cloned.references[0]);
     });
-    
+
     it("should handle empty collections properly", () => {
       const parent = new ParentWithChildList({
         name: "empty",
@@ -473,7 +473,7 @@ describe("Ownership-aware cloning", () => {
       expect(cloned.name).toBe("empty");
       expect(cloned.children).toEqual([]);
       expect(cloned.references).toEqual([]);
-      
+
       // Collections should be different instances
       expect(cloned.children).not.toBe(parent.children);
       expect(cloned.references).not.toBe(parent.references);
@@ -510,11 +510,11 @@ describe("Ownership-aware cloning", () => {
       // Second clone should start fresh (not reuse previous mapping)
       const child2 = new ChildComponent({ name: "child2", value: 2 });
       const parent2 = new ParentWithChildList({
-        name: "parent2", 
+        name: "parent2",
         children: [child2],
         references: []
       });
-      
+
       const cloned2 = parent2.clone();
       expect(cloned2.children[0].uuid).not.toBe(child2.uuid);
       expect(cloned2.children[0].uuid).not.toBe(cloned1.children[0].uuid); // Different clones
@@ -523,7 +523,7 @@ describe("Ownership-aware cloning", () => {
     it("should handle very large shared reference networks", () => {
       // Create a large network of shared references to test performance
       const centralChild = new ChildComponent({ name: "central", value: 999 });
-      
+
       // Create 50 parents that all share the same child
       const parents: any[] = [];
       for (let i = 0; i < 50; i++) {
@@ -533,7 +533,7 @@ describe("Ownership-aware cloning", () => {
           references: []
         }));
       }
-      
+
       // Create a root that contains all parents
       const megaRoot = new ParentWithChildList({
         name: "megaRoot",
@@ -546,7 +546,7 @@ describe("Ownership-aware cloning", () => {
 
       // Verify structure is preserved
       expect(clonedMegaRoot.children).toHaveLength(50);
-      
+
       // All parents should be cloned
       for (let i = 0; i < 50; i++) {
         const clonedParent = clonedMegaRoot.children[i] as any;
@@ -554,11 +554,11 @@ describe("Ownership-aware cloning", () => {
         expect(clonedParent.name).toBe(`parent${i}`);
         expect(clonedParent.children).toHaveLength(1);
       }
-      
+
       // The central child should be cloned once and shared across all parents
       const centralFromFirst = (clonedMegaRoot.children[0] as any).children[0];
       const centralFromLast = (clonedMegaRoot.children[49] as any).children[0];
-      
+
       expect(centralFromFirst).toBe(centralFromLast); // Same cloned instance
       expect(centralFromFirst.uuid).not.toBe(centralChild.uuid); // But cloned
       expect(centralFromFirst.name).toBe("central");
@@ -594,7 +594,7 @@ describe("Ownership-aware cloning", () => {
         name: "broken",
         clone: () => { throw new Error("Clone failed!"); }
       };
-      
+
       const parent = new ParentWithChildList({
         name: "parent",
         children: [brokenCloneable as any],
@@ -607,13 +607,13 @@ describe("Ownership-aware cloning", () => {
     });
 
     it("should handle objects that return invalid clones", () => {
-      // With the new implementation using isModelType guard, 
+      // With the new implementation using isModelType guard,
       // objects without isProxyEntity symbol are not cloned at all
       const invalidCloneable = {
         name: "invalid",
         clone: () => "not an object" // This won't be called
       };
-      
+
       const parent = new ParentWithChildList({
         name: "parent",
         children: [invalidCloneable as any],
@@ -628,7 +628,7 @@ describe("Ownership-aware cloning", () => {
     it("should handle extremely deep nesting without stack overflow", () => {
       // Create a deeply nested structure
       let current = new ChildComponent({ name: "leaf", value: 0 });
-      
+
       // Build 100 levels deep
       for (let i = 1; i <= 100; i++) {
         current = new ParentWithChildList({
@@ -640,7 +640,7 @@ describe("Ownership-aware cloning", () => {
 
       // Should not stack overflow
       const cloned = (current as any).clone();
-      
+
       // Verify deep structure is preserved
       let currentCloned = cloned;
       for (let i = 100; i >= 1; i--) {
@@ -648,7 +648,7 @@ describe("Ownership-aware cloning", () => {
         expect(currentCloned.children).toHaveLength(1);
         currentCloned = currentCloned.children[0];
       }
-      
+
       // Should reach the leaf
       expect(currentCloned.name).toBe("leaf");
       expect(currentCloned.value).toBe(0);
@@ -657,8 +657,8 @@ describe("Ownership-aware cloning", () => {
     it("should handle concurrent clone operations", async () => {
       // Test that multiple clone operations don't interfere with each other's transactions
       const sharedChild = new ChildComponent({ name: "shared", value: 1 });
-      
-      const parents = Array.from({ length: 10 }, (_, i) => 
+
+      const parents = Array.from({ length: 10 }, (_, i) =>
         new ParentWithChildList({
           name: `parent${i}`,
           children: [sharedChild],
@@ -667,10 +667,10 @@ describe("Ownership-aware cloning", () => {
       );
 
       // Clone all parents concurrently
-      const clonePromises = parents.map(parent => 
+      const clonePromises = parents.map(parent =>
         Promise.resolve().then(() => parent.clone())
       );
-      
+
       const clonedParents = await Promise.all(clonePromises);
 
       // Each clone should be independent
@@ -692,21 +692,21 @@ describe("Ownership-aware cloning", () => {
     it("should keep ephemeral entity ephemeral when referencing stored entity", () => {
       // Create a stored (materialized) entity
       const storedChild = new ChildComponent({ name: "stored", value: 100 });
-      
+
       // Create ephemeral entity that references the stored one
       const ephemeralParent = new ParentWithChildVal({
         name: "ephemeral",
         child: null,
         reference: storedChild // Ephemeral entity referencing stored entity
       });
-      
+
       // The ephemeral entity should remain ephemeral despite referencing stored entity
       expect(ephemeralParent.reference).toBe(storedChild);
       expect(ephemeralParent.reference!.name).toBe("stored");
-      
+
       // Clone the ephemeral parent
       const cloned = ephemeralParent.clone();
-      
+
       // The cloned ephemeral should still reference the original stored entity
       expect(cloned.reference).toBe(storedChild); // Same reference to stored
       expect(cloned.reference!.uuid).toBe(storedChild.uuid);
@@ -716,7 +716,7 @@ describe("Ownership-aware cloning", () => {
       const materializedChild1 = new ChildComponent({ name: "materialized1", value: 1 });
       const materializedChild2 = new ChildComponent({ name: "materialized2", value: 2 });
       const ephemeralChild = new ChildComponent({ name: "ephemeral", value: 3 });
-      
+
       const parent = new ParentWithChildList({
         name: "mixed",
         children: [ephemeralChild, materializedChild1], // child-list: should clone both
@@ -743,16 +743,16 @@ describe("Ownership-aware cloning", () => {
     it("should handle mixed ephemeral/materialized in records - clone child-record but preserve record", () => {
       const materializedChild = new ChildComponent({ name: "materialized", value: 1 });
       const ephemeralChild = new ChildComponent({ name: "ephemeral", value: 2 });
-      
+
       const parent = new ParentWithChildRecord({
         name: "mixed",
-        childMap: { 
-          mat: materializedChild, 
-          eph: ephemeralChild 
+        childMap: {
+          mat: materializedChild,
+          eph: ephemeralChild
         }, // child-record: should clone both
-        refMap: { 
-          mat: materializedChild, 
-          eph: ephemeralChild 
+        refMap: {
+          mat: materializedChild,
+          eph: ephemeralChild
         } // record: should preserve both
       });
 
@@ -775,7 +775,7 @@ describe("Ownership-aware cloning", () => {
     it("should handle mixed ephemeral/materialized in sets - clone child-set but preserve set", () => {
       const materializedChild = new ChildComponent({ name: "materialized", value: 1 });
       const ephemeralChild = new ChildComponent({ name: "ephemeral", value: 2 });
-      
+
       const parent = new ParentWithChildSet({
         name: "mixed",
         childSet: new Set([materializedChild, ephemeralChild]), // child-set: should clone both
@@ -787,7 +787,7 @@ describe("Ownership-aware cloning", () => {
       // child-set: both items should be cloned
       expect(cloned.childSet.size).toBe(2);
       const clonedChildren = Array.from(cloned.childSet);
-      expect(clonedChildren.every(child => 
+      expect(clonedChildren.every(child =>
         child.uuid !== materializedChild.uuid && child.uuid !== ephemeralChild.uuid
       )).toBe(true);
       expect(clonedChildren.some(child => child.name === "materialized")).toBe(true);

@@ -5,8 +5,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import * as Y from "yjs";
 import { buildModelClass } from "../proxy-runtime";
-import { YJS_GLOBALS } from "../YJS_GLOBALS";
 import { referenceSymbol } from "../proxy-runtime-types";
+import { load, docDependencyResolverMap } from "../load";
+import { primeDoc, storeAsRoot } from "./test-helpers";
 
 // Test model schemas
 const TestUser = buildModelClass("TestUser", {
@@ -25,19 +26,26 @@ const TestComment = buildModelClass("TestComment", {
   author: "val"
 });
 
+// Minimal model (no collections) to avoid resolver shape issues in this test
+const Shallow = buildModelClass("Shallow", {
+  name: "val"
+});
+
 describe("Tuple Reference Format", () => {
   let doc: Y.Doc;
-  const projectId = "test-project";
 
   beforeEach(() => {
     doc = new Y.Doc();
-    doc.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, projectId);
+    primeDoc(doc);
   });
 
   it("should create local references as single-element tuples", () => {
     // Create a user
     const user = new TestUser({ name: "Alice", posts: [] });
-    const userRef = user[referenceSymbol](projectId, doc as any);
+    user[referenceSymbol](doc as any);
+    storeAsRoot(doc, user as any);
+    load<any>(doc);
+    const userRef = user[referenceSymbol](doc as any);
 
     // Debug what we're actually getting
     console.log("userRef:", userRef, "type:", typeof userRef, "isArray:", Array.isArray(userRef));
@@ -49,56 +57,60 @@ describe("Tuple Reference Format", () => {
   });
 
   it("should create cross-project references as two-element tuples", () => {
-    const doc1 = new Y.Doc();
-    doc1.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, "project1");
+    // Dep project
+    const depDoc = new Y.Doc();
+    primeDoc(depDoc);
+    const depEntity = new Shallow({ name: "Alice" });
+    depEntity[referenceSymbol](depDoc as any);
+    storeAsRoot(depDoc, depEntity as any);
+    load<any>(depDoc);
+    const depEntityId = (depEntity as any).uuid as string;
 
-    // Create user in project1
-    const user = new TestUser({ name: "Alice", posts: [] });
+    // Root project with dependency
+    const rootDoc = new Y.Doc();
+    primeDoc(rootDoc);
+    const root = new Shallow({ name: "Root" });
+    root[referenceSymbol](rootDoc as any);
+    storeAsRoot(rootDoc, root as any);
+    load<any>(rootDoc, { dep: depDoc });
 
-    // Simulate materialization in project1
-    user[referenceSymbol]("project1", doc1 as any);
+    // Resolve a manifestation for the dependency entity in the context of rootDoc
+    const resolve = docDependencyResolverMap.get(rootDoc)!; // (entityId, packageId)
+    const depManifest = resolve(depEntityId, "dep");
+    const crossRef = depManifest[referenceSymbol](rootDoc as any);
 
-    // Get reference for project2 (cross-project) using the same document but different target project
-    const crossRef = user[referenceSymbol]("project2", doc1 as any);
-
-    // Should be a tuple with entity ID and project ID
     expect(Array.isArray(crossRef)).toBe(true);
     expect(crossRef).toHaveLength(2);
     expect(typeof crossRef[0]).toBe("string"); // entity ID
-    expect(typeof crossRef[1]).toBe("string"); // project ID (should be "project1")
-    expect(crossRef[1]).toBe("project1"); // The project ID where the entity is materialized
+    expect(typeof crossRef[1]).toBe("string"); // package ID
+    expect(crossRef[1]).toBe("dep");
   });
 
   it("should store tuple references in YJS arrays efficiently", () => {
-    // Create related entities
+    // Create related entities and materialize through the API
     const user = new TestUser({ name: "Alice", posts: [] });
     const post = new TestPost({ title: "Hello World", author: user, comments: [] });
 
-    // Materialize entities
-    const userId = "user_123";
-    const postId = "post_456";
+    // Prime and set root, then load to ensure maps exist
+    user[referenceSymbol](doc as any);
+    storeAsRoot(doc, user as any);
+    load<any>(doc);
 
-    // Simulate storing in YJS with tuple references
-    const projectModels = doc.getMap(`models`);
-    const projectTypes = doc.getMap(`models:types`);
+    // Now add the post reference into the user's posts list (materializes post too)
+    post[referenceSymbol](doc as any);
+    (user as any).posts.push(post as any);
 
-    // Store types
-    projectTypes.set(userId, "TestUser");
-    projectTypes.set(postId, "TestPost");
+    // Verify storage format in YJS maps
+    const models = doc.getMap<Y.Map<any>>("models");
+    const userId = (user as any).uuid as string;
+    const postId = (post as any).uuid as string;
+    const userFields = models.get(userId)!;
+    const postFields = models.get(postId)!;
 
-    // Store user with posts array containing tuple reference
-    projectModels.set(`${userId}.name`, "Alice");
-    projectModels.set(`${userId}.posts`, Y.Array.from([[postId]])); // Tuple reference
+    const userPosts = userFields.get("posts") as Y.Array<any>;
+    const postAuthor = postFields.get("author");
 
-    // Store post with author tuple reference
-    projectModels.set(`${postId}.title`, "Hello World");
-    projectModels.set(`${postId}.author`, [userId]); // Tuple reference
-    projectModels.set(`${postId}.comments`, Y.Array.from([]));
-
-    // Verify storage format
-    const userPosts = projectModels.get(`${userId}.posts`) as Y.Array<any>;
-    const postAuthor = projectModels.get(`${postId}.author`);
-
+    expect(Array.isArray(userPosts.get(0))).toBe(true);
     expect(userPosts.get(0)).toEqual([postId]);
     expect(postAuthor).toEqual([userId]);
   });

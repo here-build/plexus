@@ -49,13 +49,13 @@ const isModel = (val: any): val is ModelPattern => val && typeof val === "object
 export const isTupleReference = (val: any): val is ReferenceTuple =>
   Array.isArray(val) && val.length >= 1 && val.length <= 2 && typeof val[0] === "string";
 
-export const definitelyReference = (val: ModelPattern, projectId: string, doc: Y.Doc): AllowedYValue =>
-  val[referenceSymbol](projectId, doc);
+export const definitelyReference = (val: ModelPattern, doc: Y.Doc): AllowedYValue =>
+  val[referenceSymbol](doc);
 
-export const maybeReference = (val: AllowedYJSValue, projectId?: string, doc?: Y.Doc): AllowedYValue =>
-  (projectId && doc && isModel(val) ? val[referenceSymbol](projectId, doc) : val) ?? null;
+export const maybeReference = (val: AllowedYJSValue, doc?: Y.Doc): AllowedYValue =>
+  (doc && isModel(val) ? val[referenceSymbol](doc) : val) ?? null;
 
 export const curryMaybeReference =
-  (projectId: string, doc: Y.Doc) =>
+  (doc: Y.Doc) =>
   (val: AllowedYJSValue): AllowedYValue =>
-    (isModel(val) ? val[referenceSymbol](projectId, doc) : val) ?? null;
+    (isModel(val) ? val[referenceSymbol](doc) : val) ?? null;

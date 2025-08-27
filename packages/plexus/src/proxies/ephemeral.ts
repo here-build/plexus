@@ -9,7 +9,6 @@ import {
   type ModelPattern,
   type ModelType,
   referenceDisclosureSymbol,
-  ReferenceProjector,
   referenceSymbol,
   type ReferenceTuple,
   type Storageable
@@ -24,21 +23,21 @@ import { documentEntityCaches } from "../globals";
 import { buildSetProxy } from "./materialized-set";
 import { buildRecordProxy } from "./materialized-map";
 import { buildArrayProxy } from "./materialized-array";
+import { legitimateRootDocs } from "../load";
 
 export type EphemeralProxyTarget<State extends LegitimateSchema<State>, Name extends string> = {
   target: ModelConstructorInit<State, Name>;
   manifestedState?: ModelType<State, Name>;
   schema: GenericRecordSchema;
   localReference: ReferenceTuple;
-  globalReference?: ReferenceTuple;
   constructor: ModelConstructor<State, Name>;
   entityId: string;
   type: string;
   spawn: (
     entityId: string,
-    projectId: string,
     doc: Y.Doc,
-    internal__ephemeralExternalObject?: ModelType<State, Name>
+    internal__ephemeralExternalObject?: ModelType<State, Name>,
+    __force?: boolean
   ) => ModelType<State, Name>;
 };
 export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name extends string>({
@@ -46,12 +45,12 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
   spawn,
   constructor,
   entityId,
-  globalReference,
   localReference,
   manifestedState,
   target: originalTarget,
   type
 }: EphemeralProxyTarget<State, Name>) => {
+  let isManifested = false;
   const target = Object.fromEntries(
     Object.entries(originalTarget).map(([key, value]) => {
       switch (schema[key]) {
@@ -120,28 +119,25 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
         return entityId;
       }
       if (key === referenceSymbol) {
-        return function reference(this: ModelType<State, Name>, projectId: string, doc: Y.Doc): ReferenceTuple {
-          if (globalReference) {
-            return projectId === globalReference[1] ? localReference : globalReference;
+        return function reference(this: ModelType<State, Name>, doc: Y.Doc): ReferenceTuple {
+          invariant(legitimateRootDocs.has(doc), "passed doc is not registered as legitimate Plexus root");
+          // this is needed explicitly in that manner for cyclic dependencies.
+          // It will never cause cross-doc issues as we only materialize root doc entities.
+          // Lucky for us, Plexus is doing not structural but reference equivalence - so we can safely assume that returning pointer will do nothing wrong.
+          if (isManifested) {
+            return localReference;
           }
-          globalReference = [entityId, projectId];
-          if (manifestedState) {
-            return (manifestedState[referenceSymbol] as any as ReferenceProjector)(projectId, doc);
-          }
-          const boundMaybeReference = curryMaybeReference(projectId, doc);
+          isManifested = true;
+          const boundMaybeReference = curryMaybeReference(doc);
           // eslint-disable-next-line sonarjs/no-nested-functions
           return doc.transact(() => {
-            const docProjectId = doc
-              .getMap<string>(YJS_GLOBALS.metadataMap)
-              .get(YJS_GLOBALS.metadataMapFields.projectId);
-            const prefix = projectId === docProjectId ? "" : `project:${projectId}:`;
-            const yprojectObjectInstances = doc.getMap<Y.Map<Storageable>>(`${prefix}${YJS_GLOBALS.models}`);
+            const yprojectObjectInstances = doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models);
             let yprojectObjectInstanceFields = yprojectObjectInstances.get(entityId);
             if (!yprojectObjectInstanceFields) {
               yprojectObjectInstanceFields = new Y.Map<Storageable>();
               yprojectObjectInstances.set(entityId, yprojectObjectInstanceFields);
             }
-            const yprojectEntityType = doc.getMap<string>(`${prefix}${YJS_GLOBALS.modelTypes}`);
+            const yprojectEntityType = doc.getMap<string>(YJS_GLOBALS.modelTypes);
 
             yprojectEntityType.set(entityId, type);
             for (const [schemaKey, type] of Object.entries(schema) as [
@@ -185,8 +181,9 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
                     schemaKey,
                     // @ts-expect-error todo yjs Array.from not supporting boolean
                     Y.Array.from(
+                      // Convert Set to array while mapping references
                       // @ts-expect-error todo yjs Array.from not supporting boolean
-                      (target[schemaKey] as Set<AllowedYJSValue>).values().map(boundMaybeReference)
+                      Array.from(target[schemaKey] as Set<AllowedYJSValue>, boundMaybeReference)
                     )
                   );
                   break;
@@ -208,13 +205,12 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
             //
             // The proxy becomes a pointer to its own materialized form while remaining itself.
             // Existential crisis: The object IS the reference TO itself.
-            const cacheKey = `${projectId}.${entityId}`;
             const entityCache = documentEntityCaches.get(doc);
-            if (!entityCache.has(cacheKey)) {
-              manifestedState ??= spawn(entityId, projectId, doc, self);
-              entityCache.set(cacheKey, new WeakRef(self)); // Cache SELF, not spawn result
+            if (!entityCache.has(entityId)) {
+              manifestedState ??= spawn(entityId, doc, self, true);
+              entityCache.set(entityId, new WeakRef(self)); // Cache SELF, not spawn result
             }
-            return projectId === docProjectId ? localReference : globalReference!;
+            return localReference;
           });
         };
       }
@@ -258,7 +254,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
       );
       const disclosure = (value as ModelPattern | null)?.[referenceDisclosureSymbol]?.();
       if (disclosure) {
-        definitelyReference(self, disclosure.projectId, disclosure.doc);
+        definitelyReference(self, disclosure.doc);
         // @ts-expect-error proxy trickery
         self[elementKey] = value;
       } else {

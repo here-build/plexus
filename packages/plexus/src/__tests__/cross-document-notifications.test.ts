@@ -11,8 +11,9 @@ import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildModelClass } from "../proxy-runtime.js";
 import { type ModelType, referenceSymbol } from "../proxy-runtime-types.js";
-import { YJS_GLOBALS } from "../YJS_GLOBALS.js";
 import { createTrackedFunction } from "../tracking.js";
+import { load } from "../load";
+import { primeDoc, storeAsRoot } from "./test-helpers";
 
 // Test model types
 type UserType = ModelType<
@@ -58,35 +59,30 @@ function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
   Y.applyUpdate(doc1, update2);
 }
 
-function createTestUser(name: string, projectId: string, doc: Y.Doc) {
-  const user = new User({
+function createTestUser(name: string, doc: Y.Doc) {
+  const ephemeralUser = new User({
     name,
     email: `${name.toLowerCase()}@test.com`,
     posts: {},
     tags: new Set()
   });
 
-  // Materialize to document
-  user[referenceSymbol](projectId, doc);
+  // Prime doc and set user as root
+  (ephemeralUser as any)[referenceSymbol](doc);
+  storeAsRoot(doc, ephemeralUser as any);
+  const user = load<UserType>(doc);
   return { user, entityId: user.uuid };
 }
 
 describe("Cross-Document Notifications", () => {
   let doc1: Y.Doc;
   let doc2: Y.Doc;
-  const projectId = "test-project";
 
   beforeEach(() => {
     doc1 = new Y.Doc();
     doc2 = new Y.Doc();
-
-    // Set up project metadata
-    doc1.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, projectId);
-    doc2.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, projectId);
-    doc1.getMap(YJS_GLOBALS.modelTypes);
-    doc1.getMap(YJS_GLOBALS.models);
-    doc2.getMap(YJS_GLOBALS.modelTypes);
-    doc2.getMap(YJS_GLOBALS.models);
+    primeDoc(doc1);
+    primeDoc(doc2);
   });
 
   afterEach(() => {
@@ -97,10 +93,10 @@ describe("Cross-Document Notifications", () => {
   describe("Basic Field Tracking", () => {
     it("should notify when primitive field changes across documents", async () => {
       // Doc1: Create user and set up tracking
-      const { user: user1, entityId } = createTestUser("Alice", projectId, doc1);
+      const { user: user1, entityId } = createTestUser("Alice", doc1);
       const notifyCallback = vi.fn();
       syncDocs(doc1, doc2);
-      const user2 = User.spawn(entityId, projectId, doc2);
+      const user2 = load<UserType>(doc2);
       expect(user2.name).toBe("Alice");
       const trackedFunction = createTrackedFunction(notifyCallback, () => user2.name);
       expect(trackedFunction()).toBe("Alice");
@@ -113,11 +109,11 @@ describe("Cross-Document Notifications", () => {
     });
 
     it("should notify when multiple fields change in same transaction", async () => {
-      const { user: user1, entityId } = createTestUser("Bob", projectId, doc1);
+      const { user: user1, entityId } = createTestUser("Bob", doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const user2 = User.spawn(entityId, projectId, doc2);
+      const user2 = load<UserType>(doc2);
 
       const notifyCallback = vi.fn();
       const trackedFunction = createTrackedFunction(notifyCallback, () => {
@@ -143,11 +139,11 @@ describe("Cross-Document Notifications", () => {
     });
 
     it("should not notify when untracked fields change", async () => {
-      const { user: user1, entityId } = createTestUser("Carol", projectId, doc1);
+      const { user: user1, entityId } = createTestUser("Carol", doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const user2 = User.spawn(entityId, projectId, doc2);
+      const user2 = load<UserType>(doc2);
 
       const notifyCallback = vi.fn();
       const trackedFunction = createTrackedFunction(notifyCallback, () => {
@@ -170,11 +166,11 @@ describe("Cross-Document Notifications", () => {
 
   describe("Record/Map Tracking", () => {
     it("should notify when record property is added", async () => {
-      const { user: user1, entityId } = createTestUser("David", projectId, doc1);
+      const { user: user1, entityId } = createTestUser("David", doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const user2 = User.spawn(entityId, projectId, doc2);
+      const user2 = load<UserType>(doc2);
 
       const notifyCallback = vi.fn();
       const trackedFunction = createTrackedFunction(notifyCallback, () => {
@@ -191,13 +187,13 @@ describe("Cross-Document Notifications", () => {
         comments: []
       });
       user1.posts["post1"] = post;
-      const postRef = post[referenceSymbol](projectId, doc1); // Materialize the post
+      const postRef = post[referenceSymbol](doc1); // Materialize the post
 
       // Force sync of the new post entity
       syncDocs(doc1, doc2);
 
       // Verify the post exists in doc2 by spawning it
-      const postInDoc2 = Post.spawn(postRef[0], projectId, doc2);
+      const postInDoc2 = Post.spawn(postRef[0], doc2);
       console.log("Post spawned in doc2:", postInDoc2.title);
 
       await new Promise((resolve) => setImmediate(resolve));
@@ -208,7 +204,7 @@ describe("Cross-Document Notifications", () => {
     });
 
     it("should notify when record property is removed", async () => {
-      const { user: user1, entityId } = createTestUser("Eve", projectId, doc1);
+      const { user: user1, entityId } = createTestUser("Eve", doc1);
 
       // Add initial post
       const initialPost = new Post({
@@ -217,12 +213,12 @@ describe("Cross-Document Notifications", () => {
         author: null,
         comments: []
       });
-      initialPost[referenceSymbol](projectId, doc1); // Materialize the post
+      initialPost[referenceSymbol](doc1); // Materialize the post
       user1.posts["initial"] = initialPost;
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const user2 = User.spawn(entityId, projectId, doc2);
+      const user2 = load<UserType>(doc2);
 
       const notifyCallback = vi.fn();
       const trackedFunction = createTrackedFunction(notifyCallback, () => {
@@ -242,7 +238,7 @@ describe("Cross-Document Notifications", () => {
     });
 
     it("should notify when specific record property is accessed", async () => {
-      const { user: user1, entityId } = createTestUser("Frank", projectId, doc1);
+      const { user: user1, entityId } = createTestUser("Frank", doc1);
 
       // Add initial post
       const initialPost = new Post({
@@ -251,12 +247,12 @@ describe("Cross-Document Notifications", () => {
         author: null,
         comments: []
       });
-      initialPost[referenceSymbol](projectId, doc1); // Materialize the post
+      initialPost[referenceSymbol](doc1); // Materialize the post
       user1.posts["tracked-post"] = initialPost;
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const user2 = User.spawn(entityId, projectId, doc2);
+      const user2 = load<UserType>(doc2);
 
       const notifyCallback = vi.fn();
       const trackedFunction = createTrackedFunction(notifyCallback, () => {
@@ -287,11 +283,11 @@ describe("Cross-Document Notifications", () => {
       });
 
       const entityId = post1.uuid;
-      post1[referenceSymbol](projectId, doc1); // Materialize the post
+      post1[referenceSymbol](doc1); // Materialize the post
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const post2 = Post.spawn(entityId, projectId, doc2);
+      const post2 = Post.spawn(entityId, doc2);
 
       const notifyCallback = vi.fn();
       const trackedFunction = createTrackedFunction(notifyCallback, () => {
@@ -307,7 +303,7 @@ describe("Cross-Document Notifications", () => {
         author: null,
         comments: []
       });
-      comment[referenceSymbol](projectId, doc1); // Materialize the comment
+      comment[referenceSymbol](doc1); // Materialize the comment
       post1.comments.push(comment);
 
       syncDocs(doc1, doc2);
@@ -333,15 +329,15 @@ describe("Cross-Document Notifications", () => {
         author: null,
         comments: []
       });
-      initialComment[referenceSymbol](projectId, doc1); // Materialize the comment
+      initialComment[referenceSymbol](doc1); // Materialize the comment
       post1.comments.push(initialComment);
 
       const entityId = post1.uuid;
-      post1[referenceSymbol](projectId, doc1); // Materialize the post
+      post1[referenceSymbol](doc1); // Materialize the post
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const post2 = Post.spawn(entityId, projectId, doc2);
+      const post2 = Post.spawn(entityId, doc2);
 
       const notifyCallback = vi.fn();
       const trackedFunction = createTrackedFunction(notifyCallback, () => {
@@ -375,15 +371,15 @@ describe("Cross-Document Notifications", () => {
         author: null,
         comments: []
       });
-      initialComment[referenceSymbol](projectId, doc1); // Materialize the comment
+      initialComment[referenceSymbol](doc1); // Materialize the comment
       post1.comments.push(initialComment);
 
       const entityId = post1.uuid;
-      post1[referenceSymbol](projectId, doc1); // Materialize the post
+      post1[referenceSymbol](doc1); // Materialize the post
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const post2 = Post.spawn(entityId, projectId, doc2);
+      const post2 = Post.spawn(entityId, doc2);
 
       const notifyCallback = vi.fn();
       const trackedFunction = createTrackedFunction(notifyCallback, () => {
@@ -405,11 +401,11 @@ describe("Cross-Document Notifications", () => {
 
   describe("Set Tracking", () => {
     it("should notify when set items are added or removed", async () => {
-      const { user: user1, entityId } = createTestUser("Grace", projectId, doc1);
+      const { user: user1, entityId } = createTestUser("Grace", doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const user2 = User.spawn(entityId, projectId, doc2);
+      const user2 = load<UserType>(doc2);
 
       const notifyCallback = vi.fn();
       const trackedFunction = createTrackedFunction(notifyCallback, () => {
@@ -432,11 +428,11 @@ describe("Cross-Document Notifications", () => {
 
   describe("Multiple Subscribers", () => {
     it("should notify all subscribers when tracked data changes", async () => {
-      const { user: user1, entityId } = createTestUser("Henry", projectId, doc1);
+      const { user: user1, entityId } = createTestUser("Henry", doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const user2 = User.spawn(entityId, projectId, doc2);
+      const user2 = load<UserType>(doc2);
 
       const callback1 = vi.fn();
       const callback2 = vi.fn();
@@ -470,7 +466,7 @@ describe("Cross-Document Notifications", () => {
 
   describe("Nested Entity Tracking", () => {
     it("should notify when nested entity properties change", async () => {
-      const { user: user1, entityId: userId } = createTestUser("Iris", projectId, doc1);
+      const { user: user1, entityId: userId } = createTestUser("Iris", doc1);
 
       // Add a post with the user as author
       const post = new Post({
@@ -479,12 +475,12 @@ describe("Cross-Document Notifications", () => {
         author: user1,
         comments: []
       });
-      post[referenceSymbol](projectId, doc1); // Materialize the post
+      post[referenceSymbol](doc1); // Materialize the post
       user1.posts["main"] = post;
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const user2 = User.spawn(userId, projectId, doc2);
+      const user2 = load<UserType>(doc2);
 
       const notifyCallback = vi.fn();
       const trackedFunction = createTrackedFunction(notifyCallback, () => {
@@ -506,11 +502,11 @@ describe("Cross-Document Notifications", () => {
 
   describe("Performance and Cleanup", () => {
     it("should not accumulate subscribers after function executions", async () => {
-      const { user: user1, entityId } = createTestUser("Jack", projectId, doc1);
+      const { user: user1, entityId } = createTestUser("Jack", doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const user2 = User.spawn(entityId, projectId, doc2);
+      const user2 = load<UserType>(doc2);
 
       const callback = vi.fn();
       const trackedFunction = createTrackedFunction(callback, () => user2.name);
@@ -533,11 +529,11 @@ describe("Cross-Document Notifications", () => {
     });
 
     it("should handle rapid successive changes efficiently", async () => {
-      const { user: user1, entityId } = createTestUser("Kate", projectId, doc1);
+      const { user: user1, entityId } = createTestUser("Kate", doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const user2 = User.spawn(entityId, projectId, doc2);
+      const user2 = load<UserType>(doc2);
 
       const callback = vi.fn();
       const trackedFunction = createTrackedFunction(callback, () => user2.name);

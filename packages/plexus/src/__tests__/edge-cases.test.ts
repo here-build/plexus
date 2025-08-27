@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import { ModelType, ProjectId, referenceSymbol, YJS_GLOBALS } from "..";
+import { ModelType, referenceSymbol } from "..";
 
 import { buildModelClass } from "../proxy-runtime";
 
@@ -45,6 +45,9 @@ const Site = buildModelClass<Site>("Site", {
   components: "record"
 });
 
+import { load } from "../load";
+import { primeDoc, storeAsRoot } from "./test-helpers";
+
 // Sync helper function
 function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
   const update1 = Y.encodeStateAsUpdate(doc1);
@@ -53,24 +56,23 @@ function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
   Y.applyUpdate(doc1, update2);
 }
 
-// Helper to create materialized site
-function createTestSite(name: string, projectId: ProjectId, doc: TestYDoc) {
+// Helper to create materialized site as root
+function createTestSite(name: string, doc: TestYDoc) {
   const ephemeralSite = new Site({ name, components: {} });
-  const siteRef = (ephemeralSite as any)[referenceSymbol](projectId, doc);
-  const entityId = siteRef[0];
-  return { site: Site.spawn(entityId, projectId, doc), entityId };
+  (ephemeralSite as any)[referenceSymbol](doc);
+  storeAsRoot(doc, ephemeralSite as any);
+  const site = load<Site>(doc);
+  return { site, entityId: (ephemeralSite as any).uuid as string };
 }
 
 describe("Proxy Edge Cases", () => {
   let doc1: TestYDoc;
   let doc2: TestYDoc;
-  const projectId: ProjectId = "test-project" as ProjectId;
-
   beforeEach(() => {
     doc1 = new Y.Doc();
     doc2 = new Y.Doc();
-    doc1.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, projectId);
-    doc2.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, projectId);
+    primeDoc(doc1);
+    primeDoc(doc2);
   });
 
   afterEach(() => {
@@ -80,7 +82,7 @@ describe("Proxy Edge Cases", () => {
 
   describe("🔥 Circular References", () => {
     it("should handle simple circular references without infinite recursion", () => {
-      const { site } = createTestSite("Circular Test", projectId, doc1);
+      const { site } = createTestSite("Circular Test", doc1);
 
       // Create circular reference: A → B → C → A
       const componentA = new Component({
@@ -123,7 +125,7 @@ describe("Proxy Edge Cases", () => {
     });
 
     it("should handle self-references correctly", () => {
-      const { site } = createTestSite("Self-Reference Test", projectId, doc1);
+      const { site } = createTestSite("Self-Reference Test", doc1);
 
       const component = new Component({
         name: "Recursive",
@@ -145,7 +147,7 @@ describe("Proxy Edge Cases", () => {
     });
 
     it("should sync circular references across documents", () => {
-      const { site: site1, entityId } = createTestSite("Circular Sync Test", projectId, doc1);
+      const { site: site1 } = createTestSite("Circular Sync Test", doc1);
 
       const compA = new Component({ name: "A", type: "component", children: [], metadata: {} });
       const compB = new Component({ name: "B", type: "component", children: [], metadata: {} });
@@ -160,7 +162,7 @@ describe("Proxy Edge Cases", () => {
       syncDocs(doc1, doc2);
 
       // Access from doc2
-      const site2 = Site.spawn(entityId, projectId, doc2);
+      const site2 = load<Site>(doc2);
       const compA2 = site2.components["a"];
 
       // Verify circular structure is preserved across documents
@@ -175,7 +177,7 @@ describe("Proxy Edge Cases", () => {
 
   describe("🏎️ Concurrent Mutation Races", () => {
     it("should handle concurrent cross-document mutations", () => {
-      const { site: site1, entityId: siteId } = createTestSite("Race Test", projectId, doc1);
+      const { site: site1 } = createTestSite("Race Test", doc1);
       const comp1 = new Component({ name: "Original", type: "component", children: [], metadata: {} });
       site1.components["shared"] = comp1;
 
@@ -183,7 +185,7 @@ describe("Proxy Edge Cases", () => {
       syncDocs(doc1, doc2);
 
       // Get same entity from both documents
-      const site2 = Site.spawn(siteId, projectId, doc2);
+      const site2 = load<Site>(doc2);
       const comp1_doc1 = site1.components["shared"];
       const comp1_doc2 = site2.components["shared"];
 
@@ -219,7 +221,7 @@ describe("Proxy Edge Cases", () => {
 
   describe("🕳️ Array Holes and Sparse Operations", () => {
     it("should handle array holes correctly", () => {
-      const { site } = createTestSite("Array Holes Test", projectId, doc1);
+      const { site } = createTestSite("Array Holes Test", doc1);
 
       const parent = new Component({
         name: "Parent",
@@ -249,7 +251,7 @@ describe("Proxy Edge Cases", () => {
     });
 
     it("should sync sparse arrays correctly", () => {
-      const { site: site1, entityId } = createTestSite("Sparse Sync Test", projectId, doc1);
+      const { site: site1 } = createTestSite("Sparse Sync Test", doc1);
 
       const parent = new Component({ name: "Parent", type: "container", children: [], metadata: {} });
       const child = new Component({ name: "SparseChild", type: "child", children: [], metadata: {} });
@@ -260,7 +262,7 @@ describe("Proxy Edge Cases", () => {
       // Sync to doc2
       syncDocs(doc1, doc2);
 
-      const site2 = Site.spawn(entityId, projectId, doc2);
+      const site2 = load<Site>(doc2);
       const parent2 = site2.components["parent"];
 
       // Verify sparse structure is preserved
@@ -276,7 +278,7 @@ describe("Proxy Edge Cases", () => {
 
   describe("💥 Exception Handling During Contagion", () => {
     it("should handle materialization failures gracefully", () => {
-      const { site } = createTestSite("Exception Test", projectId, doc1);
+      const { site } = createTestSite("Exception Test", doc1);
 
       const normalComponent = new Component({
         name: "Normal",
@@ -325,7 +327,7 @@ describe("Proxy Edge Cases", () => {
 
   describe("🗑️ Garbage Collection Edge Cases", () => {
     it("should handle WeakRef cleanup during operations", () => {
-      const { site } = createTestSite("GC Test", projectId, doc1);
+      const { site } = createTestSite("GC Test", doc1);
 
       // Create many entities to stress the cache system
       const entities: any[] = [];
@@ -375,7 +377,7 @@ describe("Proxy Edge Cases", () => {
 
   describe("🎭 Proxy Trap Edge Cases", () => {
     it("should handle negative array indices", () => {
-      const { site } = createTestSite("Negative Index Test", projectId, doc1);
+      const { site } = createTestSite("Negative Index Test", doc1);
 
       const parent = new Component({
         name: "Parent",
@@ -400,7 +402,7 @@ describe("Proxy Edge Cases", () => {
     });
 
     it("should handle array length manipulation", () => {
-      const { site } = createTestSite("Length Test", projectId, doc1);
+      const { site } = createTestSite("Length Test", doc1);
 
       const parent = new Component({
         name: "Parent",
@@ -451,7 +453,7 @@ describe("Proxy Edge Cases", () => {
     });
 
     it("should handle JSON.stringify on materialized entities", () => {
-      const { site } = createTestSite("JSON Test", projectId, doc1);
+      const { site } = createTestSite("JSON Test", doc1);
 
       const component = new Component({
         name: "Materialized",
@@ -491,7 +493,7 @@ describe("Proxy Edge Cases", () => {
 
   describe("🚀 Async Operations Edge Cases", () => {
     it("should handle async modifications during materialization", async () => {
-      const { site } = createTestSite("Async Test", projectId, doc1);
+      const { site } = createTestSite("Async Test", doc1);
 
       const component = new Component({
         name: "Original",
@@ -519,7 +521,7 @@ describe("Proxy Edge Cases", () => {
     });
 
     it("should handle Promise resolution accessing proxy entities", async () => {
-      const { site } = createTestSite("Promise Test", projectId, doc1);
+      const { site } = createTestSite("Promise Test", doc1);
 
       const component = new Component({
         name: "Promise",
@@ -577,7 +579,7 @@ describe("Proxy Edge Cases", () => {
 
   describe("💀 Resource Exhaustion Edge Cases", () => {
     it("should handle very large collections without crashing", () => {
-      const { site } = createTestSite("Large Collection Test", projectId, doc1);
+      const { site } = createTestSite("Large Collection Test", doc1);
 
       const parent = new Component({
         name: "Large Parent",
@@ -608,7 +610,7 @@ describe("Proxy Edge Cases", () => {
     });
 
     it("should handle deep nesting without stack overflow", () => {
-      const { site } = createTestSite("Deep Nesting Test", projectId, doc1);
+      const { site } = createTestSite("Deep Nesting Test", doc1);
 
       // Create deep nesting chain (100 levels)
       let current = new Component({
@@ -644,7 +646,7 @@ describe("Proxy Edge Cases", () => {
 
   describe("🌐 Cross-Document Orphaning Edge Cases", () => {
     it("should handle references to destroyed documents", () => {
-      const { site: site1, entityId } = createTestSite("Orphaning Test", projectId, doc1);
+      const { site: site1 } = createTestSite("Orphaning Test", doc1);
 
       const component = new Component({
         name: "Will Be Orphaned",
@@ -657,7 +659,7 @@ describe("Proxy Edge Cases", () => {
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const site2 = Site.spawn(entityId, projectId, doc2);
+      const site2 = load<Site>(doc2);
       const component2 = site2.components["test"];
 
       // Destroy doc1
@@ -675,7 +677,7 @@ describe("Proxy Edge Cases", () => {
 
   describe("🔀 Complex Array Operations", () => {
     it("should handle complex array method combinations", () => {
-      const { site } = createTestSite("Complex Array Test", projectId, doc1);
+      const { site } = createTestSite("Complex Array Test", doc1);
 
       const parent = new Component({
         name: "Parent",
@@ -725,7 +727,7 @@ describe("Proxy Edge Cases", () => {
     });
 
     it("should sync complex array operations across documents", () => {
-      const { site: site1, entityId } = createTestSite("Complex Sync Test", projectId, doc1);
+      const { site: site1 } = createTestSite("Complex Sync Test", doc1);
 
       const parent = new Component({
         name: "Parent",
@@ -751,7 +753,7 @@ describe("Proxy Edge Cases", () => {
       // Initial sync
       syncDocs(doc1, doc2);
 
-      const site2 = Site.spawn(entityId, projectId, doc2);
+      const site2 = load<Site>(doc2);
       const parent1 = site1.components["parent"];
       const parent2 = site2.components["parent"];
 

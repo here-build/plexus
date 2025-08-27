@@ -5,13 +5,13 @@
 import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { isProxyEntity, ProjectId, referenceSymbol, YJS_GLOBALS } from "../";
+import { isProxyEntity, referenceSymbol } from "../";
 
 import { type ModelType } from "../proxy-runtime-types.js";
 import { buildModelClass } from "../proxy-runtime.js";
 
 // Extended Y.Doc type for testing
-type TestYDoc = Y.Doc & { rootProjectId: ProjectId };
+type TestYDoc = Y.Doc;
 
 type ComponentType = ModelType<
   {
@@ -38,13 +38,15 @@ const Site = buildModelClass<SiteType>("Site", {
   components: "record"
 });
 
+import { load } from "../load";
+import { primeDoc, storeAsRoot } from "./test-helpers";
+
 describe("Simple Contagion Test", () => {
   let doc: Y.Doc;
-  const projectId: ProjectId = "test-project" as ProjectId;
 
   beforeEach(() => {
     doc = new Y.Doc();
-    doc.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.projectId, projectId)
+    primeDoc(doc);
   });
 
   afterEach(() => {
@@ -60,14 +62,15 @@ describe("Simple Contagion Test", () => {
     console.log("1. Created ephemeral site");
 
     // Step 2: Materialize it to YJS
-    const siteRef = (ephemeralSite as any)[referenceSymbol](projectId, doc);
+    const siteRef = (ephemeralSite as any)[referenceSymbol](doc);
     const entityId = siteRef[0];
 
     console.log("2. Materialized site, entityId:", entityId);
     console.log("3. Site ref:", siteRef);
 
-    // Step 3: Verify we can spawn it
-    const spawnedSite = Site.spawn(entityId, projectId, doc);
+    // Mark as root for loader-based flow and load it
+    storeAsRoot(doc, ephemeralSite as any);
+    const spawnedSite = load<SiteType>(doc);
     expect(spawnedSite.name).toBe("Test Site");
 
     console.log("4. Successfully spawned site");

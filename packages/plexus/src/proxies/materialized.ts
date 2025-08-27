@@ -21,28 +21,15 @@ import { isModelType, maybeReference } from "../utils";
 export type MaterializedProxyTarget<State extends LegitimateSchema<State>, Name extends string> = {
   target: ModelType<State, Name>;
   doc: Y.Doc;
-  projectId: string;
   schema: GenericRecordSchema;
   localReference: ReferenceTuple;
-  globalReference: ReferenceTuple;
   constructor: ModelConstructor<State, Name>;
   entityId: string;
   type: string;
   fieldMap: Y.Map<Storageable>;
 };
 export const buildMaterializedProxyHandler = <State extends LegitimateSchema<State>, Name extends string>(
-  {
-    target,
-    doc,
-    projectId,
-    schema,
-    localReference,
-    globalReference,
-    constructor,
-    entityId,
-    type,
-    fieldMap
-  }: MaterializedProxyTarget<State, Name>,
+  { target, doc, schema, localReference, constructor, entityId, type, fieldMap }: MaterializedProxyTarget<State, Name>,
   possibleTracker?: ModelType<State, Name>
 ) => {
   // minor hack for autoref
@@ -56,7 +43,7 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
           enumerable: true,
           configurable: false,
           get() {
-            return self[key]
+            return self[key];
           },
           set(value) {
             // @ts-expect-error
@@ -77,19 +64,18 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
       configurable: false,
       value: true
     }
-  })
+  });
   Reflect.setPrototypeOf(selfTarget, constructor);
   fieldMap.observe((event) => {
     for (const key of event.keysChanged) {
       trackModification(possibleTracker ?? self, key);
     }
-  })
+  });
   const self = new Proxy(Object.seal(selfTarget), {
     get(_, key) {
       if (key === isProxyEntity) return true;
       if (key === referenceDisclosureSymbol) {
         return () => ({
-          projectId,
           doc
         });
       }
@@ -104,20 +90,10 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
       if (key === referenceSymbol) {
         // REFERENCE TYPE SELECTION.
         // This allows entities to reference dependencies while maintaining project boundaries
-        return (assertedProjectId: string, assertedDoc: Y.Doc) => {
-          const docProjectId = doc.getMap<string>(YJS_GLOBALS.metadataMap).get(YJS_GLOBALS.metadataMapFields.projectId);
-          const assertedDocProjectId = doc
-            .getMap<string>(YJS_GLOBALS.metadataMap)
-            .get(YJS_GLOBALS.metadataMapFields.projectId);
-
-          invariant(
-            doc === assertedDoc,
-            `document misalignment: expected project<${docProjectId}> doc, got project<${assertedDocProjectId}> doc`
-          );
+        return (assertedDoc: Y.Doc) => {
+          invariant(doc === assertedDoc, `document misalignment: expected different doc`);
           // we're explicitly using pre-materialized references so we will be able to directly compare them
-          return projectId === assertedProjectId
-            ? localReference // Local reference tuple: [entityId]
-            : globalReference; // Cross-project reference tuple: [entityId, projectId]
+          return localReference; // Cross-project reference tuple: [entityId, projectId]
         };
       }
       if (key === "clone") {
@@ -156,16 +132,11 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
       // READONLY DEPENDENCY ENFORCEMENT:
       // Only entities from the root project can be modified
       // Dependency entities are immutable from this document's perspective
-      const docProjectId = doc.getMap<string>(YJS_GLOBALS.metadataMap).get(YJS_GLOBALS.metadataMapFields.projectId);
-      if (projectId !== docProjectId) {
-        console.warn(`cannot set property ${elementKey.toString()} of ${type} as it's readonly dependency reference`);
-        return false; // Silently reject writes to readonly dependencies
-      }
       if (typeof elementKey === "string") {
         const keyType = schema[elementKey];
         if (keyType === "val" || keyType === "child-val") {
           trackModification(tracker, elementKey);
-          fieldMap.set(elementKey, maybeReference(value, projectId, doc));
+          fieldMap.set(elementKey, maybeReference(value, doc));
           return true;
         }
         invariant(!keyType, "cannot directly set complex type");

@@ -4,7 +4,7 @@ import * as Y from "yjs";
 import { buildModelClass } from "../proxy-runtime.js";
 import type { ModelType } from "../proxy-runtime-types.js";
 import { referenceSymbol } from "../proxy-runtime-types.js";
-import { load, docDependencyResolverMap } from "../load.js";
+import { docDependencyResolverMap, load } from "../load.js";
 import { primeDoc, storeAsRoot } from "./test-helpers.js";
 import { createTrackedFunction } from "../tracking.js";
 
@@ -111,8 +111,8 @@ describe("Dependencies – Edge Cases", () => {
     // Initial mapping
     const root = load<Root>(rootDoc, { depA });
     const resolve1 = docDependencyResolverMap.get(rootDoc)!;
-    const dep1 = resolve1(depAId, "depA");
-    root.ref = dep1;
+
+    root.ref = resolve1(depAId, "depA");
     const oldView = root.ref!;
     expect(oldView.label).toBe("A");
 
@@ -121,14 +121,13 @@ describe("Dependencies – Edge Cases", () => {
     primeDoc(depANew);
     // Re-create model under same id
     const models = depANew.getMap<Y.Map<any>>("models");
-    const types = depANew.getMap<string>("models:types");
     const map = new Y.Map<any>();
+    map.set("__type__", "DepRich");  // Type is now stored in model itself
     map.set("label", "A2");
     map.set("tags", Y.Array.from(["x"]));
     map.set("items", Y.Array.from([]));
     map.set("meta", new Y.Map());
     models.set(depAId, map);
-    types.set(depAId, "DepRich");
 
     // Hot-swap resolver mapping using load()
     load<Root>(rootDoc, { depA: depANew });

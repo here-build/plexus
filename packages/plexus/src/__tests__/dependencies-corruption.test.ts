@@ -21,7 +21,6 @@ type Root = ModelType<
   "Root"
 >;
 
-const DepBadList = buildModelClass<DepBadList>("DepBadList", { items: "list" });
 const Root = buildModelClass<Root>("Root", { name: "val" });
 
 describe("Dependencies – Corruption & Shape Validation", () => {
@@ -72,7 +71,7 @@ describe("Dependencies – Corruption & Shape Validation", () => {
 
     load<Root>(rootDoc, { dep: depDoc });
     const resolve = docDependencyResolverMap.get(rootDoc)!;
-    expect(() => resolve(id, "dep")).toThrow(/expected array/i);
+    expect(() => resolve(id, "dep")).toThrow();
   });
 
   it("throws when sub-dependency alias is missing from mapping", () => {

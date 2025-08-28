@@ -108,7 +108,7 @@ describe("Cross-Document Proxy Sync", () => {
     });
 
     // Verify ephemeral state
-    expect((ephemeralComponent as any)[isProxyEntity]).toBe(true);
+    expect(ephemeralComponent[isProxyEntity]).toBe(true);
     expect(ephemeralComponent.name).toBe("Header");
 
     // Trigger contagion by adding to materialized entity

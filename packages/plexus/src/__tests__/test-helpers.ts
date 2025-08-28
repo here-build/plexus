@@ -19,7 +19,6 @@ export function primeDoc(doc: Y.Doc, dependencies: Record<string, Y.Doc> = {}) {
 
   // Ensure base maps exist
   doc.getMap(YJS_GLOBALS.models);
-  doc.getMap(YJS_GLOBALS.modelTypes);
   doc.getMap(YJS_GLOBALS.metadataMap);
 
   // Minimal resolver mirroring load() behavior for dependencies
@@ -28,7 +27,7 @@ export function primeDoc(doc: Y.Doc, dependencies: Record<string, Y.Doc> = {}) {
     invariant(depDoc, `missing dependency doc for package ${packageId}`);
 
     const model = depDoc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(entityId);
-    const type = depDoc.getMap<string>(YJS_GLOBALS.modelTypes).get(entityId);
+    const type = model.get(YJS_GLOBALS.modelMetadataType) as string;
     invariant(model && type, `cannot find model data for ${packageId}:${entityId}`);
     const Constructor = entityClasses.get(type);
     invariant(Constructor, `cannot find model type ${type} for ${packageId}:${entityId}`);

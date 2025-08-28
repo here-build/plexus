@@ -29,9 +29,7 @@ export const deref = (doc: Y.Doc, pointer: AllowedYValue): AllowedYJSValue => {
   const targetEntityId = pointer[0];
   // Default to current project
 
-  // todo switch to subdocs?
-  const targetYProjectEntityType = doc.getMap<string>(YJS_GLOBALS.modelTypes);
-  const targetType = targetYProjectEntityType.get(targetEntityId);
+  const targetType = doc.getMap<Y.Map<AllowedYJSValue>>(YJS_GLOBALS.models)?.get(targetEntityId)?.get(YJS_GLOBALS.modelMetadataType) as string;
   invariant(targetType, `missing type for ${targetEntityId}`);
 
   const constructor = entityClasses.get(targetType);

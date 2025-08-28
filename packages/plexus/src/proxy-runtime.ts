@@ -63,12 +63,11 @@ export function buildModelClass<T extends ModelPattern>(
 
     /* we need to explicitly initialize fields with proper types before using. otherwise sync protocol will break */
     const modelEntity = doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models);
-    const yprojectEntityType = doc.getMap<string>(YJS_GLOBALS.modelTypes);
     let yprojectObjectInstanceFields = modelEntity.get(entityId);
     if (!yprojectObjectInstanceFields) {
       yprojectObjectInstanceFields = new Y.Map();
       modelEntity.set(entityId, yprojectObjectInstanceFields);
-      yprojectEntityType.set(entityId, typeName);
+      yprojectObjectInstanceFields.set(YJS_GLOBALS.modelMetadataType, typeName)
       for (const [fieldName, fieldType] of Object.entries(schema)) {
         switch (fieldType) {
           case "set":
@@ -89,7 +88,7 @@ export function buildModelClass<T extends ModelPattern>(
         }
       }
     } else {
-      const type = yprojectEntityType.get(entityId);
+      const type = modelEntity.get(entityId)!.get(YJS_GLOBALS.modelMetadataType) as string;
       invariant(type === typeName, `spawn type mismatch, ${type} !== ${typeName}`);
     }
 

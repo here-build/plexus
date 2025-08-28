@@ -59,8 +59,8 @@ export function load<T extends ModelPattern>(doc: Y.Doc, dependencies: Record<st
     }
 
     const model = dependencies[packageId].getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(entityId);
-    const type = dependencies[packageId].getMap<string>(YJS_GLOBALS.modelTypes).get(entityId);
-    invariant(model && type, `cannot find model data for ${packageId}:${entityId}`);
+    invariant(model, `cannot find model data for ${packageId}:${entityId}`);
+    const type = model.get(YJS_GLOBALS.modelMetadataType) as string;
     const Constructor = entityClasses.get(type);
     invariant(Constructor, `cannot find model type ${type} for ${packageId}:${entityId}`);
     const proxyTarget = {} as T;
@@ -162,12 +162,11 @@ export function load<T extends ModelPattern>(doc: Y.Doc, dependencies: Record<st
   docDependencyResolverMap.set(doc, resolver);
 
   doc.getMap(YJS_GLOBALS.models);
-  doc.getMap(YJS_GLOBALS.modelTypes);
   const rootId = doc.getMap<string>(YJS_GLOBALS.metadataMap).get(YJS_GLOBALS.metadataMapFields.root);
   invariant(rootId, "missing root model id");
   const root = doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(rootId);
-  const rootType = doc.getMap<string>(YJS_GLOBALS.modelTypes).get(rootId);
-  invariant(root && rootType, "missing root model description");
+  invariant(root, "missing root model description");
+  const rootType = root.get(YJS_GLOBALS.modelMetadataType) as string;
   const Constructor = entityClasses.get(rootType);
   invariant(Constructor, `missing constructor of ${rootType} for root entity`);
   return Constructor.spawn(rootId, doc) as any as T; // we're unable to validate types against tests anyway, sadly

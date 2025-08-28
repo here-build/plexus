@@ -1,7 +1,9 @@
 export const YJS_GLOBALS = {
-  metadataMap: "__metadata__",
   models: "models",
-  modelTypes: "models:types",
+  modelOwnership: "modelOwnership",
+  modelMetadataType: "__type__",
+  modelMetadataParent: "__parent__",
+  metadataMap: "__metadata__",
   metadataMapFields: {
     root: "rootEntityId",
   },

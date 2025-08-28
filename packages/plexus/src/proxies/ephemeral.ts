@@ -8,9 +8,12 @@ import {
   ModelConstructorInit,
   type ModelPattern,
   type ModelType,
+  ParentReference,
   referenceDisclosureSymbol,
   referenceSymbol,
   type ReferenceTuple,
+  reportOrphanSymbol,
+  reportParentshipSymbol,
   type Storageable
 } from "../proxy-runtime-types";
 import * as Y from "yjs";
@@ -40,6 +43,7 @@ export type EphemeralProxyTarget<State extends LegitimateSchema<State>, Name ext
     __force?: boolean
   ) => ModelType<State, Name>;
 };
+
 export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name extends string>({
   schema,
   spawn,
@@ -51,25 +55,9 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
   type
 }: EphemeralProxyTarget<State, Name>) => {
   let isManifested = false;
-  const target = Object.fromEntries(
-    Object.entries(originalTarget).map(([key, value]) => {
-      switch (schema[key]) {
-        case "val":
-        case "child-val":
-          return [key, value];
-        case "set":
-        case "child-set":
-          return [key, buildSetProxy({}, value ?? undefined)];
-        case "record":
-        case "child-record":
-          return [key, buildRecordProxy({}, value ?? undefined)];
-        case "list":
-        case "child-list":
-          return [key, buildArrayProxy({}, value ?? undefined)];
-      }
-    })
-  );
-  const ownKeys = [...Object.keys(schema), "uuid", isProxyEntity];
+  let ephemeralParent: ModelType<{}, string> | null = null; // Track parent for ephemeral entities
+  let ephemeralParentKey: string | null = null; // Track parent for ephemeral entities
+  let extraParentMetadata: string | undefined;
   const selfTarget = Object.defineProperties(
     {},
     {
@@ -100,135 +88,197 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
         enumerable: false,
         configurable: false,
         value: true
+      },
+      parent: {
+        enumerable: false,
+        configurable: false,
+        get() {
+          return null;
+        }
       }
     }
   );
+  const ownKeys = Reflect.ownKeys(selfTarget);
+
   Reflect.setPrototypeOf(selfTarget, constructor);
   const self = new Proxy(Object.seal(selfTarget), {
     // eslint-disable-next-line sonarjs/function-return-type
     get(_, key) {
-      if (key === isProxyEntity) return true;
-      // POST-MATERIALIZATION: Forward all access to the YJS-synced version
+      switch (key) {
+        case "constructor":
+          return constructor;
+        case "uuid":
+          return entityId;
+        case isProxyEntity:
+          return true;
+      }
+      // POST-MATERIALIZATION: Forward all access to the YJS-synced version except ones that are clear
       if (manifestedState) {
         return Reflect.get(manifestedState, key);
       }
-      if (key === "constructor") {
-        return constructor;
-      }
-      if (key === "uuid") {
-        return entityId;
-      }
-      if (key === referenceSymbol) {
-        return function reference(this: ModelType<State, Name>, doc: Y.Doc): ReferenceTuple {
-          invariant(legitimateRootDocs.has(doc), "passed doc is not registered as legitimate Plexus root");
-          // this is needed explicitly in that manner for cyclic dependencies.
-          // It will never cause cross-doc issues as we only materialize root doc entities.
-          // Lucky for us, Plexus is doing not structural but reference equivalence - so we can safely assume that returning pointer will do nothing wrong.
-          if (isManifested) {
-            return localReference;
-          }
-          isManifested = true;
-          const boundMaybeReference = curryMaybeReference(doc);
-          // eslint-disable-next-line sonarjs/no-nested-functions
-          return doc.transact(() => {
-            const yprojectObjectInstances = doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models);
-            let yprojectObjectInstanceFields = yprojectObjectInstances.get(entityId);
-            if (!yprojectObjectInstanceFields) {
-              yprojectObjectInstanceFields = new Y.Map<Storageable>();
-              yprojectObjectInstances.set(entityId, yprojectObjectInstanceFields);
+      switch (key) {
+        case referenceSymbol:
+          return function reference(this: ModelType<State, Name>, doc: Y.Doc): ReferenceTuple {
+            invariant(legitimateRootDocs.has(doc), "passed doc is not registered as legitimate Plexus root");
+            // this is needed explicitly in that manner for cyclic dependencies.
+            // It will never cause cross-doc issues as we only materialize root doc entities.
+            // Lucky for us, Plexus is doing not structural but reference equivalence - so we can safely assume that returning pointer will do nothing wrong.
+            if (isManifested) {
+              return localReference;
             }
-            const yprojectEntityType = doc.getMap<string>(YJS_GLOBALS.modelTypes);
-
-            yprojectEntityType.set(entityId, type);
-            for (const [schemaKey, type] of Object.entries(schema) as [
-              string,
-              "val" | "list" | "record" | "set" | "child-val" | "child-list" | "child-record" | "child-set"
-            ][]) {
-              switch (type) {
-                case "val":
-                case "child-val":
-                  yprojectObjectInstanceFields.set(
-                    schemaKey,
-                    boundMaybeReference(target[schemaKey] as AllowedYJSValue)
+            isManifested = true;
+            const boundMaybeReference = curryMaybeReference(doc);
+            // eslint-disable-next-line sonarjs/no-nested-functions
+            return doc.transact(() => {
+              const yprojectObjectInstances = doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models);
+              let yprojectObjectInstanceFields = yprojectObjectInstances.get(entityId);
+              if (!yprojectObjectInstanceFields) {
+                yprojectObjectInstanceFields = new Y.Map<Storageable>();
+                yprojectObjectInstances.set(entityId, yprojectObjectInstanceFields);
+                yprojectObjectInstanceFields.set(YJS_GLOBALS.modelMetadataType, type);
+                if (ephemeralParent) {
+                  const parentReference = ephemeralParent[referenceSymbol](doc);
+                  (yprojectObjectInstanceFields as Y.Map<any> as Y.Map<ParentReference>).set(
+                    YJS_GLOBALS.modelMetadataParent,
+                    extraParentMetadata
+                      ? [parentReference[0], ephemeralParentKey!, extraParentMetadata]
+                      : [parentReference[0], ephemeralParentKey!]
                   );
-                  break;
-                case "list":
-                case "child-list":
-                  yprojectObjectInstanceFields.set(
-                    schemaKey,
-                    // @ts-expect-error todo yjs Array.from not supporting boolean
-                    Y.Array.from(
+                }
+              }
+              for (const [schemaKey, type] of Object.entries(schema)) {
+                switch (type) {
+                  case "val":
+                  case "child-val":
+                    yprojectObjectInstanceFields.set(
+                      schemaKey,
+                      boundMaybeReference(target[schemaKey] as AllowedYJSValue)
+                    );
+                    break;
+                  case "list":
+                  case "child-list":
+                    yprojectObjectInstanceFields.set(
+                      schemaKey,
                       // @ts-expect-error todo yjs Array.from not supporting boolean
-                      // Convert sparse arrays to dense arrays (holes become null)
-                      Array.from<AllowedYJSValue, AllowedYValue>(target[schemaKey] ?? [], boundMaybeReference)
-                    )
-                  );
-                  break;
-                case "record":
-                case "child-record":
-                  yprojectObjectInstanceFields.set(
-                    schemaKey,
-                    new Y.Map<AllowedYValue | null>(
-                      Object.entries((target[schemaKey] as Record<string, AllowedYJSValue> | null) ?? {}).map(
-                        ([recordKey, val]) => [recordKey, boundMaybeReference(val)]
+                      Y.Array.from(
+                        // @ts-expect-error todo yjs Array.from not supporting boolean
+                        // Convert sparse arrays to dense arrays (holes become null)
+                        Array.from<AllowedYJSValue, AllowedYValue>(target[schemaKey], boundMaybeReference)
                       )
-                    )
-                  );
-                  break;
-                case "set":
-                case "child-set":
-                  yprojectObjectInstanceFields.set(
-                    schemaKey,
-                    // @ts-expect-error todo yjs Array.from not supporting boolean
-                    Y.Array.from(
-                      // Convert Set to array while mapping references
+                    );
+                    break;
+                  case "record":
+                  case "child-record":
+                    yprojectObjectInstanceFields.set(
+                      schemaKey,
+                      new Y.Map<AllowedYValue | null>(
+                        Object.entries(target[schemaKey] as Record<string, AllowedYJSValue>).map(([recordKey, val]) => [
+                          recordKey,
+                          boundMaybeReference(val)
+                        ])
+                      )
+                    );
+                    break;
+                  case "set":
+                  case "child-set":
+                    yprojectObjectInstanceFields.set(
+                      schemaKey,
                       // @ts-expect-error todo yjs Array.from not supporting boolean
-                      Array.from(target[schemaKey] as Set<AllowedYJSValue>, boundMaybeReference)
-                    )
-                  );
+                      Y.Array.from(
+                        // Convert Set to array while mapping references
+                        // @ts-expect-error todo yjs Array.from not supporting boolean
+                        Array.from(target[schemaKey], boundMaybeReference)
+                      )
+                    );
+                    break;
+                  default:
+                    never(type);
+                }
+              }
+
+              // IDENTITY PRESERVATION MINDFUCK:
+              //
+              // This ephemeral proxy is about to become the canonical reference for this entity.
+              // Here's what happens:
+              //
+              // 1. We create a YJS-backed proxy via spawn() (target[ManifestedStateSymbol)
+              // 2. We cache THIS ephemeral proxy (not the materialized one) as canonical
+              // 3. This proxy forwards all behavior to target[ManifestedStateSymbol via the get() handler above
+              // 4. Future spawn() calls for this target[EntityIDSymbol return THIS SAME ephemeral proxy
+              // 5. Result: Perfect object identity - ephemeral === materialized references
+              //
+              // The proxy becomes a pointer to its own materialized form while remaining itself.
+              // Existential crisis: The object IS the reference TO itself.
+              const entityCache = documentEntityCaches.get(doc);
+              if (!entityCache.has(entityId)) {
+                manifestedState ??= spawn(entityId, doc, self, true);
+                if (ephemeralParent) {
+                  manifestedState[reportParentshipSymbol]!(ephemeralParent, ephemeralParentKey!, extraParentMetadata);
+                }
+                entityCache.set(entityId, new WeakRef(self)); // Cache SELF, not spawn result
+              }
+              return localReference;
+            });
+          };
+        case "parent":
+          trackAccess(self, key);
+          return ephemeralParent;
+        case "clone":
+          // EPHEMERAL CLONE: Creates a new ephemeral entity with same structure and field values
+          return (newProps?: Partial<State>) => clone(self, newProps);
+        case reportParentshipSymbol:
+          return (newParent: ModelPattern, field: string, extraMetadata?: string) => {
+            if (
+              ephemeralParent === newParent &&
+              ephemeralParentKey === field &&
+              extraMetadata === extraParentMetadata
+            ) {
+              return;
+            }
+            const referenceDisclosure = newParent?.[referenceDisclosureSymbol]?.();
+            if (referenceDisclosure) {
+              self[referenceSymbol](referenceDisclosure.doc);
+              return self[reportParentshipSymbol](newParent, field, extraMetadata);
+            }
+            if (ephemeralParent) {
+              switch (ephemeralParent.constructor.schema[ephemeralParentKey!]) {
+                case "child-val":
+                  ephemeralParent[ephemeralParentKey!] = null;
                   break;
-                default:
-                  never(type);
+                case "child-set":
+                  ephemeralParent[ephemeralParentKey!].delete(self);
+                  break;
+                case "child-list":
+                  const childIndex = (ephemeralParent[ephemeralParentKey!] as any[]).indexOf(self);
+                  if (childIndex !== -1) {
+                    (ephemeralParent[ephemeralParentKey!] as any[]).splice(childIndex, 1);
+                  }
+                  break;
+                case "child-record":
+                  delete parent[ephemeralParentKey!][extraParentMetadata!];
+                  break;
               }
             }
-
-            // IDENTITY PRESERVATION MINDFUCK:
-            //
-            // This ephemeral proxy is about to become the canonical reference for this entity.
-            // Here's what happens:
-            //
-            // 1. We create a YJS-backed proxy via spawn() (target[ManifestedStateSymbol)
-            // 2. We cache THIS ephemeral proxy (not the materialized one) as canonical
-            // 3. This proxy forwards all behavior to target[ManifestedStateSymbol via the get() handler above
-            // 4. Future spawn() calls for this target[EntityIDSymbol return THIS SAME ephemeral proxy
-            // 5. Result: Perfect object identity - ephemeral === materialized references
-            //
-            // The proxy becomes a pointer to its own materialized form while remaining itself.
-            // Existential crisis: The object IS the reference TO itself.
-            const entityCache = documentEntityCaches.get(doc);
-            if (!entityCache.has(entityId)) {
-              manifestedState ??= spawn(entityId, doc, self, true);
-              entityCache.set(entityId, new WeakRef(self)); // Cache SELF, not spawn result
-            }
-            return localReference;
-          });
-        };
-      }
-      if (key === "clone") {
-        // EPHEMERAL CLONE: Creates a new ephemeral entity with same structure and field values
-        return (newProps?: Partial<State>) => clone(self, newProps);
+            ephemeralParent = newParent as ModelType<{}, string>;
+            ephemeralParentKey = field;
+            extraParentMetadata = extraMetadata;
+            trackModification(self, "parent");
+          };
+        case reportOrphanSymbol:
+          return () => {
+            ephemeralParent = null;
+            ephemeralParentKey = null;
+            extraParentMetadata = undefined;
+            trackModification(self, "parent");
+          };
+        case Symbol.toStringTag:
+          return type; // Return the model class name
       }
       if (Object.hasOwn(schema, key) && typeof key === "string") {
         trackAccess(self, key);
         return target[key];
       }
       // Handle well-known symbols for ephemeral model root
-      if (typeof key === "symbol") {
-        switch (key) {
-          case Symbol.toStringTag:
-            return type; // Return the model class name
-        }
-      }
       if (key in Object.prototype) {
         return target[key as keyof typeof target];
       }
@@ -255,12 +305,19 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
       const disclosure = (value as ModelPattern | null)?.[referenceDisclosureSymbol]?.();
       if (disclosure) {
         definitelyReference(self, disclosure.doc);
-        // @ts-expect-error proxy trickery
+        // @ts-expect-error proxy trickery - we're materializing self with definitelyReference and then delegating assignment logic by running assignment again
         self[elementKey] = value;
-      } else {
-        target[elementKey] = value;
-        // in other branch we are doing tracking with manifested state
-        trackModification(self, elementKey);
+        return;
+      }
+      if (schema[elementKey] === "child-val") {
+        value?.[reportOrphanSymbol]?.();
+      }
+      target[elementKey] = value;
+      // in other branch we are doing tracking with manifested state
+      trackModification(self, elementKey);
+
+      if (schema[elementKey] === "child-val") {
+        value?.[reportParentshipSymbol]?.(self, elementKey);
       }
       return true;
     },
@@ -285,7 +342,15 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
       return false;
     },
     has(_, key) {
-      if (key === referenceSymbol || key === "uuid" || key === isProxyEntity) {
+      if (
+        key === isProxyEntity ||
+        key === referenceSymbol ||
+        key === referenceDisclosureSymbol ||
+        key === reportParentshipSymbol ||
+        key === reportOrphanSymbol ||
+        key === "uuid" ||
+        key === "parent"
+      ) {
         return true;
       }
       if (typeof key === "symbol") {
@@ -298,5 +363,60 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
       return ownKeys;
     }
   }) as any as ModelType<State, Name>;
+  const target = Object.fromEntries(
+    Object.entries(schema).map(([key, type]) => {
+      const value = originalTarget[key];
+      switch (type) {
+        case "val":
+          return [key, value];
+        case "child-val":
+          value?.[reportParentshipSymbol]?.(self, key);
+          return [key, value];
+        case "set":
+        case "child-set":
+          if (type === "child-set" && value) {
+            for (const entity of value) {
+              entity?.[reportParentshipSymbol]?.(self, key);
+            }
+          }
+          return [
+            key,
+            buildSetProxy(
+              { owner: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-set" },
+              value ?? undefined
+            )
+          ];
+        case "record":
+        case "child-record":
+          if (type === "child-record" && value) {
+            for (const [subkey, entity] of Object.entries(value)) {
+              entity?.[reportParentshipSymbol]?.(self, key, subkey);
+            }
+          }
+          return [
+            key,
+            buildRecordProxy(
+              { owner: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-record" },
+              value ?? undefined
+            )
+          ];
+        case "list":
+        case "child-list":
+          if (type === "child-list" && value) {
+            for (const entity of value) {
+              entity?.[reportParentshipSymbol]?.(self, key);
+            }
+          }
+          return [
+            key,
+            buildArrayProxy(
+              { owner: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-list" },
+              value ?? undefined
+            )
+          ];
+      }
+    })
+  );
+
   return self;
 };

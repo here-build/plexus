@@ -94,10 +94,10 @@ describe("Cross-Document Notifications", () => {
     it("should notify when primitive field changes across documents", async () => {
       // Doc1: Create user and set up tracking
       const { user: user1, entityId } = createTestUser("Alice", doc1);
-      const notifyCallback = vi.fn();
       syncDocs(doc1, doc2);
       const user2 = load<UserType>(doc2);
       expect(user2.name).toBe("Alice");
+      const notifyCallback = vi.fn();
       const trackedFunction = createTrackedFunction(notifyCallback, () => user2.name);
       expect(trackedFunction()).toBe("Alice");
       expect(notifyCallback).not.toHaveBeenCalled();

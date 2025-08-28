@@ -1,23 +1,39 @@
 import * as Y from "yjs";
 import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking";
-import { AllowedYJSValue, AllowedYValue, materializationSymbol, ModelPattern } from "../proxy-runtime-types";
-import { curryMaybeReference } from "../utils";
+import {
+  AllowedYJSValue,
+  AllowedYValue,
+  materializationSymbol,
+  ModelPattern,
+  reportOrphanSymbol,
+  reportParentshipSymbol
+} from "../proxy-runtime-types";
+import { curryMaybeReference, maybeTransacting } from "../utils";
 import { deref } from "../deref";
 import { mutableArrayMethods } from "../globals";
 
 export type MaterializedArrayProxyInitTarget =
   | {
+      owner: ModelPattern;
       list: Y.Array<AllowedYValue>;
       boundMaybeReference: ReturnType<typeof curryMaybeReference>;
+      ownerEntityId: string;
+      fieldName: string;
+      isChildField: boolean;
     }
   | {
+      owner: ModelPattern;
       list?: undefined;
       boundMaybeReference?: undefined;
+      ownerEntityId: string;
+      fieldName: string;
+      isChildField: boolean;
     };
 export const listProxyInitMap = new Map<AllowedYJSValue[], MaterializedArrayProxyInitTarget>();
 
 export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: AllowedYJSValue[] = []) => {
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
+    // todo narrowed observer event triggers
     // Update target array to maintain target-proxy parity for property descriptors
     if (init.list) {
       const newArray = init.list.toArray().map((item) => deref(init.list.doc!, item));
@@ -25,8 +41,8 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
     }
     trackModification(self, ACCESS_ALL_SYMBOL);
     trackModification(self, ACCESS_INDICES_SET_SYMBOL);
-  }
-  init.list?.observe(observer)
+  };
+  init.list?.observe(observer);
 
   const self = new Proxy(target, {
     // eslint-disable-next-line sonarjs/cognitive-complexity
@@ -38,30 +54,56 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
           // eslint-disable-next-line sonarjs/no-nested-functions
           return (...elements: Array<ModelPattern | null>) => {
             trackModification(self, ACCESS_ALL_SYMBOL);
-            target.push(...elements);
-            if (init.list) {
-              init.list.push(elements.map(init.boundMaybeReference));
-              return init.list.length;
-            } else {
-              target.length;
-            }
+            maybeTransacting(init.list?.doc, () => {
+              // Update parent tracking for child fields
+              if (init.isChildField) {
+                for (const element of elements) {
+                  element?.[reportParentshipSymbol]?.(init.owner, init.fieldName);
+                }
+              }
+
+              target.push(...elements);
+              if (init.list) {
+                init.list.push(elements.map(init.boundMaybeReference));
+                return init.list.length;
+              } else {
+                return target.length;
+              }
+            });
           };
         case "unshift": // arr.unshift(entity) → yArray.unshift(entity.reference())
           // eslint-disable-next-line sonarjs/no-nested-functions
           return (...elements: Array<ModelPattern | null>) => {
             trackModification(self, ACCESS_ALL_SYMBOL);
-            target.unshift(...elements);
-            if (init.list) {
-              init.list.unshift(elements.map(init.boundMaybeReference));
-              return init.list.length;
-            } else {
-              return target.length;
-            }
+            maybeTransacting(init.list?.doc, () => {
+              // Update parent tracking for child fields
+              if (init.isChildField) {
+                for (const element of elements) {
+                  element?.[reportParentshipSymbol]?.(init.owner, init.fieldName);
+                }
+              }
+
+              target.unshift(...elements);
+              if (init.list) {
+                init.list.unshift(elements.map(init.boundMaybeReference));
+                return init.list.length;
+              } else {
+                return target.length;
+              }
+            });
           };
         case "clear": // arr.assign(newElements) → replace entire array contents
           // eslint-disable-next-line sonarjs/no-nested-functions
           return () => {
             trackModification(self, ACCESS_ALL_SYMBOL);
+
+            // Clear parent tracking for all items
+            if (init.list && init.isChildField) {
+              for (const item of target) {
+                item?.[reportOrphanSymbol]?.();
+              }
+            }
+
             target.splice(0, target.length);
             if (init.list) {
               // Clear existing contents
@@ -72,13 +114,28 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
           // eslint-disable-next-line sonarjs/no-nested-functions
           return (newElements: Array<ModelPattern | null>) => {
             trackModification(self, ACCESS_ALL_SYMBOL);
-            target.splice(0, target.length, ...newElements);
-            if (init.list) {
-              // Clear existing contents
-              init.list.delete(0, init.list.length);
-              // Add new elements
-              init.list.push(newElements.map(init.boundMaybeReference));
-            }
+            maybeTransacting(init.list?.doc, () => {
+              if (init.isChildField) {
+                // todo duplicate models detection
+                // Clear parent tracking for old items
+                const removedItems = new Set(target).difference(new Set(newElements));
+                const addedItems = new Set(newElements).difference(new Set(target));
+                for (const item of removedItems) {
+                  item?.[reportOrphanSymbol]?.();
+                }
+                for (const item of addedItems) {
+                  item?.[reportParentshipSymbol]?.(init.owner, init.fieldName);
+                }
+              }
+
+              target.splice(0, target.length, ...newElements);
+              if (init.list) {
+                // Clear existing contents
+                init.list.delete(0, init.list.length);
+                // Add new elements
+                init.list.push(newElements.map(init.boundMaybeReference));
+              }
+            });
           };
         case "length": // Report length access to this array
           trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
@@ -86,11 +143,14 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
           return init.list?.length ?? target.length;
         case materializationSymbol:
           return (struct: Y.Array<AllowedYValue>, boundMaybeReference: ReturnType<typeof curryMaybeReference>) => {
-            init.list?.unobserve(observer)
+            if (init.list) {
+              console.warn("trying to re-materialize array", init, struct);
+            }
+            init.list?.unobserve(observer);
             init.list = struct;
             init.boundMaybeReference = boundMaybeReference;
-            init.list.observe(observer)
-          }
+            init.list.observe(observer);
+          };
         case Symbol.iterator:
           return () => {
             trackAccess(self, ACCESS_ALL_SYMBOL);
@@ -121,15 +181,28 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
                 if (!init.list) {
                   return target[elementKey](...args);
                 }
-                const array = init.list.toArray().map((item) => deref(init.list.doc!, item));
-                const result = array[elementKey](...args);
+                maybeTransacting(init.list?.doc, () => {
+                  const array = init.list.toArray().map((item) => deref(init.list.doc!, item));
+                  const result = array[elementKey](...args);
 
-                init.list.doc!.transact(() => {
-                  // todo optimized update strategy
-                  init.list.delete(0, init.list.length);
-                  init.list.push(array.map(init.boundMaybeReference));
+                  // todo duplicate models detection
+                  // Clear parent tracking for old items
+                  const removedItems = new Set(target).difference(new Set(result));
+                  const addedItems = new Set(result).difference(new Set(target));
+                  for (const item of removedItems) {
+                    item?.[reportOrphanSymbol]?.();
+                  }
+                  for (const item of addedItems) {
+                    item?.[reportParentshipSymbol]?.(init.owner, init.fieldName);
+                  }
+
+                  init.list.doc!.transact(() => {
+                    // todo optimized update strategy
+                    init.list.delete(0, init.list.length);
+                    init.list.push(array.map(init.boundMaybeReference));
+                  });
+                  return result;
                 });
-                return result;
               }
             : // eslint-disable-next-line sonarjs/no-nested-functions
               (...args) => {
@@ -172,12 +245,22 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
         const newLength = Number(value);
         if (Number.isSafeInteger(newLength) && newLength >= 0) {
           if (!init.list) {
+            for (const item of target) {
+              item?.[reportOrphanSymbol]?.();
+            }
             target.length = newLength;
             return true;
           }
           if (newLength < init.list.length) {
             // eslint-disable-next-line sonarjs/no-nested-functions
             init.list.doc!.transact(() => {
+              // Clear parent tracking for truncated items
+              if (init.isChildField) {
+                for (const item of target) {
+                  item?.[reportOrphanSymbol]?.();
+                }
+              }
+
               init.list.delete(newLength, init.list.length - newLength);
             });
           }
@@ -196,6 +279,20 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
               target[parsedElementKey] = value;
               return true;
             }
+
+            // Handle parent tracking for replaced item
+            if (init.isChildField) {
+              // Clear parent for old item at this index
+              if (parsedElementKey < init.list.length) {
+                target[parsedElementKey]?.[reportOrphanSymbol]?.();
+              }
+
+              // Update parent for new item
+              if (value) {
+                value?.[reportOrphanSymbol]?.();
+              }
+            }
+
             if (parsedElementKey > init.list.length) {
               // eslint-disable-next-line sonarjs/no-nested-functions
               const postfix: null[] = [];

@@ -1,17 +1,32 @@
 import * as Y from "yjs";
-import { AllowedYJSValue, AllowedYValue, materializationSymbol, ModelPattern } from "../proxy-runtime-types";
-import { curryMaybeReference } from "../utils";
+import {
+  AllowedYJSValue,
+  AllowedYValue,
+  materializationSymbol,
+  ModelPattern,
+  reportOrphanSymbol,
+  reportParentshipSymbol
+} from "../proxy-runtime-types";
+import { curryMaybeReference, maybeTransacting } from "../utils";
 import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking";
 import { deref } from "../deref";
 
 export type MaterializedRecordProxyInitTarget =
   | {
+      owner: ModelPattern;
       map: Y.Map<AllowedYValue>;
       boundMaybeReference: ReturnType<typeof curryMaybeReference>;
+      ownerEntityId: string;
+      fieldName: string;
+      isChildField: boolean;
     }
   | {
+      owner: ModelPattern;
       map?: undefined;
       boundMaybeReference?: undefined;
+      ownerEntityId: string;
+      fieldName: string;
+      isChildField: boolean;
     };
 
 export const recordProxyInitMap = new Map<Record<string, AllowedYJSValue>, MaterializedRecordProxyInitTarget>();
@@ -21,13 +36,16 @@ export const buildRecordProxy = (
   target: Record<string, AllowedYJSValue> = {}
 ) => {
   const observer = (event: Y.YMapEvent<AllowedYValue>) => {
-    for (const key of event.keysChanged){
+    for (const key of event.keysChanged) {
       trackModification(self, key);
-      target[key] = deref(init.map!.doc!, init.map!.get(key)!)
+      target[key] = deref(init.map!.doc!, init.map!.get(key)!);
     }
     trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+  };
+  init.map?.observe(observer);
+  if (init.map) {
+    Object.assign(init.map.toJSON());
   }
-  init.map?.observe(observer)
 
   // We still need to track proxy target state even when we're materialized as it's important for property descriptors.
   // We cannot do dynamic proxy for them so we have to control it directly. Some decisions will look weird without that fact.
@@ -38,6 +56,14 @@ export const buildRecordProxy = (
           return () => {
             trackModification(self, ACCESS_ALL_SYMBOL);
             trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+
+            // Clear parent tracking for all child values
+            if (init.isChildField) {
+              for (const value of Object.values(proxyTarget)) {
+                value?.[reportOrphanSymbol]?.();
+              }
+            }
+
             for (const key of Object.keys(proxyTarget)) {
               delete proxyTarget[key];
             }
@@ -47,26 +73,45 @@ export const buildRecordProxy = (
           return (newEntries: Record<string, ModelPattern> | Iterable<[string, ModelPattern]>) => {
             trackModification(self, ACCESS_ALL_SYMBOL);
             trackModification(self, ACCESS_INDICES_SET_SYMBOL);
-            for (const key of Object.keys(proxyTarget)) {
-              delete proxyTarget[key];
-            }
-            Object.assign(proxyTarget, newEntries);
-            if (init.map) {
-              init.map.doc!.transact(() => {
-                // Add new entries
-                if (Symbol.iterator in Object(newEntries)) {
-                  // Iterable of [key, value] pairs
-                  for (const [k, v] of newEntries as Iterable<[string, ModelPattern]>) {
-                    init.map.set(k, init.boundMaybeReference(v));
-                  }
-                } else {
-                  // Record object
-                  for (const [k, v] of Object.entries(newEntries as Record<string, ModelPattern>)) {
-                    init.map.set(k, init.boundMaybeReference(v));
-                  }
+
+            maybeTransacting(init.map?.doc, () => {
+              // Clear parent tracking for all old values
+              if (init.isChildField) {
+                for (const value of Object.values(proxyTarget)) {
+                  value?.[reportOrphanSymbol]?.();
                 }
-              });
-            }
+              }
+
+              for (const key of Object.keys(proxyTarget)) {
+                delete proxyTarget[key];
+              }
+              Object.assign(proxyTarget, newEntries);
+
+              if (init.map) {
+                init.map.doc!.transact(() => {
+                  init.map.clear();
+
+                  // Add new entries and update parent tracking
+                  if (Symbol.iterator in Object(newEntries)) {
+                    // Iterable of [key, value] pairs
+                    for (const [k, v] of newEntries as Iterable<[string, ModelPattern]>) {
+                      if (init.isChildField && v) {
+                        v[reportParentshipSymbol]?.(init.owner, init.fieldName, k);
+                      }
+                      init.map.set(k, init.boundMaybeReference(v));
+                    }
+                  } else {
+                    // Record object
+                    for (const [k, v] of Object.entries(newEntries as Record<string, ModelPattern>)) {
+                      if (init.isChildField && v) {
+                        v[reportParentshipSymbol]?.(init.owner, init.fieldName, k);
+                      }
+                      init.map.set(k, init.boundMaybeReference(v));
+                    }
+                  }
+                });
+              }
+            });
           };
         case materializationSymbol:
           return (struct: Y.Map<AllowedYValue>, boundMaybeReference: ReturnType<typeof curryMaybeReference>) => {
@@ -102,7 +147,10 @@ export const buildRecordProxy = (
         // Specific field access
         trackAccess(self, elementKey);
         if (init.map) {
-          return deref(init.map.doc!, init.map.get(elementKey) ?? null);
+          if (!init.map.has(elementKey)) {
+            return undefined;
+          }
+          return deref(init.map.doc!, init.map.get(elementKey)!);
         } else {
           return proxyTarget[elementKey];
         }
@@ -111,19 +159,31 @@ export const buildRecordProxy = (
     set(proxyTarget, elementKey, value) {
       if (typeof elementKey === "string") {
         trackModification(self, elementKey);
-        proxyTarget[elementKey] = value;
-        if (init.map) {
-          if (value != null) {
-            init.map.doc!.transact(() => {
-              init.map.set(elementKey, init.boundMaybeReference(value));
-            });
-          } else {
-            trackModification(self, ACCESS_INDICES_SET_SYMBOL);
-            init.map.doc!.transact(() => {
-              init.map.delete(elementKey);
-            });
+
+        maybeTransacting(init.map?.doc, () => {
+          // Handle parent tracking for child fields
+          if (init.isChildField) {
+            // Clear parent tracking for old value if it exists
+            const oldValue = proxyTarget[elementKey];
+            oldValue?.[reportOrphanSymbol]?.();
           }
-        }
+          proxyTarget[elementKey] = value;
+          if (init.isChildField) {
+            // Update parent tracking for new value
+            if (value != null) {
+              value[reportParentshipSymbol]?.(init.owner, init.fieldName, elementKey);
+            }
+          }
+
+          if (init.map) {
+            if (value != null) {
+              init.map.set(elementKey, init.boundMaybeReference(value));
+            } else {
+              trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+              init.map.delete(elementKey);
+            }
+          }
+        });
         return true;
       }
       console.warn(`cannot set property ${elementKey.toString()} as it's non-declared`);
@@ -134,23 +194,28 @@ export const buildRecordProxy = (
       if (typeof elementKey === "symbol") {
         return false;
       }
-      if (!init.map) {
-        if (Reflect.deleteProperty(proxyTarget, elementKey)) {
-          trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+
+      maybeTransacting(init.map?.doc, () => {
+        // Handle parent tracking for child fields
+        if (init.isChildField) {
+          const oldValue = proxyTarget[elementKey];
+          oldValue?.[reportOrphanSymbol]?.();
+        }
+
+        if (!init.map) {
+          if (Reflect.deleteProperty(proxyTarget, elementKey)) {
+            trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+          }
           return true;
         }
-        return false;
-      }
 
-      if (init.map.has(elementKey)) {
-        trackModification(self, ACCESS_INDICES_SET_SYMBOL);
-        init.map.doc!.transact(() => {
+        if (init.map.has(elementKey)) {
+          trackModification(self, ACCESS_INDICES_SET_SYMBOL);
           init.map.delete(elementKey);
-        });
-        return true;
-      }
-      console.warn(`cannot delete property ${elementKey} as it's non-declared`);
-      return false;
+          return true;
+        }
+      });
+      return true;
     },
     // todo getOwnPropertyDescriptor
     setPrototypeOf() {

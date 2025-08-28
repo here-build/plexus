@@ -111,6 +111,7 @@ export function trackModification(entity: any, field: string | symbol): void {
     const entityKeyset = notifier.fieldset.get(entity)!;
     if (field === ACCESS_ALL_SYMBOL || entityKeyset.has(field) || entityKeyset.has(ACCESS_ALL_SYMBOL)) {
       unconsumedNotifiers.delete(notifier);
+      // tracking functions should be executed AFTER we're done on internal magic
       notifier.trackingFunction();
     }
   }

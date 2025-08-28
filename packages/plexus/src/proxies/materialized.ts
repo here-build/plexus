@@ -5,9 +5,12 @@ import {
   LegitimateSchema,
   type ModelConstructor,
   type ModelType,
+  ParentReference,
   referenceDisclosureSymbol,
   referenceSymbol,
   type ReferenceTuple,
+  reportOrphanSymbol,
+  reportParentshipSymbol,
   type Storageable
 } from "../proxy-runtime-types";
 import * as Y from "yjs";
@@ -16,6 +19,8 @@ import { ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tr
 import { clone } from "../clone";
 import { deref } from "../deref";
 import { isModelType, maybeReference } from "../utils";
+import { YJS_GLOBALS } from "../YJS_GLOBALS";
+import { orphanizeChild } from "../utils/orphanizeChild";
 
 export type MaterializedProxyTarget<State extends LegitimateSchema<State>, Name extends string> = {
   target: ModelType<State, Name>;
@@ -33,7 +38,6 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
 ) => {
   // minor hack for autoref
   let tracker: ModelType<State, Name> = possibleTracker as ModelType<State, Name>;
-  const ownKeys = [...Object.keys(schema), "uuid", isProxyEntity];
   const selfTarget = Object.seal({
     ...Object.fromEntries(
       Object.entries(schema).map(([key]) => [
@@ -62,44 +66,90 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
       enumerable: false,
       configurable: false,
       value: true
+    },
+    parent: {
+      enumerable: false,
+      configurable: false,
+      get() {
+        return null;
+      }
     }
   });
+  const ownKeys = Reflect.ownKeys(selfTarget);
   Reflect.setPrototypeOf(selfTarget, constructor);
   fieldMap.observe((event) => {
     for (const key of event.keysChanged) {
-      trackModification(possibleTracker ?? self, key);
+      trackModification(tracker, key);
     }
   });
+
   const self = new Proxy(Object.seal(selfTarget), {
     get(_, key) {
-      if (key === isProxyEntity) return true;
-      if (key === referenceDisclosureSymbol) {
-        return () => ({
-          doc
-        });
-      }
-      if (key === "constructor") {
-        return constructor;
-      }
-      if (key === "uuid") {
-        // Expose entity ID as uuid field for DappSnap compatibility
-        // Non-enumerable to maintain clean iteration behavior
-        return entityId;
-      }
-      if (key === referenceSymbol) {
-        // REFERENCE TYPE SELECTION.
-        // This allows entities to reference dependencies while maintaining project boundaries
-        return (assertedDoc: Y.Doc) => {
-          invariant(doc === assertedDoc, `document misalignment: expected different doc`);
-          // we're explicitly using pre-materialized references so we will be able to directly compare them
-          return localReference; // Cross-project reference tuple: [entityId, projectId]
-        };
-      }
-      if (key === "clone") {
-        // TRANSACTIONAL CLONE: Creates a new entity using constructor pattern
-        // Handles cycles and deduplication via clone transaction mapping
-        // note that we're using trackingPointer to provide proper notifications mechanics
-        return (newProps?: {}) => clone(tracker, newProps);
+      switch (key) {
+        case isProxyEntity:
+          return true;
+        case referenceDisclosureSymbol:
+          return () => ({ doc });
+        case reportParentshipSymbol:
+          return (newParent: ModelType<{}, string>, field: string, extraFieldMetadata?: string) => {
+            const currentParent = fieldMap.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
+            doc.transact(() => {
+              const reference = newParent[referenceSymbol](doc);
+              (fieldMap as Y.Map<any> as Y.Map<ParentReference>).delete(YJS_GLOBALS.modelMetadataParent);
+              if (currentParent) {
+                orphanizeChild(doc, tracker, currentParent);
+              }
+              (fieldMap as Y.Map<any> as Y.Map<ParentReference>).set(
+                YJS_GLOBALS.modelMetadataParent,
+                extraFieldMetadata ? [reference[0], field, extraFieldMetadata] : [reference[0], field]
+              );
+              trackModification(tracker, "parent");
+            });
+          };
+        case reportOrphanSymbol:
+          return () => {
+            const currentParent = fieldMap.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
+            if (currentParent) {
+              doc.transact(() => {
+                // it is VERY important to alter fieldMap first to avoid cyclic processing
+                fieldMap.delete(YJS_GLOBALS.modelMetadataParent);
+                orphanizeChild(doc, tracker, currentParent);
+              });
+              trackModification(tracker, "parent");
+            }
+          };
+        case Symbol.toStringTag:
+          return type; // Return the model class name
+        case Symbol.hasInstance:
+          return (instance: any) => {
+            // Check if instance is of this model type
+            return isModelType(instance) && instance[referenceSymbol] !== undefined;
+          };
+        case "constructor":
+          return constructor;
+        case "uuid":
+          // Expose entity ID as uuid field for ease of use
+          // Non-enumerable to maintain clean iteration behavior
+          return entityId;
+        case referenceSymbol:
+          // REFERENCE TYPE SELECTION.
+          // This allows entities to reference dependencies while maintaining project boundaries
+          return (assertedDoc: Y.Doc) => {
+            invariant(doc === assertedDoc, `document misalignment: expected different doc`);
+            // we're explicitly using pre-materialized references so we will be able to directly compare them
+            return localReference; // Cross-project reference tuple: [entityId, projectId]
+          };
+        case "parent":
+          trackAccess(tracker, key);
+          // PARENT GETTER: Returns the parent entity if this is a child
+          const parentRef = fieldMap.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
+          if (!parentRef) return null;
+          return deref(doc, [parentRef[0]]);
+        case "clone":
+          // TRANSACTIONAL CLONE: Creates a new entity using constructor pattern
+          // Handles cycles and deduplication via clone transaction mapping
+          // note that we're using trackingPointer to provide proper notifications mechanics
+          return (newProps?: {}) => clone(tracker, newProps);
       }
       if (typeof key === "string" && Object.hasOwn(schema, key)) {
         // Specific field access on the main entity
@@ -110,21 +160,8 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
           : target[key];
       }
 
-      // Handle well-known symbols for model root
-      if (typeof key === "symbol") {
-        switch (key) {
-          case Symbol.toStringTag:
-            return type; // Return the model class name
-          case Symbol.hasInstance:
-            return (instance: any) => {
-              // Check if instance is of this model type
-              return isModelType(instance) && instance[referenceSymbol] !== undefined;
-            };
-          // Note: Symbol.iterator and Symbol.isConcatSpreadable don't make sense for model objects
-          // as they're not iterable collections
-        }
-      }
-
+      // Note: Symbol.iterator and Symbol.isConcatSpreadable don't make sense for model objects
+      // as they're not iterable collections
       return Object.prototype[key];
     },
     set(_, elementKey, value) {
@@ -134,8 +171,17 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
       if (typeof elementKey === "string") {
         const keyType = schema[elementKey];
         if (keyType === "val" || keyType === "child-val") {
+          // Handle parent tracking for child-val fields
+          if (keyType === "child-val") {
+            const oldValue = fieldMap.get(elementKey);
+            if (oldValue) {
+              deref(doc, oldValue as any as ReferenceTuple)?.[reportOrphanSymbol]();
+            }
+            value?.[reportOrphanSymbol]?.();
+          }
           trackModification(tracker, elementKey);
           fieldMap.set(elementKey, maybeReference(value, doc));
+          value?.[reportParentshipSymbol]?.(tracker, elementKey);
           return true;
         }
         invariant(!keyType, "cannot directly set complex type");
@@ -146,7 +192,7 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
       return false;
     },
     has(_, key) {
-      if (key === referenceSymbol || key === "uuid" || key === isProxyEntity) {
+      if (key === referenceSymbol || key === "uuid" || key === isProxyEntity || key === "parent") {
         return true;
       }
       if (typeof key === "symbol") {

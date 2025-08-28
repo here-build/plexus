@@ -49,8 +49,7 @@ const isModel = (val: any): val is ModelPattern => val && typeof val === "object
 export const isTupleReference = (val: any): val is ReferenceTuple =>
   Array.isArray(val) && val.length >= 1 && val.length <= 2 && typeof val[0] === "string";
 
-export const definitelyReference = (val: ModelPattern, doc: Y.Doc): AllowedYValue =>
-  val[referenceSymbol](doc);
+export const definitelyReference = (val: ModelPattern, doc: Y.Doc): AllowedYValue => val[referenceSymbol](doc);
 
 export const maybeReference = (val: AllowedYJSValue, doc?: Y.Doc): AllowedYValue =>
   (doc && isModel(val) ? val[referenceSymbol](doc) : val) ?? null;
@@ -59,3 +58,11 @@ export const curryMaybeReference =
   (doc: Y.Doc) =>
   (val: AllowedYJSValue): AllowedYValue =>
     (isModel(val) ? val[referenceSymbol](doc) : val) ?? null;
+
+export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T): T => {
+  if (doc) {
+    return doc.transact(fn);
+  } else {
+    return fn();
+  }
+}

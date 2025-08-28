@@ -67,7 +67,7 @@ export function buildModelClass<T extends ModelPattern>(
     if (!yprojectObjectInstanceFields) {
       yprojectObjectInstanceFields = new Y.Map();
       modelEntity.set(entityId, yprojectObjectInstanceFields);
-      yprojectObjectInstanceFields.set(YJS_GLOBALS.modelMetadataType, typeName)
+      yprojectObjectInstanceFields.set(YJS_GLOBALS.modelMetadataType, typeName);
       for (const [fieldName, fieldType] of Object.entries(schema)) {
         switch (fieldType) {
           case "set":
@@ -91,6 +91,22 @@ export function buildModelClass<T extends ModelPattern>(
       const type = modelEntity.get(entityId)!.get(YJS_GLOBALS.modelMetadataType) as string;
       invariant(type === typeName, `spawn type mismatch, ${type} !== ${typeName}`);
     }
+    // we need to use proxy reference in target so we're doing JS black magic again
+    let target = {} as any;
+
+    const proxy = buildMaterializedProxyHandler(
+      {
+        target,
+        doc,
+        schema,
+        localReference,
+        constructor: ModelConstructor,
+        entityId,
+        type: typeName,
+        fieldMap: yprojectObjectInstanceFields
+      },
+      internal__ephemeralExternalObject
+    );
 
     // COLLECTION PROXY FACTORY & CACHE
     //
@@ -105,7 +121,7 @@ export function buildModelClass<T extends ModelPattern>(
     // - "val-list" → Proxy wrapping Y.Array<primitive>  (Array interface)
     // - "ref-list" → Proxy wrapping Y.Array<Reference>  (Array interface)
 
-    const target = Object.fromEntries(
+    Object.assign(target, Object.fromEntries(
       Object.entries(schema).map(([key, type]) => {
         switch (type) {
           case "child-list":
@@ -123,7 +139,17 @@ export function buildModelClass<T extends ModelPattern>(
               return [key, internal__ephemeralExternalObject[key]];
             }
 
-            return [key, buildArrayProxy({ list, boundMaybeReference })];
+            return [
+              key,
+              buildArrayProxy({
+                list,
+                owner: proxy,
+                boundMaybeReference,
+                ownerEntityId: entityId,
+                fieldName: key,
+                isChildField: type === "child-list"
+              })
+            ];
           }
           case "child-record":
           case "record": {
@@ -141,7 +167,11 @@ export function buildModelClass<T extends ModelPattern>(
               key,
               buildRecordProxy({
                 boundMaybeReference,
-                map
+                map,
+                owner: proxy,
+                ownerEntityId: entityId,
+                fieldName: key,
+                isChildField: type === "child-record"
               })
             ];
           }
@@ -164,7 +194,11 @@ export function buildModelClass<T extends ModelPattern>(
               key,
               buildSetProxy({
                 list: underlyingArray,
-                boundMaybeReference
+                boundMaybeReference,
+                owner: proxy,
+                ownerEntityId: entityId,
+                fieldName: key,
+                isChildField: type === "child-set"
               })
             ];
           }
@@ -172,21 +206,7 @@ export function buildModelClass<T extends ModelPattern>(
             return [key, null];
         }
       })
-    );
-
-    const proxy = buildMaterializedProxyHandler(
-      {
-        target,
-        doc,
-        schema,
-        localReference,
-        constructor: ModelConstructor,
-        entityId,
-        type: typeName,
-        fieldMap: yprojectObjectInstanceFields
-      },
-      internal__ephemeralExternalObject
-    );
+    ))
     if (!internal__ephemeralExternalObject) {
       documentEntityCaches.get(doc).set(entityId, new WeakRef(proxy as ModelPattern));
     }

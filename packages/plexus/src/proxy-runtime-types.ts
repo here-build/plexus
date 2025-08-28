@@ -11,7 +11,10 @@ export const isProxyEntity = Symbol("is Plexus proxy");
 export const referenceSymbol = Symbol("reference");
 export const referenceDisclosureSymbol = Symbol("referenceDisclosure");
 export const materializationSymbol = Symbol("materialize proxy structure");
+export const reportParentshipSymbol = Symbol("report parentship change");
+export const reportOrphanSymbol = Symbol("report orphanage");
 
+export type ParentReference = [entityId: string, fieldName: string, metadata?: string];
 // New tuple-based references (memory optimized)
 type LocalReferenceeTuple = [entityId: string];
 type CrossProjectReferenceTuple = [entityId: string, projectId: string];
@@ -34,6 +37,8 @@ type ModelInternals<T extends LegitimateSchema<T>, Class extends string> = {
   clone<TT extends ModelType<T, string>>(this: TT, newProps?: Partial<T>): TT;
   readonly [isProxyEntity]: true;
   readonly [referenceSymbol]: ReferenceProjector;
+  readonly [reportOrphanSymbol]: () => void;
+  readonly [reportParentshipSymbol]: (newParent: ModelPattern, field: string, extraMetadata?: string) => void;
   readonly [referenceDisclosureSymbol]?: () => {
     doc: Y.Doc;
   };
@@ -69,11 +74,14 @@ type NullableFields<A extends ModelStateInit, ExcludedKeys extends keyof A = nev
 declare class ReadonlyField<T> {
   assign(value: T): void;
   clear(): void;
-  [materializationSymbol](struct: Y.Array<AllowedYValue> | Y.Map<AllowedYJSValue>, boundMaybeReference: ReturnType<typeof curryMaybeReference>): void;
+  [materializationSymbol](
+    struct: Y.Array<AllowedYValue> | Y.Map<AllowedYJSValue>,
+    boundMaybeReference: ReturnType<typeof curryMaybeReference>
+  ): void;
 }
 
 export type ModelState<T extends ModelPattern> =
-  T extends ModelType<infer S, string> ? S extends LegitimateSchema<S> ? S : never : never;
+  T extends ModelType<infer S, string> ? (S extends LegitimateSchema<S> ? S : never) : never;
 export type ModelName<T extends ModelPattern> = T extends ModelType<{}, infer N> ? N : never;
 
 export type LegitimateSchema<T extends ModelStateInit> =
@@ -99,7 +107,10 @@ export type ModelConstructorInit<T extends LegitimateSchema<T>, Class extends st
         | NullableFields<Omit<T, keyof ModelInternals<T, Class> | typeof tag>>
       >
     >
->;
+> & {
+  parent?: never;
+  uuid?: never;
+};
 
 export type ModelConstructor<T extends LegitimateSchema<T>, Class extends string> = Tagged<
   Constructor<ModelType<T, Class>, [ModelConstructorInit<T, Class>]> & {

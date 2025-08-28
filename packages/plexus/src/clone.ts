@@ -1,13 +1,21 @@
-import { type AllowedYJSValue, LegitimateSchema, ModelConstructorInit, type ModelType } from "./proxy-runtime-types";
+import {
+  type AllowedYJSValue,
+  LegitimateSchema,
+  ModelConstructorInit,
+  type ModelType,
+  reportParentshipSymbol
+} from "./proxy-runtime-types";
 import { ACCESS_ALL_SYMBOL, trackAccess } from "./tracking";
 import { isModelType } from "./utils";
 
 // Global clone transaction mapping for handling cycles and deduplication
 let cloneTransactionMapping: WeakMap<any, any> | null = null;
 
-function maybeClone<T>(object: T): T {
+function maybeClone<T>(object: T, parent: ModelType<{}, string>, parentField: string, metadata?: string): T {
   if (isModelType(object)) {
-    return object.clone() as T;
+    const clonedObject = object.clone() as T;
+    clonedObject[reportParentshipSymbol](parent, parentField, metadata)
+    return clonedObject;
   } else {
     return object;
   }
@@ -24,49 +32,46 @@ export function clone<State extends LegitimateSchema<State>, Name extends string
   }
   try {
     trackAccess(source, ACCESS_ALL_SYMBOL);
-    const constructorInit = Object.fromEntries(
-      Object.entries(source.constructor.schema).map(([fieldKey, type]) => {
-        const fieldValue = source[fieldKey as keyof typeof source];
-        if (type === "val") {
-          // Primitive value or reference - copy directly
-          return [fieldKey, newProps?.[fieldKey] ?? (fieldValue as AllowedYJSValue)];
-        } else if (type === "list") {
-          trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
-          // Regular list - shallow clone collection
-          return [fieldKey, [...((newProps?.[fieldKey] ?? fieldValue) as any)]];
-        } else if (type === "set") {
-          trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
-          return [fieldKey, new Set((newProps?.[fieldKey] ?? fieldValue) as any)];
-        } else if (type === "record") {
-          trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
-          return [fieldKey, newProps?.[fieldKey] ? { ...(newProps?.[fieldKey] as any) } : { ...(fieldValue as any) }];
-        } else {
-          // we intentionally skip child-* on this step as otherwise it will be impossible to implement circular references in cloning properly
-          return [fieldKey, null];
-        }
-      })
-    ) as ModelConstructorInit<State, Name>;
-    const clonedModel = new source.constructor(constructorInit);
+    // @ts-expect-error we're bypassing ts constraints here as we're aware on underlying js logic
+    const clonedModel = new source.constructor({});
     cloneTransactionMapping.set(source, clonedModel);
     for (const [fieldKey, type] of Object.entries(source.constructor.schema)) {
       const fieldValue = source[fieldKey as keyof typeof source];
-
-      if (type === "child-val") {
-        // @ts-expect-error "generic and can be only used for indexing"
-        clonedModel[fieldKey] = maybeClone(fieldValue);
-      } else if (type === "child-list") {
-        // @ts-expect-error "generic and can be only used for indexing"
-        clonedModel[fieldKey].assign((fieldValue as any as any[]).map(maybeClone));
-      } else if (type === "child-set") {
-        // @ts-expect-error "generic and can be only used for indexing"
-        clonedModel[fieldKey].assign(new Set([...(fieldValue as any as Set<any>)].map(maybeClone)));
-      } else if (type === "child-record") {
-        // @ts-expect-error "generic and can be only used for indexing"
-        clonedModel[fieldKey].assign(
-          Object.fromEntries(
-            Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [key, maybeClone(item)])
-          )
-        );
+      trackAccess(fieldValue, ACCESS_ALL_SYMBOL)
+      switch (type) {
+        case "val":
+          // @ts-expect-error "generic and can be only used for indexing"
+          clonedModel[fieldKey] = fieldValue;
+          break;
+        case "list":
+        case "record":
+        case "set":
+          // @ts-expect-error "generic and can be only used for indexing"
+          clonedModel[fieldKey].assign(fieldValue);
+          break;
+        case "child-val": // @ts-expect-error "generic and can be only used for indexing"
+          clonedModel[fieldKey] = maybeClone(fieldValue, clonedModel, fieldKey);
+          break;
+        case "child-list": // @ts-expect-error "generic and can be only used for indexing"
+          clonedModel[fieldKey].assign(
+            (fieldValue as any as any[]).map((item) => maybeClone(item, clonedModel as any, fieldKey))
+          );
+          break;
+        case "child-set": // @ts-expect-error "generic and can be only used for indexing"
+          clonedModel[fieldKey].assign(
+            new Set([...(fieldValue as any as Set<any>)].map((item) => maybeClone(item, clonedModel as any, fieldKey)))
+          );
+          break;
+        case "child-record": // @ts-expect-error "generic and can be only used for indexing"
+          clonedModel[fieldKey].assign(
+            Object.fromEntries(
+              Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
+                key,
+                maybeClone(item, clonedModel as any, fieldKey, key)
+              ])
+            )
+          );
+          break;
       }
     }
     return clonedModel;

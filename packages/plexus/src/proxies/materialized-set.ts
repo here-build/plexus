@@ -1,27 +1,42 @@
 import * as Y from "yjs";
-import { AllowedYJSValue, AllowedYValue, materializationSymbol } from "../proxy-runtime-types";
-import { curryMaybeReference } from "../utils";
+import {
+  AllowedYJSValue,
+  AllowedYValue,
+  materializationSymbol,
+  ModelPattern,
+  reportOrphanSymbol,
+  reportParentshipSymbol
+} from "../proxy-runtime-types";
+import { curryMaybeReference, maybeTransacting } from "../utils";
 import { ACCESS_ALL_SYMBOL, trackAccess, trackModification } from "../tracking";
 import { deref } from "../deref";
 
 export type MaterializedSetProxyInitTarget =
   | {
+      owner: ModelPattern;
       list: Y.Array<AllowedYValue>;
       boundMaybeReference: ReturnType<typeof curryMaybeReference>;
+      ownerEntityId: string;
+      fieldName: string;
+      isChildField: boolean;
     }
   | {
+      owner: ModelPattern;
       list?: undefined;
       boundMaybeReference?: undefined;
+      ownerEntityId: string;
+      fieldName: string;
+      isChildField: boolean;
     };
 
 export const setProxyInitMap = new Map<Set<any>, MaterializedSetProxyInitTarget>();
 
 export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<AllowedYJSValue> = new Set()) => {
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
-    // todo add adjustments like in record
-    trackModification(self, ACCESS_ALL_SYMBOL)
-  }
-  init.list?.observe(observer)
+    // todo narrowed observer event triggers
+    trackModification(self, ACCESS_ALL_SYMBOL);
+  };
+  init.list?.observe(observer);
 
   const self = new Proxy(Object.seal(new Set()), {
     get(_, elementKey) {
@@ -45,7 +60,13 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
                 .includes(value)
             ) {
               trackModification(self, ACCESS_ALL_SYMBOL);
-              init.list.doc!.transact(() => {
+
+              maybeTransacting(init.list?.doc, () => {
+                // Update parent tracking for child fields
+                if (init.isChildField) {
+                  value?.[reportParentshipSymbol]?.(init.owner, init.fieldName);
+                }
+
                 init.list.push([init.boundMaybeReference(value)]);
               });
               return true;
@@ -66,11 +87,18 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
               return 0;
             }
             trackModification(self, ACCESS_ALL_SYMBOL);
-            if (init.list) {
-              init.list.doc!.transact(() => {
-                init.list.delete(0, outputLength);
-              });
-            }
+
+            maybeTransacting(init.list?.doc, () => {
+              // Clear parent tracking for all items
+              if (init.isChildField) {
+                const items = init.list.toArray().map((item) => deref(init.list.doc!, item));
+                for (const item of items) {
+                  item?.[reportOrphanSymbol]?.();
+                }
+              }
+
+              init.list.delete(0, outputLength);
+            });
             return outputLength;
           };
         case "assign":
@@ -81,7 +109,16 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
               target = new Set(newValues);
               return;
             }
-            init.list.doc!.transact(() => {
+
+            maybeTransacting(init.list?.doc, () => {
+              // Clear parent tracking for old items
+              if (init.isChildField) {
+                const oldItems = init.list.toArray().map((item) => deref(init.list.doc!, item));
+                for (const item of oldItems) {
+                  item?.[reportOrphanSymbol]?.();
+                }
+              }
+
               // Clear existing contents
               init.list?.delete(0, init.list.length);
               // Add new values
@@ -92,6 +129,10 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
                     .map((item) => deref(init.list.doc!, item))
                     .includes(value)
                 ) {
+                  // Update parent tracking for new items
+                  if (init.isChildField) {
+                    value?.[reportParentshipSymbol]?.(init.owner, init.fieldName);
+                  }
                   init.list.push([init.boundMaybeReference(value)]);
                 }
               }
@@ -113,7 +154,13 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
             if (index === -1) {
               return false;
             }
-            init.list.doc!.transact(() => {
+
+            maybeTransacting(init.list?.doc, () => {
+              // Clear parent tracking for removed item
+              if (init.isChildField) {
+                value?.[reportOrphanSymbol]?.();
+              }
+
               init.list.delete(index, 1);
             });
             trackModification(self, ACCESS_ALL_SYMBOL);
@@ -203,11 +250,11 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
           };
         case materializationSymbol:
           return (struct: Y.Array<AllowedYValue>, boundMaybeReference: ReturnType<typeof curryMaybeReference>) => {
-            init.list?.unobserve(observer)
+            init.list?.unobserve(observer);
             init.list = struct;
             init.boundMaybeReference = boundMaybeReference;
-            init.list.observe(observer)
-          }
+            init.list.observe(observer);
+          };
         default:
           return false;
       }

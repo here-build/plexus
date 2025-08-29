@@ -3,10 +3,12 @@ import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModific
 import {
   AllowedYJSValue,
   AllowedYValue,
+  informAdoptionSymbol,
+  informOrphanizationSymbol,
   materializationSymbol,
   ModelPattern,
-  reportOrphanSymbol,
-  reportParentshipSymbol
+  requestAdoptionSymbol,
+  requestOrphanizationSymbol
 } from "../proxy-runtime-types";
 import { curryMaybeReference, maybeTransacting } from "../utils";
 import { deref } from "../deref";
@@ -58,7 +60,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
               // Update parent tracking for child fields
               if (init.isChildField) {
                 for (const element of elements) {
-                  element?.[reportParentshipSymbol]?.(init.owner, init.fieldName);
+                  element?.[requestAdoptionSymbol]?.(init.owner, init.fieldName);
                 }
               }
 
@@ -79,7 +81,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
               // Update parent tracking for child fields
               if (init.isChildField) {
                 for (const element of elements) {
-                  element?.[reportParentshipSymbol]?.(init.owner, init.fieldName);
+                  element?.[requestAdoptionSymbol]?.(init.owner, init.fieldName);
                 }
               }
 
@@ -100,7 +102,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
             // Clear parent tracking for all items
             if (init.list && init.isChildField) {
               for (const item of target) {
-                item?.[reportOrphanSymbol]?.();
+                item?.[informOrphanizationSymbol]?.();
               }
             }
 
@@ -121,10 +123,10 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
                 const removedItems = new Set(target).difference(new Set(newElements));
                 const addedItems = new Set(newElements).difference(new Set(target));
                 for (const item of removedItems) {
-                  item?.[reportOrphanSymbol]?.();
+                  item?.[informOrphanizationSymbol]?.();
                 }
                 for (const item of addedItems) {
-                  item?.[reportParentshipSymbol]?.(init.owner, init.fieldName);
+                  item?.[requestAdoptionSymbol]?.(init.owner, init.fieldName);
                 }
               }
 
@@ -175,31 +177,29 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
             ? // eslint-disable-next-line sonarjs/no-nested-functions
               (...args) => {
                 trackModification(self, ACCESS_ALL_SYMBOL);
-                // if (!mutableArrayMethodsPreservingLength.has(elementKey)) {
-                //   trackModification(self, ACCESS_INDICES_SET_SYMBOL);
-                // }
                 if (!init.list) {
                   return target[elementKey](...args);
                 }
-                maybeTransacting(init.list?.doc, () => {
+                return maybeTransacting(init.list?.doc, () => {
                   const array = init.list.toArray().map((item) => deref(init.list.doc!, item));
-                  const result = array[elementKey](...args);
+                  const resultingArray = [...array];
+                  const result = resultingArray[elementKey](...args);
 
                   // todo duplicate models detection
                   // Clear parent tracking for old items
-                  const removedItems = new Set(target).difference(new Set(result));
-                  const addedItems = new Set(result).difference(new Set(target));
+                  const removedItems = new Set(target).difference(new Set(resultingArray));
+                  const addedItems = new Set(resultingArray).difference(new Set(target));
                   for (const item of removedItems) {
-                    item?.[reportOrphanSymbol]?.();
+                    item?.[informOrphanizationSymbol]?.();
                   }
                   for (const item of addedItems) {
-                    item?.[reportParentshipSymbol]?.(init.owner, init.fieldName);
+                    item?.[requestAdoptionSymbol]?.(init.owner, init.fieldName);
                   }
 
-                  init.list.doc!.transact(() => {
+                  maybeTransacting(init.list.doc, () => {
                     // todo optimized update strategy
                     init.list.delete(0, init.list.length);
-                    init.list.push(array.map(init.boundMaybeReference));
+                    init.list.push(resultingArray.map(init.boundMaybeReference));
                   });
                   return result;
                 });
@@ -246,18 +246,18 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
         if (Number.isSafeInteger(newLength) && newLength >= 0) {
           if (!init.list) {
             for (const item of target) {
-              item?.[reportOrphanSymbol]?.();
+              item?.[informOrphanizationSymbol]?.();
             }
             target.length = newLength;
             return true;
           }
           if (newLength < init.list.length) {
             // eslint-disable-next-line sonarjs/no-nested-functions
-            init.list.doc!.transact(() => {
+            maybeTransacting(init.list.doc, () => {
               // Clear parent tracking for truncated items
               if (init.isChildField) {
                 for (const item of target) {
-                  item?.[reportOrphanSymbol]?.();
+                  item?.[informOrphanizationSymbol]?.();
                 }
               }
 
@@ -279,34 +279,38 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
               target[parsedElementKey] = value;
               return true;
             }
+            if (deref(init.list.doc!, init.list.get(parsedElementKey)) === value) {
+              return true;
+            }
 
             // Handle parent tracking for replaced item
             if (init.isChildField) {
               // Clear parent for old item at this index
               if (parsedElementKey < init.list.length) {
-                target[parsedElementKey]?.[reportOrphanSymbol]?.();
+                target[parsedElementKey]?.[informOrphanizationSymbol]?.();
               }
 
               // Update parent for new item
               if (value) {
-                value?.[reportOrphanSymbol]?.();
+                value?.[requestOrphanizationSymbol]?.();
               }
             }
 
-            if (parsedElementKey > init.list.length) {
-              // eslint-disable-next-line sonarjs/no-nested-functions
-              const postfix: null[] = [];
-              while (postfix.length + init.list.length < parsedElementKey - 1) {
-                postfix.push(null);
-              }
-              init.list.push([...postfix, init.boundMaybeReference(value)]);
-            } else {
-              // eslint-disable-next-line sonarjs/no-nested-functions
-              init.list.doc!.transact(() => {
+            maybeTransacting(init.list.doc, () => {
+              if (parsedElementKey > init.list.length) {
+                // eslint-disable-next-line sonarjs/no-nested-functions
+                const postfix: null[] = [];
+                while (postfix.length + init.list.length < parsedElementKey - 1) {
+                  postfix.push(null);
+                }
+                init.list.push([...postfix, init.boundMaybeReference(value)]);
+              } else {
+                // eslint-disable-next-line sonarjs/no-nested-functions
                 init.list.delete(parsedElementKey, 1);
                 init.list.insert(parsedElementKey, [init.boundMaybeReference(value)]);
-              });
-            }
+              }
+              value?.[informAdoptionSymbol]?.(init.owner, init.fieldName);
+            });
           }
           return true;
         }
@@ -337,7 +341,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
     ownKeys(target) {
       trackAccess(self, ACCESS_ALL_SYMBOL);
       return Reflect.ownKeys(init.list?.toArray() ?? target);
-    },
+    }
   });
   listProxyInitMap.set(self, init);
   return self;

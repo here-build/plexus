@@ -1,13 +1,17 @@
 import * as Y from "yjs";
-import { LegitimateSchema, ModelType, ParentReference } from "../proxy-runtime-types";
+import { LegitimateSchema, ModelPattern, ModelType, ParentReference } from "../proxy-runtime-types";
 import { deref } from "../deref";
 import invariant from "tiny-invariant";
+import { maybeTransacting } from "./index";
 
-export const orphanizeChild = <T extends LegitimateSchema<T>>(doc: Y.Doc, child: ModelType<T, string>, currentParentReference: ParentReference) => {
+export let currentlyEmancipating = new WeakSet<ModelPattern>();
+
+export const emancipateChild = <T extends LegitimateSchema<T>>(doc: Y.Doc, child: ModelType<T, string>, currentParentReference: ParentReference) => {
   if (!currentParentReference) {
     return;
   }
-  doc.transact(() => {
+  currentlyEmancipating.add(child);
+  maybeTransacting(doc, () => {
     const [entityId, key, metadata] = currentParentReference;
     const parent = deref(doc, [entityId]) as ModelType<{}, string>;
     invariant(parent, `expected to see parent at ${entityId} but it's not there`);
@@ -29,4 +33,5 @@ export const orphanizeChild = <T extends LegitimateSchema<T>>(doc: Y.Doc, child:
         return;
     }
   });
+  currentlyEmancipating.delete(child);
 };

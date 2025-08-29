@@ -1,26 +1,28 @@
 import {
   type AllowedYValue,
+  documentDisclosureSymbol,
   GenericRecordSchema,
+  informAdoptionSymbol,
+  informOrphanizationSymbol,
   isProxyEntity,
   LegitimateSchema,
   type ModelConstructor,
   type ModelType,
   ParentReference,
-  referenceDisclosureSymbol,
   referenceSymbol,
   type ReferenceTuple,
-  reportOrphanSymbol,
-  reportParentshipSymbol,
+  requestAdoptionSymbol,
+  requestOrphanizationSymbol,
   type Storageable
 } from "../proxy-runtime-types";
 import * as Y from "yjs";
 import invariant from "tiny-invariant";
-import { ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking";
+import { trackAccess, trackModification } from "../tracking";
 import { clone } from "../clone";
 import { deref } from "../deref";
-import { isModelType, maybeReference } from "../utils";
+import { isModelType, maybeReference, maybeTransacting } from "../utils";
 import { YJS_GLOBALS } from "../YJS_GLOBALS";
-import { orphanizeChild } from "../utils/orphanizeChild";
+import { currentlyEmancipating, emancipateChild } from "../utils/emancipateChild";
 
 export type MaterializedProxyTarget<State extends LegitimateSchema<State>, Name extends string> = {
   target: ModelType<State, Name>;
@@ -83,39 +85,73 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
     }
   });
 
+  const informAdoption = (newParent: ModelType<{}, string>, field: string, extraFieldMetadata?: string) => {
+    maybeTransacting(doc, () => {
+      const reference = newParent[referenceSymbol](doc);
+      (fieldMap as Y.Map<any> as Y.Map<ParentReference>).set(
+        YJS_GLOBALS.modelMetadataParent,
+        extraFieldMetadata ? [reference[0], field, extraFieldMetadata] : [reference[0], field]
+      );
+      trackModification(tracker, "parent");
+    });
+  };
+
+  const informOrphanization = () => {
+    const currentParent = fieldMap.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
+    if (currentParent) {
+      maybeTransacting(doc, () => {
+        // it is VERY important to alter fieldMap first to avoid cyclic processing
+        fieldMap.delete(YJS_GLOBALS.modelMetadataParent);
+      });
+      trackModification(tracker, "parent");
+    }
+  };
+
   const self = new Proxy(Object.seal(selfTarget), {
     get(_, key) {
       switch (key) {
         case isProxyEntity:
           return true;
-        case referenceDisclosureSymbol:
+        case documentDisclosureSymbol:
           return () => ({ doc });
-        case reportParentshipSymbol:
+        case informAdoptionSymbol:
+          return informAdoption;
+        case informOrphanizationSymbol:
+          return informOrphanization;
+        case requestAdoptionSymbol:
           return (newParent: ModelType<{}, string>, field: string, extraFieldMetadata?: string) => {
-            const currentParent = fieldMap.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
-            doc.transact(() => {
-              const reference = newParent[referenceSymbol](doc);
-              (fieldMap as Y.Map<any> as Y.Map<ParentReference>).delete(YJS_GLOBALS.modelMetadataParent);
-              if (currentParent) {
-                orphanizeChild(doc, tracker, currentParent);
-              }
-              (fieldMap as Y.Map<any> as Y.Map<ParentReference>).set(
-                YJS_GLOBALS.modelMetadataParent,
-                extraFieldMetadata ? [reference[0], field, extraFieldMetadata] : [reference[0], field]
-              );
-              trackModification(tracker, "parent");
-            });
-          };
-        case reportOrphanSymbol:
-          return () => {
-            const currentParent = fieldMap.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
-            if (currentParent) {
-              doc.transact(() => {
-                // it is VERY important to alter fieldMap first to avoid cyclic processing
-                fieldMap.delete(YJS_GLOBALS.modelMetadataParent);
-                orphanizeChild(doc, tracker, currentParent);
+            if (currentlyEmancipating.has(tracker)) {
+              informAdoption(newParent, field, extraFieldMetadata);
+            } else {
+              maybeTransacting(doc, () => {
+                const currentParent = fieldMap.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
+                const reference = newParent[referenceSymbol](doc);
+                (fieldMap as Y.Map<any> as Y.Map<ParentReference>).delete(YJS_GLOBALS.modelMetadataParent);
+                if (currentParent) {
+                  emancipateChild(doc, tracker, currentParent);
+                }
+                (fieldMap as Y.Map<any> as Y.Map<ParentReference>).set(
+                  YJS_GLOBALS.modelMetadataParent,
+                  extraFieldMetadata ? [reference[0], field, extraFieldMetadata] : [reference[0], field]
+                );
+                trackModification(tracker, "parent");
               });
-              trackModification(tracker, "parent");
+            }
+          };
+        case requestOrphanizationSymbol:
+          return () => {
+            if (currentlyEmancipating.has(tracker)) {
+              informOrphanization();
+            } else {
+              const currentParent = fieldMap.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
+              if (currentParent) {
+                maybeTransacting(doc, () => {
+                  // it is VERY important to alter fieldMap first to avoid cyclic processing
+                  fieldMap.delete(YJS_GLOBALS.modelMetadataParent);
+                  emancipateChild(doc, tracker, currentParent);
+                });
+                trackModification(tracker, "parent");
+              }
             }
           };
         case Symbol.toStringTag:
@@ -175,13 +211,15 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
           if (keyType === "child-val") {
             const oldValue = fieldMap.get(elementKey);
             if (oldValue) {
-              deref(doc, oldValue as any as ReferenceTuple)?.[reportOrphanSymbol]();
+              deref(doc, oldValue as any as ReferenceTuple)?.[informOrphanizationSymbol]();
             }
-            value?.[reportOrphanSymbol]?.();
+            value?.[requestOrphanizationSymbol]?.();
           }
           trackModification(tracker, elementKey);
           fieldMap.set(elementKey, maybeReference(value, doc));
-          value?.[reportParentshipSymbol]?.(tracker, elementKey);
+          if (keyType === "child-val") {
+            value?.[informAdoptionSymbol]?.(tracker, elementKey);
+          }
           return true;
         }
         invariant(!keyType, "cannot directly set complex type");
@@ -198,7 +236,6 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
       if (typeof key === "symbol") {
         return false;
       }
-      trackAccess(tracker, ACCESS_INDICES_SET_SYMBOL);
       return Object.hasOwn(schema, key);
     },
     defineProperty() {

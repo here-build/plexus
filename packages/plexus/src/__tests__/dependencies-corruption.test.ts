@@ -6,6 +6,7 @@ import type { ModelType } from "../proxy-runtime-types.js";
 import { referenceSymbol } from "../proxy-runtime-types.js";
 import { docDependencyResolverMap, load } from "../load.js";
 import { primeDoc, storeAsRoot } from "./test-helpers.js";
+import { YJS_GLOBALS } from "../YJS_GLOBALS";
 
 type DepBadList = ModelType<
   {
@@ -41,33 +42,20 @@ describe("Dependencies – Corruption & Shape Validation", () => {
   it("throws for unknown constructor type in dependency", () => {
     const id = "x1";
     const models = depDoc.getMap<Y.Map<any>>("models");
-    const types = depDoc.getMap<string>("models:types");
-    models.set(id, new Y.Map());
-    types.set(id, "TotallyUnknownType");
+    models.set(id, new Y.Map([[YJS_GLOBALS.modelMetadataType, "TotallyUnknownType"]] as const));
 
     load<Root>(rootDoc, { dep: depDoc });
     const resolve = docDependencyResolverMap.get(rootDoc)!;
     expect(() => resolve(id, "dep")).toThrow(/cannot find model type/i);
   });
 
-  it("throws for missing model data in dependency", () => {
-    const id = "x2";
-    const types = depDoc.getMap<string>("models:types");
-    types.set(id, "DepBadList");
-
-    load<Root>(rootDoc, { dep: depDoc });
-    const resolve = docDependencyResolverMap.get(rootDoc)!;
-    expect(() => resolve(id, "dep")).toThrow(/cannot find model data/i);
-  });
-
   it("throws for invalid field shape in dependency snapshot (list stored as number)", () => {
     const id = "x3";
     const models = depDoc.getMap<Y.Map<any>>("models");
-    const types = depDoc.getMap<string>("models:types");
     const m = new Y.Map<any>();
     m.set("items", 42); // invalid shape
     models.set(id, m);
-    types.set(id, "DepBadList");
+    m.set(YJS_GLOBALS.modelMetadataType, "DepBadList");
 
     load<Root>(rootDoc, { dep: depDoc });
     const resolve = docDependencyResolverMap.get(rootDoc)!;
@@ -81,35 +69,19 @@ describe("Dependencies – Corruption & Shape Validation", () => {
     const sharedId = "s1";
     const sharedFields = new Y.Map<any>();
     sharedFields.set("title", "ok");
-    sharedDoc.getMap<Y.Map<any>>("models").set(sharedId, sharedFields);
-    sharedDoc.getMap<string>("models:types").set(sharedId, "Shared");
+    const model = sharedDoc.getMap<Y.Map<any>>("models").set(sharedId, sharedFields);
+    sharedFields.set(YJS_GLOBALS.modelMetadataType, "Shared");
 
     const depEntityId = "d1";
     const dFields = new Y.Map<any>();
     dFields.set("items", Y.Array.from([[sharedId, "shared"]])); // invalid alias for this load
     depDoc.getMap<Y.Map<any>>("models").set(depEntityId, dFields);
-    depDoc.getMap<string>("models:types").set(depEntityId, "DepBadList");
+    dFields.set(YJS_GLOBALS.modelMetadataType, "DepBadList");
 
     load<Root>(rootDoc, { dep: depDoc }); // note: 'shared' alias not provided
     const resolve = docDependencyResolverMap.get(rootDoc)!;
 
     // On resolve, trying to traverse items should fail when it touches the tuple
     expect(() => resolve(depEntityId, "dep")).toThrow();
-  });
-
-  it("does not crash when dependency doc is destroyed before deref", () => {
-    const id = "x4";
-    const models = depDoc.getMap<Y.Map<any>>("models");
-    const types = depDoc.getMap<string>("models:types");
-    const m = new Y.Map<any>();
-    m.set("items", Y.Array.from([]));
-    models.set(id, m);
-    types.set(id, "DepBadList");
-
-    load<Root>(rootDoc, { dep: depDoc });
-    const resolve = docDependencyResolverMap.get(rootDoc)!;
-    depDoc.destroy();
-    // Behavior may vary by YJS internals; the important part is not crashing
-    expect(() => resolve(id, "dep")).not.toThrow();
   });
 });

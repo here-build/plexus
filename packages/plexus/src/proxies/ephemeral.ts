@@ -2,6 +2,8 @@ import {
   type AllowedYJSValue,
   type AllowedYValue,
   GenericRecordSchema,
+  informOrphanizationSymbol,
+  informAdoptionSymbol,
   isProxyEntity,
   LegitimateSchema,
   type ModelConstructor,
@@ -9,18 +11,18 @@ import {
   type ModelPattern,
   type ModelType,
   ParentReference,
-  referenceDisclosureSymbol,
+  documentDisclosureSymbol,
   referenceSymbol,
   type ReferenceTuple,
-  reportOrphanSymbol,
-  reportParentshipSymbol,
+  requestOrphanizationSymbol,
+  requestAdoptionSymbol,
   type Storageable
 } from "../proxy-runtime-types";
 import * as Y from "yjs";
 import { ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking";
 import invariant from "tiny-invariant";
 import { YJS_GLOBALS } from "../YJS_GLOBALS";
-import { curryMaybeReference, definitelyReference, never } from "../utils";
+import { curryMaybeReference, definitelyReference, maybeTransacting, never } from "../utils";
 import { clone } from "../clone";
 import { documentEntityCaches } from "../globals";
 import { buildSetProxy } from "./materialized-set";
@@ -58,6 +60,41 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
   let ephemeralParent: ModelType<{}, string> | null = null; // Track parent for ephemeral entities
   let ephemeralParentKey: string | null = null; // Track parent for ephemeral entities
   let extraParentMetadata: string | undefined;
+
+  const orphanize = () => {
+    ephemeralParent = null;
+    ephemeralParentKey = null;
+    extraParentMetadata = undefined;
+  }
+
+  const emancipate = () => {
+    if (ephemeralParent) {
+      switch (ephemeralParent.constructor.schema[ephemeralParentKey!]) {
+        case "child-val":
+          ephemeralParent[ephemeralParentKey!] = null;
+          break;
+        case "child-set":
+          ephemeralParent[ephemeralParentKey!].delete(self);
+          break;
+        case "child-list":
+          const childIndex = (ephemeralParent[ephemeralParentKey!] as any[]).indexOf(self);
+          if (childIndex !== -1) {
+            (ephemeralParent[ephemeralParentKey!] as any[]).splice(childIndex, 1);
+          }
+          break;
+        case "child-record":
+          delete parent[ephemeralParentKey!][extraParentMetadata!];
+          break;
+      }
+    }
+  }
+
+  const getAdopted = (newParent: ModelPattern, field: string, extraMetadata?: string) => {
+    ephemeralParent = newParent as ModelType<{}, string>;
+    ephemeralParentKey = field;
+    extraParentMetadata = extraMetadata;
+  }
+
   const selfTarget = Object.defineProperties(
     {},
     {
@@ -129,7 +166,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
             isManifested = true;
             const boundMaybeReference = curryMaybeReference(doc);
             // eslint-disable-next-line sonarjs/no-nested-functions
-            return doc.transact(() => {
+            return maybeTransacting(doc, () => {
               const yprojectObjectInstances = doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models);
               let yprojectObjectInstanceFields = yprojectObjectInstances.get(entityId);
               if (!yprojectObjectInstanceFields) {
@@ -213,7 +250,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
               if (!entityCache.has(entityId)) {
                 manifestedState ??= spawn(entityId, doc, self, true);
                 if (ephemeralParent) {
-                  manifestedState[reportParentshipSymbol]!(ephemeralParent, ephemeralParentKey!, extraParentMetadata);
+                  manifestedState[informAdoptionSymbol]!(ephemeralParent, ephemeralParentKey!, extraParentMetadata);
                 }
                 entityCache.set(entityId, new WeakRef(self)); // Cache SELF, not spawn result
               }
@@ -226,7 +263,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
         case "clone":
           // EPHEMERAL CLONE: Creates a new ephemeral entity with same structure and field values
           return (newProps?: Partial<State>) => clone(self, newProps);
-        case reportParentshipSymbol:
+        case informAdoptionSymbol:
           return (newParent: ModelPattern, field: string, extraMetadata?: string) => {
             if (
               ephemeralParent === newParent &&
@@ -235,40 +272,42 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
             ) {
               return;
             }
-            const referenceDisclosure = newParent?.[referenceDisclosureSymbol]?.();
+            const referenceDisclosure = newParent?.[documentDisclosureSymbol]?.();
             if (referenceDisclosure) {
               self[referenceSymbol](referenceDisclosure.doc);
-              return self[reportParentshipSymbol](newParent, field, extraMetadata);
+              return self[informAdoptionSymbol](newParent, field, extraMetadata);
             }
-            if (ephemeralParent) {
-              switch (ephemeralParent.constructor.schema[ephemeralParentKey!]) {
-                case "child-val":
-                  ephemeralParent[ephemeralParentKey!] = null;
-                  break;
-                case "child-set":
-                  ephemeralParent[ephemeralParentKey!].delete(self);
-                  break;
-                case "child-list":
-                  const childIndex = (ephemeralParent[ephemeralParentKey!] as any[]).indexOf(self);
-                  if (childIndex !== -1) {
-                    (ephemeralParent[ephemeralParentKey!] as any[]).splice(childIndex, 1);
-                  }
-                  break;
-                case "child-record":
-                  delete parent[ephemeralParentKey!][extraParentMetadata!];
-                  break;
-              }
+            getAdopted(newParent, field, extraMetadata);
+            trackModification(self, "parent");
+          }
+        case requestAdoptionSymbol:
+          return (newParent: ModelPattern, field: string, extraMetadata?: string) => {
+            if (
+              ephemeralParent === newParent &&
+              ephemeralParentKey === field &&
+              extraMetadata === extraParentMetadata
+            ) {
+              return;
             }
-            ephemeralParent = newParent as ModelType<{}, string>;
-            ephemeralParentKey = field;
-            extraParentMetadata = extraMetadata;
+            const referenceDisclosure = newParent?.[documentDisclosureSymbol]?.();
+            if (referenceDisclosure) {
+              self[referenceSymbol](referenceDisclosure.doc);
+              return self[requestAdoptionSymbol](newParent, field, extraMetadata);
+            }
+            emancipate();
+            orphanize();
+            getAdopted(newParent, field, extraMetadata);
             trackModification(self, "parent");
           };
-        case reportOrphanSymbol:
+        case informOrphanizationSymbol:
           return () => {
-            ephemeralParent = null;
-            ephemeralParentKey = null;
-            extraParentMetadata = undefined;
+            orphanize();
+            trackModification(self, "parent");
+          };
+        case requestOrphanizationSymbol:
+          return () => {
+            emancipate();
+            orphanize();
             trackModification(self, "parent");
           };
         case Symbol.toStringTag:
@@ -302,22 +341,20 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
         schema[elementKey] === "val" || schema[elementKey] === "child-val",
         `cannot directly assign ${schema[elementKey]}-typed ${type}.${elementKey.toString()}; instead manipulate the existing object`
       );
-      const disclosure = (value as ModelPattern | null)?.[referenceDisclosureSymbol]?.();
+      const disclosure = (value as ModelPattern | null)?.[documentDisclosureSymbol]?.();
       if (disclosure) {
         definitelyReference(self, disclosure.doc);
-        // @ts-expect-error proxy trickery - we're materializing self with definitelyReference and then delegating assignment logic by running assignment again
-        self[elementKey] = value;
-        return;
+        return Reflect.set(self, elementKey, value);
       }
       if (schema[elementKey] === "child-val") {
-        value?.[reportOrphanSymbol]?.();
+        value?.[requestOrphanizationSymbol]?.();
       }
       target[elementKey] = value;
       // in other branch we are doing tracking with manifested state
       trackModification(self, elementKey);
 
       if (schema[elementKey] === "child-val") {
-        value?.[reportParentshipSymbol]?.(self, elementKey);
+        value?.[informAdoptionSymbol]?.(self, elementKey);
       }
       return true;
     },
@@ -345,9 +382,9 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
       if (
         key === isProxyEntity ||
         key === referenceSymbol ||
-        key === referenceDisclosureSymbol ||
-        key === reportParentshipSymbol ||
-        key === reportOrphanSymbol ||
+        key === documentDisclosureSymbol ||
+        key === informAdoptionSymbol ||
+        key === informOrphanizationSymbol ||
         key === "uuid" ||
         key === "parent"
       ) {
@@ -356,7 +393,6 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
       if (typeof key === "symbol") {
         return false;
       }
-      trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
       return Object.hasOwn(schema, key);
     },
     ownKeys(_) {
@@ -370,13 +406,13 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
         case "val":
           return [key, value];
         case "child-val":
-          value?.[reportParentshipSymbol]?.(self, key);
+          value?.[requestAdoptionSymbol]?.(self, key);
           return [key, value];
         case "set":
         case "child-set":
           if (type === "child-set" && value) {
             for (const entity of value) {
-              entity?.[reportParentshipSymbol]?.(self, key);
+              entity?.[requestAdoptionSymbol]?.(self, key);
             }
           }
           return [
@@ -390,7 +426,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
         case "child-record":
           if (type === "child-record" && value) {
             for (const [subkey, entity] of Object.entries(value)) {
-              entity?.[reportParentshipSymbol]?.(self, key, subkey);
+              entity?.[requestAdoptionSymbol]?.(self, key, subkey);
             }
           }
           return [
@@ -404,7 +440,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
         case "child-list":
           if (type === "child-list" && value) {
             for (const entity of value) {
-              entity?.[reportParentshipSymbol]?.(self, key);
+              entity?.[requestAdoptionSymbol]?.(self, key);
             }
           }
           return [

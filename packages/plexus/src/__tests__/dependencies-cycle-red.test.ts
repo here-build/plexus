@@ -5,6 +5,7 @@ import { buildModelClass } from "../proxy-runtime.js";
 import type { ModelType } from "../proxy-runtime-types.js";
 import { load, docDependencyResolverMap } from "../load.js";
 import { primeDoc, storeAsRoot } from "./test-helpers.js";
+import { YJS_GLOBALS } from "../YJS_GLOBALS";
 
 // Minimal peer types with mutual references via val field
 type AType = ModelType<
@@ -49,11 +50,10 @@ describe("Dependencies – Cycle Support Across Packages", () => {
     aFields.set("name", "a");
     // temporarily set peer, to be filled after we set b
     bFields.set("label", "b");
-
+    aFields.set(YJS_GLOBALS.modelMetadataType, "A");
+    bFields.set(YJS_GLOBALS.modelMetadataType, "B");
     docA.getMap<Y.Map<any>>("models").set(aId, aFields);
-    docA.getMap<string>("models:types").set(aId, "A");
     docB.getMap<Y.Map<any>>("models").set(bId, bFields);
-    docB.getMap<string>("models:types").set(bId, "B");
 
     // Cross references
     aFields.set("peer", [bId, "b"]);
@@ -99,7 +99,7 @@ describe("Dependencies – Cycle Support Across Packages", () => {
     const cFields = new Y.Map<any>();
     cFields.set("name", "c");
     docC.getMap<Y.Map<any>>("models").set(cid, cFields);
-    docC.getMap<string>("models:types").set(cid, "C");
+    cFields.set(YJS_GLOBALS.modelMetadataType, "C");
     // self reference
     cFields.set("peer", [cid, "c"]);
     load<any>(rootDoc, { c: docC });
@@ -127,9 +127,9 @@ describe("Dependencies – Cycle Support Across Packages", () => {
     d2Fields.set("label", "d2");
     // store shells
     docC2.getMap<Y.Map<any>>("models").set(c2Id, c2Fields);
-    docC2.getMap<string>("models:types").set(c2Id, "C2");
+    c2Fields.set(YJS_GLOBALS.modelMetadataType, "C2");
     docD2.getMap<Y.Map<any>>("models").set(d2Id, d2Fields);
-    docD2.getMap<string>("models:types").set(d2Id, "D2");
+    d2Fields.set(YJS_GLOBALS.modelMetadataType, "D2");
     // link
     c2Fields.set("next", [d2Id, "d2pkg"]);
     d2Fields.set("list", Y.Array.from([[c2Id, "c2pkg"]]));

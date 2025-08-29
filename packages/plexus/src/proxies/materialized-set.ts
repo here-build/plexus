@@ -4,8 +4,9 @@ import {
   AllowedYValue,
   materializationSymbol,
   ModelPattern,
-  reportOrphanSymbol,
-  reportParentshipSymbol
+  informOrphanizationSymbol,
+  informAdoptionSymbol,
+  requestAdoptionSymbol
 } from "../proxy-runtime-types";
 import { curryMaybeReference, maybeTransacting } from "../utils";
 import { ACCESS_ALL_SYMBOL, trackAccess, trackModification } from "../tracking";
@@ -64,7 +65,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
               maybeTransacting(init.list?.doc, () => {
                 // Update parent tracking for child fields
                 if (init.isChildField) {
-                  value?.[reportParentshipSymbol]?.(init.owner, init.fieldName);
+                  value?.[requestAdoptionSymbol]?.(init.owner, init.fieldName);
                 }
 
                 init.list.push([init.boundMaybeReference(value)]);
@@ -93,7 +94,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
               if (init.isChildField) {
                 const items = init.list.toArray().map((item) => deref(init.list.doc!, item));
                 for (const item of items) {
-                  item?.[reportOrphanSymbol]?.();
+                  item?.[informOrphanizationSymbol]?.();
                 }
               }
 
@@ -115,7 +116,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
               if (init.isChildField) {
                 const oldItems = init.list.toArray().map((item) => deref(init.list.doc!, item));
                 for (const item of oldItems) {
-                  item?.[reportOrphanSymbol]?.();
+                  item?.[informOrphanizationSymbol]?.();
                 }
               }
 
@@ -131,7 +132,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
                 ) {
                   // Update parent tracking for new items
                   if (init.isChildField) {
-                    value?.[reportParentshipSymbol]?.(init.owner, init.fieldName);
+                    value?.[requestAdoptionSymbol]?.(init.owner, init.fieldName);
                   }
                   init.list.push([init.boundMaybeReference(value)]);
                 }
@@ -158,7 +159,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
             maybeTransacting(init.list?.doc, () => {
               // Clear parent tracking for removed item
               if (init.isChildField) {
-                value?.[reportOrphanSymbol]?.();
+                value?.[informOrphanizationSymbol]?.();
               }
 
               init.list.delete(index, 1);

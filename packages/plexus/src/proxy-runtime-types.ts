@@ -9,10 +9,12 @@ export type ProjectId = string;
 
 export const isProxyEntity = Symbol("is Plexus proxy");
 export const referenceSymbol = Symbol("reference");
-export const referenceDisclosureSymbol = Symbol("referenceDisclosure");
+export const documentDisclosureSymbol = Symbol("referenceDisclosure");
 export const materializationSymbol = Symbol("materialize proxy structure");
-export const reportParentshipSymbol = Symbol("report parentship change");
-export const reportOrphanSymbol = Symbol("report orphanage");
+export const informAdoptionSymbol = Symbol("report parentship change");
+export const informOrphanizationSymbol = Symbol("report orphanage");
+export const requestAdoptionSymbol = Symbol("report parentship change");
+export const requestOrphanizationSymbol = Symbol("report orphanage");
 
 export type ParentReference = [entityId: string, fieldName: string, metadata?: string];
 // New tuple-based references (memory optimized)
@@ -37,9 +39,11 @@ type ModelInternals<T extends LegitimateSchema<T>, Class extends string> = {
   clone<TT extends ModelType<T, string>>(this: TT, newProps?: Partial<T>): TT;
   readonly [isProxyEntity]: true;
   readonly [referenceSymbol]: ReferenceProjector;
-  readonly [reportOrphanSymbol]: () => void;
-  readonly [reportParentshipSymbol]: (newParent: ModelPattern, field: string, extraMetadata?: string) => void;
-  readonly [referenceDisclosureSymbol]?: () => {
+  readonly [informOrphanizationSymbol]: () => void;
+  readonly [informAdoptionSymbol]: (newParent: ModelPattern, field: string, extraMetadata?: string) => void;
+  readonly [requestOrphanizationSymbol]: () => void;
+  readonly [requestAdoptionSymbol]: (newParent: ModelPattern, field: string, extraMetadata?: string) => void;
+  readonly [documentDisclosureSymbol]?: () => {
     doc: Y.Doc;
   };
 };

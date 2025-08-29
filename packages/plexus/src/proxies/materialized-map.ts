@@ -4,8 +4,10 @@ import {
   AllowedYValue,
   materializationSymbol,
   ModelPattern,
-  reportOrphanSymbol,
-  reportParentshipSymbol
+  informOrphanizationSymbol,
+  informAdoptionSymbol,
+  requestAdoptionSymbol,
+  requestOrphanizationSymbol
 } from "../proxy-runtime-types";
 import { curryMaybeReference, maybeTransacting } from "../utils";
 import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking";
@@ -60,7 +62,7 @@ export const buildRecordProxy = (
             // Clear parent tracking for all child values
             if (init.isChildField) {
               for (const value of Object.values(proxyTarget)) {
-                value?.[reportOrphanSymbol]?.();
+                value?.[informOrphanizationSymbol]?.();
               }
             }
 
@@ -78,7 +80,7 @@ export const buildRecordProxy = (
               // Clear parent tracking for all old values
               if (init.isChildField) {
                 for (const value of Object.values(proxyTarget)) {
-                  value?.[reportOrphanSymbol]?.();
+                  value?.[informOrphanizationSymbol]?.();
                 }
               }
 
@@ -88,7 +90,7 @@ export const buildRecordProxy = (
               Object.assign(proxyTarget, newEntries);
 
               if (init.map) {
-                init.map.doc!.transact(() => {
+                maybeTransacting(init.map.doc, () => {
                   init.map.clear();
 
                   // Add new entries and update parent tracking
@@ -96,7 +98,7 @@ export const buildRecordProxy = (
                     // Iterable of [key, value] pairs
                     for (const [k, v] of newEntries as Iterable<[string, ModelPattern]>) {
                       if (init.isChildField && v) {
-                        v[reportParentshipSymbol]?.(init.owner, init.fieldName, k);
+                        v[requestAdoptionSymbol]?.(init.owner, init.fieldName, k);
                       }
                       init.map.set(k, init.boundMaybeReference(v));
                     }
@@ -104,7 +106,7 @@ export const buildRecordProxy = (
                     // Record object
                     for (const [k, v] of Object.entries(newEntries as Record<string, ModelPattern>)) {
                       if (init.isChildField && v) {
-                        v[reportParentshipSymbol]?.(init.owner, init.fieldName, k);
+                        v[requestAdoptionSymbol]?.(init.owner, init.fieldName, k);
                       }
                       init.map.set(k, init.boundMaybeReference(v));
                     }
@@ -165,13 +167,13 @@ export const buildRecordProxy = (
           if (init.isChildField) {
             // Clear parent tracking for old value if it exists
             const oldValue = proxyTarget[elementKey];
-            oldValue?.[reportOrphanSymbol]?.();
+            oldValue?.[requestOrphanizationSymbol]?.();
           }
           proxyTarget[elementKey] = value;
           if (init.isChildField) {
             // Update parent tracking for new value
             if (value != null) {
-              value[reportParentshipSymbol]?.(init.owner, init.fieldName, elementKey);
+              value[requestAdoptionSymbol]?.(init.owner, init.fieldName, elementKey);
             }
           }
 
@@ -199,7 +201,7 @@ export const buildRecordProxy = (
         // Handle parent tracking for child fields
         if (init.isChildField) {
           const oldValue = proxyTarget[elementKey];
-          oldValue?.[reportOrphanSymbol]?.();
+          oldValue?.[informOrphanizationSymbol]?.();
         }
 
         if (!init.map) {

@@ -6,6 +6,7 @@ import type { ModelType } from "../proxy-runtime-types.js";
 import { referenceSymbol } from "../proxy-runtime-types.js";
 import { load, docDependencyResolverMap } from "../load.js";
 import { primeDoc, storeAsRoot } from "./test-helpers.js";
+import { YJS_GLOBALS } from "../YJS_GLOBALS";
 
 // Shared sub-dependency model
 type SharedType = ModelType<
@@ -76,7 +77,7 @@ describe("Dependencies – Shared Sub-dependency", () => {
     aFields.set("shared", [sharedId, "shared"]);
     depAId = "depA-1";
     depADoc.getMap<Y.Map<any>>("models").set(depAId, aFields);
-    depADoc.getMap<string>("models:types").set(depAId, "DepA");
+    aFields.set(YJS_GLOBALS.modelMetadataType, "DepA");
 
     // Store DepB model referencing [sharedId, 'shared']
     const bFields = new Y.Map<any>();
@@ -84,7 +85,7 @@ describe("Dependencies – Shared Sub-dependency", () => {
     bFields.set("shared", [sharedId, "shared"]);
     depBId = "depB-1";
     depBDoc.getMap<Y.Map<any>>("models").set(depBId, bFields);
-    depBDoc.getMap<string>("models:types").set(depBId, "DepB");
+    bFields.set(YJS_GLOBALS.modelMetadataType, "DepB");
 
     // Prepare root
     const root = new Root({ name: "root" });

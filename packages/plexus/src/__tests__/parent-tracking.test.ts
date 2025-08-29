@@ -607,7 +607,7 @@ describe("Parent Tracking", () => {
       parent.childMap["key"] = child;
 
       const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
-      expect(models.get(child.uuid!)?.get(YJS_GLOBALS.modelMetadataParent)).toEqual([parent.uuid, `childMap`]);
+      expect(models.get(child.uuid!)?.get(YJS_GLOBALS.modelMetadataParent)).toEqual([parent.uuid, `childMap`, `key`]);
 
       delete parent.childMap["key"];
       expect(models.get(child.uuid!)?.get(YJS_GLOBALS.modelMetadataParent)).toBeUndefined();

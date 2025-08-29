@@ -3,7 +3,7 @@ import {
   LegitimateSchema,
   ModelConstructorInit,
   type ModelType,
-  reportParentshipSymbol
+  informAdoptionSymbol
 } from "./proxy-runtime-types";
 import { ACCESS_ALL_SYMBOL, trackAccess } from "./tracking";
 import { isModelType } from "./utils";
@@ -14,7 +14,7 @@ let cloneTransactionMapping: WeakMap<any, any> | null = null;
 function maybeClone<T>(object: T, parent: ModelType<{}, string>, parentField: string, metadata?: string): T {
   if (isModelType(object)) {
     const clonedObject = object.clone() as T;
-    clonedObject[reportParentshipSymbol](parent, parentField, metadata)
+    clonedObject[informAdoptionSymbol](parent, parentField, metadata)
     return clonedObject;
   } else {
     return object;

@@ -59,10 +59,23 @@ export const curryMaybeReference =
   (val: AllowedYJSValue): AllowedYValue =>
     (isModel(val) ? val[referenceSymbol](doc) : val) ?? null;
 
+// doc transactions are rather expensive, even nested ones, and it's better to track them across the call chain efficiently
+// plus it will avoid transaction events for mid-transaction stuff
+const docInTransactionMotion = new WeakSet();
+
 export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T): T => {
-  if (doc) {
-    return doc.transact(fn);
-  } else {
+  if (!doc || docInTransactionMotion.has(doc)) {
     return fn();
   }
-}
+
+  try {
+    docInTransactionMotion.add(doc);
+    if (doc) {
+      return doc.transact(fn);
+    } else {
+      return fn();
+    }
+  } finally {
+    docInTransactionMotion.delete(doc);
+  }
+};

@@ -30,7 +30,6 @@ export type MaterializedSetProxyInitTarget =
       isChildField: boolean;
     };
 
-export const setProxyInitMap = new Map<Set<any>, MaterializedSetProxyInitTarget>();
 
 export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<AllowedYJSValue> = new Set()) => {
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
@@ -261,6 +260,5 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
       }
     }
   });
-  setProxyInitMap.set(self, init);
   return self;
 };

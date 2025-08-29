@@ -31,7 +31,6 @@ export type MaterializedArrayProxyInitTarget =
       fieldName: string;
       isChildField: boolean;
     };
-export const listProxyInitMap = new Map<AllowedYJSValue[], MaterializedArrayProxyInitTarget>();
 
 export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: AllowedYJSValue[] = []) => {
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
@@ -343,6 +342,5 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
       return Reflect.ownKeys(init.list?.toArray() ?? target);
     }
   });
-  listProxyInitMap.set(self, init);
   return self;
 };

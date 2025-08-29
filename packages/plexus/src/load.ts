@@ -5,6 +5,7 @@ import { entityClasses } from "./globals";
 import invariant from "tiny-invariant";
 import { DefaultedMap, never } from "./utils";
 import { clone } from "./clone";
+import { deref } from "./deref";
 
 class RestrictedSet extends Set<AllowedYJSValue> {
   add(): never {
@@ -170,4 +171,29 @@ export function load<T extends ModelPattern>(doc: Y.Doc, dependencies: Record<st
   const Constructor = entityClasses.get(rootType);
   invariant(Constructor, `missing constructor of ${rootType} for root entity`);
   return Constructor.spawn(rootId, doc) as any as T; // we're unable to validate types against tests anyway, sadly
+}
+
+/**
+ * Load a specific entity by ID from a YJS document.
+ * Wrapper around deref for single-document environments.
+ * 
+ * @param doc The YJS document containing the entity
+ * @param entityId The ID of the entity to load
+ * @returns The loaded entity or null if not found
+ * 
+ * @example
+ * const user = loadEntity<UserType>(doc, userId);
+ * const post = loadEntity<PostType>(doc, postId);
+ */
+export function loadEntity<T extends ModelPattern>(
+  doc: Y.Doc,
+  entityId: string
+): T | null {
+  try {
+    // Create a reference tuple and deref it
+    return deref(doc, [entityId]) as T;
+  } catch (e) {
+    // If deref throws (entity not found, missing type, etc.), return null
+    return null;
+  }
 }

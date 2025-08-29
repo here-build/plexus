@@ -83,7 +83,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
           }
           break;
         case "child-record":
-          delete parent[ephemeralParentKey!][extraParentMetadata!];
+          delete ephemeralParent[ephemeralParentKey!][extraParentMetadata!];
           break;
       }
     }

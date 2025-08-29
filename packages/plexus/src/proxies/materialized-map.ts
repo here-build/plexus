@@ -2,16 +2,16 @@ import * as Y from "yjs";
 import {
   AllowedYJSValue,
   AllowedYValue,
+  informOrphanizationSymbol,
   materializationSymbol,
   ModelPattern,
-  informOrphanizationSymbol,
-  informAdoptionSymbol,
   requestAdoptionSymbol,
   requestOrphanizationSymbol
 } from "../proxy-runtime-types";
 import { curryMaybeReference, maybeTransacting } from "../utils";
 import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking";
 import { deref } from "../deref";
+import { YJS_GLOBALS } from "../YJS_GLOBALS";
 
 export type MaterializedRecordProxyInitTarget =
   | {
@@ -31,8 +31,6 @@ export type MaterializedRecordProxyInitTarget =
       isChildField: boolean;
     };
 
-export const recordProxyInitMap = new Map<Record<string, AllowedYJSValue>, MaterializedRecordProxyInitTarget>();
-
 export const buildRecordProxy = (
   init: MaterializedRecordProxyInitTarget,
   target: Record<string, AllowedYJSValue> = {}
@@ -46,7 +44,12 @@ export const buildRecordProxy = (
   };
   init.map?.observe(observer);
   if (init.map) {
-    Object.assign(init.map.toJSON());
+    const {
+      [YJS_GLOBALS.modelMetadataType]: _type,
+      [YJS_GLOBALS.modelMetadataParent]: _parent,
+      ...model
+    } = init.map.toJSON();
+    Object.assign(target, model);
   }
 
   // We still need to track proxy target state even when we're materialized as it's important for property descriptors.
@@ -235,6 +238,5 @@ export const buildRecordProxy = (
       return [...(init.map?.keys() ?? Reflect.ownKeys(proxyTarget))];
     }
   });
-  recordProxyInitMap.set(self, init);
   return self;
 };

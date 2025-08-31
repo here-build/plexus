@@ -48,7 +48,7 @@ export type MetaRuntimeConstructor = new (classes: Class[], version: number) => 
  */
 export function mapTypeToProxySchema(type: Type, field: Field): string {
   const isWeakRef = field.annotations.includes("WeakRef");
-  
+
   switch (type.type) {
     // Primitive types - always "val" regardless of @WeakRef
     case "String":
@@ -60,7 +60,7 @@ export function mapTypeToProxySchema(type: Type, field: Field): string {
     case "Set":
       return isWeakRef ? "list" : "child-list";
 
-    // Schema List = array 
+    // Schema List = array
     case "List":
       return isWeakRef ? "list" : "child-list";
 
@@ -108,11 +108,16 @@ function generateTypeInterface(cls: Class, meta: MetaRuntime): string {
       const isConst = field.annotations.includes("Const");
 
       // Check if field type is a union that contains null/undefined (indicating it was originally optional)
-      const isUnionWithNull = field.type.type === "Or" && field.type.params.some(param =>
-        (typeof param === "string" && (param === "null" || param === "undefined")) ||
-        (typeof param === "object" && param !== null && "type" in param &&
-         (param.type === "null" || param.type === "undefined"))
-      );
+      const isUnionWithNull =
+        field.type.type === "Or" &&
+        field.type.params.some(
+          (param) =>
+            (typeof param === "string" && (param === "null" || param === "undefined")) ||
+            (typeof param === "object" &&
+              param !== null &&
+              "type" in param &&
+              (param.type === "null" || param.type === "undefined"))
+        );
 
       // Check if field type is a union type (which often indicates optional field in original TypeScript)
       const isUnionType = field.type.type === "Or";
@@ -122,7 +127,8 @@ function generateTypeInterface(cls: Class, meta: MetaRuntime): string {
 
       // Check if field should allow null values (but still be required)
       // Union types often represent optional fields from TypeScript (field?: A | B)
-      const allowsNull = (isTransient || isOptionalType || isOptionalAnnotation || isUnionWithNull || isUnionType) && !isArrayOrMap;
+      const allowsNull =
+        (isTransient || isOptionalType || isOptionalAnnotation || isUnionWithNull || isUnionType) && !isArrayOrMap;
 
       const baseType = generateFieldTypeScript(field.type, meta);
       const nullSuffix = allowsNull ? " | null" : "";
@@ -420,7 +426,7 @@ ${guards}
       if (allDescendants.length > 0) {
         // Concrete class with subclasses - create union type
         const baseTypeName = `ModelType<${cls.name}Params, "${cls.name}">`;
-        const unionTypes = [baseTypeName, ...allDescendants.map(subCls => subCls.name)].join(" | ");
+        const unionTypes = [baseTypeName, ...allDescendants.map((subCls) => subCls.name)].join(" | ");
 
         return `
 // ${cls.name} model class (with subclasses)

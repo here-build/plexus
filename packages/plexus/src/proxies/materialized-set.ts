@@ -2,10 +2,9 @@ import * as Y from "yjs";
 import {
   AllowedYJSValue,
   AllowedYValue,
+  informOrphanizationSymbol,
   materializationSymbol,
   ModelPattern,
-  informOrphanizationSymbol,
-  informAdoptionSymbol,
   requestAdoptionSymbol
 } from "../proxy-runtime-types";
 import { curryMaybeReference, maybeTransacting } from "../utils";
@@ -29,7 +28,6 @@ export type MaterializedSetProxyInitTarget =
       fieldName: string;
       isChildField: boolean;
     };
-
 
 export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<AllowedYJSValue> = new Set()) => {
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {

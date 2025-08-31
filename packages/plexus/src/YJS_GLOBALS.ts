@@ -5,6 +5,6 @@ export const YJS_GLOBALS = {
   modelMetadataParent: "__parent__",
   metadataMap: "__metadata__",
   metadataMapFields: {
-    root: "rootEntityId",
-  },
+    root: "rootEntityId"
+  }
 } as const;

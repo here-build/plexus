@@ -1,10 +1,4 @@
-import {
-  type AllowedYJSValue,
-  LegitimateSchema,
-  ModelConstructorInit,
-  type ModelType,
-  informAdoptionSymbol
-} from "./proxy-runtime-types";
+import { informAdoptionSymbol, LegitimateSchema, type ModelType } from "./proxy-runtime-types";
 import { ACCESS_ALL_SYMBOL, trackAccess } from "./tracking";
 import { isModelType } from "./utils";
 
@@ -14,7 +8,7 @@ let cloneTransactionMapping: WeakMap<any, any> | null = null;
 function maybeClone<T>(object: T, parent: ModelType<{}, string>, parentField: string, metadata?: string): T {
   if (isModelType(object)) {
     const clonedObject = object.clone() as T;
-    clonedObject[informAdoptionSymbol](parent, parentField, metadata)
+    clonedObject[informAdoptionSymbol](parent, parentField, metadata);
     return clonedObject;
   } else {
     return object;
@@ -37,7 +31,7 @@ export function clone<State extends LegitimateSchema<State>, Name extends string
     cloneTransactionMapping.set(source, clonedModel);
     for (const [fieldKey, type] of Object.entries(source.constructor.schema)) {
       const fieldValue = source[fieldKey as keyof typeof source];
-      trackAccess(fieldValue, ACCESS_ALL_SYMBOL)
+      trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
       switch (type) {
         case "val":
           // @ts-expect-error "generic and can be only used for indexing"

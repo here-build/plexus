@@ -1,9 +1,10 @@
 import {
   type AllowedYJSValue,
   type AllowedYValue,
+  documentDisclosureSymbol,
   GenericRecordSchema,
-  informOrphanizationSymbol,
   informAdoptionSymbol,
+  informOrphanizationSymbol,
   isProxyEntity,
   LegitimateSchema,
   type ModelConstructor,
@@ -11,11 +12,10 @@ import {
   type ModelPattern,
   type ModelType,
   ParentReference,
-  documentDisclosureSymbol,
   referenceSymbol,
   type ReferenceTuple,
-  requestOrphanizationSymbol,
   requestAdoptionSymbol,
+  requestOrphanizationSymbol,
   type Storageable
 } from "../proxy-runtime-types";
 import * as Y from "yjs";
@@ -28,7 +28,7 @@ import { documentEntityCaches } from "../globals";
 import { buildSetProxy } from "./materialized-set";
 import { buildRecordProxy } from "./materialized-map";
 import { buildArrayProxy } from "./materialized-array";
-import { legitimateRootDocs } from "../load";
+import { Plexus } from "../plexus";
 
 export type EphemeralProxyTarget<State extends LegitimateSchema<State>, Name extends string> = {
   target: ModelConstructorInit<State, Name>;
@@ -65,7 +65,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
     ephemeralParent = null;
     ephemeralParentKey = null;
     extraParentMetadata = undefined;
-  }
+  };
 
   const emancipate = () => {
     if (ephemeralParent) {
@@ -87,13 +87,13 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
           break;
       }
     }
-  }
+  };
 
   const getAdopted = (newParent: ModelPattern, field: string, extraMetadata?: string) => {
     ephemeralParent = newParent as ModelType<{}, string>;
     ephemeralParentKey = field;
     extraParentMetadata = extraMetadata;
-  }
+  };
 
   const selfTarget = Object.defineProperties(
     {},
@@ -156,7 +156,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
       switch (key) {
         case referenceSymbol:
           return function reference(this: ModelType<State, Name>, doc: Y.Doc): ReferenceTuple {
-            invariant(legitimateRootDocs.has(doc), "passed doc is not registered as legitimate Plexus root");
+            invariant(Plexus.docPlexus.has(doc), "passed doc is not registered as legitimate Plexus root");
             // this is needed explicitly in that manner for cyclic dependencies.
             // It will never cause cross-doc issues as we only materialize root doc entities.
             // Lucky for us, Plexus is doing not structural but reference equivalence - so we can safely assume that returning pointer will do nothing wrong.
@@ -279,7 +279,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
             }
             getAdopted(newParent, field, extraMetadata);
             trackModification(self, "parent");
-          }
+          };
         case requestAdoptionSymbol:
           return (newParent: ModelPattern, field: string, extraMetadata?: string) => {
             if (

@@ -121,92 +121,95 @@ export function buildModelClass<T extends ModelPattern>(
     // - "val-list" → Proxy wrapping Y.Array<primitive>  (Array interface)
     // - "ref-list" → Proxy wrapping Y.Array<Reference>  (Array interface)
 
-    Object.assign(target, Object.fromEntries(
-      Object.entries(schema).map(([key, type]) => {
-        switch (type) {
-          case "child-list":
-          case "list": {
-            // REFERENCE LIST: Array of entity pointers
-            // Get or create YJS Array for this field
-            let list = yprojectObjectInstanceFields.get(key) as Y.Array<AllowedYValue> | undefined;
-            if (!list) {
-              list = new Y.Array();
-              yprojectObjectInstanceFields.set(key, list);
-            }
-            if (internal__ephemeralExternalObject) {
-              // @ts-expect-error
-              internal__ephemeralExternalObject[key]![materializationSymbol](list, boundMaybeReference);
-              return [key, internal__ephemeralExternalObject[key]];
-            }
+    Object.assign(
+      target,
+      Object.fromEntries(
+        Object.entries(schema).map(([key, type]) => {
+          switch (type) {
+            case "child-list":
+            case "list": {
+              // REFERENCE LIST: Array of entity pointers
+              // Get or create YJS Array for this field
+              let list = yprojectObjectInstanceFields.get(key) as Y.Array<AllowedYValue> | undefined;
+              if (!list) {
+                list = new Y.Array();
+                yprojectObjectInstanceFields.set(key, list);
+              }
+              if (internal__ephemeralExternalObject) {
+                // @ts-expect-error
+                internal__ephemeralExternalObject[key]![materializationSymbol](list, boundMaybeReference);
+                return [key, internal__ephemeralExternalObject[key]];
+              }
 
-            return [
-              key,
-              buildArrayProxy({
-                list,
-                owner: proxy,
-                boundMaybeReference,
-                ownerEntityId: entityId,
-                fieldName: key,
-                isChildField: type === "child-list"
-              })
-            ];
-          }
-          case "child-record":
-          case "record": {
-            let map = yprojectObjectInstanceFields.get(key) as Y.Map<AllowedYValue> | undefined;
-            if (!map) {
-              map = new Y.Map();
-              yprojectObjectInstanceFields.set(key, map);
+              return [
+                key,
+                buildArrayProxy({
+                  list,
+                  owner: proxy,
+                  boundMaybeReference,
+                  ownerEntityId: entityId,
+                  fieldName: key,
+                  isChildField: type === "child-list"
+                })
+              ];
             }
-            if (internal__ephemeralExternalObject) {
-              // @ts-expect-error
-              internal__ephemeralExternalObject[key]![materializationSymbol](map, boundMaybeReference);
-              return [key, internal__ephemeralExternalObject[key]];
+            case "child-record":
+            case "record": {
+              let map = yprojectObjectInstanceFields.get(key) as Y.Map<AllowedYValue> | undefined;
+              if (!map) {
+                map = new Y.Map();
+                yprojectObjectInstanceFields.set(key, map);
+              }
+              if (internal__ephemeralExternalObject) {
+                // @ts-expect-error
+                internal__ephemeralExternalObject[key]![materializationSymbol](map, boundMaybeReference);
+                return [key, internal__ephemeralExternalObject[key]];
+              }
+              return [
+                key,
+                buildRecordProxy({
+                  boundMaybeReference,
+                  map,
+                  owner: proxy,
+                  ownerEntityId: entityId,
+                  fieldName: key,
+                  isChildField: type === "child-record"
+                })
+              ];
             }
-            return [
-              key,
-              buildRecordProxy({
-                boundMaybeReference,
-                map,
-                owner: proxy,
-                ownerEntityId: entityId,
-                fieldName: key,
-                isChildField: type === "child-record"
-              })
-            ];
-          }
-          case "child-set":
-          case "set": {
-            // Sets are small collections (params, states) backed by YJS Array
-            // Present Record<string, T> interface but use array storage + includes()
-            let underlyingArray = yprojectObjectInstanceFields.get(key) as Y.Array<AllowedYValue> | undefined;
-            if (!underlyingArray) {
-              underlyingArray = new Y.Array();
-              yprojectObjectInstanceFields.set(key, underlyingArray);
-            }
-            if (internal__ephemeralExternalObject) {
-              // @ts-expect-error
-              internal__ephemeralExternalObject[key]![materializationSymbol](underlyingArray, boundMaybeReference);
-              return [key, internal__ephemeralExternalObject[key]];
-            }
+            case "child-set":
+            case "set": {
+              // Sets are small collections (params, states) backed by YJS Array
+              // Present Record<string, T> interface but use array storage + includes()
+              let underlyingArray = yprojectObjectInstanceFields.get(key) as Y.Array<AllowedYValue> | undefined;
+              if (!underlyingArray) {
+                underlyingArray = new Y.Array();
+                yprojectObjectInstanceFields.set(key, underlyingArray);
+              }
+              if (internal__ephemeralExternalObject) {
+                // @ts-expect-error
+                internal__ephemeralExternalObject[key]![materializationSymbol](underlyingArray, boundMaybeReference);
+                return [key, internal__ephemeralExternalObject[key]];
+              }
 
-            return [
-              key,
-              buildSetProxy({
-                list: underlyingArray,
-                boundMaybeReference,
-                owner: proxy,
-                ownerEntityId: entityId,
-                fieldName: key,
-                isChildField: type === "child-set"
-              })
-            ];
+              return [
+                key,
+                buildSetProxy({
+                  list: underlyingArray,
+                  boundMaybeReference,
+                  owner: proxy,
+                  ownerEntityId: entityId,
+                  fieldName: key,
+                  isChildField: type === "child-set"
+                })
+              ];
+            }
+            default:
+              return [key, null];
           }
-          default:
-            return [key, null];
-        }
-      })
-    ))
+        })
+      )
+    );
     if (!internal__ephemeralExternalObject) {
       documentEntityCaches.get(doc).set(entityId, new WeakRef(proxy as ModelPattern));
     }

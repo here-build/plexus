@@ -121,7 +121,6 @@ export function isObserving(): boolean {
   return activeTrackingMaps.size > 0;
 }
 
-
 /**
  * Create a tracked version of a function that notifies when accessed data changes
  *

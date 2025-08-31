@@ -6,7 +6,7 @@ import invariant from "tiny-invariant";
 import { YJS_GLOBALS } from "./YJS_GLOBALS";
 import { entityClasses } from "./globals";
 import { isTupleReference } from "./utils";
-import { docDependencyResolverMap } from "./load";
+import { docDependencyResolverMap } from "./plexus";
 
 export const deref = (doc: Y.Doc, pointer: AllowedYValue): AllowedYJSValue => {
   if (pointer == null) {
@@ -23,13 +23,18 @@ export const deref = (doc: Y.Doc, pointer: AllowedYValue): AllowedYJSValue => {
 
   // cross-project reference
   if (pointer[1]) {
-    return docDependencyResolverMap.get(doc)!(pointer[0], pointer[1]);
+    const resolver = docDependencyResolverMap.get(doc);
+    invariant(resolver, `No dependency resolver found for document clientID:${doc.clientID}`);
+    return resolver(pointer[0], pointer[1]);
   }
 
   const targetEntityId = pointer[0];
   // Default to current project
 
-  const targetType = doc.getMap<Y.Map<AllowedYJSValue>>(YJS_GLOBALS.models)?.get(targetEntityId)?.get(YJS_GLOBALS.modelMetadataType) as string;
+  const targetType = doc
+    .getMap<Y.Map<AllowedYJSValue>>(YJS_GLOBALS.models)
+    ?.get(targetEntityId)
+    ?.get(YJS_GLOBALS.modelMetadataType) as string;
   invariant(targetType, `missing type for ${targetEntityId}`);
 
   const constructor = entityClasses.get(targetType);

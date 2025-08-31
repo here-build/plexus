@@ -6,7 +6,11 @@ import { maybeTransacting } from "./index";
 
 export let currentlyEmancipating = new WeakSet<ModelPattern>();
 
-export const emancipateChild = <T extends LegitimateSchema<T>>(doc: Y.Doc, child: ModelType<T, string>, currentParentReference: ParentReference) => {
+export const emancipateChild = <T extends LegitimateSchema<T>>(
+  doc: Y.Doc,
+  child: ModelType<T, string>,
+  currentParentReference: ParentReference
+) => {
   if (!currentParentReference) {
     return;
   }

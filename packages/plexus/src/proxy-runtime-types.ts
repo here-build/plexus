@@ -3,9 +3,7 @@ import type * as Y from "yjs";
 import type { tag } from "type-fest/source/tagged";
 import { LastOfUnion } from "type-fest/source/union-to-tuple";
 import { curryMaybeReference } from "./utils";
-
-// For standalone usage - ProjectId can be overridden by consuming applications
-export type ProjectId = string;
+import { DependencyId } from "./plexus";
 
 export const isProxyEntity = Symbol("is Plexus proxy");
 export const referenceSymbol = Symbol("reference");
@@ -19,12 +17,13 @@ export const requestOrphanizationSymbol = Symbol("report orphanage");
 export type ParentReference = [entityId: string, fieldName: string, metadata?: string];
 // New tuple-based references (memory optimized)
 type LocalReferenceeTuple = [entityId: string];
-type CrossProjectReferenceTuple = [entityId: string, projectId: string];
+type CrossProjectReferenceTuple = [entityId: string, dependencyId: DependencyId];
 export type ReferenceTuple = LocalReferenceeTuple | CrossProjectReferenceTuple;
 
 export type AllowedPrimitive = string | number | boolean | null;
 export type AllowedYValue = AllowedPrimitive | ReferenceTuple;
 export type ModelPattern = Tagged<{}, "syncing", string>;
+export type PlexusID = Tagged<string, "Plexus ID">;
 export type AllowedYJSValue = AllowedPrimitive | ModelPattern;
 export type AllowedYJSValueSet = Set<AllowedYJSValue>;
 export type AllowedYJSValueMap = Record<string, AllowedYJSValue>;
@@ -34,9 +33,10 @@ export type Storageable = AllowedYValue | Y.Map<AllowedYValue> | Y.Array<Allowed
 export type ReferenceProjector = (doc: Y.Doc) => ReferenceTuple;
 
 type ModelInternals<T extends LegitimateSchema<T>, Class extends string> = {
-  readonly uuid: string;
+  readonly uuid: Tagged<string, "Plexus ID", ModelType<T, Class>>;
   readonly constructor: ModelConstructor<T, Class>;
-  clone<TT extends ModelType<T, string>>(this: TT, newProps?: Partial<T>): TT;
+  readonly parent: ModelPattern | null;
+  clone<TT extends ModelPattern>(this: TT, newProps?: Partial<T>): TT;
   readonly [isProxyEntity]: true;
   readonly [referenceSymbol]: ReferenceProjector;
   readonly [informOrphanizationSymbol]: () => void;

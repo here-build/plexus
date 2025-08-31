@@ -1,4 +1,4 @@
-import type { ModelPattern, ModelConstructor } from "./proxy-runtime-types";
+import type { ModelConstructor, ModelPattern } from "./proxy-runtime-types";
 import * as Y from "yjs";
 import { DefaultedWeakMap } from "./utils";
 

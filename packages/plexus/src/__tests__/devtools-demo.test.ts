@@ -1,14 +1,17 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { buildModelClass } from '../proxy-runtime.js';
-import type { ModelType } from '../proxy-runtime-types.js';
+import { beforeEach, describe, expect, it } from "vitest";
+import { buildModelClass } from "../proxy-runtime.js";
+import type { ModelType } from "../proxy-runtime-types.js";
 
-describe('DevTools Demo', () => {
-  type UserType = ModelType<{
-    name: string;
-    email: string;
-    age: number;
-    isActive: boolean;
-  }, "User">;
+describe("DevTools Demo", () => {
+  type UserType = ModelType<
+    {
+      name: string;
+      email: string;
+      age: number;
+      isActive: boolean;
+    },
+    "User"
+  >;
 
   let User: ReturnType<typeof buildModelClass<UserType>>;
 
@@ -21,7 +24,7 @@ describe('DevTools Demo', () => {
     });
   });
 
-  it('should show realistic DevTools usage', async () => {
+  it("should show realistic DevTools usage", async () => {
     // Mock Redux DevTools
     const devToolsLog: any[] = [];
     global.window = {
@@ -30,14 +33,14 @@ describe('DevTools Demo', () => {
         connect: () => ({
           send: (action: any, state: any) => {
             devToolsLog.push({ action, state });
-            console.log('DevTools:', action.type, action.payload);
+            console.log("DevTools:", action.type, action.payload);
           }
         })
       }
     } as any;
 
     const originalEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'development';
+    process.env.NODE_ENV = "development";
 
     try {
       // Create a user
@@ -55,30 +58,21 @@ describe('DevTools Demo', () => {
       user.isActive = true;
 
       // Wait for batch to flush
-      await new Promise(resolve => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
 
       // Should have logged one batch with all mutations
       expect(devToolsLog).toHaveLength(1);
 
       const logEntry = devToolsLog[0];
-      expect(logEntry.action.type).toBe('PLEXUS_BATCH_UPDATE');
+      expect(logEntry.action.type).toBe("PLEXUS_BATCH_UPDATE");
       expect(logEntry.action.payload.count).toBe(4); // name, age, email, isActive
 
       // All mutations captured in one batch
       const mutations = logEntry.action.payload.mutations;
-      expect(mutations).toContainEqual(
-        expect.objectContaining({ field: 'name', value: 'Alice Smith' })
-      );
-      expect(mutations).toContainEqual(
-        expect.objectContaining({ field: 'age', value: 26 })
-      );
-      expect(mutations).toContainEqual(
-        expect.objectContaining({ field: 'email', value: 'alice.smith@example.com' })
-      );
-      expect(mutations).toContainEqual(
-        expect.objectContaining({ field: 'isActive', value: true })
-      );
-
+      expect(mutations).toContainEqual(expect.objectContaining({ field: "name", value: "Alice Smith" }));
+      expect(mutations).toContainEqual(expect.objectContaining({ field: "age", value: 26 }));
+      expect(mutations).toContainEqual(expect.objectContaining({ field: "email", value: "alice.smith@example.com" }));
+      expect(mutations).toContainEqual(expect.objectContaining({ field: "isActive", value: true }));
     } finally {
       process.env.NODE_ENV = originalEnv;
     }

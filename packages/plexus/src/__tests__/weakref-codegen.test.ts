@@ -1,31 +1,31 @@
 import { describe, expect, it } from "vitest";
+import type { Field } from "../generator";
 import { mapTypeToProxySchema } from "../generator";
-import type { Field, Type } from "../generator";
 
 describe("@WeakRef annotation respect in codegen", () => {
   it("should generate child-* schema types for owned fields", () => {
     const valField: Field = {
       name: "ownedRef",
       type: { type: "Component", params: [] },
-      annotations: [], // No @WeakRef
+      annotations: [] // No @WeakRef
     };
-    
+
     const listField: Field = {
-      name: "ownedList", 
+      name: "ownedList",
       type: { type: "List", params: ["Component"] },
-      annotations: [], // No @WeakRef
+      annotations: [] // No @WeakRef
     };
-    
+
     const setField: Field = {
       name: "ownedSet",
       type: { type: "Set", params: ["Component"] },
-      annotations: [], // No @WeakRef
+      annotations: [] // No @WeakRef
     };
-    
+
     const recordField: Field = {
       name: "ownedRecord",
       type: { type: "Map", params: ["String", "Component"] },
-      annotations: [], // No @WeakRef
+      annotations: [] // No @WeakRef
     };
 
     expect(mapTypeToProxySchema(valField.type, valField)).toBe("child-val");
@@ -38,25 +38,25 @@ describe("@WeakRef annotation respect in codegen", () => {
     const valField: Field = {
       name: "weakRef",
       type: { type: "Component", params: [] },
-      annotations: ["WeakRef"], // Has @WeakRef
+      annotations: ["WeakRef"] // Has @WeakRef
     };
-    
+
     const listField: Field = {
-      name: "weakList", 
+      name: "weakList",
       type: { type: "List", params: ["Component"] },
-      annotations: ["WeakRef"], // Has @WeakRef
+      annotations: ["WeakRef"] // Has @WeakRef
     };
-    
+
     const setField: Field = {
       name: "weakSet",
       type: { type: "Set", params: ["Component"] },
-      annotations: ["WeakRef"], // Has @WeakRef
+      annotations: ["WeakRef"] // Has @WeakRef
     };
-    
+
     const recordField: Field = {
       name: "weakRecord",
       type: { type: "Map", params: ["String", "Component"] },
-      annotations: ["WeakRef"], // Has @WeakRef
+      annotations: ["WeakRef"] // Has @WeakRef
     };
 
     expect(mapTypeToProxySchema(valField.type, valField)).toBe("val");
@@ -69,13 +69,13 @@ describe("@WeakRef annotation respect in codegen", () => {
     const stringField: Field = {
       name: "text",
       type: { type: "String", params: [] },
-      annotations: ["WeakRef"],
+      annotations: ["WeakRef"]
     };
-    
+
     const numberField: Field = {
       name: "count",
       type: { type: "Number", params: [] },
-      annotations: [], // No @WeakRef
+      annotations: [] // No @WeakRef
     };
 
     expect(mapTypeToProxySchema(stringField.type, stringField)).toBe("val");

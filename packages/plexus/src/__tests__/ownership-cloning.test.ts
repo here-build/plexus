@@ -243,15 +243,21 @@ describe("Ownership-aware cloning", () => {
 
   describe("circular ownership edge cases", () => {
     // Define circular reference types
-    type NodeA = ModelType<{
-      name: string;
-      nodeB: NodeB | null; // child-val ownership
-    }, "NodeA">;
+    type NodeA = ModelType<
+      {
+        name: string;
+        nodeB: NodeB | null; // child-val ownership
+      },
+      "NodeA"
+    >;
 
-    type NodeB = ModelType<{
-      name: string;
-      nodeA: NodeA | null; // child-val ownership - creates cycle
-    }, "NodeB">;
+    type NodeB = ModelType<
+      {
+        name: string;
+        nodeA: NodeA | null; // child-val ownership - creates cycle
+      },
+      "NodeB"
+    >;
 
     const NodeA = buildModelClass<NodeA>("NodeA", {
       name: "val",
@@ -306,7 +312,7 @@ describe("Ownership-aware cloning", () => {
       expect(parent1.children).toHaveLength(0); // Empty - sharedChild was removed
       expect(parent2.children).toHaveLength(2);
       expect(parent2.children[0]).toBe(sharedChild);
-      expect((parent2.children[1] as any)).toBe(parent1);
+      expect(parent2.children[1] as any).toBe(parent1);
 
       const clonedParent2 = parent2.clone();
 
@@ -449,10 +455,10 @@ describe("Ownership-aware cloning", () => {
       expect(clonedRoot.uuid).not.toBe(root.uuid);
       expect(clonedLeft.uuid).not.toBe(left.uuid);
       expect(clonedRight.uuid).not.toBe(right.uuid);
-      
+
       // Left should have no children (shared was moved)
       expect(clonedLeft.children).toHaveLength(0);
-      
+
       // Right should have the cloned shared
       expect(clonedRight.children).toHaveLength(1);
       const sharedFromRight = clonedRight.children[0];
@@ -552,11 +558,13 @@ describe("Ownership-aware cloning", () => {
       // Create 50 parents that all try to own the same child
       const parents: any[] = [];
       for (let i = 0; i < 50; i++) {
-        parents.push(new ParentWithChildList({
-          name: `parent${i}`,
-          children: [centralChild], // Each assignment moves centralChild to the new parent
-          references: []
-        }));
+        parents.push(
+          new ParentWithChildList({
+            name: `parent${i}`,
+            children: [centralChild], // Each assignment moves centralChild to the new parent
+            references: []
+          })
+        );
       }
 
       // Parent tracking should have moved centralChild to the last parent
@@ -584,7 +592,7 @@ describe("Ownership-aware cloning", () => {
         const clonedParent = clonedMegaRoot.children[i] as any;
         expect(clonedParent.uuid).not.toBe(parents[i].uuid);
         expect(clonedParent.name).toBe(`parent${i}`);
-        
+
         if (i < 49) {
           // First 49 parents should have no children
           expect(clonedParent.children).toHaveLength(0);
@@ -627,7 +635,9 @@ describe("Ownership-aware cloning", () => {
       // Objects without this symbol are copied as-is, avoiding the broken clone method
       const brokenCloneable = {
         name: "broken",
-        clone: () => { throw new Error("Clone failed!"); }
+        clone: () => {
+          throw new Error("Clone failed!");
+        }
       };
 
       const parent = new ParentWithChildList({
@@ -693,12 +703,14 @@ describe("Ownership-aware cloning", () => {
       // Test that multiple clone operations don't interfere with each other's transactions
       const sharedChild = new ChildComponent({ name: "shared", value: 1 });
 
-      const parents = Array.from({ length: 10 }, (_, i) =>
-        new ParentWithChildList({
-          name: `parent${i}`,
-          children: [sharedChild], // Each assignment moves sharedChild to the new parent
-          references: []
-        })
+      const parents = Array.from(
+        { length: 10 },
+        (_, i) =>
+          new ParentWithChildList({
+            name: `parent${i}`,
+            children: [sharedChild], // Each assignment moves sharedChild to the new parent
+            references: []
+          })
       );
 
       // Parent tracking should have moved sharedChild to the last parent
@@ -709,9 +721,7 @@ describe("Ownership-aware cloning", () => {
       expect(parents[9].children[0]).toBe(sharedChild);
 
       // Clone all parents concurrently
-      const clonePromises = parents.map(parent =>
-        Promise.resolve().then(() => parent.clone())
-      );
+      const clonePromises = parents.map((parent) => Promise.resolve().then(() => parent.clone()));
 
       const clonedParents = await Promise.all(clonePromises);
 
@@ -719,7 +729,7 @@ describe("Ownership-aware cloning", () => {
       for (let i = 0; i < 10; i++) {
         expect(clonedParents[i].uuid).not.toBe(parents[i].uuid);
         expect(clonedParents[i].name).toBe(`parent${i}`);
-        
+
         if (i < 9) {
           // First 9 parents should have no children
           expect(clonedParents[i].children).toHaveLength(0);
@@ -832,11 +842,11 @@ describe("Ownership-aware cloning", () => {
       // child-set: both items should be cloned
       expect(cloned.childSet.size).toBe(2);
       const clonedChildren = Array.from(cloned.childSet);
-      expect(clonedChildren.every(child =>
-        child.uuid !== materializedChild.uuid && child.uuid !== ephemeralChild.uuid
-      )).toBe(true);
-      expect(clonedChildren.some(child => child.name === "materialized")).toBe(true);
-      expect(clonedChildren.some(child => child.name === "ephemeral")).toBe(true);
+      expect(
+        clonedChildren.every((child) => child.uuid !== materializedChild.uuid && child.uuid !== ephemeralChild.uuid)
+      ).toBe(true);
+      expect(clonedChildren.some((child) => child.name === "materialized")).toBe(true);
+      expect(clonedChildren.some((child) => child.name === "ephemeral")).toBe(true);
 
       // set: both items should be preserved as references
       expect(cloned.refSet.size).toBe(2);

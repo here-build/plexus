@@ -4,7 +4,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildModelClass } from "../proxy-runtime.js";
-import { ModelSchema, ModelState, ModelType } from "../proxy-runtime-types.js";
+import { ModelType } from "../proxy-runtime-types.js";
 import { createTrackedFunction } from "../tracking.js";
 import * as Y from "yjs";
 
@@ -70,12 +70,12 @@ describe("clone(), assign(), clear() methods", () => {
       expect(cloned.uuid).not.toBe(original.uuid);
 
       // Same primitive values
-      expect({...cloned}).toMatchObject({
+      expect({ ...cloned }).toMatchObject({
         name: "test",
         value: 42,
         component: null,
         items: [],
-        metadata: {},
+        metadata: {}
       });
       expect([...cloned.tags]).toEqual([]);
       expect([...cloned.references]).toEqual([]);

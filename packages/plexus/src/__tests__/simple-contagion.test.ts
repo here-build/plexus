@@ -5,10 +5,11 @@
 import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { isProxyEntity, referenceSymbol } from "../";
+import { isProxyEntity } from "../";
 
 import { type ModelType } from "../proxy-runtime-types.js";
 import { buildModelClass } from "../proxy-runtime.js";
+import { initTestPlexus } from "./test-plexus.js";
 
 // Extended Y.Doc type for testing
 type TestYDoc = Y.Doc;
@@ -38,58 +39,48 @@ const Site = buildModelClass<SiteType>("Site", {
   components: "record"
 });
 
-import { load } from "../load";
-import { primeDoc, storeAsRoot } from "./test-helpers";
-
 describe("Simple Contagion Test", () => {
   let doc: Y.Doc;
+  let spawnedSite: SiteType;
 
-  beforeEach(() => {
-    doc = new Y.Doc();
-    primeDoc(doc);
+  beforeEach(async () => {
+    // Step 1: Create ephemeral site
+    const ephemeralSite = new Site({ name: "Test Site", components: {} });
+
+    // Step 2: Initialize with Plexus
+    const result = await initTestPlexus<SiteType>(ephemeralSite);
+    doc = result.doc;
+    spawnedSite = result.root;
+
+    console.log("1. Created and loaded site via Plexus");
   });
 
   afterEach(() => {
-    doc.destroy();
+    doc?.destroy();
   });
 
   it("should materialize ephemeral entity and allow spawn", () => {
-    // Step 1: Create ephemeral site
-    const ephemeralSite = new Site({ name: "Test Site", components: {} });
-    expect((ephemeralSite as any)[isProxyEntity]).toBe(true);
-    expect(ephemeralSite.name).toBe("Test Site");
-
-    console.log("1. Created ephemeral site");
-
-    // Step 2: Materialize it to YJS
-    const siteRef = (ephemeralSite as any)[referenceSymbol](doc);
-    const entityId = siteRef[0];
-
-    console.log("2. Materialized site, entityId:", entityId);
-    console.log("3. Site ref:", siteRef);
-
-    // Mark as root for loader-based flow and load it
-    storeAsRoot(doc, ephemeralSite as any);
-    const spawnedSite = load<SiteType>(doc);
+    // Verify initial site state
     expect(spawnedSite.name).toBe("Test Site");
+    expect((spawnedSite as any)[isProxyEntity]).toBe(true);
 
-    console.log("4. Successfully spawned site");
+    console.log("2. Verified site loaded correctly");
 
-    // Step 4: Create ephemeral component
+    // Step 3: Create ephemeral component
     const ephemeralComponent = new Component({ name: "Header" });
     expect(ephemeralComponent.name).toBe("Header");
 
-    console.log("5. Created ephemeral component");
+    console.log("3. Created ephemeral component");
 
-    // Step 5: Trigger contagion by adding to site
+    // Step 4: Trigger contagion by adding to site
     spawnedSite.components["header"] = ephemeralComponent;
 
-    console.log("6. Added component to site");
+    console.log("4. Added component to site");
 
-    // Step 6: Verify component is accessible
+    // Step 5: Verify component is accessible
     const retrievedComponent = spawnedSite.components["header"];
-    console.log("7. Retrieved component:", retrievedComponent);
-    console.log("8. Retrieved component name:", retrievedComponent.name);
+    console.log("5. Retrieved component:", retrievedComponent);
+    console.log("6. Retrieved component name:", retrievedComponent.name);
 
     expect(retrievedComponent).toBeTruthy();
     expect(retrievedComponent.name).toBe("Header");

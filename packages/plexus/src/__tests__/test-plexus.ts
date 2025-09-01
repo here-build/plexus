@@ -1,0 +1,87 @@
+import * as Y from "yjs";
+import * as awarenessProtocol from "y-protocols/awareness";
+import { Plexus } from "../plexus.js";
+import type { ModelPattern } from "../proxy-runtime-types.js";
+import { referenceSymbol } from "../proxy-runtime-types.js";
+import { YJS_GLOBALS } from "../YJS_GLOBALS.js";
+
+/**
+ * Test implementation of Plexus for testing purposes.
+ * Provides simple dependency resolution from provided dependency docs.
+ */
+export class TestPlexus<
+  Root extends ModelPattern,
+  DependencyRootType extends ModelPattern | null = null
+> extends Plexus<Root, DependencyRootType> {
+  private dependencies: Record<string, Y.Doc>;
+  private availableDependencies: Map<string, () => Promise<Y.Doc>>; // For dynamic dependency creation
+
+  constructor(doc: Y.Doc, dependencies: Record<string, Y.Doc> = {}, awareness?: awarenessProtocol.Awareness) {
+    super(doc, awareness);
+    this.dependencies = dependencies;
+    this.availableDependencies = new Map();
+  }
+
+  /**
+   * Register a dependency factory for testing
+   */
+  registerDependencyFactory(dependencyId: string, factory: () => Promise<Y.Doc>) {
+    this.availableDependencies.set(dependencyId, factory);
+  }
+
+  async fetchDependency(dependencyId: string, dependencyVersion?: string): Promise<Y.Doc> {
+    // First check if we have a pre-created dependency doc
+    let depDoc = this.dependencies[dependencyId];
+
+    // If not, try the factory
+    if (!depDoc && this.availableDependencies.has(dependencyId)) {
+      depDoc = await this.availableDependencies.get(dependencyId)!();
+      this.dependencies[dependencyId] = depDoc; // Cache it
+    }
+
+    if (!depDoc) {
+      throw new Error(`Dependency "${dependencyId}" not found in test dependencies`);
+    }
+
+    return depDoc;
+  }
+}
+
+/**
+ * Create a TestPlexus instance and wait for root to load
+ */
+export async function createTestPlexus<Root extends ModelPattern>(
+  doc: Y.Doc,
+  dependencies: Record<string, Y.Doc> = {},
+  awareness?: awarenessProtocol.Awareness
+): Promise<{ plexus: TestPlexus<Root>; root: Root }> {
+  const plexus = new TestPlexus<Root>(doc, dependencies, awareness);
+  const root = await plexus.rootPromise;
+  return { plexus, root };
+}
+
+/**
+ * Initialize a document with test data and return a Plexus instance
+ */
+export async function initTestPlexus<Root extends ModelPattern>(
+  rootEntity: Root,
+  dependencies: Record<string, Y.Doc> = {},
+  awareness?: awarenessProtocol.Awareness
+): Promise<{ doc: Y.Doc; plexus: TestPlexus<Root>; root: Root }> {
+  const doc = new Y.Doc();
+
+  // Create Plexus instance first - this registers the doc
+  const plexus = new TestPlexus<Root>(doc, dependencies, awareness);
+
+  // Now we can safely use referenceSymbol since the doc is registered
+  const [rootId] = (rootEntity as any)[referenceSymbol](doc);
+
+  // Set up metadata
+  const metadata = doc.getMap(YJS_GLOBALS.metadataMap);
+  metadata.set(YJS_GLOBALS.metadataMapFields.root, rootId);
+
+  // Load the root through Plexus
+  const root = await plexus.rootPromise;
+
+  return { doc, plexus, root };
+}

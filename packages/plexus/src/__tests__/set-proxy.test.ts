@@ -4,10 +4,9 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { buildModelClass } from "../proxy-runtime.js";
-import { ModelType, referenceSymbol, Storageable } from "../proxy-runtime-types.js";
+import { ModelType, Storageable } from "../proxy-runtime-types.js";
 import * as Y from "yjs";
-import { YJS_GLOBALS } from "../YJS_GLOBALS";
-import { primeDoc } from "./test-helpers";
+import { initTestPlexus } from "./test-plexus.js";
 
 // Test model with a set field
 type TestModelWithSet = ModelType<
@@ -41,9 +40,9 @@ const TestModelWithSet = buildModelClass<TestModelWithSet>("TestModelWithSet", {
 describe("Set Proxy Implementation", () => {
   let doc: Y.Doc;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Just create a basic doc for the non-materialized tests
     doc = new Y.Doc();
-    primeDoc(doc);
   });
 
   describe("Ephemeral Sets", () => {
@@ -130,7 +129,7 @@ describe("Set Proxy Implementation", () => {
       const superSet = new Set(["tag1", "tag2", "tag3"]);
 
       // Test set relationship methods
-      expect((model.tags as any).isDisjointFrom(new Set(["tag3", "tag4"])) ).toBe(true);
+      expect((model.tags as any).isDisjointFrom(new Set(["tag3", "tag4"]))).toBe(true);
       expect((model.tags as any).isDisjointFrom(otherSet)).toBe(false);
 
       expect((model.tags as any).isSubsetOf(superSet)).toBe(true);
@@ -181,55 +180,60 @@ describe("Set Proxy Implementation", () => {
   });
 
   describe("Materialized Sets (YJS-backed)", () => {
-    it("should materialize sets to YJS", () => {
+    it("should materialize sets to YJS", async () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(["tag1", "tag2"]),
         components: new Set()
       });
 
-      // Materialize by getting reference
-      const ref = model[referenceSymbol](doc as any);
-      expect(ref).toEqual([expect.any(String)]);
+      // Materialize via Plexus
+      const { doc: plexusDoc, root } = await initTestPlexus<TestModelWithSet>(model);
+
+      // Verify the loaded root has correct data
+      expect(root.name).toBe("Test Model");
+      expect(root.tags.size).toBe(2);
+      expect(root.tags.has("tag1")).toBe(true);
+      expect(root.tags.has("tag2")).toBe(true);
 
       // Check that YJS arrays were created
-      const yprojectFields = doc.getMap<Y.Map<Storageable>>(`models`);
-      const entityId = ref[0];
-      const tagsArray = yprojectFields.get(entityId).get("tags") as Y.Array<any>;
+      const yprojectFields = plexusDoc.getMap<Y.Map<Storageable>>("models");
+      const entityId = root.uuid;
+      const tagsArray = yprojectFields.get(entityId)?.get("tags") as Y.Array<any>;
 
       expect(tagsArray).toBeInstanceOf(Y.Array);
       expect(tagsArray.length).toBe(2);
       expect(tagsArray.toArray()).toEqual(expect.arrayContaining(["tag1", "tag2"]));
     });
 
-    it("should sync set changes through YJS", () => {
+    it("should sync set changes through YJS", async () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(["tag1"]),
         components: new Set()
       });
 
-      // Materialize
-      const ref = model[referenceSymbol](doc as any);
-      const entityId = ref[0];
+      // Materialize via Plexus
+      const { doc: plexusDoc, root } = await initTestPlexus<TestModelWithSet>(model);
 
-      // Get materialized proxy (should be same reference)
-      const materializedModel = TestModelWithSet.spawn(entityId, doc as any);
-      expect(materializedModel).toBe(model); // Same object reference
+      // Verify initial state
+      expect(root.tags.has("tag1")).toBe(true);
+      expect(root.tags.size).toBe(1);
 
       // Changes should sync through YJS
-      materializedModel.tags.add("tag2");
-      expect(materializedModel.tags.has("tag2")).toBe(true);
-      expect(materializedModel.tags.size).toBe(2);
+      root.tags.add("tag2");
+      expect(root.tags.has("tag2")).toBe(true);
+      expect(root.tags.size).toBe(2);
 
       // Check YJS backing
-      const yprojectFields = doc.getMap<Y.Map<Storageable>>(`models`);
-      const tagsArray = yprojectFields.get(entityId).get("tags") as Y.Array<any>;
+      const yprojectFields = plexusDoc.getMap<Y.Map<Storageable>>("models");
+      const entityId = root.uuid;
+      const tagsArray = yprojectFields.get(entityId)?.get("tags") as Y.Array<any>;
       expect(tagsArray.length).toBe(2);
       expect(tagsArray.toArray()).toEqual(expect.arrayContaining(["tag1", "tag2"]));
     });
 
-    it("should handle entity sets in materialized state", () => {
+    it("should handle entity sets in materialized state", async () => {
       const comp1 = new TestComponent({ name: "Component 1", version: 1 });
       const comp2 = new TestComponent({ name: "Component 2", version: 2 });
 
@@ -239,20 +243,24 @@ describe("Set Proxy Implementation", () => {
         components: new Set([comp1])
       });
 
-      // Materialize
-      model[referenceSymbol](doc as any);
+      // Materialize via Plexus
+      const { root } = await initTestPlexus<TestModelWithSet>(model);
+
+      // Verify initial component set
+      expect(root.components.size).toBe(1);
+      expect(root.components.has(comp1)).toBe(true);
 
       // Add component to materialized set
-      model.components.add(comp2);
-      expect(model.components.size).toBe(2);
-      expect(model.components.has(comp1)).toBe(true);
-      expect(model.components.has(comp2)).toBe(true);
+      root.components.add(comp2);
+      expect(root.components.size).toBe(2);
+      expect(root.components.has(comp1)).toBe(true);
+      expect(root.components.has(comp2)).toBe(true);
 
       // Remove component
-      expect(model.components.delete(comp1)).toBe(true);
-      expect(model.components.size).toBe(1);
-      expect(model.components.has(comp1)).toBe(false);
-      expect(model.components.has(comp2)).toBe(true);
+      expect(root.components.delete(comp1)).toBe(true);
+      expect(root.components.size).toBe(1);
+      expect(root.components.has(comp1)).toBe(false);
+      expect(root.components.has(comp2)).toBe(true);
     });
   });
 

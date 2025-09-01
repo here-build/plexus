@@ -10,7 +10,7 @@ import invariant from "tiny-invariant";
 import { PlexusAwareness } from "./awareness";
 import { YJS_GLOBALS } from "./YJS_GLOBALS";
 import { DefaultedMap, never } from "./utils";
-import { entityClasses } from "./globals";
+import { entityClasses, documentEntityCaches } from "./globals";
 import { RestrictedArray, RestrictedRecord, RestrictedSet } from "./load";
 
 export type DependencyId = Tagged<string, "Plexus dependency id">;
@@ -38,6 +38,7 @@ export abstract class Plexus<
   public readonly rootPromise: Promise<Root>;
   private dependencyDocs = new Map<DependencyId, Y.Doc>(); // Maps dependency ID -> Y.Doc for load() function
   private dependencyVersions = new Map<DependencyId, DependencyVersion>(); // Maps "id@version" -> Y.Doc for version tracking
+  private isRootLoaded = false;
 
   protected constructor(doc: Y.Doc, awareness?: awarenessProtocol.Awareness) {
     invariant(!Plexus.docPlexus.has(doc), "cannot spawn multiple entities of Plexus for same doc");
@@ -224,23 +225,25 @@ export abstract class Plexus<
 
     const rootId = this.doc.getMap<string>(YJS_GLOBALS.metadataMap).get(YJS_GLOBALS.metadataMapFields.root);
     invariant(rootId, "missing root model id");
-    const root = this.doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(rootId);
-    invariant(root, "missing root model description");
-    const rootType = root.get(YJS_GLOBALS.modelMetadataType) as string;
+    const rootModel = this.doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(rootId);
+    invariant(rootModel, "missing root model description");
+    const rootType = rootModel.get(YJS_GLOBALS.modelMetadataType) as string;
     const Constructor = entityClasses.get(rootType);
     invariant(Constructor, `missing constructor of ${rootType} for root entity`);
 
     // Resolve all dependencies if they exist
-    if ("dependencyVersion" in root) {
-      await this.resolveDependencies(root.dependencyVersion as Record<DependencyId, DependencyVersion>);
+    if ("dependencyVersion" in rootModel) {
+      await this.resolveDependencies(rootModel.dependencyVersion as Record<DependencyId, DependencyVersion>);
     }
-    root.observeDeep(async () => {
-      if ("dependencyVersion" in root) {
-        await this.resolveDependencies(root.dependencyVersion as Record<DependencyId, DependencyVersion>);
+    rootModel.observeDeep(async () => {
+      if ("dependencyVersion" in rootModel) {
+        await this.resolveDependencies(rootModel.dependencyVersion as Record<DependencyId, DependencyVersion>);
       }
     });
 
-    return Constructor.spawn(rootId, this.doc) as any as Root; // we're unable to validate types against tests anyway, sadly
+    const root = Constructor.spawn(rootId, this.doc) as any as Root; // we're unable to validate types against tests anyway, sadly
+    this.isRootLoaded = true;
+    return root;
   }
 
   protected async resolveDependencies(dependencies: Record<DependencyId, DependencyVersion>): Promise<void> {
@@ -259,5 +262,84 @@ export abstract class Plexus<
         })
       );
     }
+  }
+
+  /**
+   * Load an entity by ID from the main document.
+   * REQUIRES: rootPromise to be resolved first.
+   * Used for comments, copy-paste, direct navigation.
+   */
+  loadEntity<T extends ModelPattern>(entityId: string): T | null {
+    invariant(
+      this.isRootLoaded,
+      "Cannot load entities before root is loaded. Await plexus.rootPromise first."
+    );
+
+    // Check cache first
+    const cached = documentEntityCaches.get(this.doc).get(entityId)?.deref();
+    if (cached) return cached as T;
+
+    // Get from Y.Doc
+    const modelData = this.doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(entityId);
+    if (!modelData) return null;
+
+    // Get constructor
+    const type = modelData.get(YJS_GLOBALS.modelMetadataType) as string;
+    const Constructor = entityClasses.get(type);
+    invariant(Constructor, `Unknown entity type: ${type}`);
+
+    // Spawn and return
+    return Constructor.spawn(entityId, this.doc) as T;
+  }
+
+  /**
+   * Check if an entity exists in the document.
+   * REQUIRES: rootPromise to be resolved first.
+   */
+  hasEntity(entityId: string): boolean {
+    invariant(
+      this.isRootLoaded,
+      "Cannot check entities before root is loaded. Await plexus.rootPromise first."
+    );
+
+    return this.doc.getMap(YJS_GLOBALS.models).has(entityId);
+  }
+
+  /**
+   * Get all entity IDs of a specific type.
+   * REQUIRES: rootPromise to be resolved first.
+   */
+  getEntityIds(typeName?: string): string[] {
+    invariant(
+      this.isRootLoaded,
+      "Cannot list entities before root is loaded. Await plexus.rootPromise first."
+    );
+
+    const models = this.doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models);
+    const ids: string[] = [];
+
+    models.forEach((model, id) => {
+      if (!typeName || model.get(YJS_GLOBALS.modelMetadataType) === typeName) {
+        ids.push(id);
+      }
+    });
+
+    return ids;
+  }
+
+  /**
+   * Get entity type by ID.
+   * REQUIRES: rootPromise to be resolved first.
+   */
+  getEntityType(entityId: string): string | null {
+    invariant(
+      this.isRootLoaded,
+      "Cannot get entity type before root is loaded. Await plexus.rootPromise first."
+    );
+
+    const modelData = this.doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(entityId);
+    if (!modelData) return null;
+
+    return modelData.get(YJS_GLOBALS.modelMetadataType) as string;
   }
 }

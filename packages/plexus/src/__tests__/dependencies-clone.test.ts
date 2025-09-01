@@ -3,9 +3,8 @@ import * as Y from "yjs";
 
 import { buildModelClass } from "../proxy-runtime.js";
 import type { ModelType } from "../proxy-runtime-types.js";
-import { referenceSymbol } from "../proxy-runtime-types.js";
-import { load, docDependencyResolverMap } from "../load.js";
-import { primeDoc, storeAsRoot } from "./test-helpers.js";
+import { initTestPlexus } from "./test-plexus.js";
+import { Plexus } from "../plexus.js";
 
 type Item = ModelType<
   {
@@ -28,6 +27,8 @@ type Root = ModelType<
   {
     name: string;
     readonly containers: Record<string, Container>;
+    readonly dependencies: Set<Container>;
+    readonly dependencyVersion: Record<string, string>;
   },
   "Root"
 >;
@@ -39,20 +40,20 @@ const Container = buildModelClass<Container>("Container", {
   tags: "set",
   meta: "record"
 });
-const Root = buildModelClass<Root>("Root", { name: "val", containers: "record" });
+const Root = buildModelClass<Root>("Root", {
+  name: "val",
+  containers: "record",
+  dependencies: "set",
+  dependencyVersion: "record"
+});
 
 describe("Clone from dependency node", () => {
   let depDoc: Y.Doc;
   let rootDoc: Y.Doc;
   let depContainerId: string;
 
-  beforeEach(() => {
-    depDoc = new Y.Doc();
-    rootDoc = new Y.Doc();
-    primeDoc(depDoc);
-    primeDoc(rootDoc);
-
-    // Create dependency graph
+  beforeEach(async () => {
+    // Create dependency document with Plexus
     const depItem = new Item({ name: "child-dep" });
     const depContainer = new Container({
       title: "dep-container",
@@ -60,19 +61,32 @@ describe("Clone from dependency node", () => {
       tags: new Set(["dep-tag"]),
       meta: { source: "dep" }
     });
-    const [id] = (depContainer as any)[referenceSymbol](depDoc);
-    depContainerId = id;
 
-    // Prepare root with containers record
-    const root = new Root({ name: "root", containers: {} });
-    (root as any)[referenceSymbol](rootDoc);
-    storeAsRoot(rootDoc, root as any);
+    const { doc: createdDepDoc, root: materializedDepContainer } = await initTestPlexus<Container>(depContainer);
+    depDoc = createdDepDoc;
+    depContainerId = materializedDepContainer.uuid;
+
+    // Create root document with Plexus
+    const ephemeralRoot = new Root({
+      name: "root",
+      containers: {},
+      dependencies: new Set(),
+      dependencyVersion: {}
+    });
+    const { doc: createdRootDoc, plexus } = await initTestPlexus<Root>(ephemeralRoot);
+    rootDoc = createdRootDoc;
+
+    // Set up dependency factory for the root Plexus
+    plexus.registerDependencyFactory("dep", async () => depDoc);
   });
 
-  it("produces an editable clone and materializes it into root", () => {
-    const root = load<Root>(rootDoc, { dep: depDoc });
-    const resolve = docDependencyResolverMap.get(rootDoc)!;
-    const depC = resolve(depContainerId, "dep");
+  it("produces an editable clone and materializes it into root", async () => {
+    const plexus = Plexus.docPlexus.get(rootDoc)!;
+    const root = await plexus.rootPromise;
+
+    // Add the dependency and access the entity
+    const depRoot = await plexus.addDependency<Container>("dep", "latest");
+    const depC = Container.spawn(depContainerId, await plexus.fetchDependency("dep", "latest"));
 
     const cloned = depC.clone();
 
@@ -104,10 +118,12 @@ describe("Clone from dependency node", () => {
     expect(children.get(0)).toHaveLength(1);
   });
 
-  it("does not mutate dependency when editing the clone", () => {
-    load<Root>(rootDoc, { dep: depDoc });
-    const resolve = docDependencyResolverMap.get(rootDoc)!;
-    const depC = resolve(depContainerId, "dep");
+  it("does not mutate dependency when editing the clone", async () => {
+    const plexus = Plexus.docPlexus.get(rootDoc)!;
+
+    // Add the dependency and access the entity
+    await plexus.addDependency<Container>("dep", "latest");
+    const depC = Container.spawn(depContainerId, await plexus.fetchDependency("dep", "latest"));
 
     const cloned = depC.clone();
     cloned.title = "mutated-clone";
@@ -118,4 +134,3 @@ describe("Clone from dependency node", () => {
     expect(depC.children[0].name).toBe("child-dep");
   });
 });
-

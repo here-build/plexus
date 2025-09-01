@@ -1,13 +1,16 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { buildModelClass } from '../proxy-runtime.js';
-import { createTrackedFunction } from '../tracking.js';
-import type { ModelType } from '../proxy-runtime-types.js';
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildModelClass } from "../proxy-runtime.js";
+import { createTrackedFunction } from "../tracking.js";
+import type { ModelType } from "../proxy-runtime-types.js";
 
-describe('Simple Data Change Notifications', () => {
-  type TestModelType = ModelType<{
-    name: string;
-    count: number;
-  }, "TestModel">;
+describe("Simple Data Change Notifications", () => {
+  type TestModelType = ModelType<
+    {
+      name: string;
+      count: number;
+    },
+    "TestModel"
+  >;
 
   let TestModel: ReturnType<typeof buildModelClass<TestModelType>>;
   let obj: TestModelType;
@@ -15,16 +18,16 @@ describe('Simple Data Change Notifications', () => {
   beforeEach(() => {
     TestModel = buildModelClass<TestModelType>("TestModel", {
       name: "val",
-      count: "val",
+      count: "val"
     });
 
     obj = new TestModel({
       name: "test",
-      count: 5,
+      count: 5
     });
   });
 
-  it('should notify when accessed data is modified', () => {
+  it("should notify when accessed data is modified", () => {
     const notifyChanges = vi.fn();
 
     const trackedFn = createTrackedFunction(notifyChanges, () => {
@@ -40,7 +43,7 @@ describe('Simple Data Change Notifications', () => {
     expect(notifyChanges).toHaveBeenCalledTimes(1);
   });
 
-  it('should NOT notify when non-accessed data is modified', () => {
+  it("should NOT notify when non-accessed data is modified", () => {
     const notifyChanges = vi.fn();
 
     const trackedFn = createTrackedFunction(notifyChanges, () => {
@@ -55,7 +58,7 @@ describe('Simple Data Change Notifications', () => {
     expect(notifyChanges).toHaveBeenCalledTimes(0);
   });
 
-  it('should work with multiple functions', () => {
+  it("should work with multiple functions", () => {
     const notifyChanges1 = vi.fn();
     const notifyChanges2 = vi.fn();
 

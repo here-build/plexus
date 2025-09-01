@@ -219,12 +219,14 @@ describe("Memory Usage Comparison", () => {
       () => {
         // Create and dispose many tracked functions to see if they leak
         for (let cycle = 0; cycle < 50; cycle++) {
-          const objects = Array.from({ length: 20 }, (_, i) =>
-            new SimpleModelClass({
-              name: `leak-test-${cycle}-${i}`,
-              count: i,
-              enabled: true
-            })
+          const objects = Array.from(
+            { length: 20 },
+            (_, i) =>
+              new SimpleModelClass({
+                name: `leak-test-${cycle}-${i}`,
+                count: i,
+                enabled: true
+              })
           );
 
           const trackedFunctions = objects.map((obj) => {

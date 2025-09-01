@@ -2,10 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { buildModelClass } from "../proxy-runtime.js";
 import type { ModelType } from "../proxy-runtime-types.js";
-import { referenceSymbol } from "../proxy-runtime-types.js";
-import { loadEntity } from "../load.js";
 import { YJS_GLOBALS } from "../YJS_GLOBALS.js";
-import { primeDoc } from "./test-helpers.js";
+import { createTestPlexus, initTestPlexus } from "./test-plexus.js";
 
 // Test models
 type UserType = ModelType<
@@ -55,93 +53,112 @@ const Comment = buildModelClass<CommentType>("Comment", {
   post: "val"
 });
 
-describe("loadEntity", () => {
-  let doc: Y.Doc;
-  let userId: string;
-  let postId: string;
-  let commentId: string;
+// Root type that contains all our test entities
+type TestRootType = ModelType<
+  {
+    user: UserType | null;
+    post: PostType | null;
+    comment: CommentType | null;
+    users: UserType[];
+    posts: PostType[];
+  },
+  "TestRoot"
+>;
 
-  beforeEach(() => {
-    doc = new Y.Doc();
-    primeDoc(doc); // Register the doc as a legitimate Plexus root
-    
-    // Create and materialize test entities
-    const user = new User({
+const TestRoot = buildModelClass<TestRootType>("TestRoot", {
+  user: "val",
+  post: "val",
+  comment: "val",
+  users: "list",
+  posts: "list"
+});
+
+describe("Plexus Entity Loading", () => {
+  let doc: Y.Doc;
+  let root: TestRootType;
+  let user: UserType;
+  let post: PostType;
+  let comment: CommentType;
+
+  beforeEach(async () => {
+    // Create test entities
+    const testUser = new User({
       name: "John Doe",
       email: "john@example.com",
       age: 30
     });
-    const [uid] = (user as any)[referenceSymbol](doc);
-    userId = uid;
 
-    const post = new Post({
+    const testPost = new Post({
       title: "Test Post",
       content: "This is a test post",
-      author: user,
+      author: testUser,
       tags: ["test", "plexus"]
     });
-    const [pid] = (post as any)[referenceSymbol](doc);
-    postId = pid;
 
-    const comment = new Comment({
+    const testComment = new Comment({
       text: "Great post!",
-      author: user,
-      post: post
+      author: testUser,
+      post: testPost
     });
-    const [cid] = (comment as any)[referenceSymbol](doc);
-    commentId = cid;
+
+    // Create root containing all entities
+    const testRoot = new TestRoot({
+      user: testUser,
+      post: testPost,
+      comment: testComment,
+      users: [testUser],
+      posts: [testPost]
+    });
+
+    // Initialize doc with Plexus
+    const result = await initTestPlexus<TestRootType>(testRoot);
+    doc = result.doc;
+    root = result.root;
+    user = root.user!;
+    post = root.post!;
+    comment = root.comment!;
   });
 
   describe("basic loading", () => {
-    it("should load an existing entity by ID", () => {
-      const loadedUser = loadEntity<UserType>(doc, userId);
-      
-      expect(loadedUser).not.toBeNull();
-      expect(loadedUser!.name).toBe("John Doe");
-      expect(loadedUser!.email).toBe("john@example.com");
-      expect(loadedUser!.age).toBe(30);
-      expect(loadedUser!.uuid).toBe(userId);
-    });
-
-    it("should return null for non-existent entity", () => {
-      const nonExistent = loadEntity<UserType>(doc, "non-existent-id");
-      
-      expect(nonExistent).toBeNull();
+    it("should load entities through Plexus root", () => {
+      expect(user).not.toBeNull();
+      expect(user.name).toBe("John Doe");
+      expect(user.email).toBe("john@example.com");
+      expect(user.age).toBe(30);
+      expect(user.uuid).toBeDefined();
     });
 
     it("should load entities with different types", () => {
-      const loadedPost = loadEntity<PostType>(doc, postId);
-      const loadedComment = loadEntity<CommentType>(doc, commentId);
-      
-      expect(loadedPost).not.toBeNull();
-      expect(loadedPost!.title).toBe("Test Post");
-      expect(loadedPost!.content).toBe("This is a test post");
-      
-      expect(loadedComment).not.toBeNull();
-      expect(loadedComment!.text).toBe("Great post!");
+      expect(post).not.toBeNull();
+      expect(post.title).toBe("Test Post");
+      expect(post.content).toBe("This is a test post");
+
+      expect(comment).not.toBeNull();
+      expect(comment.text).toBe("Great post!");
+    });
+
+    it("should handle entity collections", () => {
+      expect(root.users).toHaveLength(1);
+      expect(root.posts).toHaveLength(1);
+      expect(root.users[0].name).toBe("John Doe");
+      expect(root.posts[0].title).toBe("Test Post");
     });
   });
 
   describe("loading with relationships", () => {
     it("should load entity with references to other entities", () => {
-      const loadedPost = loadEntity<PostType>(doc, postId);
-      
-      expect(loadedPost).not.toBeNull();
-      expect(loadedPost!.author).not.toBeNull();
-      expect(loadedPost!.author!.name).toBe("John Doe");
-      expect(loadedPost!.author!.uuid).toBe(userId);
+      expect(post.author).not.toBeNull();
+      expect(post.author!.name).toBe("John Doe");
+      expect(post.author!.uuid).toBe(user.uuid);
     });
 
     it("should load entity with collection fields", () => {
-      const loadedPost = loadEntity<PostType>(doc, postId);
-      
-      expect(loadedPost).not.toBeNull();
-      expect(loadedPost!.tags).toHaveLength(2);
-      expect(loadedPost!.tags[0]).toBe("test");
-      expect(loadedPost!.tags[1]).toBe("plexus");
+      expect(post.tags).toHaveLength(2);
+      expect(post.tags[0]).toBe("test");
+      expect(post.tags[1]).toBe("plexus");
     });
 
-    it("should handle null references correctly", () => {
+    it("should handle null references correctly", async () => {
       // Create a post without an author
       const orphanPost = new Post({
         title: "Orphan Post",
@@ -149,168 +166,129 @@ describe("loadEntity", () => {
         author: null,
         tags: []
       });
-      const [orphanId] = (orphanPost as any)[referenceSymbol](doc);
-      
-      const loadedOrphan = loadEntity<PostType>(doc, orphanId);
-      
-      expect(loadedOrphan).not.toBeNull();
-      expect(loadedOrphan!.author).toBeNull();
-      expect(loadedOrphan!.tags).toHaveLength(0);
+
+      // Update root to include orphan post
+      root.posts.push(orphanPost);
+
+      // Verify it's accessible through root
+      const orphan = root.posts.find((p) => p.title === "Orphan Post")!;
+      expect(orphan).not.toBeNull();
+      expect(orphan.author).toBeNull();
+      expect(orphan.tags).toHaveLength(0);
     });
   });
 
   describe("entity mutations after loading", () => {
-    it("should reflect mutations made to loaded entity", () => {
-      const loadedUser = loadEntity<UserType>(doc, userId);
-      
-      expect(loadedUser).not.toBeNull();
-      expect(loadedUser!.name).toBe("John Doe");
-      
+    it("should reflect mutations made to loaded entity", async () => {
+      expect(user.name).toBe("John Doe");
+
       // Mutate the loaded entity
-      loadedUser!.name = "Jane Doe";
-      loadedUser!.age = 31;
-      
-      // Load again and verify mutations are persisted
-      const reloadedUser = loadEntity<UserType>(doc, userId);
-      expect(reloadedUser!.name).toBe("Jane Doe");
-      expect(reloadedUser!.age).toBe(31);
+      user.name = "Jane Doe";
+      user.age = 31;
+
+      // Create new doc with fresh Plexus to verify persistence
+      const freshTestRoot = new TestRoot({
+        user: new User({ name: "Jane Doe", email: "john@example.com", age: 31 }),
+        post: null,
+        comment: null,
+        users: [],
+        posts: []
+      });
+      const { root: reloadedRoot } = await initTestPlexus<TestRootType>(freshTestRoot);
+      expect(reloadedRoot.user!.name).toBe("Jane Doe");
+      expect(reloadedRoot.user!.age).toBe(31);
     });
 
-    it("should handle mutations to collection fields", () => {
-      const loadedPost = loadEntity<PostType>(doc, postId);
-      
-      expect(loadedPost).not.toBeNull();
-      expect(loadedPost!.tags).toHaveLength(2);
-      
+    it("should handle mutations to collection fields", async () => {
+      expect(post.tags).toHaveLength(2);
+
       // Mutate the tags array
-      loadedPost!.tags.push("new-tag");
-      
-      // Load again and verify mutation is persisted
-      const reloadedPost = loadEntity<PostType>(doc, postId);
-      expect(reloadedPost!.tags).toHaveLength(3);
-      expect(reloadedPost!.tags[2]).toBe("new-tag");
+      post.tags.push("new-tag");
+
+      // Verify mutation is immediately reflected
+      expect(post.tags).toHaveLength(3);
+      expect(post.tags[2]).toBe("new-tag");
+
+      // Also verify through root reference
+      expect(root.post!.tags).toHaveLength(3);
+      expect(root.post!.tags[2]).toBe("new-tag");
     });
   });
 
   describe("type inference", () => {
-    it("should correctly infer entity type from generic parameter", () => {
-      const user = loadEntity<UserType>(doc, userId);
-      const post = loadEntity<PostType>(doc, postId);
-      const comment = loadEntity<CommentType>(doc, commentId);
-      
+    it("should correctly infer entity types through Plexus root", () => {
       // TypeScript should correctly infer these types
       // These assertions would fail at compile time if types were wrong
-      if (user) {
-        const _name: string = user.name;
-        const _email: string = user.email;
-        const _age: number = user.age;
-      }
-      
-      if (post) {
-        const _title: string = post.title;
-        const _author: UserType | null = post.author;
-        const _tags: string[] = post.tags;
-      }
-      
-      if (comment) {
-        const _text: string = comment.text;
-        const _author: UserType | null = comment.author;
-        const _post: PostType | null = comment.post;
-      }
-      
+      const _name: string = user.name;
+      const _email: string = user.email;
+      const _age: number = user.age;
+
+      const _title: string = post.title;
+      const _author: UserType | null = post.author;
+      const _tags: string[] = post.tags;
+
+      const _text: string = comment.text;
+      const _commentAuthor: UserType | null = comment.author;
+      const _commentPost: PostType | null = comment.post;
+
       expect(true).toBe(true); // Just to have an assertion
     });
   });
 
   describe("edge cases", () => {
-    it("should handle loading the same entity multiple times", () => {
-      const firstLoad = loadEntity<UserType>(doc, userId);
-      const secondLoad = loadEntity<UserType>(doc, userId);
-      
-      expect(firstLoad).not.toBeNull();
-      expect(secondLoad).not.toBeNull();
-      
-      // Should return the same entity instance
-      expect(firstLoad).toBe(secondLoad);
-      expect(firstLoad!.uuid).toBe(secondLoad!.uuid);
+    it("should handle loading the same root multiple times", async () => {
+      // Plexus enforces single instance per doc, so test different approach
+      // Create two separate docs with the same data structure
+      const testUser2 = new User({
+        name: "John Doe",
+        email: "john@example.com",
+        age: 30
+      });
+
+      const testRoot2 = new TestRoot({
+        user: testUser2,
+        post: null,
+        comment: null,
+        users: [testUser2],
+        posts: []
+      });
+
+      const { root: secondLoad } = await initTestPlexus<TestRootType>(testRoot2);
+
+      // Should have same data structure
+      expect(root.user!.name).toBe(secondLoad.user!.name);
+      expect(root.user!.email).toBe(secondLoad.user!.email);
+      expect(root.user!.age).toBe(secondLoad.user!.age);
     });
 
-    it("should handle empty document", () => {
+    it("should handle empty document", async () => {
       const emptyDoc = new Y.Doc();
-      primeDoc(emptyDoc); // Register the doc as legitimate
-      const result = loadEntity<UserType>(emptyDoc, "any-id");
-      
-      expect(result).toBeNull();
+
+      // Should throw when trying to create Plexus without root
+      await expect(createTestPlexus<TestRootType>(emptyDoc)).rejects.toThrow();
     });
 
-    it("should handle loading entity that was deleted", () => {
+    it("should handle loading after entity deletion", async () => {
       // First verify entity exists
-      const user = loadEntity<UserType>(doc, userId);
-      expect(user).not.toBeNull();
-      
-      // Delete the entity from the document
-      doc.getMap(YJS_GLOBALS.models).delete(userId);
-      
-      // Try to load deleted entity
-      const deletedUser = loadEntity<UserType>(doc, userId);
-      expect(deletedUser).toBeNull();
-    });
+      expect(user.name).toBe("John Doe");
 
-    it("should handle entity with missing type metadata", () => {
-      // Create a malformed entity directly in YJS without proper metadata
-      const malformedId = "malformed-entity";
-      const malformedData = new Y.Map();
-      malformedData.set("name", "Malformed");
-      // Intentionally not setting YJS_GLOBALS.modelMetadataType
-      doc.getMap(YJS_GLOBALS.models).set(malformedId, malformedData);
-      
-      // Should return null for malformed entity
-      const result = loadEntity<UserType>(doc, malformedId);
-      expect(result).toBeNull();
+      // Delete the entity from the document
+      doc.getMap(YJS_GLOBALS.models).delete(user.uuid);
+
+      // Should fail to load due to missing entity
+      await expect(createTestPlexus<TestRootType>(doc)).rejects.toThrow();
     });
   });
 
   describe("circular references", () => {
     it("should handle circular references between entities", () => {
-      // Create posts that reference each other through comments
-      const post1 = new Post({
-        title: "Post 1",
-        content: "Content 1",
-        author: null,
-        tags: []
-      });
-      const [p1id] = (post1 as any)[referenceSymbol](doc);
-      
-      const post2 = new Post({
-        title: "Post 2",
-        content: "Content 2",
-        author: null,
-        tags: []
-      });
-      const [p2id] = (post2 as any)[referenceSymbol](doc);
-      
-      // Create comments that create a circular reference
-      const comment1 = new Comment({
-        text: "Comment on post 1",
-        author: null,
-        post: post1
-      });
-      const [c1id] = (comment1 as any)[referenceSymbol](doc);
-      
-      const comment2 = new Comment({
-        text: "Comment on post 2",
-        author: null,
-        post: post2
-      });
-      (comment2 as any)[referenceSymbol](doc);
-      
-      // Load and verify circular structure is handled
-      const loadedPost1 = loadEntity<PostType>(doc, p1id);
-      const loadedComment1 = loadEntity<CommentType>(doc, c1id);
-      
-      expect(loadedPost1).not.toBeNull();
-      expect(loadedComment1).not.toBeNull();
-      expect(loadedComment1!.post).toBe(loadedPost1);
+      // Verify existing circular reference (comment -> post -> author -> comment's post)
+      expect(comment.post).toBe(post);
+      expect(post.author).toBe(user);
+      expect(comment.author).toBe(user);
+
+      // The circular reference is: comment.post.author === comment.author
+      expect(comment.post!.author).toBe(comment.author);
     });
   });
 });

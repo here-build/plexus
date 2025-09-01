@@ -14,6 +14,17 @@ import { curryMaybeReference, maybeTransacting } from "../utils";
 import { deref } from "../deref";
 import { mutableArrayMethods } from "../globals";
 
+// Node/JS engines prior to Set.prototype.difference support
+function setDifference<T>(a: Set<T>, b: Set<T>): Set<T> {
+  const diff = (a as any).difference;
+  if (typeof diff === "function") {
+    return diff.call(a, b);
+  }
+  const res = new Set<T>();
+  for (const v of a) if (!b.has(v)) res.add(v);
+  return res;
+}
+
 export type MaterializedArrayProxyInitTarget =
   | {
       owner: ModelPattern;
@@ -119,8 +130,8 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
               if (init.isChildField) {
                 // todo duplicate models detection
                 // Clear parent tracking for old items
-                const removedItems = new Set(target).difference(new Set(newElements));
-                const addedItems = new Set(newElements).difference(new Set(target));
+                const removedItems = setDifference(new Set(target), new Set(newElements));
+                const addedItems = setDifference(new Set(newElements), new Set(target));
                 for (const item of removedItems) {
                   item?.[informOrphanizationSymbol]?.();
                 }
@@ -186,8 +197,8 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
 
                   // todo duplicate models detection
                   // Clear parent tracking for old items
-                  const removedItems = new Set(target).difference(new Set(resultingArray));
-                  const addedItems = new Set(resultingArray).difference(new Set(target));
+                  const removedItems = setDifference(new Set(target), new Set(resultingArray));
+                  const addedItems = setDifference(new Set(resultingArray), new Set(target));
                   for (const item of removedItems) {
                     item?.[informOrphanizationSymbol]?.();
                   }

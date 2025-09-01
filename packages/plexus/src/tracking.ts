@@ -64,10 +64,10 @@ function collectMutation(entity: any, field: string | symbol) {
 
   if (!batchScheduled) {
     batchScheduled = true;
-    setImmediate(() => {
+    setTimeout(() => {
       flushMutationBatch();
       batchScheduled = false;
-    });
+    }, 0);
   }
 }
 

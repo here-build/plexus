@@ -40,7 +40,7 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
 ) => {
   // minor hack for autoref
   let tracker: ModelType<State, Name> = possibleTracker as ModelType<State, Name>;
-  const selfTarget = Object.seal({
+  const selfTarget = {
     ...Object.fromEntries(
       Object.entries(schema).map(([key]) => [
         key,
@@ -76,9 +76,9 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
         return null;
       }
     }
-  });
+  };
   const ownKeys = Reflect.ownKeys(selfTarget);
-  Reflect.setPrototypeOf(selfTarget, constructor);
+  Reflect.setPrototypeOf(selfTarget, constructor.prototype);
   fieldMap.observe((event) => {
     for (const key of event.keysChanged) {
       trackModification(tracker, key);
@@ -243,6 +243,9 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
     },
     ownKeys(_) {
       return ownKeys;
+    },
+    getPrototypeOf() {
+      return constructor.prototype;
     }
   }) as any as ModelType<State, Name>;
   tracker ??= self;

@@ -137,7 +137,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
   );
   const ownKeys = Reflect.ownKeys(selfTarget);
 
-  Reflect.setPrototypeOf(selfTarget, constructor);
+  Reflect.setPrototypeOf(selfTarget, constructor.prototype);
   const self = new Proxy(Object.seal(selfTarget), {
     // eslint-disable-next-line sonarjs/function-return-type
     get(_, key) {
@@ -397,6 +397,9 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
     },
     ownKeys(_) {
       return ownKeys;
+    },
+    getPrototypeOf() {
+      return constructor.prototype;
     }
   }) as any as ModelType<State, Name>;
   const target = Object.fromEntries(

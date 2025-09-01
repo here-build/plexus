@@ -289,7 +289,7 @@ export abstract class Plexus<
     invariant(Constructor, `Unknown entity type: ${type}`);
 
     // Spawn and return
-    return Constructor.spawn(entityId, this.doc) as T;
+    return Constructor.spawn(entityId, this.doc) as any as T;
   }
 
   /**

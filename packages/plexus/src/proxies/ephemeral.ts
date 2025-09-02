@@ -350,12 +350,12 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
         value?.[requestOrphanizationSymbol]?.();
       }
       target[elementKey] = value;
-      // in other branch we are doing tracking with manifested state
-      trackModification(self, elementKey);
 
       if (schema[elementKey] === "child-val") {
         value?.[informAdoptionSymbol]?.(self, elementKey);
       }
+      // in other branch we are doing tracking with manifested state
+      trackModification(self, elementKey);
       return true;
     },
 
@@ -367,10 +367,9 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
         return false;
       }
       if (schema[key] === "val" || schema[key] === "child-val") {
+        delete target[key as keyof typeof target];
         trackModification(self, key);
         trackModification(self, ACCESS_INDICES_SET_SYMBOL);
-
-        delete target[key as keyof typeof target];
         return true;
       }
       return false;

@@ -37,8 +37,8 @@ export const buildRecordProxy = (
 ) => {
   const observer = (event: Y.YMapEvent<AllowedYValue>) => {
     for (const key of event.keysChanged) {
-      trackModification(self, key);
       target[key] = deref(init.map!.doc!, init.map!.get(key)!);
+      trackModification(self, key);
     }
     trackModification(self, ACCESS_INDICES_SET_SYMBOL);
   };
@@ -59,9 +59,6 @@ export const buildRecordProxy = (
       switch (elementKey) {
         case "clear":
           return () => {
-            trackModification(self, ACCESS_ALL_SYMBOL);
-            trackModification(self, ACCESS_INDICES_SET_SYMBOL);
-
             // Clear parent tracking for all child values
             if (init.isChildField) {
               for (const value of Object.values(proxyTarget)) {
@@ -73,13 +70,12 @@ export const buildRecordProxy = (
               delete proxyTarget[key];
             }
             init.map?.clear();
+            trackModification(self, ACCESS_ALL_SYMBOL);
           };
         case "assign":
           return (newEntries: Record<string, ModelPattern> | Iterable<[string, ModelPattern]>) => {
-            trackModification(self, ACCESS_ALL_SYMBOL);
-            trackModification(self, ACCESS_INDICES_SET_SYMBOL);
-
             maybeTransacting(init.map?.doc, () => {
+              trackModification(self, ACCESS_ALL_SYMBOL);
               // Clear parent tracking for all old values
               if (init.isChildField) {
                 for (const value of Object.values(proxyTarget)) {
@@ -163,9 +159,8 @@ export const buildRecordProxy = (
     },
     set(proxyTarget, elementKey, value) {
       if (typeof elementKey === "string") {
-        trackModification(self, elementKey);
-
         maybeTransacting(init.map?.doc, () => {
+          trackModification(self, elementKey);
           // Handle parent tracking for child fields
           if (init.isChildField) {
             // Clear parent tracking for old value if it exists
@@ -215,8 +210,8 @@ export const buildRecordProxy = (
         }
 
         if (init.map.has(elementKey)) {
-          trackModification(self, ACCESS_INDICES_SET_SYMBOL);
           init.map.delete(elementKey);
+          trackModification(self, ACCESS_INDICES_SET_SYMBOL);
           return true;
         }
       });

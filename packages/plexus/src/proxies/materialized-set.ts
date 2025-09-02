@@ -46,10 +46,12 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
             // here and below we're using deref and not boundRef to ensure that entities are unique,
             // allowing us to directly compare instead of structural checks
             if (!init.list) {
-              if (!target.has(value)) {
+              const hadValue = target.has(value);
+              if (!hadValue) {
+                target.add(value);
                 trackModification(self, ACCESS_ALL_SYMBOL);
               }
-              return target.add(value);
+              return self;
             }
             if (
               !init.list
@@ -57,9 +59,8 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
                 .map((item) => deref(init.list.doc!, item))
                 .includes(value)
             ) {
-              trackModification(self, ACCESS_ALL_SYMBOL);
-
               maybeTransacting(init.list?.doc, () => {
+                trackModification(self, ACCESS_ALL_SYMBOL);
                 // Update parent tracking for child fields
                 if (init.isChildField) {
                   value?.[requestAdoptionSymbol]?.(init.owner, init.fieldName);
@@ -75,18 +76,19 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
         case "clear":
           return () => {
             if (!init.list) {
-              if (target.size > 0) {
+              const wasEmpty = target.size === 0;
+              target.clear();
+              if (!wasEmpty) {
                 trackModification(self, ACCESS_ALL_SYMBOL);
               }
-              return target.clear();
+              return;
             }
             const outputLength = init.list.length;
             if (outputLength === 0) {
               return 0;
             }
-            trackModification(self, ACCESS_ALL_SYMBOL);
-
             maybeTransacting(init.list?.doc, () => {
+              trackModification(self, ACCESS_ALL_SYMBOL);
               // Clear parent tracking for all items
               if (init.isChildField) {
                 const items = init.list.toArray().map((item) => deref(init.list.doc!, item));
@@ -101,14 +103,15 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
           };
         case "assign":
           return (newValues: Iterable<AllowedYJSValue>) => {
-            trackModification(self, ACCESS_ALL_SYMBOL);
             if (!init.list) {
               target.clear();
               target = new Set(newValues);
+              trackModification(self, ACCESS_ALL_SYMBOL);
               return;
             }
 
             maybeTransacting(init.list?.doc, () => {
+              trackModification(self, ACCESS_ALL_SYMBOL);
               // Clear parent tracking for old items
               if (init.isChildField) {
                 const oldItems = init.list.toArray().map((item) => deref(init.list.doc!, item));

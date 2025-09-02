@@ -21,6 +21,8 @@
  * - createTrackedFunction: Main API for React integration
  */
 
+import { isTransacting, pendingNotifications } from "./utils";
+
 // Special symbols for tracking comprehensive access patterns
 export const ACCESS_ALL_SYMBOL = Symbol("ACCESS_ALL");
 export const ACCESS_INDICES_SET_SYMBOL = Symbol("ACCESS_INDICES_SET");
@@ -54,6 +56,7 @@ export function trackAccess(entity: any, field: string | symbol): void {
     fieldset.get(entity).add(field);
   }
 }
+
 
 // Development-only DevTools integration
 let pendingMutations: Set<{ entity: any; field: string | symbol }> = new Set();
@@ -111,8 +114,14 @@ export function trackModification(entity: any, field: string | symbol): void {
     const entityKeyset = notifier.fieldset.get(entity)!;
     if (field === ACCESS_ALL_SYMBOL || entityKeyset.has(field) || entityKeyset.has(ACCESS_ALL_SYMBOL)) {
       unconsumedNotifiers.delete(notifier);
-      // tracking functions should be executed AFTER we're done on internal magic
-      notifier.trackingFunction();
+      
+      if (isTransacting) {
+        // Queue notification for later
+        pendingNotifications.add(notifier.trackingFunction);
+      } else {
+        // Execute immediately
+        notifier.trackingFunction();
+      }
     }
   }
 }

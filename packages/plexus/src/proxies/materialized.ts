@@ -87,12 +87,12 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
 
   const informAdoption = (newParent: ModelType<{}, string>, field: string, extraFieldMetadata?: string) => {
     maybeTransacting(doc, () => {
+      trackModification(tracker, "parent");
       const reference = newParent[referenceSymbol](doc);
       (fieldMap as Y.Map<any> as Y.Map<ParentReference>).set(
         YJS_GLOBALS.modelMetadataParent,
         extraFieldMetadata ? [reference[0], field, extraFieldMetadata] : [reference[0], field]
       );
-      trackModification(tracker, "parent");
     });
   };
 
@@ -100,10 +100,10 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
     const currentParent = fieldMap.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
     if (currentParent) {
       maybeTransacting(doc, () => {
+        trackModification(tracker, "parent");
         // it is VERY important to alter fieldMap first to avoid cyclic processing
         fieldMap.delete(YJS_GLOBALS.modelMetadataParent);
       });
-      trackModification(tracker, "parent");
     }
   };
 

@@ -9,7 +9,7 @@ import { Tagged } from "type-fest";
 import invariant from "tiny-invariant";
 import { PlexusAwareness } from "./awareness";
 import { YJS_GLOBALS } from "./YJS_GLOBALS";
-import { DefaultedMap, never } from "./utils";
+import { DefaultedMap, never, maybeTransacting } from "./utils";
 import { entityClasses, documentEntityCaches } from "./globals";
 import { RestrictedArray, RestrictedRecord, RestrictedSet } from "./load";
 
@@ -341,5 +341,16 @@ export abstract class Plexus<
     if (!modelData) return null;
 
     return modelData.get(YJS_GLOBALS.modelMetadataType) as string;
+  }
+
+  /**
+   * Execute a function within a transaction.
+   * Uses maybeTransacting which handles:
+   * - YJS transaction wrapping
+   * - Shadow sub-transactions (no-op for nested calls)
+   * - Notification batching and flushing
+   */
+  transact<T>(fn: () => T): T {
+    return maybeTransacting(this.doc, fn);
   }
 }

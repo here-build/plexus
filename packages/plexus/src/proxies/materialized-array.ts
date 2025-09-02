@@ -52,7 +52,6 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
       target.splice(0, target.length, ...newArray);
     }
     trackModification(self, ACCESS_ALL_SYMBOL);
-    trackModification(self, ACCESS_INDICES_SET_SYMBOL);
   };
   init.list?.observe(observer);
 
@@ -64,9 +63,9 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
         case "push":
           // arr.push(entity) → yArray.push(entity.reference())
           // eslint-disable-next-line sonarjs/no-nested-functions
-          return (...elements: Array<ModelPattern | null>) => {
-            trackModification(self, ACCESS_ALL_SYMBOL);
+          return (...elements: Array<ModelPattern | null>) =>
             maybeTransacting(init.list?.doc, () => {
+              trackModification(self, ACCESS_ALL_SYMBOL);
               // Update parent tracking for child fields
               if (init.isChildField) {
                 for (const element of elements) {
@@ -82,12 +81,11 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
                 return target.length;
               }
             });
-          };
         case "unshift": // arr.unshift(entity) → yArray.unshift(entity.reference())
           // eslint-disable-next-line sonarjs/no-nested-functions
           return (...elements: Array<ModelPattern | null>) => {
-            trackModification(self, ACCESS_ALL_SYMBOL);
             maybeTransacting(init.list?.doc, () => {
+              trackModification(self, ACCESS_ALL_SYMBOL);
               // Update parent tracking for child fields
               if (init.isChildField) {
                 for (const element of elements) {
@@ -107,8 +105,6 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
         case "clear": // arr.assign(newElements) → replace entire array contents
           // eslint-disable-next-line sonarjs/no-nested-functions
           return () => {
-            trackModification(self, ACCESS_ALL_SYMBOL);
-
             // Clear parent tracking for all items
             if (init.list && init.isChildField) {
               for (const item of target) {
@@ -121,12 +117,13 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
               // Clear existing contents
               init.list.delete(0, init.list.length);
             }
+            trackModification(self, ACCESS_ALL_SYMBOL);
           };
         case "assign": // arr.assign(newElements) → replace entire array contents
           // eslint-disable-next-line sonarjs/no-nested-functions
           return (newElements: Array<ModelPattern | null>) => {
-            trackModification(self, ACCESS_ALL_SYMBOL);
             maybeTransacting(init.list?.doc, () => {
+              trackModification(self, ACCESS_ALL_SYMBOL);
               if (init.isChildField) {
                 // todo duplicate models detection
                 // Clear parent tracking for old items
@@ -186,9 +183,10 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
           return mutableArrayMethods.has(elementKey)
             ? // eslint-disable-next-line sonarjs/no-nested-functions
               (...args) => {
-                trackModification(self, ACCESS_ALL_SYMBOL);
                 if (!init.list) {
-                  return target[elementKey](...args);
+                  const result = target[elementKey](...args);
+                  trackModification(self, ACCESS_ALL_SYMBOL);
+                  return result;
                 }
                 return maybeTransacting(init.list?.doc, () => {
                   const array = init.list.toArray().map((item) => deref(init.list.doc!, item));
@@ -211,6 +209,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
                     init.list.delete(0, init.list.length);
                     init.list.push(resultingArray.map(init.boundMaybeReference));
                   });
+                  trackModification(self, ACCESS_ALL_SYMBOL);
                   return result;
                 });
               }
@@ -248,22 +247,21 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
     },
     // eslint-disable-next-line sonarjs/cognitive-complexity
     set(_, elementKey, value) {
-      trackModification(self, elementKey);
-      if (elementKey === "length") {
-        trackModification(self, ACCESS_ALL_SYMBOL);
-        // Handle array length truncation
-        const newLength = Number(value);
-        if (Number.isSafeInteger(newLength) && newLength >= 0) {
-          if (!init.list) {
-            for (const item of target) {
-              item?.[informOrphanizationSymbol]?.();
+      return maybeTransacting(init.list?.doc, () => {
+        trackModification(self, elementKey);
+        if (elementKey === "length") {
+          // Handle array length truncation
+          const newLength = Number(value);
+          if (Number.isSafeInteger(newLength) && newLength >= 0) {
+            if (!init.list) {
+              for (const item of target) {
+                item?.[informOrphanizationSymbol]?.();
+              }
+              target.length = newLength;
+              return true;
             }
-            target.length = newLength;
-            return true;
-          }
-          if (newLength < init.list.length) {
-            // eslint-disable-next-line sonarjs/no-nested-functions
-            maybeTransacting(init.list.doc, () => {
+            if (newLength < init.list.length) {
+              // eslint-disable-next-line sonarjs/no-nested-functions
               // Clear parent tracking for truncated items
               if (init.isChildField) {
                 for (const item of target) {
@@ -272,41 +270,39 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
               }
 
               init.list.delete(newLength, init.list.length - newLength);
-            });
+            }
+            return true;
           }
-          return true;
+          return false;
         }
-        return false;
-      }
-      if (typeof elementKey === "string") {
-        const parsedElementKey = Number.parseInt(elementKey);
-        if (Number.isSafeInteger(parsedElementKey)) {
-          if (parsedElementKey < 0) {
-            console.warn(`cannot set [${parsedElementKey}] as it's below zero`);
-            return false;
-          } else {
-            if (!init.list) {
-              target[parsedElementKey] = value;
-              return true;
-            }
-            if (deref(init.list.doc!, init.list.get(parsedElementKey)) === value) {
-              return true;
-            }
-
-            // Handle parent tracking for replaced item
-            if (init.isChildField) {
-              // Clear parent for old item at this index
-              if (parsedElementKey < init.list.length) {
-                target[parsedElementKey]?.[informOrphanizationSymbol]?.();
+        if (typeof elementKey === "string") {
+          const parsedElementKey = Number.parseInt(elementKey);
+          if (Number.isSafeInteger(parsedElementKey)) {
+            if (parsedElementKey < 0) {
+              console.warn(`cannot set [${parsedElementKey}] as it's below zero`);
+              return false;
+            } else {
+              if (!init.list) {
+                target[parsedElementKey] = value;
+                return true;
+              }
+              if (deref(init.list.doc!, init.list.get(parsedElementKey)) === value) {
+                return true;
               }
 
-              // Update parent for new item
-              if (value) {
-                value?.[requestOrphanizationSymbol]?.();
-              }
-            }
+              // Handle parent tracking for replaced item
+              if (init.isChildField) {
+                // Clear parent for old item at this index
+                if (parsedElementKey < init.list.length) {
+                  target[parsedElementKey]?.[informOrphanizationSymbol]?.();
+                }
 
-            maybeTransacting(init.list.doc, () => {
+                // Update parent for new item
+                if (value) {
+                  value?.[requestOrphanizationSymbol]?.();
+                }
+              }
+
               if (parsedElementKey > init.list.length) {
                 // eslint-disable-next-line sonarjs/no-nested-functions
                 const postfix: null[] = [];
@@ -320,13 +316,13 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
                 init.list.insert(parsedElementKey, [init.boundMaybeReference(value)]);
               }
               value?.[informAdoptionSymbol]?.(init.owner, init.fieldName);
-            });
+            }
+            return true;
           }
-          return true;
         }
-      }
-      console.warn(`cannot set property ${elementKey.toString()} as it's non-declared`);
-      return false;
+        console.warn(`cannot set property ${elementKey.toString()} as it's non-declared`);
+        return false;
+      });
     },
     deleteProperty() {
       return false;

@@ -114,7 +114,7 @@ export function trackModification(entity: any, field: string | symbol): void {
     const entityKeyset = notifier.fieldset.get(entity)!;
     if (field === ACCESS_ALL_SYMBOL || entityKeyset.has(field) || entityKeyset.has(ACCESS_ALL_SYMBOL)) {
       unconsumedNotifiers.delete(notifier);
-      
+
       if (isTransacting) {
         // Queue notification for later
         pendingNotifications.add(notifier.trackingFunction);
@@ -149,14 +149,26 @@ export function createTrackedFunction<Args extends readonly unknown[], Return>(
     const myTrackingMap = new DefaultedMap<any, Set<string | symbol>>(() => new Set());
 
     activeTrackingMaps.add(myTrackingMap);
+    let executed = false;
+    let triggered = false;
     unconsumedNotifiers.add({
-      trackingFunction: notifyChanges,
+      trackingFunction: () => {
+        if (!executed) {
+          triggered = true;
+        } else {
+          notifyChanges();
+        }
+      },
       fieldset: myTrackingMap
     });
 
     try {
       return fn(...args);
     } finally {
+      executed = true;
+      if (triggered) {
+        notifyChanges();
+      }
       activeTrackingMaps.delete(myTrackingMap);
     }
   };

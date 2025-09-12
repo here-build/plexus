@@ -45,6 +45,9 @@ export type MaterializedArrayProxyInitTarget =
 
 export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: AllowedYJSValue[] = []) => {
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
+    if (event.target !== init.list) {
+      return;
+    }
     // todo narrowed observer event triggers
     // Update target array to maintain target-proxy parity for property descriptors
     if (init.list) {
@@ -122,6 +125,9 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
         case "assign": // arr.assign(newElements) → replace entire array contents
           // eslint-disable-next-line sonarjs/no-nested-functions
           return (newElements: Array<ModelPattern | null>) => {
+            if (newElements.length === target.length && newElements.every((val, i) => val === target[i])) {
+              return;
+            }
             maybeTransacting(init.list?.doc, () => {
               trackModification(self, ACCESS_ALL_SYMBOL);
               if (init.isChildField) {
@@ -147,6 +153,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
             });
           };
         case "length": // Report length access to this array
+          trackAccess(init.owner, init.fieldName);
           trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
 
           return init.list?.length ?? target.length;
@@ -162,6 +169,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
           };
         case Symbol.iterator:
           return () => {
+            trackAccess(init.owner, init.fieldName);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             if (!init.list) {
               return target[Symbol.iterator]();
@@ -192,6 +200,9 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
                   const array = init.list.toArray().map((item) => deref(init.list.doc!, item));
                   const resultingArray = [...array];
                   const result = resultingArray[elementKey](...args);
+                  if (resultingArray.length === array.length && resultingArray.every((val, i) => val === array[i])) {
+                    return result;
+                  }
 
                   // todo duplicate models detection
                   // Clear parent tracking for old items
@@ -219,6 +230,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
                   return target[elementKey](...args);
                 }
                 // Non-mutating array methods that iterate over all elements
+                trackAccess(init.owner, init.fieldName);
                 trackAccess(self, ACCESS_ALL_SYMBOL);
                 return init.list
                   .toArray()
@@ -227,6 +239,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
               };
         } else {
           // Report keyset access to this array for Array.prototype property access
+          trackAccess(init.owner, init.fieldName);
           trackAccess(self, elementKey);
           return Array.prototype[elementKey];
         }
@@ -237,6 +250,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
         const parsedElementKey = Number.parseInt(elementKey);
         if (Number.isSafeInteger(parsedElementKey)) {
           // Report specific index access
+          trackAccess(init.owner, init.fieldName);
           trackAccess(self, elementKey);
           if (!init.list) {
             return target[parsedElementKey];
@@ -297,10 +311,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
                   target[parsedElementKey]?.[informOrphanizationSymbol]?.();
                 }
 
-                // Update parent for new item
-                if (value) {
-                  value?.[requestOrphanizationSymbol]?.();
-                }
+                value?.[requestOrphanizationSymbol]?.();
               }
 
               if (parsedElementKey > init.list.length) {
@@ -345,6 +356,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
       return elementKey in Array.prototype;
     },
     ownKeys(target) {
+      trackAccess(init.owner, init.fieldName);
       trackAccess(self, ACCESS_ALL_SYMBOL);
       return Reflect.ownKeys(init.list?.toArray() ?? target);
     }

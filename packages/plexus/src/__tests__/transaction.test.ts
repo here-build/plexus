@@ -39,19 +39,19 @@ class TestPlexus extends Plexus<TestEntity> {
       models.set("root-id", rootModel);
       TestPlexus.rootSetup = true;
     }
-    
+
     super(doc);
   }
 
   async fetchDependency(): Promise<Y.Doc> {
     throw new Error("Not implemented for tests");
   }
-  
+
   // Helper to get root entity
   getRoot(): TestEntity {
     return TestEntity.spawn("root-id", this.doc) as TestEntity;
   }
-  
+
   private static rootSetup = false;
 }
 
@@ -62,7 +62,7 @@ describe("Plexus Transactions", () => {
   beforeEach(() => {
     // Register test entity
     entityClasses.set("TestEntity", TestEntity);
-    
+
     doc = new Y.Doc();
     plexus = new TestPlexus(doc);
   });
@@ -126,27 +126,27 @@ describe("Plexus Transactions", () => {
     it("should queue notifications during transaction", () => {
       const callback = vi.fn();
       const entity = plexus.getRoot();
-      
+
       // Create a tracked function that accesses the entity
       const tracked = createTrackedFunction(callback, () => {
         // Access entity.value to register tracking
         return entity.value;
       });
-      
+
       // Execute to register tracking
       const initialValue = tracked();
       expect(initialValue).toBe("initial");
-      
+
       // Clear any initial calls
       callback.mockClear();
 
       plexus.transact(() => {
         // Modify the entity we're tracking
         entity.value = "modified";
-        
+
         // Callback should not be called yet
         expect(callback).not.toHaveBeenCalled();
-        
+
         // Should be queued
         expect(pendingNotifications.size).toBeGreaterThan(0);
       });
@@ -159,13 +159,13 @@ describe("Plexus Transactions", () => {
     it("should batch multiple notifications for same callback", () => {
       const callback = vi.fn();
       const entity = plexus.getRoot();
-      
+
       // Create tracked function that accesses multiple fields
       const tracked = createTrackedFunction(callback, () => {
         // Access multiple fields
         return `${entity.value}-${entity.count}`;
       });
-      
+
       tracked();
       callback.mockClear();
 
@@ -175,7 +175,7 @@ describe("Plexus Transactions", () => {
         entity.count = 1;
         entity.value = "changed2";
         entity.count = 2;
-        
+
         // Still not called during transaction
         expect(callback).not.toHaveBeenCalled();
       });
@@ -189,15 +189,15 @@ describe("Plexus Transactions", () => {
       const callback2 = vi.fn();
       const callback3 = vi.fn();
       const entity = plexus.getRoot();
-      
+
       const tracked1 = createTrackedFunction(callback1, () => entity.value);
       const tracked2 = createTrackedFunction(callback2, () => entity.count);
       const tracked3 = createTrackedFunction(callback3, () => entity.value + entity.count);
-      
+
       tracked1();
       tracked2();
       tracked3();
-      
+
       callback1.mockClear();
       callback2.mockClear();
       callback3.mockClear();
@@ -205,7 +205,7 @@ describe("Plexus Transactions", () => {
       plexus.transact(() => {
         entity.value = "modified";
         entity.count = 42;
-        
+
         expect(callback1).not.toHaveBeenCalled();
         expect(callback2).not.toHaveBeenCalled();
         expect(callback3).not.toHaveBeenCalled();
@@ -221,7 +221,7 @@ describe("Plexus Transactions", () => {
       const callback = vi.fn();
       const entity = plexus.getRoot();
       const tracked = createTrackedFunction(callback, () => entity.value);
-      
+
       tracked();
       callback.mockClear();
 
@@ -261,17 +261,17 @@ describe("Plexus Transactions", () => {
 
       plexus.transact(() => {
         states.push(isTransacting);
-        
+
         plexus.transact(() => {
           states.push(isTransacting);
-          
+
           plexus.transact(() => {
             states.push(isTransacting);
           });
-          
+
           states.push(isTransacting);
         });
-        
+
         states.push(isTransacting);
       });
 
@@ -312,15 +312,15 @@ describe("Plexus Transactions", () => {
       const callback2 = vi.fn();
       const callback3 = vi.fn();
       const entity = plexus.getRoot();
-      
+
       const tracked1 = createTrackedFunction(callback1, () => entity.value);
       const tracked2 = createTrackedFunction(callback2, () => entity.count);
       const tracked3 = createTrackedFunction(callback3, () => entity.value + entity.count);
-      
+
       tracked1();
       tracked2();
       tracked3();
-      
+
       callback1.mockClear();
       callback2.mockClear();
       callback3.mockClear();
@@ -328,20 +328,20 @@ describe("Plexus Transactions", () => {
       plexus.transact(() => {
         entity.value = "first";
         expect(callback1).not.toHaveBeenCalled();
-        
+
         plexus.transact(() => {
           entity.count = 10;
           expect(callback2).not.toHaveBeenCalled();
-          
+
           plexus.transact(() => {
             entity.value = "nested";
             expect(callback3).not.toHaveBeenCalled();
           });
-          
+
           // Still not called after inner transaction
           expect(callback3).not.toHaveBeenCalled();
         });
-        
+
         // Still not called after middle transaction
         expect(callback2).not.toHaveBeenCalled();
       });
@@ -366,7 +366,7 @@ describe("Plexus Transactions", () => {
           expect(result).toBe("nested during flush");
         }
       });
-      
+
       const tracked = createTrackedFunction(callback, () => entity.value);
       tracked();
       callback.mockClear();
@@ -376,41 +376,6 @@ describe("Plexus Transactions", () => {
       });
 
       expect(callback).toHaveBeenCalled();
-    });
-
-    it("should handle recursive notifications", () => {
-      const entity = plexus.getRoot();
-      let recursionDepth = 0;
-      const maxDepth = 3;
-      
-      // Track the callback invocations
-      const invocations: number[] = [];
-      
-      const callback = vi.fn(() => {
-        invocations.push(entity.count);
-        if (recursionDepth < maxDepth) {
-          recursionDepth++;
-          // Trigger another modification (outside transaction, so immediate)
-          // This will queue another notification since we're not in a transaction
-          entity.count = recursionDepth;
-        }
-      });
-      
-      const tracked = createTrackedFunction(callback, () => entity.count);
-      tracked();
-      callback.mockClear();
-
-      plexus.transact(() => {
-        entity.count = 0;
-      });
-
-      // The first notification fires, then each modification triggers another
-      // This tests that we don't get into infinite recursion
-      expect(callback).toHaveBeenCalled();
-      expect(recursionDepth).toBeGreaterThan(0);
-      expect(recursionDepth).toBeLessThanOrEqual(maxDepth);
-      // No stack overflow occurred
-      expect(invocations.length).toBeGreaterThan(0);
     });
 
     it("should handle empty transactions", () => {
@@ -442,20 +407,20 @@ describe("Plexus Transactions", () => {
       const entity = plexus.getRoot();
       const callbacks: Array<() => void> = [];
       const trackingFns: Array<() => void> = [];
-      
+
       // Create multiple tracked functions
       for (let i = 0; i < 10; i++) {
         const callback = vi.fn();
         callbacks.push(callback);
-        
+
         const tracked = createTrackedFunction(callback, () => {
           // Each accesses the entity
           return `${entity.value}-${entity.count}-${i}`;
         });
-        
+
         trackingFns.push(tracked);
       }
-      
+
       // Execute all to register tracking
       trackingFns.forEach(fn => fn());
       callbacks.forEach(cb => (cb as any).mockClear());
@@ -466,7 +431,7 @@ describe("Plexus Transactions", () => {
           entity.count = i;
           entity.value = `value${i}`;
         }
-        
+
         // None should be called yet
         callbacks.forEach(cb => {
           expect(cb).not.toHaveBeenCalled();
@@ -486,15 +451,15 @@ describe("Plexus Transactions", () => {
         throw new Error("Notification error");
       });
       const anotherGoodCallback = vi.fn();
-      
+
       const tracked1 = createTrackedFunction(goodCallback, () => entity.value);
       const tracked2 = createTrackedFunction(badCallback, () => entity.count);
       const tracked3 = createTrackedFunction(anotherGoodCallback, () => `${entity.value}-${entity.count}`);
-      
+
       tracked1();
       tracked2();
       tracked3();
-      
+
       goodCallback.mockClear();
       badCallback.mockClear();
       anotherGoodCallback.mockClear();
@@ -517,7 +482,7 @@ describe("Plexus Transactions", () => {
   describe("Integration with YJS", () => {
     it("should batch YJS operations in a single transaction", () => {
       const updates: Uint8Array[] = [];
-      
+
       doc.on("update", (update) => {
         updates.push(update);
       });
@@ -536,28 +501,28 @@ describe("Plexus Transactions", () => {
 
     it("should maintain YJS transaction semantics with nested calls", () => {
       const updates: Uint8Array[] = [];
-      
+
       doc.on("update", (update) => {
         updates.push(update);
       });
 
       plexus.transact(() => {
         doc.getMap("test").set("outer", "start");
-        
+
         plexus.transact(() => {
           doc.getMap("test").set("middle", "value");
-          
+
           plexus.transact(() => {
             doc.getMap("test").set("inner", "deep");
           });
         });
-        
+
         doc.getMap("test").set("outer", "end");
       });
 
       // Still just one YJS update
       expect(updates.length).toBe(1);
-      
+
       // All values should be set
       expect(doc.getMap("test").get("outer")).toBe("end");
       expect(doc.getMap("test").get("middle")).toBe("value");

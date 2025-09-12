@@ -36,6 +36,9 @@ export const buildRecordProxy = (
   target: Record<string, AllowedYJSValue> = {}
 ) => {
   const observer = (event: Y.YMapEvent<AllowedYValue>) => {
+    if (event.target !== init.map) {
+      return;
+    }
     for (const key of event.keysChanged) {
       target[key] = deref(init.map!.doc!, init.map!.get(key)!);
       trackModification(self, key);
@@ -59,6 +62,9 @@ export const buildRecordProxy = (
       switch (elementKey) {
         case "clear":
           return () => {
+            if (target.length === 0) {
+              return;
+            }
             // Clear parent tracking for all child values
             if (init.isChildField) {
               for (const value of Object.values(proxyTarget)) {
@@ -136,16 +142,19 @@ export const buildRecordProxy = (
         if (typeof Object.prototype[elementKey] === "function") {
           return function (this: any, ...args) {
             if (this === self) {
+              trackAccess(init.owner, init.fieldName);
               trackAccess(self, ACCESS_ALL_SYMBOL);
             }
             return Object.prototype[elementKey].apply(self, args);
           };
         } else {
+          trackAccess(init.owner, init.fieldName);
           trackAccess(self, ACCESS_ALL_SYMBOL);
           return Object.prototype[elementKey];
         }
       } else if (typeof elementKey === "string") {
         // Specific field access
+        trackAccess(init.owner, init.fieldName);
         trackAccess(self, elementKey);
         if (init.map) {
           if (!init.map.has(elementKey)) {
@@ -225,10 +234,12 @@ export const buildRecordProxy = (
       if (typeof elementKey === "symbol") {
         return false;
       }
+      trackAccess(init.owner, init.fieldName);
       trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
       return init.map?.has(elementKey) ?? Reflect.has(proxyTarget, elementKey);
     },
     ownKeys(proxyTarget) {
+      trackAccess(init.owner, init.fieldName);
       trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
       return [...(init.map?.keys() ?? Reflect.ownKeys(proxyTarget))];
     }

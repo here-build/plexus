@@ -40,43 +40,46 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
 ) => {
   // minor hack for autoref
   let tracker: ModelType<State, Name> = possibleTracker as ModelType<State, Name>;
-  const selfTarget = {
-    ...Object.fromEntries(
-      Object.entries(schema).map(([key]) => [
-        key,
-        {
-          enumerable: true,
-          configurable: false,
-          get() {
-            return self[key];
-          },
-          set(value) {
-            // @ts-expect-error
-            self[key] = value;
-          }
-        } satisfies PropertyDescriptor
-      ])
-    ),
-    uuid: {
-      enumerable: false,
-      configurable: false,
-      get() {
-        return null;
-      }
-    },
-    [isProxyEntity]: {
-      enumerable: false,
-      configurable: false,
-      value: true
-    },
-    parent: {
-      enumerable: false,
-      configurable: false,
-      get() {
-        return null;
+  const selfTarget = Object.defineProperties(
+    {},
+    {
+      ...Object.fromEntries(
+        Object.entries(schema).map(([key]) => [
+          key,
+          {
+            enumerable: true,
+            configurable: false,
+            get() {
+              return self[key];
+            },
+            set(value) {
+              // @ts-expect-error
+              self[key] = value;
+            }
+          } satisfies PropertyDescriptor
+        ])
+      ),
+      uuid: {
+        enumerable: false,
+        configurable: false,
+        get() {
+          return null;
+        }
+      },
+      [isProxyEntity]: {
+        enumerable: false,
+        configurable: false,
+        value: true
+      },
+      parent: {
+        enumerable: false,
+        configurable: false,
+        get() {
+          return null;
+        }
       }
     }
-  };
+  );
   const ownKeys = Reflect.ownKeys(selfTarget);
   Reflect.setPrototypeOf(selfTarget, constructor.prototype);
   fieldMap.observe((event) => {
@@ -86,9 +89,18 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
   });
 
   const informAdoption = (newParent: ModelType<{}, string>, field: string, extraFieldMetadata?: string) => {
+    const currentParent = (fieldMap as Y.Map<any> as Y.Map<ParentReference>).get(YJS_GLOBALS.modelMetadataParent);
+    const reference = newParent[referenceSymbol](doc);
+    if (
+      currentParent &&
+      currentParent[0] === reference[0] &&
+      currentParent[1] === field &&
+      currentParent[2] === extraFieldMetadata
+    ) {
+      return;
+    }
     maybeTransacting(doc, () => {
       trackModification(tracker, "parent");
-      const reference = newParent[referenceSymbol](doc);
       (fieldMap as Y.Map<any> as Y.Map<ParentReference>).set(
         YJS_GLOBALS.modelMetadataParent,
         extraFieldMetadata ? [reference[0], field, extraFieldMetadata] : [reference[0], field]
@@ -207,9 +219,12 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
       if (typeof elementKey === "string") {
         const keyType = schema[elementKey];
         if (keyType === "val" || keyType === "child-val") {
+          const oldValue = fieldMap.get(elementKey);
+          if (oldValue === value) {
+            return true;
+          }
           // Handle parent tracking for child-val fields
           if (keyType === "child-val") {
-            const oldValue = fieldMap.get(elementKey);
             if (oldValue) {
               deref(doc, oldValue as any as ReferenceTuple)?.[informOrphanizationSymbol]();
             }

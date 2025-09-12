@@ -301,11 +301,17 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
           };
         case informOrphanizationSymbol:
           return () => {
+            if (!ephemeralParent) {
+              return;
+            }
             orphanize();
             trackModification(self, "parent");
           };
         case requestOrphanizationSymbol:
           return () => {
+            if (!ephemeralParent) {
+              return;
+            }
             emancipate();
             orphanize();
             trackModification(self, "parent");
@@ -345,6 +351,9 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
       if (disclosure) {
         definitelyReference(self, disclosure.doc);
         return Reflect.set(self, elementKey, value);
+      }
+      if (target[elementKey] === value) {
+        return true;
       }
       if (schema[elementKey] === "child-val") {
         value?.[requestOrphanizationSymbol]?.();

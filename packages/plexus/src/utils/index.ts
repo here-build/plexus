@@ -72,7 +72,7 @@ const flushNotifications = () => {
   pendingNotifications.clear();
 
   // Wrap in try-catch to prevent notification errors from propagating
-  toNotify.forEach(notify => {
+  toNotify.forEach((notify) => {
     try {
       notify();
     } catch (e) {
@@ -80,7 +80,7 @@ const flushNotifications = () => {
       console.error("Error in notification callback:", e);
     }
   });
-}
+};
 
 export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T): T => {
   if (!doc) {

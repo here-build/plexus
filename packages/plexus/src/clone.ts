@@ -1,4 +1,4 @@
-import { informAdoptionSymbol, LegitimateSchema, type ModelType } from "./proxy-runtime-types";
+import { informAdoptionSymbol, isProxyEntity, LegitimateSchema, type ModelType } from "./proxy-runtime-types";
 import { ACCESS_ALL_SYMBOL, trackAccess } from "./tracking";
 import { isModelType } from "./utils";
 
@@ -31,7 +31,9 @@ export function clone<State extends LegitimateSchema<State>, Name extends string
     cloneTransactionMapping.set(source, clonedModel);
     for (const [fieldKey, type] of Object.entries(source.constructor.schema)) {
       const fieldValue = source[fieldKey as keyof typeof source];
-      trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
+      if (fieldValue && fieldValue[isProxyEntity]) {
+        trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
+      }
       switch (type) {
         case "val":
           // @ts-expect-error "generic and can be only used for indexing"

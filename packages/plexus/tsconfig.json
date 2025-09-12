@@ -1,11 +1,15 @@
 {
-  "extends": "../../tsconfig.json",
   "compilerOptions": {
+    "importHelpers": true,
+    "resolveJsonModule": true,
+    "baseUrl": "./",
+    "noFallthroughCasesInSwitch": true,
+    "jsx": "react",
     "outDir": "./dist",
     "rootDir": "./src",
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
+    "inlineSourceMap": true,
     "target": "ESNext",
     "lib": ["ESNext", "dom"],
     "module": "ESNext",

@@ -1,4 +1,4 @@
-import type { Constructor, OptionalKeysOf, Tagged, Writable } from "type-fest";
+import type { Constructor, OptionalKeysOf, ReadonlyDeep, Tagged, Writable } from "type-fest";
 import type * as Y from "yjs";
 import type { tag } from "type-fest/source/tagged";
 import { LastOfUnion } from "type-fest/source/union-to-tuple";
@@ -22,7 +22,7 @@ export type ReferenceTuple = LocalReferenceeTuple | CrossProjectReferenceTuple;
 
 export type AllowedPrimitive = string | number | boolean | null;
 export type AllowedYValue = AllowedPrimitive | ReferenceTuple;
-export type ModelPattern = Tagged<{}, "syncing", string>;
+export type ModelPattern<T = {}> = Tagged<T, "syncing", string>;
 export type PlexusID = Tagged<string, "Plexus ID">;
 export type AllowedYJSValue = AllowedPrimitive | ModelPattern;
 export type AllowedYJSValueSet = Set<AllowedYJSValue>;
@@ -35,7 +35,7 @@ export type ReferenceProjector = (doc: Y.Doc) => ReferenceTuple;
 type ModelInternals<T extends LegitimateSchema<T>, Class extends string> = {
   readonly uuid: Tagged<string, "Plexus ID", ModelType<T, Class>>;
   readonly constructor: ModelConstructor<T, Class>;
-  readonly parent: ModelPattern | null;
+  readonly parent: ModelPattern<ModelInternals<{}, string>>;
   clone<TT extends ModelPattern>(this: TT, newProps?: Partial<T>): TT;
   readonly [isProxyEntity]: true;
   readonly [referenceSymbol]: ReferenceProjector;
@@ -75,7 +75,7 @@ type NullableFields<A extends ModelStateInit, ExcludedKeys extends keyof A = nev
     ? IsFieldNullable<A, Head> | NullableFields<A, ExcludedKeys | Head>
     : never;
 
-declare class ReadonlyField<T> {
+export declare class ReadonlyField<T> {
   assign(value: T): void;
   clear(): void;
   [materializationSymbol](
@@ -102,22 +102,27 @@ export type ModelType<T extends LegitimateSchema<T>, Class extends string> = Tag
   Class
 >;
 
+export type ModelConstructorInitArgs<T extends LegitimateSchema<T>, Class extends string> = Omit<
+  T,
+  keyof ModelInternals<T, Class> | typeof tag | ReadonlyFields<T> | NullableFields<T>
+> &
+  Partial<
+    Pick<
+      Omit<T, keyof ModelInternals<T, Class> | typeof tag>,
+      | ReadonlyFields<Omit<T, keyof ModelInternals<T, Class> | typeof tag>>
+      | NullableFields<Omit<T, keyof ModelInternals<T, Class> | typeof tag>>
+    >
+  >;
 export type ModelConstructorInit<T extends LegitimateSchema<T>, Class extends string> = Writable<
   Omit<T, keyof ModelInternals<T, Class> | typeof tag | ReadonlyFields<T> | NullableFields<T>> &
-    Partial<
-      Pick<
-        Omit<T, keyof ModelInternals<T, Class> | typeof tag>,
-        | ReadonlyFields<Omit<T, keyof ModelInternals<T, Class> | typeof tag>>
-        | NullableFields<Omit<T, keyof ModelInternals<T, Class> | typeof tag>>
-      >
-    >
+    ModelConstructorInitArgs<T, Class>
 > & {
   parent?: never;
   uuid?: never;
 };
 
 export type ModelConstructor<T extends LegitimateSchema<T>, Class extends string> = Tagged<
-  Constructor<ModelType<T, Class>, [ModelConstructorInit<T, Class>]> & {
+  Constructor<ModelType<T, Class>, [ReadonlyDeep<ModelConstructorInitArgs<T, Class>>]> & {
     __type: Class;
     schema: ModelSchema<T> & GenericRecordSchema;
     spawn: (entityId: string, yjs: Y.Doc) => ModelType<T, Class>;

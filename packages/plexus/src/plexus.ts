@@ -9,8 +9,8 @@ import { Tagged } from "type-fest";
 import invariant from "tiny-invariant";
 import { PlexusAwareness } from "./awareness";
 import { YJS_GLOBALS } from "./YJS_GLOBALS";
-import { DefaultedMap, never, maybeTransacting } from "./utils";
-import { entityClasses, documentEntityCaches } from "./globals";
+import { DefaultedMap, maybeTransacting, never } from "./utils";
+import { documentEntityCaches, entityClasses } from "./globals";
 import { RestrictedArray, RestrictedRecord, RestrictedSet } from "./load";
 
 export type DependencyId = Tagged<string, "Plexus dependency id">;
@@ -234,12 +234,11 @@ export abstract class Plexus<
     // Resolve all dependencies if they exist
     if ("dependencyVersion" in rootModel) {
       await this.resolveDependencies(rootModel.dependencyVersion as Record<DependencyId, DependencyVersion>);
-    }
-    rootModel.observeDeep(async () => {
-      if ("dependencyVersion" in rootModel) {
+      const dependencyVersions = rootModel.get("dependencyVersion") as Y.Map<any>;
+      dependencyVersions.observe(async () => {
         await this.resolveDependencies(rootModel.dependencyVersion as Record<DependencyId, DependencyVersion>);
-      }
-    });
+      });
+    }
 
     const root = Constructor.spawn(rootId, this.doc) as any as Root; // we're unable to validate types against tests anyway, sadly
     this.isRootLoaded = true;
@@ -270,10 +269,7 @@ export abstract class Plexus<
    * Used for comments, copy-paste, direct navigation.
    */
   loadEntity<T extends ModelPattern>(entityId: string): T | null {
-    invariant(
-      this.isRootLoaded,
-      "Cannot load entities before root is loaded. Await plexus.rootPromise first."
-    );
+    invariant(this.isRootLoaded, "Cannot load entities before root is loaded. Await plexus.rootPromise first.");
 
     // Check cache first
     const cached = documentEntityCaches.get(this.doc).get(entityId)?.deref();
@@ -297,10 +293,7 @@ export abstract class Plexus<
    * REQUIRES: rootPromise to be resolved first.
    */
   hasEntity(entityId: string): boolean {
-    invariant(
-      this.isRootLoaded,
-      "Cannot check entities before root is loaded. Await plexus.rootPromise first."
-    );
+    invariant(this.isRootLoaded, "Cannot check entities before root is loaded. Await plexus.rootPromise first.");
 
     return this.doc.getMap(YJS_GLOBALS.models).has(entityId);
   }
@@ -310,10 +303,7 @@ export abstract class Plexus<
    * REQUIRES: rootPromise to be resolved first.
    */
   getEntityIds(typeName?: string): string[] {
-    invariant(
-      this.isRootLoaded,
-      "Cannot list entities before root is loaded. Await plexus.rootPromise first."
-    );
+    invariant(this.isRootLoaded, "Cannot list entities before root is loaded. Await plexus.rootPromise first.");
 
     const models = this.doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models);
     const ids: string[] = [];
@@ -332,10 +322,7 @@ export abstract class Plexus<
    * REQUIRES: rootPromise to be resolved first.
    */
   getEntityType(entityId: string): string | null {
-    invariant(
-      this.isRootLoaded,
-      "Cannot get entity type before root is loaded. Await plexus.rootPromise first."
-    );
+    invariant(this.isRootLoaded, "Cannot get entity type before root is loaded. Await plexus.rootPromise first.");
 
     const modelData = this.doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(entityId);
     if (!modelData) return null;

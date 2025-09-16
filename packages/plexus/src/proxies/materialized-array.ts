@@ -27,7 +27,7 @@ function setDifference<T>(a: Set<T>, b: Set<T>): Set<T> {
 
 export type MaterializedArrayProxyInitTarget =
   | {
-      owner: ModelPattern;
+      notificationTarget: ModelPattern;
       list: Y.Array<AllowedYValue>;
       boundMaybeReference: ReturnType<typeof curryMaybeReference>;
       ownerEntityId: string;
@@ -35,7 +35,7 @@ export type MaterializedArrayProxyInitTarget =
       isChildField: boolean;
     }
   | {
-      owner: ModelPattern;
+      notificationTarget: ModelPattern;
       list?: undefined;
       boundMaybeReference?: undefined;
       ownerEntityId: string;
@@ -45,6 +45,9 @@ export type MaterializedArrayProxyInitTarget =
 
 export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: AllowedYJSValue[] = []) => {
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
+    if (event.transaction.local) {
+      return;
+    }
     if (event.target !== init.list) {
       return;
     }
@@ -72,7 +75,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
               // Update parent tracking for child fields
               if (init.isChildField) {
                 for (const element of elements) {
-                  element?.[requestAdoptionSymbol]?.(init.owner, init.fieldName);
+                  element?.[requestAdoptionSymbol]?.(init.notificationTarget, init.fieldName);
                 }
               }
 
@@ -92,7 +95,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
               // Update parent tracking for child fields
               if (init.isChildField) {
                 for (const element of elements) {
-                  element?.[requestAdoptionSymbol]?.(init.owner, init.fieldName);
+                  element?.[requestAdoptionSymbol]?.(init.notificationTarget, init.fieldName);
                 }
               }
 
@@ -139,7 +142,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
                   item?.[informOrphanizationSymbol]?.();
                 }
                 for (const item of addedItems) {
-                  item?.[requestAdoptionSymbol]?.(init.owner, init.fieldName);
+                  item?.[requestAdoptionSymbol]?.(init.notificationTarget, init.fieldName);
                 }
               }
 
@@ -153,7 +156,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
             });
           };
         case "length": // Report length access to this array
-          trackAccess(init.owner, init.fieldName);
+          trackAccess(init.notificationTarget, init.fieldName);
           trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
 
           return init.list?.length ?? target.length;
@@ -162,6 +165,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
             if (init.list) {
               console.warn("trying to re-materialize array", init, struct);
             }
+            target.splice(0, target.length, ...struct.toArray().map(item => deref(struct.doc!, item)));
             init.list?.unobserve(observer);
             init.list = struct;
             init.boundMaybeReference = boundMaybeReference;
@@ -169,7 +173,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
           };
         case Symbol.iterator:
           return () => {
-            trackAccess(init.owner, init.fieldName);
+            trackAccess(init.notificationTarget, init.fieldName);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             if (!init.list) {
               return target[Symbol.iterator]();
@@ -212,13 +216,14 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
                     item?.[informOrphanizationSymbol]?.();
                   }
                   for (const item of addedItems) {
-                    item?.[requestAdoptionSymbol]?.(init.owner, init.fieldName);
+                    item?.[requestAdoptionSymbol]?.(init.notificationTarget, init.fieldName);
                   }
 
                   maybeTransacting(init.list.doc, () => {
                     // todo optimized update strategy
                     init.list.delete(0, init.list.length);
                     init.list.push(resultingArray.map(init.boundMaybeReference));
+                    target.splice(0, target.length, ...resultingArray);
                   });
                   trackModification(self, ACCESS_ALL_SYMBOL);
                   return result;
@@ -230,7 +235,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
                   return target[elementKey](...args);
                 }
                 // Non-mutating array methods that iterate over all elements
-                trackAccess(init.owner, init.fieldName);
+                trackAccess(init.notificationTarget, init.fieldName);
                 trackAccess(self, ACCESS_ALL_SYMBOL);
                 return init.list
                   .toArray()
@@ -239,7 +244,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
               };
         } else {
           // Report keyset access to this array for Array.prototype property access
-          trackAccess(init.owner, init.fieldName);
+          trackAccess(init.notificationTarget, init.fieldName);
           trackAccess(self, elementKey);
           return Array.prototype[elementKey];
         }
@@ -250,7 +255,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
         const parsedElementKey = Number.parseInt(elementKey);
         if (Number.isSafeInteger(parsedElementKey)) {
           // Report specific index access
-          trackAccess(init.owner, init.fieldName);
+          trackAccess(init.notificationTarget, init.fieldName);
           trackAccess(self, elementKey);
           if (!init.list) {
             return target[parsedElementKey];
@@ -296,8 +301,8 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
               console.warn(`cannot set [${parsedElementKey}] as it's below zero`);
               return false;
             } else {
+              target[parsedElementKey] = value;
               if (!init.list) {
-                target[parsedElementKey] = value;
                 return true;
               }
               if (deref(init.list.doc!, init.list.get(parsedElementKey)) === value) {
@@ -326,7 +331,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
                 init.list.delete(parsedElementKey, 1);
                 init.list.insert(parsedElementKey, [init.boundMaybeReference(value)]);
               }
-              value?.[informAdoptionSymbol]?.(init.owner, init.fieldName);
+              value?.[informAdoptionSymbol]?.(init.notificationTarget, init.fieldName);
             }
             return true;
           }
@@ -336,6 +341,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
       });
     },
     deleteProperty() {
+      // todo?
       return false;
     },
     // todo getOwnPropertyDescriptor
@@ -356,7 +362,7 @@ export const buildArrayProxy = (init: MaterializedArrayProxyInitTarget, target: 
       return elementKey in Array.prototype;
     },
     ownKeys(target) {
-      trackAccess(init.owner, init.fieldName);
+      trackAccess(init.notificationTarget, init.fieldName);
       trackAccess(self, ACCESS_ALL_SYMBOL);
       return Reflect.ownKeys(init.list?.toArray() ?? target);
     }

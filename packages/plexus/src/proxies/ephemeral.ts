@@ -42,7 +42,6 @@ export type EphemeralProxyTarget<State extends LegitimateSchema<State>, Name ext
     entityId: string,
     doc: Y.Doc,
     internal__ephemeralExternalObject?: ModelType<State, Name>,
-    __force?: boolean
   ) => ModelType<State, Name>;
 };
 
@@ -164,6 +163,13 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
               return localReference;
             }
             isManifested = true;
+
+            const entityCache = documentEntityCaches.get(doc);
+            const spawning = !entityCache.has(entityId);
+            // we need to do it explicitly here to make things work right for circular dependencies
+            if (spawning) {
+              entityCache.set(entityId, new WeakRef(self)); // Cache SELF, not spawn result
+            }
             const boundMaybeReference = curryMaybeReference(doc);
             // eslint-disable-next-line sonarjs/no-nested-functions
             return maybeTransacting(doc, () => {
@@ -246,13 +252,11 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
               //
               // The proxy becomes a pointer to its own materialized form while remaining itself.
               // Existential crisis: The object IS the reference TO itself.
-              const entityCache = documentEntityCaches.get(doc);
-              if (!entityCache.has(entityId)) {
-                manifestedState ??= spawn(entityId, doc, self, true);
+              if (spawning) {
+                manifestedState ??= spawn(entityId, doc, self);
                 if (ephemeralParent) {
                   manifestedState[informAdoptionSymbol]!(ephemeralParent, ephemeralParentKey!, extraParentMetadata);
                 }
-                entityCache.set(entityId, new WeakRef(self)); // Cache SELF, not spawn result
               }
               return localReference;
             });
@@ -429,7 +433,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
           return [
             key,
             buildSetProxy(
-              { owner: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-set" },
+              { notificationTarget: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-set" },
               value ?? undefined
             )
           ];
@@ -443,7 +447,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
           return [
             key,
             buildRecordProxy(
-              { owner: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-record" },
+              { notificationTarget: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-record" },
               value ?? undefined
             )
           ];
@@ -457,7 +461,7 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
           return [
             key,
             buildArrayProxy(
-              { owner: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-list" },
+              { notificationTarget: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-list" },
               value ?? undefined
             )
           ];

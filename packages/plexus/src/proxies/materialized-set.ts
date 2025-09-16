@@ -13,7 +13,7 @@ import { deref } from "../deref";
 
 export type MaterializedSetProxyInitTarget =
   | {
-      owner: ModelPattern;
+      notificationTarget: ModelPattern;
       list: Y.Array<AllowedYValue>;
       boundMaybeReference: ReturnType<typeof curryMaybeReference>;
       ownerEntityId: string;
@@ -21,7 +21,7 @@ export type MaterializedSetProxyInitTarget =
       isChildField: boolean;
     }
   | {
-      owner: ModelPattern;
+      notificationTarget: ModelPattern;
       list?: undefined;
       boundMaybeReference?: undefined;
       ownerEntityId: string;
@@ -31,6 +31,9 @@ export type MaterializedSetProxyInitTarget =
 
 export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<AllowedYJSValue> = new Set()) => {
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
+    if (event.transaction.local) {
+      return;
+    }
     if (event.target !== init.list) {
       return;
     }
@@ -66,7 +69,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
                 trackModification(self, ACCESS_ALL_SYMBOL);
                 // Update parent tracking for child fields
                 if (init.isChildField) {
-                  value?.[requestAdoptionSymbol]?.(init.owner, init.fieldName);
+                  value?.[requestAdoptionSymbol]?.(init.notificationTarget, init.fieldName);
                 }
 
                 init.list.push([init.boundMaybeReference(value)]);
@@ -135,7 +138,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
                 ) {
                   // Update parent tracking for new items
                   if (init.isChildField) {
-                    value?.[requestAdoptionSymbol]?.(init.owner, init.fieldName);
+                    value?.[requestAdoptionSymbol]?.(init.notificationTarget, init.fieldName);
                   }
                   init.list.push([init.boundMaybeReference(value)]);
                 }
@@ -172,7 +175,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
           };
         case "entries":
           return () => {
-            trackAccess(init.owner, init.fieldName);
+            trackAccess(init.notificationTarget, init.fieldName);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             if (!init.list) {
               return target.entries();
@@ -185,7 +188,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
         case "values":
         case "keys":
           return () => {
-            trackAccess(init.owner, init.fieldName);
+            trackAccess(init.notificationTarget, init.fieldName);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             if (!init.list) {
               return target.values();
@@ -194,7 +197,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
           };
         case Symbol.iterator:
           return () => {
-            trackAccess(init.owner, init.fieldName);
+            trackAccess(init.notificationTarget, init.fieldName);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             if (!init.list) {
               // todo this may theoretically cause problems for dynamic iteration logic when CRDT kicks in
@@ -212,7 +215,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
             callbackfn: (value: AllowedYJSValue, value2: AllowedYJSValue, set: Set<AllowedYJSValue>) => void,
             thisArg?: any
           ) => {
-            trackAccess(init.owner, init.fieldName);
+            trackAccess(init.notificationTarget, init.fieldName);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             if (!init.list) {
               return target.forEach(callbackfn, thisArg);
@@ -221,7 +224,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
           };
         case "has":
           return (value: AllowedYJSValue) => {
-            trackAccess(init.owner, init.fieldName);
+            trackAccess(init.notificationTarget, init.fieldName);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             if (!init.list) {
               return target.has(value);
@@ -235,7 +238,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
           throw new Error("not implemented yet");
         case "isDisjointFrom":
           return (set: Set<AllowedYJSValue>) => {
-            trackAccess(init.owner, init.fieldName);
+            trackAccess(init.notificationTarget, init.fieldName);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             if (!init.list) {
               return target.isDisjointFrom(set);
@@ -244,7 +247,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
           };
         case "isSubsetOf":
           return (set: Set<AllowedYJSValue>) => {
-            trackAccess(init.owner, init.fieldName);
+            trackAccess(init.notificationTarget, init.fieldName);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             if (!init.list) {
               return target.isSubsetOf(set);
@@ -253,7 +256,7 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
           };
         case "isSupersetOf":
           return (set: Set<AllowedYJSValue>) => {
-            trackAccess(init.owner, init.fieldName);
+            trackAccess(init.notificationTarget, init.fieldName);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             if (!init.list) {
               return target.isSupersetOf(set);

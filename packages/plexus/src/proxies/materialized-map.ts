@@ -15,7 +15,7 @@ import { YJS_GLOBALS } from "../YJS_GLOBALS";
 
 export type MaterializedRecordProxyInitTarget =
   | {
-      owner: ModelPattern;
+      notificationTarget: ModelPattern;
       map: Y.Map<AllowedYValue>;
       boundMaybeReference: ReturnType<typeof curryMaybeReference>;
       ownerEntityId: string;
@@ -23,7 +23,7 @@ export type MaterializedRecordProxyInitTarget =
       isChildField: boolean;
     }
   | {
-      owner: ModelPattern;
+      notificationTarget: ModelPattern;
       map?: undefined;
       boundMaybeReference?: undefined;
       ownerEntityId: string;
@@ -36,10 +36,17 @@ export const buildRecordProxy = (
   target: Record<string, AllowedYJSValue> = {}
 ) => {
   const observer = (event: Y.YMapEvent<AllowedYValue>) => {
+    if (event.transaction.local) {
+      return;
+    }
     if (event.target !== init.map) {
       return;
     }
     for (const key of event.keysChanged) {
+      if (!(key in target)) {
+        trackModification(init.notificationTarget, init.fieldName);
+        trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+      }
       target[key] = deref(init.map!.doc!, init.map!.get(key)!);
       trackModification(self, key);
     }
@@ -103,7 +110,7 @@ export const buildRecordProxy = (
                     // Iterable of [key, value] pairs
                     for (const [k, v] of newEntries as Iterable<[string, ModelPattern]>) {
                       if (init.isChildField && v) {
-                        v[requestAdoptionSymbol]?.(init.owner, init.fieldName, k);
+                        v[requestAdoptionSymbol]?.(init.notificationTarget, init.fieldName, k);
                       }
                       init.map.set(k, init.boundMaybeReference(v));
                     }
@@ -111,7 +118,7 @@ export const buildRecordProxy = (
                     // Record object
                     for (const [k, v] of Object.entries(newEntries as Record<string, ModelPattern>)) {
                       if (init.isChildField && v) {
-                        v[requestAdoptionSymbol]?.(init.owner, init.fieldName, k);
+                        v[requestAdoptionSymbol]?.(init.notificationTarget, init.fieldName, k);
                       }
                       init.map.set(k, init.boundMaybeReference(v));
                     }
@@ -142,19 +149,19 @@ export const buildRecordProxy = (
         if (typeof Object.prototype[elementKey] === "function") {
           return function (this: any, ...args) {
             if (this === self) {
-              trackAccess(init.owner, init.fieldName);
+              trackAccess(init.notificationTarget, init.fieldName);
               trackAccess(self, ACCESS_ALL_SYMBOL);
             }
             return Object.prototype[elementKey].apply(self, args);
           };
         } else {
-          trackAccess(init.owner, init.fieldName);
+          trackAccess(init.notificationTarget, init.fieldName);
           trackAccess(self, ACCESS_ALL_SYMBOL);
           return Object.prototype[elementKey];
         }
       } else if (typeof elementKey === "string") {
         // Specific field access
-        trackAccess(init.owner, init.fieldName);
+        trackAccess(init.notificationTarget, init.fieldName);
         trackAccess(self, elementKey);
         if (init.map) {
           if (!init.map.has(elementKey)) {
@@ -170,6 +177,10 @@ export const buildRecordProxy = (
       if (typeof elementKey === "string") {
         maybeTransacting(init.map?.doc, () => {
           trackModification(self, elementKey);
+          if (!(elementKey in proxyTarget)) {
+            trackModification(init.notificationTarget, init.fieldName);
+            trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+          }
           // Handle parent tracking for child fields
           if (init.isChildField) {
             // Clear parent tracking for old value if it exists
@@ -180,7 +191,7 @@ export const buildRecordProxy = (
           if (init.isChildField) {
             // Update parent tracking for new value
             if (value != null) {
-              value[requestAdoptionSymbol]?.(init.owner, init.fieldName, elementKey);
+              value[requestAdoptionSymbol]?.(init.notificationTarget, init.fieldName, elementKey);
             }
           }
 
@@ -234,12 +245,12 @@ export const buildRecordProxy = (
       if (typeof elementKey === "symbol") {
         return false;
       }
-      trackAccess(init.owner, init.fieldName);
+      trackAccess(init.notificationTarget, init.fieldName);
       trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
       return init.map?.has(elementKey) ?? Reflect.has(proxyTarget, elementKey);
     },
     ownKeys(proxyTarget) {
-      trackAccess(init.owner, init.fieldName);
+      trackAccess(init.notificationTarget, init.fieldName);
       trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
       return [...(init.map?.keys() ?? Reflect.ownKeys(proxyTarget))];
     }

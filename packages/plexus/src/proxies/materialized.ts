@@ -83,6 +83,9 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
   const ownKeys = Reflect.ownKeys(selfTarget);
   Reflect.setPrototypeOf(selfTarget, constructor.prototype);
   fieldMap.observe((event) => {
+    if (event.transaction.local) {
+      return;
+    }
     for (const key of event.keysChanged) {
       trackModification(tracker, key);
     }

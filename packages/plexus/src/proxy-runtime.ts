@@ -19,6 +19,7 @@ import * as Y from "yjs";
 import {
   type AllowedYJSValue,
   type AllowedYValue,
+  informAdoptionSymbol,
   materializationSymbol,
   type ModelConstructor,
   ModelConstructorInit,
@@ -37,7 +38,7 @@ import { buildSetProxy } from "./proxies/materialized-set";
 import { buildArrayProxy } from "./proxies/materialized-array";
 import { documentEntityCaches, entityClasses } from "./globals"; // For packages that use plexus, ProjectId should be string
 import { curryMaybeReference } from "./utils";
-import { buildRecordProxy } from "./proxies/materialized-map"; // PROJECT DEPENDENCY ARCHITECTURE:
+import { buildRecordProxy } from "./proxies/materialized-map";
 
 // PROJECT DEPENDENCY ARCHITECTURE:
 // - ONE root project (editable, can create/modify entities)
@@ -53,11 +54,11 @@ export function buildModelClass<T extends ModelPattern>(
   type Model = ModelType<ModelState<T>, ModelName<T>>;
 
   // force is needed to resolve cyclic dependencies in some edge cases
-  const spawn = (entityId: string, doc: Y.Doc, internal__ephemeralExternalObject?: Model, __force?: boolean) => {
+  const spawn = (entityId: string, doc: Y.Doc, internal__ephemeralExternalObject?: Model) => {
     const boundMaybeReference = curryMaybeReference(doc);
     const localReference: ReferenceTuple = [entityId];
     const cached = documentEntityCaches.get(doc).get(entityId)?.deref();
-    if (cached && !__force) {
+    if (cached && !internal__ephemeralExternalObject) {
       return cached as Model;
     }
 
@@ -107,6 +108,7 @@ export function buildModelClass<T extends ModelPattern>(
       },
       internal__ephemeralExternalObject
     );
+    const notificationTarget = internal__ephemeralExternalObject ?? proxy;
 
     // COLLECTION PROXY FACTORY & CACHE
     //
@@ -145,7 +147,7 @@ export function buildModelClass<T extends ModelPattern>(
                 key,
                 buildArrayProxy({
                   list,
-                  owner: proxy,
+                  notificationTarget: notificationTarget,
                   boundMaybeReference,
                   ownerEntityId: entityId,
                   fieldName: key,
@@ -170,7 +172,7 @@ export function buildModelClass<T extends ModelPattern>(
                 buildRecordProxy({
                   boundMaybeReference,
                   map,
-                  owner: proxy,
+                  notificationTarget: notificationTarget,
                   ownerEntityId: entityId,
                   fieldName: key,
                   isChildField: type === "child-record"
@@ -197,7 +199,7 @@ export function buildModelClass<T extends ModelPattern>(
                 buildSetProxy({
                   list: underlyingArray,
                   boundMaybeReference,
-                  owner: proxy,
+                  notificationTarget: notificationTarget,
                   ownerEntityId: entityId,
                   fieldName: key,
                   isChildField: type === "child-set"
@@ -210,6 +212,7 @@ export function buildModelClass<T extends ModelPattern>(
         })
       )
     );
+
     if (!internal__ephemeralExternalObject) {
       documentEntityCaches.get(doc).set(entityId, new WeakRef(proxy as ModelPattern));
     }

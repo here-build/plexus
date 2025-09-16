@@ -5,10 +5,7 @@ export default defineConfig({
     // Regular test configuration
     globals: true,
     environment: 'node',
-  },
-  // Benchmark mode configuration
-  benchmark: {
-    // Enable benchmarking
-    outputFile: './benchmark-results.json',
+    include: ["./src/**/*.test.ts"],
+    exclude: ["./src-decorators/**/*"]
   },
 });

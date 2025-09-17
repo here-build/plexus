@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { TestPlexus, initTestPlexus } from "./test-plexus.js";
-import { buildModelClass } from "../proxy-runtime.js";
-import type { ModelType } from "../proxy-runtime-types.js";
+import { TestPlexus, initTestPlexus } from "./test-plexus";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
 
-type Root = ModelType<{ name: string }, "Root">;
-const Root = buildModelClass<Root>("Root", { name: "val" });
+@syncing
+class Root extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 describe("Plexus singleton per Y.Doc", () => {
   it("throws if constructed twice for the same document", async () => {

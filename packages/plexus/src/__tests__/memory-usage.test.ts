@@ -7,10 +7,10 @@
 
 import { describe, expect, it } from "vitest";
 import { autorun, configure, observable } from "mobx";
-import { buildModelClass } from "../proxy-runtime.js";
-import { createTrackedFunction } from "../tracking.js";
-import { memoryProfiler, memoryTester } from "./memory-profiler.js";
-import type { ModelType } from "../proxy-runtime-types.js";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { createTrackedFunction } from "../tracking";
+import { memoryProfiler, memoryTester } from "./memory-profiler";
 
 // Configure MobX for performance
 configure({
@@ -21,30 +21,42 @@ configure({
   disableErrorBoundaries: true
 });
 
-type SimpleModel = ModelType<
-  {
-    name: string;
-    count: number;
-    enabled: boolean;
-  },
-  "SimpleModel"
->;
+@syncing
+class SimpleModel extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-const SimpleModelClass = buildModelClass<SimpleModel>("SimpleModel", {
-  name: "val",
-  count: "val",
-  enabled: "val"
-});
+  @syncing
+  accessor count!: number;
+
+  @syncing
+  accessor enabled!: boolean;
+
+  constructor(props) {
+    super(props);
+  }
+}
+@syncing
+class ArrayModel extends PlexusModel {
+  @syncing.list
+  accessor items!: SimpleModel[];
+
+  constructor(props) {
+    super(props);
+  }
+}
+
+
 
 describe("Memory Usage Comparison", () => {
   it("should compare memory usage of object creation", async () => {
     const { comparison } = await memoryTester.compareTests(
       "Plexus Object Creation",
       () => {
-        const objects = [];
+        const objects: any[] = [];
         for (let i = 0; i < 1000; i++) {
           objects.push(
-            SimpleModelClass({
+            new SimpleModel({
               name: `object-${i}`,
               count: i,
               enabled: i % 2 === 0
@@ -58,7 +70,7 @@ describe("Memory Usage Comparison", () => {
       },
       "MobX Object Creation",
       () => {
-        const objects = [];
+        const objects: any[] = [];
         for (let i = 0; i < 1000; i++) {
           objects.push(
             observable({
@@ -85,7 +97,7 @@ describe("Memory Usage Comparison", () => {
       "Plexus Reactivity",
       () => {
         const objects = Array.from({ length: 100 }, (_, i) =>
-          SimpleModelClass({
+          new SimpleModel({
             name: `reactive-${i}`,
             count: i,
             enabled: true
@@ -155,7 +167,7 @@ describe("Memory Usage Comparison", () => {
         // Phase 1: Create objects with some delay to allow sampling
         for (let i = 0; i < 500; i++) {
           objects.push(
-            SimpleModelClass({
+            new SimpleModel({
               name: `phase1-${i}`,
               count: i,
               enabled: true
@@ -192,7 +204,7 @@ describe("Memory Usage Comparison", () => {
         // Phase 4: Create new objects to replace them
         for (let i = 0; i < 250; i++) {
           objects.push(
-            SimpleModelClass({
+            new SimpleModel({
               name: `phase4-${i}`,
               count: i,
               enabled: false
@@ -222,7 +234,7 @@ describe("Memory Usage Comparison", () => {
           const objects = Array.from(
             { length: 20 },
             (_, i) =>
-              new SimpleModelClass({
+              new SimpleModel({
                 name: `leak-test-${cycle}-${i}`,
                 count: i,
                 enabled: true
@@ -268,17 +280,12 @@ describe("Memory Usage Comparison", () => {
     const { comparison } = await memoryTester.compareTests(
       "Plexus Array Operations",
       () => {
-        type ArrayModel = ModelType<{ items: Array<SimpleModel> }, "ArrayModel">;
-        const ArrayModelClass = buildModelClass<ArrayModel>("ArrayModel", {
-          items: "list"
-        });
-
-        const model = ArrayModelClass({ items: [] });
+        const model = new ArrayModel({ items: [] });
 
         // Push many items
         for (let i = 0; i < 1000; i++) {
           model.items.push(
-            SimpleModelClass({
+            new SimpleModel({
               name: `array-item-${i}`,
               count: i,
               enabled: i % 2 === 0
@@ -331,26 +338,27 @@ describe("Memory Usage Comparison", () => {
   });
 
   it("should analyze memory usage with deep object hierarchies", async () => {
-    type NestedModel = ModelType<
-      {
-        level: number;
-        children: Array<NestedModel>;
-        metadata: Record<string, string>;
-      },
-      "NestedModel"
-    >;
+    @syncing
+    class NestedModel extends PlexusModel {
+      @syncing
+      accessor level!: number;
 
-    const NestedModelClass = buildModelClass<NestedModel>("NestedModel", {
-      level: "val",
-      children: "list",
-      metadata: "record"
-    });
+      @syncing.list
+      accessor children!: NestedModel[];
+
+      @syncing.map
+      accessor metadata!: Record<string, string>;
+
+      constructor(props) {
+        super(props);
+      }
+    }
 
     const { profile } = await memoryTester.profileTest(
       "Deep Hierarchy Memory Usage",
       () => {
         function createTree(depth: number, breadth: number): NestedModel {
-          const node = NestedModelClass({
+          const node = new NestedModel({
             level: depth,
             children: [],
             metadata: {

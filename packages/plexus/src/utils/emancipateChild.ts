@@ -1,14 +1,15 @@
 import * as Y from "yjs";
-import { LegitimateSchema, ModelPattern, ModelType, ParentReference } from "../proxy-runtime-types";
+import { LegitimateSchema, ModelType, ParentReference } from "../proxy-runtime-types";
 import { deref } from "../deref";
 import invariant from "tiny-invariant";
 import { maybeTransacting } from "./index";
+import { PlexusModel } from "../PlexusModel";
 
-export let currentlyEmancipating = new WeakSet<ModelPattern>();
+export let currentlyEmancipating = new WeakSet<PlexusModel>();
 
 export const emancipateChild = <T extends LegitimateSchema<T>>(
   doc: Y.Doc,
-  child: ModelType<T, string>,
+  child: PlexusModel,
   currentParentReference: ParentReference
 ) => {
   if (!currentParentReference) {
@@ -17,9 +18,9 @@ export const emancipateChild = <T extends LegitimateSchema<T>>(
   currentlyEmancipating.add(child);
   maybeTransacting(doc, () => {
     const [entityId, key, metadata] = currentParentReference;
-    const parent = deref(doc, [entityId]) as ModelType<{}, string>;
+    const parent = deref(doc, [entityId]) as PlexusModel;
     invariant(parent, `expected to see parent at ${entityId} but it's not there`);
-    switch (parent.constructor.schema[key]) {
+    switch (parent._schema[key]) {
       case "child-val":
         parent[key] = null;
         return;

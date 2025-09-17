@@ -9,14 +9,18 @@
 
 // Runtime exports
 
-export * from "./proxy-runtime.js";
-export * from "./proxy-runtime-types.js";
+export * from "./proxy-runtime";
+export * from "./proxy-runtime-types";
+
+// New decorator-based API
+export { PlexusModel } from "./PlexusModel";
+export { syncing } from "./decorators";
 
 // Built-in tracking system
-export * from "./tracking.js";
-export * from "./YJS_GLOBALS.js";
+export * from "./tracking";
+export * from "./YJS_GLOBALS";
 
 // Plexus document orchestration
-export * from "./plexus.js";
+export * from "./Plexus";
 export { PlexusAwareness } from "./awareness";
 export { PlexusUserState } from "./awareness";

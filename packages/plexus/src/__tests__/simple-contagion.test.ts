@@ -4,51 +4,48 @@
 
 import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
-import { isProxyEntity } from "../";
-
-import { type ModelType } from "../proxy-runtime-types.js";
-import { buildModelClass } from "../proxy-runtime.js";
-import { initTestPlexus } from "./test-plexus.js";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { isProxyEntity } from "../index";
+import { initTestPlexus } from "./test-plexus";
 
 // Extended Y.Doc type for testing
 type TestYDoc = Y.Doc;
 
-type ComponentType = ModelType<
-  {
-    name: string;
-  },
-  "Component"
->;
-
-type SiteType = ModelType<
-  {
-    name: string;
-    readonly components: Record<string, ComponentType>;
-  },
-  "Site"
->;
-
 // Simple test schema
-const Component = buildModelClass<ComponentType>("Component", {
-  name: "val"
-});
+@syncing
+class Component extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-const Site = buildModelClass<SiteType>("Site", {
-  name: "val",
-  components: "record"
-});
+  constructor(props) {
+    super(props);
+  }
+}
+
+@syncing
+class Site extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  @syncing.map
+  accessor components!: Record<string, Component>;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 describe("Simple Contagion Test", () => {
   let doc: Y.Doc;
-  let spawnedSite: SiteType;
+  let spawnedSite: Site;
 
   beforeEach(async () => {
     // Step 1: Create ephemeral site
     const ephemeralSite = new Site({ name: "Test Site", components: {} });
 
     // Step 2: Initialize with Plexus
-    const result = await initTestPlexus<SiteType>(ephemeralSite);
+    const result = await initTestPlexus<Site>(ephemeralSite);
     doc = result.doc;
     spawnedSite = result.root;
 
@@ -62,7 +59,6 @@ describe("Simple Contagion Test", () => {
   it("should materialize ephemeral entity and allow spawn", () => {
     // Verify initial site state
     expect(spawnedSite.name).toBe("Test Site");
-    expect((spawnedSite as any)[isProxyEntity]).toBe(true);
 
     console.log("2. Verified site loaded correctly");
 

@@ -7,45 +7,47 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-
-import { ModelType, referenceSymbol } from "..";
-
-import { buildModelClass } from "../proxy-runtime";
-import { createTestPlexus, initTestPlexus } from "./test-plexus.js";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { referenceSymbol } from "../proxy-runtime-types";
+import { createTestPlexus, initTestPlexus } from "./test-plexus";
 import { primeDoc } from "./test-helpers";
 
 // Extended Y.Doc type for testing
 type TestYDoc = Y.Doc;
 
-type Component = ModelType<
-  {
-    name: string;
-    type: string;
-    readonly children: Component[];
-    readonly metadata: Record<string, string>;
-  },
-  "Component"
->;
 // Test schema definitions
-const Component = buildModelClass<Component>("Component", {
-  name: "val",
-  type: "val",
-  children: "list",
-  metadata: "record"
-});
+@syncing
+class Component extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-type Site = ModelType<
-  {
-    name: string;
-    readonly components: Record<string, Component>;
-  },
-  "Site"
->;
+  @syncing
+  accessor type!: string;
 
-const Site = buildModelClass<Site>("Site", {
-  name: "val",
-  components: "record"
-});
+  @syncing.list
+  accessor children: Component[] = [];
+
+  @syncing.map
+  accessor metadata: Record<string, string> = {};
+
+  constructor(props) {
+    super(props);
+  }
+}
+
+@syncing
+class Site extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  @syncing.map
+  accessor components!: Record<string, Component>;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 // Sync helper function
 function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
@@ -254,9 +256,7 @@ describe("Proxy Edge Cases", () => {
       const { site: site1, doc: doc1 } = await createTestSite("Sparse Sync Test");
 
       const parent = new Component({ name: "Parent", type: "container", children: [], metadata: {} });
-      const child = new Component({ name: "SparseChild", type: "child", children: [], metadata: {} });
-
-      parent.children[50] = child; // Sparse assignment
+      parent.children[50] = new Component({ name: "SparseChild", type: "child", children: [], metadata: {} }); // Sparse assignment
       site1.components["parent"] = parent;
 
       // Sync to doc2
@@ -589,7 +589,7 @@ describe("Proxy Edge Cases", () => {
       });
 
       // Create large collection (but not too large to timeout tests)
-      const children = [];
+      const children: Component[] = [];
       for (let i = 0; i < 1000; i++) {
         children.push(
           new Component({
@@ -687,7 +687,7 @@ describe("Proxy Edge Cases", () => {
       });
 
       // Create initial children
-      const children = [];
+      const children: Component[] = [];
       for (let i = 0; i < 5; i++) {
         children.push(
           new Component({

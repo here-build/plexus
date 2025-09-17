@@ -1,51 +1,58 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { initTestPlexus } from "./test-plexus";
+import { DependencyId, Plexus } from "../Plexus";
+import { deref } from "../deref";
 
-import { buildModelClass } from "../proxy-runtime.js";
-import type { ModelType } from "../proxy-runtime-types.js";
-import { initTestPlexus } from "./test-plexus.js";
-import { Plexus } from "../plexus.js";
+@syncing
+class Item extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-type Item = ModelType<
-  {
-    name: string;
-  },
-  "Item"
->;
+  constructor(props) {
+    super(props);
+  }
+}
 
-type Container = ModelType<
-  {
-    title: string;
-    readonly children: Item[];
-    readonly tags: Set<string>;
-    readonly meta: Record<string, string>;
-  },
-  "Container"
->;
+@syncing
+class Container extends PlexusModel {
+  @syncing
+  accessor title!: string;
 
-type Root = ModelType<
-  {
-    name: string;
-    readonly containers: Record<string, Container>;
-    readonly dependencies: Set<Container>;
-    readonly dependencyVersion: Record<string, string>;
-  },
-  "Root"
->;
+  @syncing.child.list
+  accessor children!: Item[];
 
-const Item = buildModelClass<Item>("Item", { name: "val" });
-const Container = buildModelClass<Container>("Container", {
-  title: "val",
-  children: "child-list",
-  tags: "set",
-  meta: "record"
-});
-const Root = buildModelClass<Root>("Root", {
-  name: "val",
-  containers: "record",
-  dependencies: "set",
-  dependencyVersion: "record"
-});
+  @syncing.set
+  accessor tags!: Set<string>;
+
+  @syncing.map
+  accessor meta!: Record<string, string>;
+
+  constructor(props) {
+    super(props);
+  }
+}
+
+@syncing
+class Root extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  @syncing.map
+  accessor containers!: Record<string, Container>;
+
+  @syncing.set
+  accessor dependencies!: Set<Container>;
+
+  @syncing.map
+  accessor dependencyVersion!: Record<string, string>;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 describe("Clone from dependency node", () => {
   let depDoc: Y.Doc;
@@ -85,8 +92,7 @@ describe("Clone from dependency node", () => {
     const root = await plexus.rootPromise;
 
     // Add the dependency and access the entity
-    const depRoot = await plexus.addDependency<Container>("dep", "latest");
-    const depC = Container.spawn(depContainerId, await plexus.fetchDependency("dep", "latest"));
+    const depC = deref(await plexus.fetchDependency("dep", "latest"), [depContainerId]) as Container;
 
     const cloned = depC.clone();
 
@@ -123,7 +129,8 @@ describe("Clone from dependency node", () => {
 
     // Add the dependency and access the entity
     await plexus.addDependency<Container>("dep", "latest");
-    const depC = Container.spawn(depContainerId, await plexus.fetchDependency("dep", "latest"));
+    const depC = deref(await plexus.fetchDependency("dep", "latest"), [depContainerId]) as Container;
+
 
     const cloned = depC.clone();
     cloned.title = "mutated-clone";

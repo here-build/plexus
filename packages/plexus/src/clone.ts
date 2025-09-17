@@ -1,12 +1,13 @@
 import { informAdoptionSymbol, isProxyEntity, LegitimateSchema, type ModelType } from "./proxy-runtime-types";
 import { ACCESS_ALL_SYMBOL, trackAccess } from "./tracking";
 import { isModelType } from "./utils";
+import { PlexusModel } from "./PlexusModel";
 
 // Global clone transaction mapping for handling cycles and deduplication
 let cloneTransactionMapping: WeakMap<any, any> | null = null;
 
-function maybeClone<T>(object: T, parent: ModelType<{}, string>, parentField: string, metadata?: string): T {
-  if (isModelType(object)) {
+function maybeClone<T>(object: T, parent: PlexusModel, parentField: string, metadata?: string): T {
+  if (object instanceof PlexusModel) {
     const clonedObject = object.clone() as T;
     clonedObject[informAdoptionSymbol](parent, parentField, metadata);
     return clonedObject;
@@ -15,9 +16,9 @@ function maybeClone<T>(object: T, parent: ModelType<{}, string>, parentField: st
   }
 }
 
-export function clone<State extends LegitimateSchema<State>, Name extends string>(
-  source: ModelType<State, Name>,
-  newProps?: Partial<State>
+export function clone<Model extends PlexusModel>(
+  source: Model,
+  newProps: Partial<Model> = {}
 ) {
   const isTopLevel = cloneTransactionMapping === null;
   cloneTransactionMapping ??= new WeakMap();
@@ -27,38 +28,38 @@ export function clone<State extends LegitimateSchema<State>, Name extends string
   try {
     trackAccess(source, ACCESS_ALL_SYMBOL);
     // @ts-expect-error we're bypassing ts constraints here as we're aware on underlying js logic
-    const clonedModel = new source.constructor({});
+    const clonedModel = new source.constructor();
     cloneTransactionMapping.set(source, clonedModel);
-    for (const [fieldKey, type] of Object.entries(source.constructor.schema)) {
-      const fieldValue = source[fieldKey as keyof typeof source];
+    // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
+    for (const [fieldKey, type] of Object.entries(source._schema)) {
+      const fieldValue = fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
       if (fieldValue && fieldValue[isProxyEntity]) {
         trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
       }
       switch (type) {
         case "val":
-          // @ts-expect-error "generic and can be only used for indexing"
           clonedModel[fieldKey] = fieldValue;
           break;
         case "list":
         case "record":
         case "set":
-          // @ts-expect-error "generic and can be only used for indexing"
           clonedModel[fieldKey].assign(fieldValue);
           break;
-        case "child-val": // @ts-expect-error "generic and can be only used for indexing"
-          clonedModel[fieldKey] = maybeClone(fieldValue, clonedModel, fieldKey);
+        case "child-val":
+          const clonedValue = maybeClone(fieldValue, clonedModel, fieldKey);
+          clonedModel[fieldKey] = clonedValue;
           break;
-        case "child-list": // @ts-expect-error "generic and can be only used for indexing"
+        case "child-list":
           clonedModel[fieldKey].assign(
             (fieldValue as any as any[]).map((item) => maybeClone(item, clonedModel as any, fieldKey))
           );
           break;
-        case "child-set": // @ts-expect-error "generic and can be only used for indexing"
+        case "child-set":
           clonedModel[fieldKey].assign(
             new Set([...(fieldValue as any as Set<any>)].map((item) => maybeClone(item, clonedModel as any, fieldKey)))
           );
           break;
-        case "child-record": // @ts-expect-error "generic and can be only used for indexing"
+        case "child-record":
           clonedModel[fieldKey].assign(
             Object.fromEntries(
               Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [

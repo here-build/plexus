@@ -1,26 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildModelClass } from "../proxy-runtime.js";
-import { createTrackedFunction } from "../tracking.js";
-import type { ModelType } from "../proxy-runtime-types.js";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { createTrackedFunction } from "../tracking";
+
+@syncing
+class TestModel extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  @syncing
+  accessor count!: number;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 describe("Simple Data Change Notifications", () => {
-  type TestModelType = ModelType<
-    {
-      name: string;
-      count: number;
-    },
-    "TestModel"
-  >;
-
-  let TestModel: ReturnType<typeof buildModelClass<TestModelType>>;
-  let obj: TestModelType;
+  let obj: TestModel;
 
   beforeEach(() => {
-    TestModel = buildModelClass<TestModelType>("TestModel", {
-      name: "val",
-      count: "val"
-    });
-
     obj = new TestModel({
       name: "test",
       count: 5

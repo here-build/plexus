@@ -3,47 +3,52 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildModelClass } from "../proxy-runtime.js";
-import { ModelType } from "../proxy-runtime-types.js";
-import { createTrackedFunction } from "../tracking.js";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { createTrackedFunction } from "../tracking";
 import * as Y from "yjs";
 
 // Test models for comprehensive testing
-type TestComponent = ModelType<
-  {
-    name: string;
-    version: number;
-  },
-  "TestComponent"
->;
+@syncing
+class TestComponent extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-type TestModel = ModelType<
-  {
-    name: string;
-    value: number;
-    component: TestComponent | null;
-    readonly items: Array<string>;
-    readonly tags: Set<string>;
-    readonly metadata: Record<string, string>;
-    readonly references: Set<TestComponent>;
-  },
-  "TestModel"
->;
+  @syncing
+  accessor version!: number;
 
-const TestComponent = buildModelClass<TestComponent>("TestComponent", {
-  name: "val",
-  version: "val"
-});
+  constructor(props) {
+    super(props);
+  }
+}
 
-const TestModel = buildModelClass<TestModel>("TestModel", {
-  name: "val",
-  value: "val",
-  component: "val",
-  items: "list",
-  tags: "set",
-  metadata: "record",
-  references: "set"
-});
+@syncing
+class TestModel extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  @syncing
+  accessor value!: number;
+
+  @syncing
+  accessor component!: TestComponent | null;
+
+  @syncing.list
+  accessor items!: string[];
+
+  @syncing.set
+  accessor tags!: Set<string>;
+
+  @syncing.map
+  accessor metadata!: Record<string, string>;
+
+  @syncing.set
+  accessor references!: Set<TestComponent>;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 describe("clone(), assign(), clear() methods", () => {
   let doc: Y.Doc;

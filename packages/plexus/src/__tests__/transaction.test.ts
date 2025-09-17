@@ -1,31 +1,28 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as Y from "yjs";
-import { Plexus } from "../plexus";
+import { Plexus } from "../Plexus";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
 import { createTrackedFunction } from "../tracking";
 import { isTransacting, pendingNotifications } from "../utils";
 import { entityClasses } from "../globals";
 import { YJS_GLOBALS } from "../YJS_GLOBALS";
-import { ModelType } from "../proxy-runtime-types";
-import { buildModelClass } from "../proxy-runtime";
 
-// Test entity type
-type TestEntity = ModelType<{
-  value: string;
-  count: number;
-  child: TestEntity | null;
-}, "TestEntity">;
+// Test entity class
+@syncing
+class TestEntity extends PlexusModel {
+  @syncing
+  accessor value!: string;
 
-// Build test entity class
-const TestEntity = buildModelClass<TestEntity>("TestEntity", {
-  value: "val",
-  count: "val",
-  child: "child-val",
-});
+  @syncing
+  accessor count!: number;
+
+  @syncing.child
+  accessor child!: TestEntity | null;
+}
 
 // Test Plexus implementation
 class TestPlexus extends Plexus<TestEntity> {
-  private rootSetup = false;
-
   constructor(doc: Y.Doc, autoSetupRoot = true) {
     // Set up root data before calling super to avoid loadRoot errors
     if (autoSetupRoot) {
@@ -49,7 +46,7 @@ class TestPlexus extends Plexus<TestEntity> {
 
   // Helper to get root entity
   getRoot(): TestEntity {
-    return TestEntity.spawn("root-id", this.doc) as TestEntity;
+    return this.loadEntity("root-id") as TestEntity;
   }
 
   private static rootSetup = false;

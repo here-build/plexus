@@ -1,41 +1,42 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { buildModelClass } from "../proxy-runtime.js";
-import type { ModelType } from "../proxy-runtime-types.js";
-import { initTestPlexus, TestPlexus } from "./test-plexus.js";
-import type { DependencyId, DependencyVersion } from "../plexus.js";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { initTestPlexus, TestPlexus } from "./test-plexus";
+import type { DependencyId, DependencyVersion } from "../Plexus";
 
-type DepEntity = ModelType<
-  {
-    name: string;
-    version: number;
-  },
-  "DepEntity"
->;
+@syncing
+class DepEntity extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-type RootEntity = ModelType<
-  {
-    name: string;
-    readonly dependencies: Set<DepEntity>;
-    readonly dependencyVersion: Record<DependencyId, DependencyVersion>;
-  },
-  "RootEntity"
->;
+  @syncing
+  accessor version!: number;
 
-const DepEntity = buildModelClass<DepEntity>("DepEntity", {
-  name: "val",
-  version: "val"
-});
+  constructor(props) {
+    super(props);
+  }
+}
 
-const RootEntity = buildModelClass<RootEntity>("RootEntity", {
-  name: "val",
-  dependencies: "set",
-  dependencyVersion: "record"
-});
+@syncing
+class RootEntity extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  @syncing.set
+  accessor dependencies!: Set<DepEntity>;
+
+  @syncing.map
+  accessor dependencyVersion!: Record<DependencyId, DependencyVersion>;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 const waitTick = () => new Promise((r) => setTimeout(r, 0));
 
 describe("Plexus dependency resolution paths", () => {
-  let plexus: TestPlexus<RootEntity, DepEntity>;
+  let plexus: TestPlexus<RootEntity>;
   let root: RootEntity;
 
   beforeEach(async () => {
@@ -45,7 +46,7 @@ describe("Plexus dependency resolution paths", () => {
       dependencyVersion: {}
     });
     const result = await initTestPlexus<RootEntity>(emptyRoot);
-    plexus = result.plexus as TestPlexus<RootEntity, DepEntity>;
+    plexus = result.plexus as TestPlexus<RootEntity>;
     root = result.root;
   });
 

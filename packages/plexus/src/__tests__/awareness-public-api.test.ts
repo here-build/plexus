@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { buildModelClass } from "../proxy-runtime.js";
-import type { ModelType } from "../proxy-runtime-types.js";
-import { createTestPlexus, initTestPlexus } from "./test-plexus.js";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { createTestPlexus, initTestPlexus } from "./test-plexus";
 
 // Minimal awareness stub compatible enough for PlexusAwareness
 class FakeAwareness {
@@ -38,16 +38,11 @@ class FakeAwareness {
   }
 }
 
-type Root = ModelType<
-  {
-    name: string;
-  },
-  "Root"
->;
-
-const Root = buildModelClass<Root>("Root", {
-  name: "val"
-});
+@syncing
+class Root extends PlexusModel {
+  @syncing
+  accessor name!: string;
+}
 
 describe("PlexusAwareness public API via Plexus", () => {
   it("updates local user state and broadcasts through awareness", async () => {

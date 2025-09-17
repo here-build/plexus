@@ -1,28 +1,35 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { buildModelClass } from "../proxy-runtime.js";
-import type { ModelType } from "../proxy-runtime-types.js";
-import { initTestPlexus, TestPlexus } from "./test-plexus.js";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { initTestPlexus, TestPlexus } from "./test-plexus";
 
-// Test types
-type Item = ModelType<{ name: string; value: number }, "Item">;
-type Container = ModelType<
-  {
-    title: string;
-    readonly items: Item[];
-  },
-  "Container"
->;
+// Test classes
+@syncing
+class Item extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-const Item = buildModelClass<Item>("Item", {
-  name: "val",
-  value: "val",
-});
+  @syncing
+  accessor value!: number;
 
-const Container = buildModelClass<Container>("Container", {
-  title: "val",
-  items: "child-list",
-});
+  constructor(props) {
+    super(props);
+  }
+}
+
+@syncing
+class Container extends PlexusModel {
+  @syncing
+  accessor title!: string;
+
+  @syncing.child.list
+  accessor items!: Item[];
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 describe("Plexus Entity Loading", () => {
   describe("loadEntity", () => {
@@ -70,12 +77,12 @@ describe("Plexus Entity Loading", () => {
     it("throws when called before root is loaded", async () => {
       const doc = new Y.Doc();
       const plexus = new TestPlexus<Container>(doc);
-      
+
       // Don't await rootPromise - try to use immediately
       expect(() => plexus.loadEntity("some-id")).toThrow(
         "Cannot load entities before root is loaded. Await plexus.rootPromise first."
       );
-      
+
       // Clean up: catch the rootPromise rejection to avoid unhandled rejection
       await plexus.rootPromise.catch(() => {
         // Expected to fail - no root metadata
@@ -116,11 +123,11 @@ describe("Plexus Entity Loading", () => {
     it("throws when called before root is loaded", async () => {
       const doc = new Y.Doc();
       const plexus = new TestPlexus<Container>(doc);
-      
+
       expect(() => plexus.hasEntity("some-id")).toThrow(
         "Cannot check entities before root is loaded. Await plexus.rootPromise first."
       );
-      
+
       // Clean up: catch the rootPromise rejection to avoid unhandled rejection
       await plexus.rootPromise.catch(() => {
         // Expected to fail - no root metadata
@@ -174,11 +181,11 @@ describe("Plexus Entity Loading", () => {
     it("throws when called before root is loaded", async () => {
       const doc = new Y.Doc();
       const plexus = new TestPlexus<Container>(doc);
-      
+
       expect(() => plexus.getEntityIds()).toThrow(
         "Cannot list entities before root is loaded. Await plexus.rootPromise first."
       );
-      
+
       // Clean up: catch the rootPromise rejection to avoid unhandled rejection
       await plexus.rootPromise.catch(() => {
         // Expected to fail - no root metadata
@@ -205,11 +212,11 @@ describe("Plexus Entity Loading", () => {
     it("throws when called before root is loaded", async () => {
       const doc = new Y.Doc();
       const plexus = new TestPlexus<Container>(doc);
-      
+
       expect(() => plexus.getEntityType("some-id")).toThrow(
         "Cannot get entity type before root is loaded. Await plexus.rootPromise first."
       );
-      
+
       // Clean up: catch the rootPromise rejection to avoid unhandled rejection
       await plexus.rootPromise.catch(() => {
         // Expected to fail - no root metadata
@@ -272,19 +279,19 @@ describe("Plexus Entity Loading", () => {
         title: "middle",
         items: [deepItem],
       });
-      
-      type NestedContainer = ModelType<
-        {
-          name: string;
-          readonly containers: Container[];
-        },
-        "NestedContainer"
-      >;
-      
-      const NestedContainer = buildModelClass<NestedContainer>("NestedContainer", {
-        name: "val",
-        containers: "child-list",
-      });
+
+      @syncing
+      class NestedContainer extends PlexusModel {
+        @syncing
+        accessor name!: string;
+
+        @syncing.child.list
+        accessor containers!: Container[];
+
+        constructor(props) {
+          super(props);
+        }
+      }
 
       const root = new NestedContainer({
         name: "root",

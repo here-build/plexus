@@ -3,83 +3,87 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { buildModelClass } from "../proxy-runtime.js";
-import { ModelType } from "../proxy-runtime-types.js";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
 import * as Y from "yjs";
 
 // Test models for ownership semantics
-type ChildComponent = ModelType<
-  {
-    name: string;
-    value: number;
-  },
-  "ChildComponent"
->;
+@syncing
+class ChildComponent extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-type ParentWithChildVal = ModelType<
-  {
-    name: string;
-    child: ChildComponent | null; // Will use "child-val"
-    reference: ChildComponent | null; // Will use "val" (reference-only)
-  },
-  "ParentWithChildVal"
->;
+  @syncing
+  accessor value!: number;
 
-type ParentWithChildList = ModelType<
-  {
-    name: string;
-    readonly children: Array<ChildComponent>; // Will use "child-list"
-    readonly references: Array<ChildComponent>; // Will use "list" (reference-only)
-  },
-  "ParentWithChildList"
->;
+  constructor(props) {
+    super(props);
+  }
+}
 
-type ParentWithChildSet = ModelType<
-  {
-    name: string;
-    readonly childSet: Set<ChildComponent>; // Will use "child-set"
-    readonly refSet: Set<ChildComponent>; // Will use "set" (reference-only)
-  },
-  "ParentWithChildSet"
->;
+@syncing
+class ParentWithChildVal extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-type ParentWithChildRecord = ModelType<
-  {
-    name: string;
-    readonly childMap: Record<string, ChildComponent>; // Will use "child-record"
-    readonly refMap: Record<string, ChildComponent>; // Will use "record" (reference-only)
-  },
-  "ParentWithChildRecord"
->;
+  @syncing.child
+  accessor child!: ChildComponent | null; // Ownership: clone child recursively
 
-const ChildComponent = buildModelClass<ChildComponent>("ChildComponent", {
-  name: "val",
-  value: "val"
-});
+  @syncing
+  accessor reference!: ChildComponent | null; // No ownership: preserve reference
 
-const ParentWithChildVal = buildModelClass<ParentWithChildVal>("ParentWithChildVal", {
-  name: "val",
-  child: "child-val", // Ownership: clone child recursively
-  reference: "val" // No ownership: preserve reference
-});
+  constructor(props) {
+    super(props);
+  }
+}
 
-const ParentWithChildList = buildModelClass<ParentWithChildList>("ParentWithChildList", {
-  name: "val",
-  children: "child-list", // Ownership: clone children recursively
-  references: "list" // No ownership: preserve references
-});
+@syncing
+class ParentWithChildList extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-const ParentWithChildSet = buildModelClass<ParentWithChildSet>("ParentWithChildSet", {
-  name: "val",
-  childSet: "child-set", // Ownership: clone children recursively
-  refSet: "set" // No ownership: preserve references
-});
+  @syncing.child.list
+  accessor children!: Array<ChildComponent>; // Ownership: clone children recursively
 
-const ParentWithChildRecord = buildModelClass<ParentWithChildRecord>("ParentWithChildRecord", {
-  name: "val",
-  childMap: "child-record", // Ownership: clone children recursively
-  refMap: "record" // No ownership: preserve references
-});
+  @syncing.list
+  accessor references!: Array<ChildComponent>; // No ownership: preserve references
+
+  constructor(props) {
+    super(props);
+  }
+}
+
+@syncing
+class ParentWithChildSet extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  @syncing.child.set
+  accessor childSet!: Set<ChildComponent>; // Ownership: clone children recursively
+
+  @syncing.set
+  accessor refSet!: Set<ChildComponent>; // No ownership: preserve references
+
+  constructor(props) {
+    super(props);
+  }
+}
+
+@syncing
+class ParentWithChildRecord extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  @syncing.child.map
+  accessor childMap!: Record<string, ChildComponent>; // Ownership: clone children recursively
+
+  @syncing.map
+  accessor refMap!: Record<string, ChildComponent>; // No ownership: preserve references
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 describe("Ownership-aware cloning", () => {
   let doc: Y.Doc;
@@ -242,32 +246,32 @@ describe("Ownership-aware cloning", () => {
   });
 
   describe("circular ownership edge cases", () => {
-    // Define circular reference types
-    type NodeA = ModelType<
-      {
-        name: string;
-        nodeB: NodeB | null; // child-val ownership
-      },
-      "NodeA"
-    >;
+    // Define circular reference types - forward declare
+    @syncing
+    class NodeA extends PlexusModel {
+      @syncing
+      accessor name!: string;
 
-    type NodeB = ModelType<
-      {
-        name: string;
-        nodeA: NodeA | null; // child-val ownership - creates cycle
-      },
-      "NodeB"
-    >;
+      @syncing.child
+      accessor nodeB!: NodeB | null; // Owns NodeB - will clone recursively
 
-    const NodeA = buildModelClass<NodeA>("NodeA", {
-      name: "val",
-      nodeB: "child-val" // Owns NodeB - will clone recursively
-    });
+      constructor(props) {
+        super(props);
+      }
+    }
 
-    const NodeB = buildModelClass<NodeB>("NodeB", {
-      name: "val",
-      nodeA: "child-val" // Owns NodeA - creates circular ownership
-    });
+    @syncing
+    class NodeB extends PlexusModel {
+      @syncing
+      accessor name!: string;
+
+      @syncing.child
+      accessor nodeA!: NodeA | null; // Owns NodeA - creates circular ownership
+
+      constructor(props) {
+        super(props);
+      }
+    }
 
     it("should handle shared references without cycles", () => {
       // Test the transaction mapping with shared references (no true cycles due to runtime constraints)

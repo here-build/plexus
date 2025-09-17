@@ -4,75 +4,66 @@ import {
   AllowedYValue,
   informOrphanizationSymbol,
   materializationSymbol,
-  ModelPattern,
+  ReadonlyField,
   requestAdoptionSymbol
 } from "../proxy-runtime-types";
-import { curryMaybeReference, maybeTransacting } from "../utils";
+import { maybeReference, maybeTransacting } from "../utils";
 import { ACCESS_ALL_SYMBOL, trackAccess, trackModification } from "../tracking";
 import { deref } from "../deref";
+import { PlexusModel } from "../PlexusModel";
 
-export type MaterializedSetProxyInitTarget =
-  | {
-      notificationTarget: ModelPattern;
-      list: Y.Array<AllowedYValue>;
-      boundMaybeReference: ReturnType<typeof curryMaybeReference>;
-      ownerEntityId: string;
-      fieldName: string;
-      isChildField: boolean;
+export type MaterializedSetProxyInitTarget<T extends AllowedYJSValue> = {
+  owner: PlexusModel;
+  context: ClassAccessorDecoratorContext<PlexusModel, Set<T>> & { name: string };
+  isChildField?: boolean;
+};
+
+export const buildSetProxy = <T extends AllowedYJSValue>({
+  owner,
+  context,
+  isChildField
+}: MaterializedSetProxyInitTarget<T>) => {
+  let backingSet = new Set<T>();
+  let needsRegeneration = false;
+  const getBackgingSet = () => {
+    if (needsRegeneration) {
+      needsRegeneration = false;
+      backingSet = new Set(
+        getYjsSet()!
+          .toArray()
+          .map((item) => deref(owner._doc!, item) as T)
+      );
     }
-  | {
-      notificationTarget: ModelPattern;
-      list?: undefined;
-      boundMaybeReference?: undefined;
-      ownerEntityId: string;
-      fieldName: string;
-      isChildField: boolean;
-    };
-
-export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<AllowedYJSValue> = new Set()) => {
+    return backingSet;
+  };
+  const getYjsSet = () => owner._yjsModel?.get(context.name) as Y.Array<AllowedYValue> | null;
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
-    if (event.transaction.local) {
+    if (event.target !== getYjsSet()) {
       return;
     }
-    if (event.target !== init.list) {
-      return;
-    }
+    needsRegeneration = true;
     // todo narrowed observer event triggers
     trackModification(self, ACCESS_ALL_SYMBOL);
   };
-  init.list?.observe(observer);
+  getYjsSet()?.observe(observer);
 
-  const self = new Proxy(Object.seal(new Set()), {
+  const self = new Proxy(Object.seal(backingSet), {
     get(_, elementKey) {
       switch (elementKey) {
         case "size":
-          return init.list?.length ?? target.size;
+          return getYjsSet()?.length ?? getBackgingSet().size;
         case "add":
-          return (value: AllowedYJSValue) => {
-            // here and below we're using deref and not boundRef to ensure that entities are unique,
-            // allowing us to directly compare instead of structural checks
-            if (!init.list) {
-              const hadValue = target.has(value);
-              if (!hadValue) {
-                target.add(value);
-                trackModification(self, ACCESS_ALL_SYMBOL);
-              }
-              return self;
-            }
-            if (
-              !init.list
-                .toArray()
-                .map((item) => deref(init.list.doc!, item))
-                .includes(value)
-            ) {
-              maybeTransacting(init.list?.doc, () => {
+          return (value: T) => {
+            if (getBackgingSet().add(value)) {
+              maybeTransacting(owner._doc!, () => {
                 trackModification(self, ACCESS_ALL_SYMBOL);
                 // Update parent tracking for child fields
-                if (init.isChildField) {
-                  value?.[requestAdoptionSymbol]?.(init.notificationTarget, init.fieldName);
+                if (isChildField) {
+                  value?.[requestAdoptionSymbol]?.(owner, context.name);
                 }
 
-                init.list.push([init.boundMaybeReference(value)]);
+                // Y.Array.push expects an array of items
+                getYjsSet()?.push([maybeReference(value, owner._doc!)]);
               });
               return true;
             }
@@ -81,199 +72,142 @@ export const buildSetProxy = (init: MaterializedSetProxyInitTarget, target: Set<
           };
         case "clear":
           return () => {
-            if (!init.list) {
-              const wasEmpty = target.size === 0;
-              target.clear();
-              if (!wasEmpty) {
-                trackModification(self, ACCESS_ALL_SYMBOL);
-              }
+            const outputLength = getBackgingSet().size;
+            if (outputLength === 0) {
               return;
             }
-            const outputLength = init.list.length;
-            if (outputLength === 0) {
-              return 0;
-            }
-            maybeTransacting(init.list?.doc, () => {
+            maybeTransacting(owner._doc!, () => {
+              getBackgingSet().clear();
               trackModification(self, ACCESS_ALL_SYMBOL);
               // Clear parent tracking for all items
-              if (init.isChildField) {
-                const items = init.list.toArray().map((item) => deref(init.list.doc!, item));
-                for (const item of items) {
+              if (isChildField) {
+                for (const item of backingSet) {
                   item?.[informOrphanizationSymbol]?.();
                 }
               }
 
-              init.list.delete(0, outputLength);
+              getYjsSet()?.delete(0, outputLength);
             });
-            return outputLength;
+            return;
           };
         case "assign":
-          return (newValues: Iterable<AllowedYJSValue>) => {
-            if (!init.list) {
-              target.clear();
-              target = new Set(newValues);
-              trackModification(self, ACCESS_ALL_SYMBOL);
-              return;
-            }
+          return (newValues: Iterable<T>) => {
+            const yjsArray = getYjsSet();
 
-            maybeTransacting(init.list?.doc, () => {
+            const newValuesSet = new Set(newValues);
+            maybeTransacting(owner._doc, () => {
               trackModification(self, ACCESS_ALL_SYMBOL);
               // Clear parent tracking for old items
-              if (init.isChildField) {
-                const oldItems = init.list.toArray().map((item) => deref(init.list.doc!, item));
-                for (const item of oldItems) {
-                  item?.[informOrphanizationSymbol]?.();
+              if (isChildField) {
+                for (const item of backingSet) {
+                  if (!newValuesSet.has(item)) {
+                    item?.[informOrphanizationSymbol]?.();
+                  }
                 }
               }
 
               // Clear existing contents
-              init.list?.delete(0, init.list.length);
+              yjsArray?.delete(0, yjsArray.length);
               // Add new values
-              for (const value of newValues) {
-                if (
-                  !init.list
-                    .toArray()
-                    .map((item) => deref(init.list.doc!, item))
-                    .includes(value)
-                ) {
-                  // Update parent tracking for new items
-                  if (init.isChildField) {
-                    value?.[requestAdoptionSymbol]?.(init.notificationTarget, init.fieldName);
+              if (isChildField) {
+                for (const value of newValues) {
+                  if (!backingSet.has(value)) {
+                    value?.[requestAdoptionSymbol]?.(owner, context.name);
                   }
-                  init.list.push([init.boundMaybeReference(value)]);
                 }
               }
+              yjsArray?.push([...newValues].map((value) => maybeReference(value, owner._doc!)));
+              backingSet = newValuesSet;
             });
           };
         case "delete":
-          return (value: AllowedYJSValue) => {
-            if (!init.list) {
-              if (target.delete(value)) {
-                trackModification(self, ACCESS_ALL_SYMBOL);
-                return true;
-              }
+          return (value: T) => {
+            const backingSet = getBackgingSet();
+            if (!backingSet.delete(value)) {
               return false;
             }
-            const index = init.list
-              .toArray()
-              .map((item) => deref(init.list.doc!, item))
-              .indexOf(value);
-            if (index === -1) {
-              return false;
+            const yjsArray = getYjsSet();
+            if (isChildField) {
+              value?.[informOrphanizationSymbol]?.();
             }
 
-            maybeTransacting(init.list?.doc, () => {
-              // Clear parent tracking for removed item
-              if (init.isChildField) {
-                value?.[informOrphanizationSymbol]?.();
-              }
+            if (yjsArray){
+              maybeTransacting(owner._doc, () => {
+                // Clear parent tracking for removed item
+                const index = yjsArray
+                  .toArray()
+                  .map((item) => deref(owner._doc!, item))
+                  .indexOf(value);
 
-              init.list.delete(index, 1);
-            });
+                yjsArray.delete(index, 1);
+              });
+            }
             trackModification(self, ACCESS_ALL_SYMBOL);
             return true;
           };
         case "entries":
           return () => {
-            trackAccess(init.notificationTarget, init.fieldName);
+            trackAccess(owner, context.name);
             trackAccess(self, ACCESS_ALL_SYMBOL);
-            if (!init.list) {
-              return target.entries();
-            }
-            return init.list
-              .toArray()
-              .map((item) => deref(init.list.doc!, item))
-              .map((v) => [v, v]);
+            return getBackgingSet().entries();
           };
         case "values":
         case "keys":
           return () => {
-            trackAccess(init.notificationTarget, init.fieldName);
+            trackAccess(owner, context.name);
             trackAccess(self, ACCESS_ALL_SYMBOL);
-            if (!init.list) {
-              return target.values();
-            }
-            return init.list.toArray().map((item) => deref(init.list.doc!, item));
+            return getBackgingSet().values();
           };
         case Symbol.iterator:
           return () => {
-            trackAccess(init.notificationTarget, init.fieldName);
+            trackAccess(owner, context.name);
             trackAccess(self, ACCESS_ALL_SYMBOL);
-            if (!init.list) {
-              // todo this may theoretically cause problems for dynamic iteration logic when CRDT kicks in
-              return target[Symbol.iterator]();
-            }
-            return init.list
-              .toArray()
-              .map((item) => deref(init.list.doc!, item))
-              [Symbol.iterator]();
+            return getBackgingSet()[Symbol.iterator]();
           };
         case Symbol.toStringTag:
           return "Set";
         case "forEach":
-          return (
-            callbackfn: (value: AllowedYJSValue, value2: AllowedYJSValue, set: Set<AllowedYJSValue>) => void,
-            thisArg?: any
-          ) => {
-            trackAccess(init.notificationTarget, init.fieldName);
+          return (callbackfn: (value: T, value2: T, set: Set<T>) => void, thisArg?: any) => {
+            trackAccess(owner, context.name);
             trackAccess(self, ACCESS_ALL_SYMBOL);
-            if (!init.list) {
-              return target.forEach(callbackfn, thisArg);
-            }
-            return new Set(init.list.toArray().map((item) => deref(init.list.doc!, item))).forEach(callbackfn, thisArg);
+            return getBackgingSet().forEach(callbackfn, thisArg);
           };
         case "has":
-          return (value: AllowedYJSValue) => {
-            trackAccess(init.notificationTarget, init.fieldName);
+          return (value: T) => {
+            trackAccess(owner, context.name);
             trackAccess(self, ACCESS_ALL_SYMBOL);
-            if (!init.list) {
-              return target.has(value);
-            }
-            return init.list
-              .toArray()
-              .map((item) => deref(init.list.doc!, item))
-              .includes(value);
+            return getBackgingSet().has(value);
           };
         case "intersection":
           throw new Error("not implemented yet");
         case "isDisjointFrom":
           return (set: Set<AllowedYJSValue>) => {
-            trackAccess(init.notificationTarget, init.fieldName);
+            trackAccess(owner, context.name);
             trackAccess(self, ACCESS_ALL_SYMBOL);
-            if (!init.list) {
-              return target.isDisjointFrom(set);
-            }
-            return new Set(init.list.toArray().map((item) => deref(init.list.doc!, item))).isDisjointFrom(set);
+            return getBackgingSet().isDisjointFrom(set);
           };
         case "isSubsetOf":
           return (set: Set<AllowedYJSValue>) => {
-            trackAccess(init.notificationTarget, init.fieldName);
+            trackAccess(owner, context.name);
             trackAccess(self, ACCESS_ALL_SYMBOL);
-            if (!init.list) {
-              return target.isSubsetOf(set);
-            }
-            return new Set(init.list.toArray().map((item) => deref(init.list.doc!, item))).isSubsetOf(set);
+            return getBackgingSet().isSubsetOf(set);
           };
         case "isSupersetOf":
           return (set: Set<AllowedYJSValue>) => {
-            trackAccess(init.notificationTarget, init.fieldName);
+            trackAccess(owner, context.name);
             trackAccess(self, ACCESS_ALL_SYMBOL);
-            if (!init.list) {
-              return target.isSupersetOf(set);
-            }
-            return new Set(init.list.toArray().map((item) => deref(init.list.doc!, item))).isSupersetOf(set);
+            return getBackgingSet().isSupersetOf(set);
           };
         case materializationSymbol:
-          return (struct: Y.Array<AllowedYValue>, boundMaybeReference: ReturnType<typeof curryMaybeReference>) => {
-            init.list?.unobserve(observer);
-            init.list = struct;
-            init.boundMaybeReference = boundMaybeReference;
-            init.list.observe(observer);
+          return () => {
+            needsRegeneration = true;
+            // todo duplicate observation tracking
+            getYjsSet()!.observe(observer);
           };
         default:
           return false;
       }
     }
   });
-  return self;
+  return self as Set<T> & ReadonlyField<Set<T>>;
 };

@@ -9,7 +9,6 @@ import {
   LegitimateSchema,
   type ModelConstructor,
   ModelConstructorInit,
-  type ModelPattern,
   type ModelType,
   ParentReference,
   referenceSymbol,
@@ -24,15 +23,16 @@ import invariant from "tiny-invariant";
 import { YJS_GLOBALS } from "../YJS_GLOBALS";
 import { curryMaybeReference, definitelyReference, maybeTransacting, never } from "../utils";
 import { clone } from "../clone";
-import { documentEntityCaches } from "../globals";
+import { documentEntityCaches } from "../entity-cache";
 import { buildSetProxy } from "./materialized-set";
 import { buildRecordProxy } from "./materialized-map";
 import { buildArrayProxy } from "./materialized-array";
-import { Plexus } from "../plexus";
+import { Plexus } from "../Plexus";
+import { PlexusModel } from "../PlexusModel";
 
 export type EphemeralProxyTarget<State extends LegitimateSchema<State>, Name extends string> = {
   target: ModelConstructorInit<State, Name>;
-  manifestedState?: ModelType<State, Name>;
+  manifestedState?: PlexusModel;
   schema: GenericRecordSchema;
   localReference: ReferenceTuple;
   constructor: ModelConstructor<State, Name>;
@@ -42,6 +42,7 @@ export type EphemeralProxyTarget<State extends LegitimateSchema<State>, Name ext
     entityId: string,
     doc: Y.Doc,
     internal__ephemeralExternalObject?: ModelType<State, Name>,
+    __force?: boolean
   ) => ModelType<State, Name>;
 };
 
@@ -88,7 +89,8 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
     }
   };
 
-  const getAdopted = (newParent: ModelPattern, field: string, extraMetadata?: string) => {
+  const getAdopted = (newParent: PlexusModel, field: string, extraMetadata?: string) => {
+    // @ts-expect-error
     ephemeralParent = newParent as ModelType<{}, string>;
     ephemeralParentKey = field;
     extraParentMetadata = extraMetadata;
@@ -163,13 +165,6 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
               return localReference;
             }
             isManifested = true;
-
-            const entityCache = documentEntityCaches.get(doc);
-            const spawning = !entityCache.has(entityId);
-            // we need to do it explicitly here to make things work right for circular dependencies
-            if (spawning) {
-              entityCache.set(entityId, new WeakRef(self)); // Cache SELF, not spawn result
-            }
             const boundMaybeReference = curryMaybeReference(doc);
             // eslint-disable-next-line sonarjs/no-nested-functions
             return maybeTransacting(doc, () => {
@@ -252,11 +247,15 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
               //
               // The proxy becomes a pointer to its own materialized form while remaining itself.
               // Existential crisis: The object IS the reference TO itself.
-              if (spawning) {
-                manifestedState ??= spawn(entityId, doc, self);
+              const entityCache = documentEntityCaches.get(doc);
+              if (!entityCache.has(entityId)) {
+                manifestedState ??= spawn(entityId, doc, self, true);
                 if (ephemeralParent) {
+                  // @ts-expect-error
                   manifestedState[informAdoptionSymbol]!(ephemeralParent, ephemeralParentKey!, extraParentMetadata);
                 }
+                // @ts-expect-error
+                entityCache.set(entityId, new WeakRef(self)); // Cache SELF, not spawn result
               }
               return localReference;
             });
@@ -266,10 +265,12 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
           return ephemeralParent;
         case "clone":
           // EPHEMERAL CLONE: Creates a new ephemeral entity with same structure and field values
+          // @ts-expect-error
           return (newProps?: Partial<State>) => clone(self, newProps);
         case informAdoptionSymbol:
-          return (newParent: ModelPattern, field: string, extraMetadata?: string) => {
+          return (newParent: PlexusModel, field: string, extraMetadata?: string) => {
             if (
+              // @ts-expect-error
               ephemeralParent === newParent &&
               ephemeralParentKey === field &&
               extraMetadata === extraParentMetadata
@@ -285,8 +286,9 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
             trackModification(self, "parent");
           };
         case requestAdoptionSymbol:
-          return (newParent: ModelPattern, field: string, extraMetadata?: string) => {
+          return (newParent: PlexusModel, field: string, extraMetadata?: string) => {
             if (
+              // @ts-expect-error
               ephemeralParent === newParent &&
               ephemeralParentKey === field &&
               extraMetadata === extraParentMetadata
@@ -351,8 +353,9 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
         schema[elementKey] === "val" || schema[elementKey] === "child-val",
         `cannot directly assign ${schema[elementKey]}-typed ${type}.${elementKey.toString()}; instead manipulate the existing object`
       );
-      const disclosure = (value as ModelPattern | null)?.[documentDisclosureSymbol]?.();
+      const disclosure = (value as PlexusModel | null)?.[documentDisclosureSymbol]?.();
       if (disclosure) {
+        // @ts-expect-error
         definitelyReference(self, disclosure.doc);
         return Reflect.set(self, elementKey, value);
       }
@@ -433,8 +436,8 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
           return [
             key,
             buildSetProxy(
-              { notificationTarget: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-set" },
-              value ?? undefined
+              // @ts-expect-error
+              { owner: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-set" },
             )
           ];
         case "record":
@@ -447,8 +450,8 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
           return [
             key,
             buildRecordProxy(
-              { notificationTarget: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-record" },
-              value ?? undefined
+              // @ts-expect-error
+              { owner: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-record" },
             )
           ];
         case "list":
@@ -461,8 +464,8 @@ export const buildEphemeralProxy = <State extends LegitimateSchema<State>, Name 
           return [
             key,
             buildArrayProxy(
-              { notificationTarget: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-list" },
-              value ?? undefined
+              // @ts-expect-error
+              { owner: self, ownerEntityId: entityId, fieldName: key, isChildField: type === "child-list" },
             )
           ];
       }

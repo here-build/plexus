@@ -19,26 +19,26 @@ import * as Y from "yjs";
 import {
   type AllowedYJSValue,
   type AllowedYValue,
-  informAdoptionSymbol,
   materializationSymbol,
   type ModelConstructor,
   ModelConstructorInit,
   ModelName,
-  type ModelPattern,
   ModelSchema,
   ModelState,
   type ModelType,
   type ReferenceTuple,
   type Storageable
-} from "./proxy-runtime-types.js";
-import { YJS_GLOBALS } from "./YJS_GLOBALS.js";
+} from "./proxy-runtime-types";
+import { YJS_GLOBALS } from "@dappsnap/plexus";
 import { buildEphemeralProxy } from "./proxies/ephemeral";
 import { buildMaterializedProxyHandler } from "./proxies/materialized";
 import { buildSetProxy } from "./proxies/materialized-set";
 import { buildArrayProxy } from "./proxies/materialized-array";
-import { documentEntityCaches, entityClasses } from "./globals"; // For packages that use plexus, ProjectId should be string
+import { entityClasses } from "./globals"; // For packages that use plexus, ProjectId should be string
+import { documentEntityCaches } from "./entity-cache";
 import { curryMaybeReference } from "./utils";
 import { buildRecordProxy } from "./proxies/materialized-map";
+import { PlexusConstructor, PlexusModel } from "./PlexusModel"; // PROJECT DEPENDENCY ARCHITECTURE:
 
 // PROJECT DEPENDENCY ARCHITECTURE:
 // - ONE root project (editable, can create/modify entities)
@@ -47,19 +47,20 @@ import { buildRecordProxy } from "./proxies/materialized-map";
 // - Only root project entities can be mutated
 
 // Model class factory
-export function buildModelClass<T extends ModelPattern>(
+export function buildModelClass<T extends PlexusModel>(
   typeName: string,
   schema: ModelSchema<ModelState<T>>
 ): ModelConstructor<ModelState<T>, ModelName<T>> {
   type Model = ModelType<ModelState<T>, ModelName<T>>;
 
+
   // force is needed to resolve cyclic dependencies in some edge cases
-  const spawn = (entityId: string, doc: Y.Doc, internal__ephemeralExternalObject?: Model) => {
+  const spawn = (entityId: string, doc: Y.Doc, internal__ephemeralExternalObject?: Model, __force?: boolean) => {
     const boundMaybeReference = curryMaybeReference(doc);
     const localReference: ReferenceTuple = [entityId];
     const cached = documentEntityCaches.get(doc).get(entityId)?.deref();
-    if (cached && !internal__ephemeralExternalObject) {
-      return cached as Model;
+    if (cached && !__force) {
+      return cached as any as Model;
     }
 
     /* we need to explicitly initialize fields with proper types before using. otherwise sync protocol will break */
@@ -108,7 +109,6 @@ export function buildModelClass<T extends ModelPattern>(
       },
       internal__ephemeralExternalObject
     );
-    const notificationTarget = internal__ephemeralExternalObject ?? proxy;
 
     // COLLECTION PROXY FACTORY & CACHE
     //
@@ -138,7 +138,6 @@ export function buildModelClass<T extends ModelPattern>(
                 yprojectObjectInstanceFields.set(key, list);
               }
               if (internal__ephemeralExternalObject) {
-                // @ts-expect-error
                 internal__ephemeralExternalObject[key]![materializationSymbol](list, boundMaybeReference);
                 return [key, internal__ephemeralExternalObject[key]];
               }
@@ -147,7 +146,8 @@ export function buildModelClass<T extends ModelPattern>(
                 key,
                 buildArrayProxy({
                   list,
-                  notificationTarget: notificationTarget,
+                  // @ts-expect-error
+                  owner: proxy,
                   boundMaybeReference,
                   ownerEntityId: entityId,
                   fieldName: key,
@@ -163,7 +163,6 @@ export function buildModelClass<T extends ModelPattern>(
                 yprojectObjectInstanceFields.set(key, map);
               }
               if (internal__ephemeralExternalObject) {
-                // @ts-expect-error
                 internal__ephemeralExternalObject[key]![materializationSymbol](map, boundMaybeReference);
                 return [key, internal__ephemeralExternalObject[key]];
               }
@@ -172,7 +171,8 @@ export function buildModelClass<T extends ModelPattern>(
                 buildRecordProxy({
                   boundMaybeReference,
                   map,
-                  notificationTarget: notificationTarget,
+                  // @ts-expect-error
+                  owner: proxy,
                   ownerEntityId: entityId,
                   fieldName: key,
                   isChildField: type === "child-record"
@@ -189,7 +189,6 @@ export function buildModelClass<T extends ModelPattern>(
                 yprojectObjectInstanceFields.set(key, underlyingArray);
               }
               if (internal__ephemeralExternalObject) {
-                // @ts-expect-error
                 internal__ephemeralExternalObject[key]![materializationSymbol](underlyingArray, boundMaybeReference);
                 return [key, internal__ephemeralExternalObject[key]];
               }
@@ -199,7 +198,8 @@ export function buildModelClass<T extends ModelPattern>(
                 buildSetProxy({
                   list: underlyingArray,
                   boundMaybeReference,
-                  notificationTarget: notificationTarget,
+                  // @ts-expect-error
+                  owner: proxy,
                   ownerEntityId: entityId,
                   fieldName: key,
                   isChildField: type === "child-set"
@@ -212,9 +212,8 @@ export function buildModelClass<T extends ModelPattern>(
         })
       )
     );
-
     if (!internal__ephemeralExternalObject) {
-      documentEntityCaches.get(doc).set(entityId, new WeakRef(proxy as ModelPattern));
+      documentEntityCaches.get(doc).set(entityId, new WeakRef(proxy as any as PlexusModel));
     }
     return proxy;
   };
@@ -268,7 +267,7 @@ export function buildModelClass<T extends ModelPattern>(
     }
   );
 
-  entityClasses.set(typeName, ModelConstructor as any as ModelConstructor<{}, string>);
+  entityClasses.set(typeName, ModelConstructor as any as PlexusConstructor);
 
   return ModelConstructor;
 }

@@ -3,7 +3,8 @@ import type * as Y from "yjs";
 import type { tag } from "type-fest/source/tagged";
 import { LastOfUnion } from "type-fest/source/union-to-tuple";
 import { curryMaybeReference } from "./utils";
-import { DependencyId } from "./plexus";
+import { DependencyId } from "./Plexus";
+import { PlexusModel } from "./PlexusModel";
 
 export const isProxyEntity = Symbol("is Plexus proxy");
 export const referenceSymbol = Symbol("reference");
@@ -13,36 +14,36 @@ export const informAdoptionSymbol = Symbol("report parentship change");
 export const informOrphanizationSymbol = Symbol("report orphanage");
 export const requestAdoptionSymbol = Symbol("report parentship change");
 export const requestOrphanizationSymbol = Symbol("report orphanage");
+export const backingStorageSymbol = Symbol("backing storage");
 
 export type ParentReference = [entityId: string, fieldName: string, metadata?: string];
 // New tuple-based references (memory optimized)
 type LocalReferenceeTuple = [entityId: string];
-type CrossProjectReferenceTuple = [entityId: string, dependencyId: DependencyId];
+export type CrossProjectReferenceTuple = [entityId: string, dependencyId: DependencyId];
 export type ReferenceTuple = LocalReferenceeTuple | CrossProjectReferenceTuple;
 
 export type AllowedPrimitive = string | number | boolean | null;
 export type AllowedYValue = AllowedPrimitive | ReferenceTuple;
-export type ModelPattern<T = {}> = Tagged<T, "syncing", string>;
 export type PlexusID = Tagged<string, "Plexus ID">;
-export type AllowedYJSValue = AllowedPrimitive | ModelPattern;
+export type AllowedYJSValue = AllowedPrimitive | PlexusModel;
 export type AllowedYJSValueSet = Set<AllowedYJSValue>;
 export type AllowedYJSValueMap = Record<string, AllowedYJSValue>;
-export type AllowedYJSValueList = Array<AllowedYJSValue>;
+export type AllowedYJSValueList = AllowedYJSValue[];
 export type Storageable = AllowedYValue | Y.Map<AllowedYValue> | Y.Array<AllowedYValue>;
 
 export type ReferenceProjector = (doc: Y.Doc) => ReferenceTuple;
 
 type ModelInternals<T extends LegitimateSchema<T>, Class extends string> = {
-  readonly uuid: Tagged<string, "Plexus ID", ModelType<T, Class>>;
+  readonly uuid: Tagged<string, "Plexus ID", PlexusModel>;
   readonly constructor: ModelConstructor<T, Class>;
-  readonly parent: ModelPattern<ModelInternals<{}, string>>;
-  clone<TT extends ModelPattern>(this: TT, newProps?: Partial<T>): TT;
+  readonly parent: PlexusModel;
+  clone<TT extends PlexusModel>(this: TT, newProps?: Partial<T>): TT;
   readonly [isProxyEntity]: true;
   readonly [referenceSymbol]: ReferenceProjector;
   readonly [informOrphanizationSymbol]: () => void;
-  readonly [informAdoptionSymbol]: (newParent: ModelPattern, field: string, extraMetadata?: string) => void;
+  readonly [informAdoptionSymbol]: (newParent: PlexusModel, field: string, extraMetadata?: string) => void;
   readonly [requestOrphanizationSymbol]: () => void;
-  readonly [requestAdoptionSymbol]: (newParent: ModelPattern, field: string, extraMetadata?: string) => void;
+  readonly [requestAdoptionSymbol]: (newParent: PlexusModel, field: string, extraMetadata?: string) => void;
   readonly [documentDisclosureSymbol]?: () => {
     doc: Y.Doc;
   };
@@ -84,15 +85,17 @@ export declare class ReadonlyField<T> {
   ): void;
 }
 
-export type ModelState<T extends ModelPattern> =
+export type ModelState<T extends PlexusModel> =
   T extends ModelType<infer S, string> ? (S extends LegitimateSchema<S> ? S : never) : never;
-export type ModelName<T extends ModelPattern> = T extends ModelType<{}, infer N> ? N : never;
+export type ModelName<T extends PlexusModel> = T extends ModelType<{}, infer N> ? N : never;
 
 export type LegitimateSchema<T extends ModelStateInit> =
   | Exclude<MaterializedRecordSchemaReadonlyKeys<T>, ReadonlyFields<T>>
   | OptionalKeysOf<T> extends never
   ? ModelStateInit
-  : never;
+  : ModelStateInit extends ModelStateInit
+    ? ModelStateInit
+    : never;
 
 export type ModelType<T extends LegitimateSchema<T>, Class extends string> = Tagged<
   T & {
@@ -121,6 +124,14 @@ export type ModelConstructorInit<T extends LegitimateSchema<T>, Class extends st
   uuid?: never;
 };
 
+declare const tag: unique symbol;
+
+export type PlexusTagContainer<Token> = {
+  readonly [tag]: Token;
+};
+
+export type PlexusUUID<Type, Model extends PlexusModel> = Type & PlexusTagContainer<{ model: Model }>;
+
 export type ModelConstructor<T extends LegitimateSchema<T>, Class extends string> = Tagged<
   Constructor<ModelType<T, Class>, [ReadonlyDeep<ModelConstructorInitArgs<T, Class>>]> & {
     __type: Class;
@@ -136,7 +147,7 @@ export type ModelStateInit = Record<
 >;
 
 export type MaterializedRecordSchemaReadonlyKeys<T extends ModelStateInit> = keyof {
-  [key in keyof T as T[key] extends ModelPattern | AllowedPrimitive ? never : key]: key extends typeof tag
+  [key in keyof T as T[key] extends PlexusModel | AllowedPrimitive ? never : key]: key extends typeof tag
     ? never
     : key;
 };

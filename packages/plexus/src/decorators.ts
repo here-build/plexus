@@ -1,9 +1,12 @@
 import { PlexusConstructor, PlexusModel } from "./PlexusModel";
 import {
   AllowedYJSValue,
+  AllowedYValue,
+  backingStorageSymbol,
   GenericRecordSchema,
   informAdoptionSymbol,
   ReadonlyField,
+  requestAdoptionSymbol,
   requestOrphanizationSymbol
 } from "./proxy-runtime-types";
 import invariant from "tiny-invariant";
@@ -13,6 +16,7 @@ import { DefaultedWeakMap, maybeReference } from "./utils";
 import { buildRecordProxy } from "./proxies/materialized-map";
 import { buildSetProxy } from "./proxies/materialized-set";
 import { buildArrayProxy } from "./proxies/materialized-array";
+import { deref } from "./deref";
 
 function syncingDecorator<Model extends PlexusModel>(
   ...args: [PlexusConstructor<Model>, ClassDecoratorContext<PlexusConstructor<Model>>]
@@ -38,16 +42,17 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
       ClassAccessorDecoratorTarget<Model, T>,
       ClassAccessorDecoratorContext<Model, T> & { name: string }
     ];
-    const schema = (context.metadata.schema ??= {}) as GenericRecordSchema
+    const schema = (context.metadata.schema ??= {}) as GenericRecordSchema;
     if (schema[context.name]) {
       invariant(schema[context.name] === "val");
       // @ts-expect-error
       return;
     }
     schema[context.name] = "val";
+
     const storage = new DefaultedWeakMap((target: Model) => {
       let value: T;
-      return {
+      return (target[backingStorageSymbol][context.name] = {
         get() {
           return value;
         },
@@ -56,33 +61,33 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
           value = newValue;
           return changed;
         }
-      };
+      });
     });
-    context.access.get = (object) => {
-      trackAccess(object, context.name);
-      return object._yjsModel ? (object._yjsModel.get(context.name) as T) : storage.get(object).get();
-    }
-    context.access.set = (object, value) => {
-      if (storage.get(object).get() === value) {
-        return;
-      }
-      trackModification(object, context.name);
-      storage.get(object).set(value);
-      if (value === undefined) {
-        object._yjsModel?.delete(context.name);
-      } else {
-        object._yjsModel?.set(context.name, maybeReference(value, object._doc!));
-      }
-    }
 
     return {
       get(this: Model) {
-        return context.access.get(this);
+        trackAccess(this, context.name);
+        return this._yjsModel?.doc
+          ? (deref(this._yjsModel.doc, this._yjsModel.get(context.name) as AllowedYValue | undefined) as T)
+          : storage.get(this).get();
       },
       set(this: Model, value) {
-        context.access.set(this, value);
+        const storedValue = storage.get(this).get();
+        if (storedValue === value) {
+          return;
+        }
+        trackModification(this, context.name);
+        storage.get(this).set(value);
+        if (value === undefined) {
+          this._yjsModel?.delete(context.name);
+        } else {
+          this._yjsModel?.set(context.name, maybeReference(value, this._doc!));
+        }
       },
-      init(value) {
+      init(this: Model, value: T) {
+        if (!storage.has(this)) {
+          storage.get(this).set(value);
+        }
         return value;
       }
     };
@@ -98,39 +103,42 @@ export const syncing = Object.assign(syncingDecorator, {
       ((context.metadata.schema ??= {}) as Record<string, any>)[context.name] = "child-val";
       const storage = new DefaultedWeakMap((target: Model) => {
         let value: T;
-        return {
+        return (target[backingStorageSymbol][context.name] = {
           get() {
             return value;
           },
           set(newValue: T) {
             value = newValue;
-          },
-          init(value: T) {
-            return value;
           }
-        };
+        });
       });
 
       return {
         get(this: Model) {
           trackAccess(this, context.name);
-          return this._yjsModel ? (this._yjsModel.get(context.name) as T) : storage.get(this).get();
+          return this._yjsModel?.doc
+            ? (deref(this._yjsModel.doc, this._yjsModel.get(context.name) as AllowedYValue | undefined) as T)
+            : storage.get(this).get();
         },
-        set(this: Model, value) {
-          if (storage.get(this).get() === value) {
+        set(this: Model, value: T) {
+          const storedValue = storage.get(this).get();
+          if (storedValue === value) {
             return;
           }
           trackModification(this, context.name);
-          storage.get(this).get()?.[requestOrphanizationSymbol]?.();
+          storedValue?.[requestOrphanizationSymbol]?.();
           storage.get(this).set(value);
+          value?.[requestAdoptionSymbol]?.(this, context.name);
           if (value === undefined) {
             this._yjsModel?.delete(context.name);
           } else {
             this._yjsModel?.set(context.name, maybeReference(value, this._doc!));
           }
-          value?.[informAdoptionSymbol]?.();
         },
-        init(value) {
+        init(this: Model, value: T) {
+          if (!storage.has(this)) {
+            storage.get(this).set(value);
+          }
           return value;
         }
       };
@@ -150,11 +158,11 @@ export const syncing = Object.assign(syncingDecorator, {
             return backingStructures.get(this);
           },
           set(this: Model, value) {
-            if (!this._constructionComplete) {
-              backingStructures.get(this).assign(value);
-            } else {
-              throw new Error(`you cannot directly assign ${this.constructor.name}.${context.name}`);
-            }
+            invariant(
+              !this._constructionComplete,
+              `you cannot directly assign ${this.constructor.name}.${context.name}`
+            );
+            backingStructures.get(this).assign(value);
           },
           init(value) {
             return value ?? {};
@@ -175,11 +183,11 @@ export const syncing = Object.assign(syncingDecorator, {
             return backingStructures.get(this);
           },
           set(this: Model, value) {
-            if (!this._constructionComplete) {
-              backingStructures.get(this).assign(value);
-            } else {
-              throw new Error(`you cannot directly assign ${this.constructor.name}.${context.name}`);
-            }
+            invariant(
+              !this._constructionComplete,
+              `you cannot directly assign ${this.constructor.name}.${context.name}`
+            );
+            backingStructures.get(this).assign(value);
           },
           init(value) {
             return value ?? new Set();
@@ -200,11 +208,11 @@ export const syncing = Object.assign(syncingDecorator, {
             return backingStructures.get(this);
           },
           set(this: Model, value) {
-            if (!this._constructionComplete) {
-              backingStructures.get(this).assign(value);
-            } else {
-              throw new Error(`you cannot directly assign ${this.constructor.name}.${context.name}`);
-            }
+            invariant(
+              !this._constructionComplete,
+              `you cannot directly assign ${this.constructor.name}.${context.name}`
+            );
+            backingStructures.get(this).assign(value);
           },
           init(value) {
             return value ?? [];
@@ -227,11 +235,8 @@ export const syncing = Object.assign(syncingDecorator, {
         return backingStructures.get(this);
       },
       set(this: Model, value) {
-        if (!this._constructionComplete) {
-          backingStructures.get(this).assign(value);
-        } else {
-          throw new Error(`you cannot directly assign ${this.constructor.name}.${context.name}`);
-        }
+        invariant(!this._constructionComplete, `you cannot directly assign ${this.constructor.name}.${context.name}`);
+        backingStructures.get(this).assign(value);
       },
       init(value) {
         return value ?? {};
@@ -252,11 +257,8 @@ export const syncing = Object.assign(syncingDecorator, {
         return backingStructures.get(this);
       },
       set(this: Model, value) {
-        if (!this._constructionComplete) {
-          backingStructures.get(this).assign(value);
-        } else {
-          throw new Error(`you cannot directly assign ${this.constructor.name}.${context.name}`);
-        }
+        invariant(!this._constructionComplete, `you cannot directly assign ${this.constructor.name}.${context.name}`);
+        backingStructures.get(this).assign(value);
       },
       init(value) {
         return value ?? new Set();
@@ -267,7 +269,7 @@ export const syncing = Object.assign(syncingDecorator, {
     target: ClassAccessorDecoratorTarget<Model, T[]>,
     context: ClassAccessorDecoratorContext<Model, T[]> & { name: string }
   ): ClassAccessorDecoratorResult<Model, T[] & ReadonlyField<T[]>> {
-    const schema = (context.metadata.schema ??= {}) as GenericRecordSchema
+    const schema = (context.metadata.schema ??= {}) as GenericRecordSchema;
     if (schema[context.name]) {
       invariant(schema[context.name] === "list");
       // @ts-expect-error
@@ -283,11 +285,8 @@ export const syncing = Object.assign(syncingDecorator, {
         return backingStructures.get(this);
       },
       set(this: Model, value) {
-        if (!this._constructionComplete) {
-          backingStructures.get(this).assign(value);
-        } else {
-          throw new Error(`you cannot directly assign ${this.constructor.name}.${context.name}`);
-        }
+        invariant(!this._constructionComplete, `you cannot directly assign ${this.constructor.name}.${context.name}`);
+        backingStructures.get(this).assign(value);
       },
       init(value) {
         return value ?? [];

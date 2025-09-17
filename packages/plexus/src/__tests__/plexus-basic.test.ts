@@ -1,41 +1,45 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { buildModelClass } from "../proxy-runtime.js";
-import type { ModelType } from "../proxy-runtime-types.js";
-import { initTestPlexus } from "./test-plexus.js";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { initTestPlexus } from "./test-plexus";
 
 // Simple test entities
-type UserType = ModelType<
-  {
-    name: string;
-    email: string;
-    age: number;
-  },
-  "User"
->;
+@syncing
+class User extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-type PostType = ModelType<
-  {
-    title: string;
-    content: string;
-    author: UserType | null;
-    tags: string[];
-  },
-  "Post"
->;
+  @syncing
+  accessor email!: string;
 
-const User = buildModelClass<UserType>("User", {
-  name: "val",
-  email: "val",
-  age: "val"
-});
+  @syncing
+  accessor age!: number;
 
-const Post = buildModelClass<PostType>("Post", {
-  title: "val",
-  content: "val",
-  author: "val",
-  tags: "list"
-});
+  constructor(props) {
+    super(props);
+  }
+}
+
+@syncing
+class Post extends PlexusModel {
+  @syncing
+  accessor title!: string;
+
+  @syncing
+  accessor content!: string;
+
+  @syncing
+  accessor author!: User | null;
+
+  @syncing.list
+  accessor tags!: string[];
+
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 describe("Plexus Basic Functionality", () => {
   it("should create and manage Plexus document with simple entities", async () => {
@@ -53,7 +57,7 @@ describe("Plexus Basic Functionality", () => {
     });
 
     // Initialize Plexus with post as root
-    const { plexus, root, doc } = await initTestPlexus<PostType>(post);
+    const { plexus, root, doc } = await initTestPlexus<Post>(post);
 
     // Verify Plexus is properly initialized
     expect(plexus).toBeDefined();
@@ -83,7 +87,7 @@ describe("Plexus Basic Functionality", () => {
       age: 25
     });
 
-    const { plexus, root } = await initTestPlexus<UserType>(user);
+    const { plexus, root } = await initTestPlexus<User>(user);
 
     // Verify the root promise resolved correctly
     const resolvedRoot = await plexus.rootPromise;
@@ -99,7 +103,7 @@ describe("Plexus Basic Functionality", () => {
       age: 35
     });
 
-    const { plexus, doc } = await initTestPlexus<UserType>(user);
+    const { plexus, doc } = await initTestPlexus<User>(user);
 
     // Verify Plexus is associated with document
     expect(plexus.doc).toBe(doc);
@@ -120,7 +124,7 @@ describe("Plexus Basic Functionality", () => {
       tags: ["relationship", "test"]
     });
 
-    const { root } = await initTestPlexus<PostType>(post);
+    const { root } = await initTestPlexus<Post>(post);
 
     // Verify relationship integrity
     expect(root.author).not.toBeNull();

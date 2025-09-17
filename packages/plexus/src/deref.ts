@@ -5,10 +5,11 @@ import type { AllowedYJSValue, AllowedYValue } from "./proxy-runtime-types";
 import invariant from "tiny-invariant";
 import { YJS_GLOBALS } from "./YJS_GLOBALS";
 import { entityClasses } from "./globals";
+import { documentEntityCaches } from "./entity-cache";
 import { isTupleReference } from "./utils";
-import { docDependencyResolverMap } from "./plexus";
+import { docDependencyResolverMap } from "./Plexus";
 
-export const deref = (doc: Y.Doc, pointer: AllowedYValue): AllowedYJSValue => {
+export const deref = (doc: Y.Doc, pointer: AllowedYValue | undefined): AllowedYJSValue => {
   if (pointer == null) {
     return null;
   }
@@ -40,5 +41,5 @@ export const deref = (doc: Y.Doc, pointer: AllowedYValue): AllowedYJSValue => {
   const constructor = entityClasses.get(targetType);
   invariant(constructor, `missing constructor ${targetType} for ${targetEntityId}`);
 
-  return constructor.spawn(targetEntityId, doc);
+  return documentEntityCaches.get(doc).get(targetEntityId)?.deref() ?? new constructor([targetEntityId, doc]);
 };

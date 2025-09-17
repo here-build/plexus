@@ -1,23 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildModelClass, createTrackedFunction } from "../index.js";
-import type { ModelType } from "../proxy-runtime-types.js";
+import { createTrackedFunction } from "../index";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+
+@syncing
+class TestModel extends PlexusModel {
+  @syncing
+  accessor name!: string;
+}
 
 describe("Cross Package Import Test", () => {
-  type TestModelType = ModelType<
-    {
-      name: string;
-    },
-    "TestModel"
-  >;
-
-  let TestModel: ReturnType<typeof buildModelClass<TestModelType>>;
-  let obj: TestModelType;
+  let obj: TestModel;
 
   beforeEach(() => {
-    TestModel = buildModelClass<TestModelType>("TestModel", {
-      name: "val"
-    });
-
     obj = new TestModel({
       name: "test"
     });

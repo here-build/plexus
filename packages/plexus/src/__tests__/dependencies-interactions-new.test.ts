@@ -1,47 +1,52 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { buildModelClass } from "../proxy-runtime.js";
-import type { ModelType } from "../proxy-runtime-types.js";
-import { initTestPlexus, TestPlexus } from "./test-plexus.js";
-import type { DependencyId, DependencyVersion } from "../plexus.js";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { initTestPlexus, TestPlexus } from "./test-plexus";
+import type { DependencyId, DependencyVersion } from "../Plexus";
+import { YJS_GLOBALS } from "../YJS_GLOBALS";
 
 // Dependency entity
-type DepEntity = ModelType<
-  {
-    name: string;
-    version: number;
-  },
-  "DepEntity"
->;
+@syncing
+class DepEntity extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  @syncing
+  accessor version!: number;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 // Root entity with dependency support
-type RootEntity = ModelType<
-  {
-    name: string;
-    ref: DepEntity | null;
-    readonly depsRecord: Record<string, DepEntity>;
-    readonly depsList: DepEntity[];
-    readonly dependencies: Set<DepEntity>;
-    readonly dependencyVersion: Record<DependencyId, DependencyVersion>;
-  },
-  "RootEntity"
->;
+@syncing
+class RootEntity extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-const DepEntity = buildModelClass<DepEntity>("DepEntity", {
-  name: "val",
-  version: "val"
-});
+  @syncing
+  accessor ref!: DepEntity | null;
 
-const RootEntity = buildModelClass<RootEntity>("RootEntity", {
-  name: "val",
-  ref: "val",
-  depsRecord: "record",
-  depsList: "list",
-  dependencies: "set",
-  dependencyVersion: "record"
-});
+  @syncing.map
+  accessor depsRecord!: Record<string, DepEntity>;
+
+  @syncing.list
+  accessor depsList!: DepEntity[];
+
+  @syncing.set
+  accessor dependencies!: Set<DepEntity>;
+
+  @syncing.map
+  accessor dependencyVersion!: Record<DependencyId, DependencyVersion>;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 describe("Plexus Dependency Management", () => {
-  let plexus: TestPlexus<RootEntity, DepEntity>;
+  let plexus: TestPlexus<RootEntity>;
   let root: RootEntity;
 
   beforeEach(async () => {
@@ -63,12 +68,16 @@ describe("Plexus Dependency Management", () => {
     plexus.registerDependencyFactory("depA", async () => {
       const depEntity = new DepEntity({ name: "Alpha", version: 1 });
       const { doc } = await initTestPlexus<DepEntity>(depEntity);
+      // Set the documentId to the dependency ID for cross-document references
+      doc.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.documentId, "depA");
       return doc;
     });
 
     plexus.registerDependencyFactory("depB", async () => {
       const depEntity = new DepEntity({ name: "Beta", version: 2 });
       const { doc } = await initTestPlexus<DepEntity>(depEntity);
+      // Set the documentId to the dependency ID for cross-document references
+      doc.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.documentId, "depB");
       return doc;
     });
   });
@@ -142,13 +151,19 @@ describe("Plexus Dependency Management", () => {
   });
 
   describe("dependency isolation", () => {
-    it("should provide read-only access to dependency entities", async () => {
+    it("should allow mutations to dependency entities (they affect the dependency doc)", async () => {
       const depA = await plexus.addDependency<DepEntity>("depA" as DependencyId, "1.0.0" as DependencyVersion);
 
-      // Dependency should be read-only (based on old test behavior)
-      expect(() => {
-        depA.name = "Modified";
-      }).toThrow();
+      // With the new architecture, dependency entities are mutable PlexusModel instances
+      // Mutations affect the dependency document, not the root document
+      expect(depA.name).toBe("Alpha");
+
+      // Should allow mutations
+      depA.name = "Modified";
+      expect(depA.name).toBe("Modified");
+
+      // The change affects the dependency doc, not the root doc
+      // This is consistent with the new architecture where dependencies are real entities
     });
   });
 

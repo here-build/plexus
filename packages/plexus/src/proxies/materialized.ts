@@ -83,9 +83,6 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
   const ownKeys = Reflect.ownKeys(selfTarget);
   Reflect.setPrototypeOf(selfTarget, constructor.prototype);
   fieldMap.observe((event) => {
-    if (event.transaction.local) {
-      return;
-    }
     for (const key of event.keysChanged) {
       trackModification(tracker, key);
     }
@@ -135,6 +132,7 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
           return informOrphanization;
         case requestAdoptionSymbol:
           return (newParent: ModelType<{}, string>, field: string, extraFieldMetadata?: string) => {
+            // @ts-expect-error
             if (currentlyEmancipating.has(tracker)) {
               informAdoption(newParent, field, extraFieldMetadata);
             } else {
@@ -143,6 +141,7 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
                 const reference = newParent[referenceSymbol](doc);
                 (fieldMap as Y.Map<any> as Y.Map<ParentReference>).delete(YJS_GLOBALS.modelMetadataParent);
                 if (currentParent) {
+                  // @ts-expect-error
                   emancipateChild(doc, tracker, currentParent);
                 }
                 (fieldMap as Y.Map<any> as Y.Map<ParentReference>).set(
@@ -155,6 +154,7 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
           };
         case requestOrphanizationSymbol:
           return () => {
+            // @ts-expect-error
             if (currentlyEmancipating.has(tracker)) {
               informOrphanization();
             } else {
@@ -163,6 +163,7 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
                 maybeTransacting(doc, () => {
                   // it is VERY important to alter fieldMap first to avoid cyclic processing
                   fieldMap.delete(YJS_GLOBALS.modelMetadataParent);
+                  // @ts-expect-error
                   emancipateChild(doc, tracker, currentParent);
                 });
                 trackModification(tracker, "parent");
@@ -200,6 +201,7 @@ export const buildMaterializedProxyHandler = <State extends LegitimateSchema<Sta
           // TRANSACTIONAL CLONE: Creates a new entity using constructor pattern
           // Handles cycles and deduplication via clone transaction mapping
           // note that we're using trackingPointer to provide proper notifications mechanics
+          // @ts-expect-error
           return (newProps?: {}) => clone(tracker, newProps);
       }
       if (typeof key === "string" && Object.hasOwn(schema, key)) {

@@ -1,84 +1,91 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { buildModelClass } from "../proxy-runtime.js";
-import type { ModelType } from "../proxy-runtime-types.js";
-import { YJS_GLOBALS } from "../YJS_GLOBALS.js";
-import { createTestPlexus, initTestPlexus } from "./test-plexus.js";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { YJS_GLOBALS } from "../YJS_GLOBALS";
+import { createTestPlexus, initTestPlexus } from "./test-plexus";
 
 // Test models
-type UserType = ModelType<
-  {
-    name: string;
-    email: string;
-    age: number;
-  },
-  "User"
->;
+@syncing
+class User extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-type PostType = ModelType<
-  {
-    title: string;
-    content: string;
-    author: UserType | null;
-    tags: string[];
-  },
-  "Post"
->;
+  @syncing
+  accessor email!: string;
 
-type CommentType = ModelType<
-  {
-    text: string;
-    author: UserType | null;
-    post: PostType | null;
-  },
-  "Comment"
->;
+  @syncing
+  accessor age!: number;
 
-const User = buildModelClass<UserType>("User", {
-  name: "val",
-  email: "val",
-  age: "val"
-});
+  constructor(props) {
+    super(props);
+  }
+}
 
-const Post = buildModelClass<PostType>("Post", {
-  title: "val",
-  content: "val",
-  author: "val",
-  tags: "list"
-});
+@syncing
+class Post extends PlexusModel {
+  @syncing
+  accessor title!: string;
 
-const Comment = buildModelClass<CommentType>("Comment", {
-  text: "val",
-  author: "val",
-  post: "val"
-});
+  @syncing
+  accessor content!: string;
+
+  @syncing
+  accessor author!: User | null;
+
+  @syncing.list
+  accessor tags!: string[];
+
+  constructor(props) {
+    super(props);
+  }
+}
+
+@syncing
+class Comment extends PlexusModel {
+  @syncing
+  accessor text!: string;
+
+  @syncing
+  accessor author!: User | null;
+
+  @syncing
+  accessor post!: Post | null;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 // Root type that contains all our test entities
-type TestRootType = ModelType<
-  {
-    user: UserType | null;
-    post: PostType | null;
-    comment: CommentType | null;
-    users: UserType[];
-    posts: PostType[];
-  },
-  "TestRoot"
->;
+@syncing
+class TestRoot extends PlexusModel {
+  @syncing
+  accessor user!: User | null;
 
-const TestRoot = buildModelClass<TestRootType>("TestRoot", {
-  user: "val",
-  post: "val",
-  comment: "val",
-  users: "list",
-  posts: "list"
-});
+  @syncing
+  accessor post!: Post | null;
+
+  @syncing
+  accessor comment!: Comment | null;
+
+  @syncing.list
+  accessor users!: User[];
+
+  @syncing.list
+  accessor posts!: Post[];
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 describe("Plexus Entity Loading", () => {
   let doc: Y.Doc;
-  let root: TestRootType;
-  let user: UserType;
-  let post: PostType;
-  let comment: CommentType;
+  let root: TestRoot;
+  let user: User;
+  let post: Post;
+  let comment: Comment;
 
   beforeEach(async () => {
     // Create test entities
@@ -111,7 +118,7 @@ describe("Plexus Entity Loading", () => {
     });
 
     // Initialize doc with Plexus
-    const result = await initTestPlexus<TestRootType>(testRoot);
+    const result = await initTestPlexus<TestRoot>(testRoot);
     doc = result.doc;
     root = result.root;
     user = root.user!;
@@ -194,7 +201,7 @@ describe("Plexus Entity Loading", () => {
         users: [],
         posts: []
       });
-      const { root: reloadedRoot } = await initTestPlexus<TestRootType>(freshTestRoot);
+      const { root: reloadedRoot } = await initTestPlexus<TestRoot>(freshTestRoot);
       expect(reloadedRoot.user!.name).toBe("Jane Doe");
       expect(reloadedRoot.user!.age).toBe(31);
     });
@@ -224,12 +231,12 @@ describe("Plexus Entity Loading", () => {
       const _age: number = user.age;
 
       const _title: string = post.title;
-      const _author: UserType | null = post.author;
+      const _author: User | null = post.author;
       const _tags: string[] = post.tags;
 
       const _text: string = comment.text;
-      const _commentAuthor: UserType | null = comment.author;
-      const _commentPost: PostType | null = comment.post;
+      const _commentAuthor: User | null = comment.author;
+      const _commentPost: Post | null = comment.post;
 
       expect(true).toBe(true); // Just to have an assertion
     });
@@ -253,7 +260,7 @@ describe("Plexus Entity Loading", () => {
         posts: []
       });
 
-      const { root: secondLoad } = await initTestPlexus<TestRootType>(testRoot2);
+      const { root: secondLoad } = await initTestPlexus<TestRoot>(testRoot2);
 
       // Should have same data structure
       expect(root.user!.name).toBe(secondLoad.user!.name);
@@ -265,7 +272,7 @@ describe("Plexus Entity Loading", () => {
       const emptyDoc = new Y.Doc();
 
       // Should throw when trying to create Plexus without root
-      await expect(createTestPlexus<TestRootType>(emptyDoc)).rejects.toThrow();
+      await expect(createTestPlexus<TestRoot>(emptyDoc)).rejects.toThrow();
     });
 
     it("should handle loading after entity deletion", async () => {
@@ -276,7 +283,7 @@ describe("Plexus Entity Loading", () => {
       doc.getMap(YJS_GLOBALS.models).delete(user.uuid);
 
       // Should fail to load due to missing entity
-      await expect(createTestPlexus<TestRootType>(doc)).rejects.toThrow();
+      await expect(createTestPlexus<TestRoot>(doc)).rejects.toThrow();
     });
   });
 

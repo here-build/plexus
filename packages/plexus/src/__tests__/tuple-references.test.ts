@@ -4,32 +4,65 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { buildModelClass } from "../proxy-runtime";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
 import { referenceSymbol } from "../proxy-runtime-types";
 import { primeDoc } from "./test-helpers";
 import { initTestPlexus } from "./test-plexus";
 
 // Test model schemas
-const TestUser = buildModelClass("TestUser", {
-  name: "val",
-  posts: "list"
-});
+@syncing
+class TestUser extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-const TestPost = buildModelClass("TestPost", {
-  title: "val",
-  author: "val",
-  comments: "list"
-});
+  @syncing.list
+  accessor posts!: any[];
 
-const TestComment = buildModelClass("TestComment", {
-  text: "val",
-  author: "val"
-});
+  constructor(props) {
+    super(props);
+  }
+}
+
+@syncing
+class TestPost extends PlexusModel {
+  @syncing
+  accessor title!: string;
+
+  @syncing
+  accessor author!: any;
+
+  @syncing.list
+  accessor comments!: any[];
+
+  constructor(props) {
+    super(props);
+  }
+}
+
+@syncing
+class TestComment extends PlexusModel {
+  @syncing
+  accessor text!: string;
+
+  @syncing
+  accessor author!: any;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 // Minimal model (no collections) to avoid resolver shape issues in this test
-const Shallow = buildModelClass("Shallow", {
-  name: "val"
-});
+@syncing
+class Shallow extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 describe("Tuple Reference Format", () => {
   let doc: Y.Doc;
@@ -87,8 +120,8 @@ describe("Tuple Reference Format", () => {
     const { doc, plexus } = await initTestPlexus(user);
 
     // Now add the post reference into the user's posts list (materializes post too)
-    post[referenceSymbol](doc as any);
-    (user as any).posts.push(post as any);
+    post[referenceSymbol](doc);
+    user.posts.push(post);
 
     // Verify storage format in YJS maps
     const models = doc.getMap<Y.Map<any>>("models");

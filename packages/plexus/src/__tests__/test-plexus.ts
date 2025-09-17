@@ -1,18 +1,24 @@
 import * as Y from "yjs";
 import * as awarenessProtocol from "y-protocols/awareness";
-import { Plexus } from "../plexus.js";
-import type { ModelPattern } from "../proxy-runtime-types.js";
-import { referenceSymbol } from "../proxy-runtime-types.js";
-import { YJS_GLOBALS } from "../YJS_GLOBALS.js";
+import { DependencyId, DependencyVersion, Plexus } from "../Plexus";
+import { referenceSymbol } from "../proxy-runtime-types";
+import { YJS_GLOBALS } from "../YJS_GLOBALS";
+import { PlexusModel } from "../PlexusModel";
 
 /**
  * Test implementation of Plexus for testing purposes.
  * Provides simple dependency resolution from provided dependency docs.
  */
 export class TestPlexus<
-  Root extends ModelPattern,
-  DependencyRootType extends ModelPattern | null = null
-> extends Plexus<Root, DependencyRootType> {
+  Root extends PlexusModel &
+    (
+      | {}
+      | {
+          readonly dependencies: Set<PlexusModel>;
+          readonly dependencyVersion: Record<DependencyId, DependencyVersion>;
+        }
+    )
+> extends Plexus<Root> {
   private dependencies: Record<string, Y.Doc>;
   private availableDependencies: Map<string, () => Promise<Y.Doc>>; // For dynamic dependency creation
 
@@ -43,6 +49,11 @@ export class TestPlexus<
       throw new Error(`Dependency "${dependencyId}" not found in test dependencies`);
     }
 
+    // Always ensure the dependency doc has the correct documentId for cross-doc references
+    // This overrides whatever default was set during initialization
+    const metadata = depDoc.getMap(YJS_GLOBALS.metadataMap);
+    metadata.set(YJS_GLOBALS.metadataMapFields.documentId, dependencyId);
+
     return depDoc;
   }
 }
@@ -50,7 +61,7 @@ export class TestPlexus<
 /**
  * Create a TestPlexus instance and wait for root to load
  */
-export async function createTestPlexus<Root extends ModelPattern>(
+export async function createTestPlexus<Root extends PlexusModel>(
   doc: Y.Doc,
   dependencies: Record<string, Y.Doc> = {},
   awareness?: awarenessProtocol.Awareness
@@ -63,10 +74,20 @@ export async function createTestPlexus<Root extends ModelPattern>(
 /**
  * Initialize a document with test data and return a Plexus instance
  */
-export async function initTestPlexus<Root extends ModelPattern>(
+export async function initTestPlexus<
+  Root extends PlexusModel &
+    (
+      | {}
+      | {
+          readonly dependencies: Set<PlexusModel>;
+          readonly dependencyVersion: Record<DependencyId, DependencyVersion>;
+        }
+    )
+>(
   rootEntity: Root,
   dependencies: Record<string, Y.Doc> = {},
-  awareness?: awarenessProtocol.Awareness
+  awareness?: awarenessProtocol.Awareness,
+  documentId?: string
 ): Promise<{ doc: Y.Doc; plexus: TestPlexus<Root>; root: Root }> {
   const doc = new Y.Doc();
 
@@ -74,11 +95,12 @@ export async function initTestPlexus<Root extends ModelPattern>(
   const plexus = new TestPlexus<Root>(doc, dependencies, awareness);
 
   // Now we can safely use referenceSymbol since the doc is registered
-  const [rootId] = (rootEntity as any)[referenceSymbol](doc);
+  const [rootId] = rootEntity[referenceSymbol](doc);
 
   // Set up metadata
   const metadata = doc.getMap(YJS_GLOBALS.metadataMap);
   metadata.set(YJS_GLOBALS.metadataMapFields.root, rootId);
+  metadata.set(YJS_GLOBALS.metadataMapFields.documentId, documentId ?? rootId);
 
   // Load the root through Plexus
   const root = await plexus.rootPromise;

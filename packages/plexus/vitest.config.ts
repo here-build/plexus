@@ -4,8 +4,7 @@ export default defineConfig({
   test: {
     // Regular test configuration
     globals: true,
-    environment: 'node',
+    environment: "node",
     include: ["./src/**/*.test.ts"],
-    exclude: ["./src-decorators/**/*"]
-  },
+  }
 });

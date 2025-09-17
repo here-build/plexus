@@ -3,39 +3,41 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { buildModelClass } from "../proxy-runtime.js";
-import { ModelType, Storageable } from "../proxy-runtime-types.js";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { Storageable } from "../proxy-runtime-types";
 import * as Y from "yjs";
-import { initTestPlexus } from "./test-plexus.js";
+import { initTestPlexus } from "./test-plexus";
 
 // Test model with a set field
-type TestModelWithSet = ModelType<
-  {
-    name: string;
-    readonly tags: Set<string>;
-    readonly components: Set<TestComponent>;
-  },
-  "TestModelWithSet"
->;
+@syncing
+class TestComponent extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-type TestComponent = ModelType<
-  {
-    name: string;
-    version: number;
-  },
-  "TestComponent"
->;
+  @syncing
+  accessor version!: number;
 
-const TestComponent = buildModelClass<TestComponent>("TestComponent", {
-  name: "val",
-  version: "val"
-});
+  constructor(props) {
+    super(props);
+  }
+}
 
-const TestModelWithSet = buildModelClass<TestModelWithSet>("TestModelWithSet", {
-  name: "val",
-  tags: "set",
-  components: "set"
-});
+@syncing
+class TestModelWithSet extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  @syncing.set
+  accessor tags!: Set<string>;
+
+  @syncing.set
+  accessor components!: Set<TestComponent>;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 describe("Set Proxy Implementation", () => {
   let doc: Y.Doc;

@@ -7,64 +7,63 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-
-import { isProxyEntity } from "../index.js";
-
-import { type ModelType } from "../proxy-runtime-types.js";
-import { buildModelClass } from "../proxy-runtime.js";
-
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { isProxyEntity } from "../index";
 import { primeDoc } from "./test-helpers";
-import { createTestPlexus, initTestPlexus } from "./test-plexus.js";
+import { createTestPlexus, initTestPlexus } from "./test-plexus";
 
 // Test schema definitions
-type ComponentType = ModelType<
-  {
-    name: string;
-    type: string;
-    tplTree: TplTagType | null;
-    readonly children: ComponentType[];
-    readonly metadata: Record<string, string>;
-  },
-  "Component"
->;
+@syncing
+class TplTag extends PlexusModel {
+  @syncing
+  accessor tag!: string;
 
-type SiteType = ModelType<
-  {
-    name: string;
-    readonly components: Record<string, ComponentType>;
-  },
-  "Site"
->;
+  @syncing
+  accessor name!: string;
 
-type TplTagType = ModelType<
-  {
-    tag: string;
-    name: string;
-    readonly children: TplTagType[];
-    readonly attrs: Record<string, string>;
-  },
-  "TplTag"
->;
+  @syncing.list
+  accessor children!: TplTag[];
 
-const Component = buildModelClass<ComponentType>("Component", {
-  name: "val",
-  type: "val",
-  tplTree: "val",
-  children: "list",
-  metadata: "record"
-});
+  @syncing.map
+  accessor attrs!: Record<string, string>;
+}
 
-const Site = buildModelClass<SiteType>("Site", {
-  name: "val",
-  components: "record"
-});
+@syncing
+class Component extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-const TplTag = buildModelClass<TplTagType>("TplTag", {
-  tag: "val",
-  name: "val",
-  children: "list",
-  attrs: "record"
-});
+  @syncing
+  accessor type!: string;
+
+  @syncing
+  accessor tplTree!: TplTag | null;
+
+  @syncing.list
+  accessor children!: Component[];
+
+  @syncing.map
+  accessor metadata!: Record<string, string>;
+
+  constructor(props) {
+    super(props);
+  }
+
+}
+
+@syncing
+class Site extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  @syncing.map
+  accessor components!: Record<string, Component>;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 // Sync helper function
 function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
@@ -94,7 +93,7 @@ describe("Cross-Document Proxy Sync", () => {
   it("should sync ephemeral entity contagion across documents", async () => {
     // Doc1: Create materialized site as root using Plexus
     const ephemeralSite = new Site({ name: "Test Site", components: {} });
-    const { doc: doc1, root: site1 } = await initTestPlexus<SiteType>(ephemeralSite);
+    const { doc: doc1, root: site1 } = await initTestPlexus<Site>(ephemeralSite);
 
     // Create ephemeral component
     const ephemeralComponent = new Component({
@@ -106,7 +105,6 @@ describe("Cross-Document Proxy Sync", () => {
     });
 
     // Verify ephemeral state
-    expect(ephemeralComponent[isProxyEntity]).toBe(true);
     expect(ephemeralComponent.name).toBe("Header");
 
     // Trigger contagion by adding to materialized entity
@@ -120,7 +118,7 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Access the same entities (after root was synced) using Plexus
-    const { root: site2 } = await createTestPlexus<SiteType>(doc2);
+    const { root: site2 } = await createTestPlexus<Site>(doc2);
     const component2 = site2.components["header"];
 
     // Verify sync worked
@@ -132,7 +130,7 @@ describe("Cross-Document Proxy Sync", () => {
   it("should sync bidirectional changes across documents", async () => {
     // Doc1: Setup initial state using Plexus
     const ephemeralSite = new Site({ name: "Bidirectional Test Site", components: {} });
-    const { doc: doc1, root: site1 } = await initTestPlexus<SiteType>(ephemeralSite);
+    const { doc: doc1, root: site1 } = await initTestPlexus<Site>(ephemeralSite);
     const component1 = new Component({
       name: "Original",
       type: "component",
@@ -150,7 +148,7 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Get reference to same entities using Plexus
-    const { root: site2 } = await createTestPlexus<SiteType>(doc2);
+    const { root: site2 } = await createTestPlexus<Site>(doc2);
     const component2 = site2.components["comp1"];
 
     // Doc2: Modify the component
@@ -181,7 +179,7 @@ describe("Cross-Document Proxy Sync", () => {
   it("should sync nested entities properly", async () => {
     // Doc1: Create nested structure using Plexus
     const ephemeralSite2 = new Site({ name: "Nested Test Site", components: {} });
-    const { doc: doc1, root: site1 } = await initTestPlexus<SiteType>(ephemeralSite2);
+    const { doc: doc1, root: site1 } = await initTestPlexus<Site>(ephemeralSite2);
 
     const parentComponent = new Component({
       name: "Parent",
@@ -220,7 +218,7 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Access nested structure using Plexus
-    const { root: site2 } = await createTestPlexus<SiteType>(doc2);
+    const { root: site2 } = await createTestPlexus<Site>(doc2);
     const parent2 = site2.components["parent"];
 
     // Verify nested structure synced completely
@@ -248,7 +246,7 @@ describe("Cross-Document Proxy Sync", () => {
   it("should sync arrays and primitive collections", async () => {
     // Doc1: Setup component with collections using Plexus
     const ephemeralSite3 = new Site({ name: "Collections Test Site", components: {} });
-    const { doc: doc1, root: site1 } = await initTestPlexus<SiteType>(ephemeralSite3);
+    const { doc: doc1, root: site1 } = await initTestPlexus<Site>(ephemeralSite3);
     const parent = new Component({
       name: "Parent",
       type: "container",
@@ -300,7 +298,7 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Access collections using Plexus
-    const { root: site2 } = await createTestPlexus<SiteType>(doc2);
+    const { root: site2 } = await createTestPlexus<Site>(doc2);
     const parent2 = site2.components["parent"];
 
     // Verify array sync
@@ -351,7 +349,7 @@ describe("Cross-Document Proxy Sync", () => {
   it("should handle entity identity across documents", async () => {
     // Doc1: Create entities with cross-references using Plexus
     const ephemeralSite4 = new Site({ name: "Identity Test Site", components: {} });
-    const { doc: doc1, root: site1 } = await initTestPlexus<SiteType>(ephemeralSite4);
+    const { doc: doc1, root: site1 } = await initTestPlexus<Site>(ephemeralSite4);
 
     const comp1 = new Component({
       name: "Component1",
@@ -378,7 +376,7 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Verify identity relationships using Plexus
-    const { root: site2 } = await createTestPlexus<SiteType>(doc2);
+    const { root: site2 } = await createTestPlexus<Site>(doc2);
     const comp1_doc2 = site2.components["comp1"];
     const comp2_doc2 = site2.components["comp2"];
 

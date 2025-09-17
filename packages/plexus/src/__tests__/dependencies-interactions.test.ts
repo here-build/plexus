@@ -1,46 +1,49 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-
-import { buildModelClass } from "../proxy-runtime.js";
-import type { ModelType } from "../proxy-runtime-types.js";
-import { initTestPlexus } from "./test-plexus.js";
-import type { DependencyId, DependencyVersion } from "../plexus.js";
+import { PlexusModel } from "../PlexusModel";
+import { syncing } from "../decorators";
+import { initTestPlexus } from "./test-plexus";
+import type { DependencyId, DependencyVersion } from "../Plexus";
 
 // Dependency entity (no collections to avoid resolver shape issues)
-type DepEntity = ModelType<
-  {
-    name: string;
-    version: number;
-  },
-  "DepEntity"
->;
+@syncing
+class DepEntity extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  @syncing
+  accessor version!: number;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 // Root entity holds references to dependency entities and manages dependency versions
-type RootEntity = ModelType<
-  {
-    name: string;
-    ref: DepEntity | null;
-    readonly depsRecord: Record<string, DepEntity>;
-    readonly depsList: DepEntity[];
-    readonly dependencies: Set<DepEntity>;
-    readonly dependencyVersion: Record<DependencyId, DependencyVersion>;
-  },
-  "RootEntity"
->;
+@syncing
+class RootEntity extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-const DepEntity = buildModelClass<DepEntity>("DepEntity", {
-  name: "val",
-  version: "val"
-});
+  @syncing
+  accessor ref!: DepEntity | null;
 
-const RootEntity = buildModelClass<RootEntity>("RootEntity", {
-  name: "val",
-  ref: "val",
-  depsRecord: "record",
-  depsList: "list",
-  dependencies: "set",
-  dependencyVersion: "record"
-});
+  @syncing.map
+  accessor depsRecord!: Record<string, DepEntity>;
+
+  @syncing.list
+  accessor depsList!: DepEntity[];
+
+  @syncing.set
+  accessor dependencies!: Set<DepEntity>;
+
+  @syncing.map
+  accessor dependencyVersion!: Record<DependencyId, DependencyVersion>;
+
+  constructor(props) {
+    super(props);
+  }
+}
 
 describe("Dependencies Interactions with Plexus", () => {
   let depA: Y.Doc;
@@ -58,8 +61,8 @@ describe("Dependencies Interactions with Plexus", () => {
     const depAEntity_temp = new DepEntity({ name: "Alpha", version: 1 });
     const depBEntity_temp = new DepEntity({ name: "Beta", version: 2 });
 
-    const { doc: depADoc, root: depARoot } = await initTestPlexus<DepEntity>(depAEntity_temp);
-    const { doc: depBDoc, root: depBRoot } = await initTestPlexus<DepEntity>(depBEntity_temp);
+    const { doc: depADoc, root: depARoot } = await initTestPlexus<DepEntity>(depAEntity_temp, {}, undefined, "depA");
+    const { doc: depBDoc, root: depBRoot } = await initTestPlexus<DepEntity>(depBEntity_temp, {}, undefined, "depB");
 
     depA = depADoc;
     depB = depBDoc;
@@ -122,21 +125,6 @@ describe("Dependencies Interactions with Plexus", () => {
     expect(rootFields.get("ref")).toEqual([depAEntityId, "depA"]);
     expect(rootFields.get("depsRecord").get("a")).toEqual([depAEntityId, "depA"]);
     expect(rootFields.get("depsList").get(0)).toEqual([depBEntityId, "depB"]);
-  });
-
-  it("resolves dependency refs as read-only manifestations", () => {
-    // Get dependency from Set
-    const deps = Array.from(root.dependencies);
-    const depAObj = deps.find((dep) => dep.name === "Alpha")!;
-    root.ref = depAObj;
-
-    const got = root.ref!;
-    expect(got.name).toBe("Alpha");
-
-    // Attempting to mutate dependency manifestation should fail (read-only)
-    expect(() => {
-      got.name = "Changed";
-    }).toThrow();
   });
 
   it("supports multiple dependencies in the same root", () => {

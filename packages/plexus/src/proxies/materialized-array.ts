@@ -32,7 +32,7 @@ export type MaterializedArrayProxyInitTarget<T extends AllowedYJSValue> = {
 };
 
 export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, context, isChildField }: MaterializedArrayProxyInitTarget<T>) => {
-  let backingArray: T[] = [];
+  let backingArray: Array<T | null> = [];
   const getYjsArray = () => owner._yjsModel?.get(context.name) as Y.Array<AllowedYValue> | null;
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
     const yjsArray = getYjsArray();
@@ -61,13 +61,20 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, context, isC
             maybeTransacting(owner._doc, () => {
               trackModification(self, ACCESS_ALL_SYMBOL);
               // Update parent tracking for child fields
+              let reusedElements = new Set<T>();
               if (isChildField) {
                 for (const element of elements) {
+                  if (backingArray.includes(element)) {
+                    reusedElements.add(element);
+                  }
                   element?.[requestAdoptionSymbol]?.(owner, context.name);
                 }
               }
 
               backingArray.push(...elements);
+              for (const element of reusedElements) {
+                element?.[informAdoptionSymbol](owner, context.name);
+              }
               const yjsArray = getYjsArray();
               if (yjsArray) {
                 yjsArray.push(elements.map((element) => maybeReference(element, owner._doc!)));
@@ -243,25 +250,26 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, context, isC
         if (elementKey === "length") {
           // Handle array length truncation
           const newLength = Number(value);
+          const yjsArray = getYjsArray();
           if (Number.isSafeInteger(newLength) && newLength >= 0) {
-            const yjsArray = getYjsArray();
-            if (!yjsArray) {
-              for (const item of backingArray) {
-                item?.[informOrphanizationSymbol]?.();
-              }
-              backingArray.length = newLength;
-              return true;
-            }
-            if (newLength < yjsArray.length) {
+            if (newLength < backingArray.length) {
               // eslint-disable-next-line sonarjs/no-nested-functions
               // Clear parent tracking for truncated items
               if (isChildField) {
-                for (const item of backingArray) {
+                for (const item of backingArray.slice(newLength)) {
                   item?.[informOrphanizationSymbol]?.();
                 }
               }
+              backingArray.length = newLength;
 
-              yjsArray.delete(newLength, yjsArray.length - newLength);
+              yjsArray?.delete(newLength, yjsArray.length - newLength);
+            } else if (newLength > backingArray.length) {
+              const gap = [] as null[];
+              while (backingArray.length + gap.length <= newLength) {
+                gap.push(null);
+              }
+              backingArray.push(...gap);
+              yjsArray?.push(gap);
             }
             return true;
           }

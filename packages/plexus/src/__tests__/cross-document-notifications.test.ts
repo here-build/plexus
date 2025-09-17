@@ -111,9 +111,10 @@ describe("Cross-Document Notifications", () => {
   describe("Basic Field Tracking", () => {
     it("should notify when primitive field changes across documents", async () => {
       // Doc1: Create user and set up tracking
-      const { user: user1, entityId, doc: doc1, plexus } = await createTestUser("Alice");
+      const { user: user1, entityId, doc: doc1 } = await createTestUser("Alice");
+      syncDocs(doc1, doc2);
       const plexus2 = new TestPlexus(doc2);
-      await syncDocsWithPlexus(doc1, doc2, plexus2);
+      await plexus2.rootPromise;
       const user2 = plexus2.loadEntity<User>(entityId)!;
       expect(user2.name).toBe("Alice");
       const notifyCallback = vi.fn();

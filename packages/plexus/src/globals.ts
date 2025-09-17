@@ -1,4 +1,3 @@
-import type { ModelConstructor } from "./proxy-runtime-types";
 import { PlexusConstructor } from "./PlexusModel";
 
 export const entityClasses = new Map<string, PlexusConstructor>();

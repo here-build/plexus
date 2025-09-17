@@ -9,7 +9,6 @@
 
 // Runtime exports
 
-export * from "./proxy-runtime";
 export * from "./proxy-runtime-types";
 
 // New decorator-based API

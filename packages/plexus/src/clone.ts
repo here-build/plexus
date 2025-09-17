@@ -1,25 +1,11 @@
-import { informAdoptionSymbol, isProxyEntity, LegitimateSchema, type ModelType } from "./proxy-runtime-types";
+import { isProxyEntity } from "./proxy-runtime-types";
 import { ACCESS_ALL_SYMBOL, trackAccess } from "./tracking";
-import { isModelType } from "./utils";
-import { PlexusModel } from "./PlexusModel";
+import { PlexusConstructor, PlexusModel } from "./PlexusModel";
 
 // Global clone transaction mapping for handling cycles and deduplication
 let cloneTransactionMapping: WeakMap<any, any> | null = null;
 
-function maybeClone<T>(object: T, parent: PlexusModel, parentField: string, metadata?: string): T {
-  if (object instanceof PlexusModel) {
-    const clonedObject = object.clone() as T;
-    clonedObject[informAdoptionSymbol](parent, parentField, metadata);
-    return clonedObject;
-  } else {
-    return object;
-  }
-}
-
-export function clone<Model extends PlexusModel>(
-  source: Model,
-  newProps: Partial<Model> = {}
-) {
+export function clone<Model extends PlexusModel>(source: Model, newProps: Partial<Model> = {}) {
   const isTopLevel = cloneTransactionMapping === null;
   cloneTransactionMapping ??= new WeakMap();
   if (cloneTransactionMapping.has(source)) {
@@ -27,8 +13,9 @@ export function clone<Model extends PlexusModel>(
   }
   try {
     trackAccess(source, ACCESS_ALL_SYMBOL);
-    // @ts-expect-error we're bypassing ts constraints here as we're aware on underlying js logic
-    const clonedModel = new source.constructor();
+    // this is vital to not pass anything at all during that phase. we need to first register cloned entity
+    // in cloneTransactionMapping, then assign values to solve circular dependencies
+    const clonedModel = new (source.constructor as PlexusConstructor)();
     cloneTransactionMapping.set(source, clonedModel);
     // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
     for (const [fieldKey, type] of Object.entries(source._schema)) {
@@ -46,17 +33,19 @@ export function clone<Model extends PlexusModel>(
           clonedModel[fieldKey].assign(fieldValue);
           break;
         case "child-val":
-          const clonedValue = maybeClone(fieldValue, clonedModel, fieldKey);
+          const clonedValue = fieldValue instanceof PlexusModel ? fieldValue.clone() : fieldValue;
           clonedModel[fieldKey] = clonedValue;
           break;
         case "child-list":
           clonedModel[fieldKey].assign(
-            (fieldValue as any as any[]).map((item) => maybeClone(item, clonedModel as any, fieldKey))
+            (fieldValue as any as any[]).map((item) => (item instanceof PlexusModel ? item.clone() : item))
           );
           break;
         case "child-set":
           clonedModel[fieldKey].assign(
-            new Set([...(fieldValue as any as Set<any>)].map((item) => maybeClone(item, clonedModel as any, fieldKey)))
+            new Set(
+              [...(fieldValue as any as Set<any>)].map((item) => (item instanceof PlexusModel ? item.clone() : item))
+            )
           );
           break;
         case "child-record":
@@ -64,7 +53,7 @@ export function clone<Model extends PlexusModel>(
             Object.fromEntries(
               Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
                 key,
-                maybeClone(item, clonedModel as any, fieldKey, key)
+                item instanceof PlexusModel ? item.clone() : item
               ])
             )
           );

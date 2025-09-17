@@ -1,22 +1,20 @@
 import { PlexusConstructor, PlexusModel } from "./PlexusModel";
 import {
   AllowedYJSValue,
-  AllowedYValue,
   backingStorageSymbol,
   GenericRecordSchema,
   informAdoptionSymbol,
   ReadonlyField,
-  requestAdoptionSymbol,
+  requestEmancipationSymbol,
   requestOrphanizationSymbol
 } from "./proxy-runtime-types";
 import invariant from "tiny-invariant";
 import { entityClasses } from "./globals";
 import { trackAccess, trackModification } from "./tracking";
-import { DefaultedWeakMap, maybeReference } from "./utils";
+import { DefaultedWeakMap, maybeReference, maybeTransacting } from "./utils";
 import { buildRecordProxy } from "./proxies/materialized-map";
 import { buildSetProxy } from "./proxies/materialized-set";
 import { buildArrayProxy } from "./proxies/materialized-array";
-import { deref } from "./deref";
 
 function syncingDecorator<Model extends PlexusModel>(
   ...args: [PlexusConstructor<Model>, ClassDecoratorContext<PlexusConstructor<Model>>]
@@ -50,34 +48,18 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
     }
     schema[context.name] = "val";
 
-    const storage = new DefaultedWeakMap((target: Model) => {
-      let value: T;
-      return (target[backingStorageSymbol][context.name] = {
-        get() {
-          return value;
-        },
-        set(newValue) {
-          let changed = newValue !== value;
-          value = newValue;
-          return changed;
-        }
-      });
-    });
-
     return {
       get(this: Model) {
         trackAccess(this, context.name);
-        return this._yjsModel?.doc
-          ? (deref(this._yjsModel.doc, this._yjsModel.get(context.name) as AllowedYValue | undefined) as T)
-          : storage.get(this).get();
+        return this[backingStorageSymbol].get(context.name);
       },
       set(this: Model, value) {
-        const storedValue = storage.get(this).get();
+        const storedValue = this[backingStorageSymbol].get(context.name);
         if (storedValue === value) {
           return;
         }
         trackModification(this, context.name);
-        storage.get(this).set(value);
+        this[backingStorageSymbol].set(context.name, value);
         if (value === undefined) {
           this._yjsModel?.delete(context.name);
         } else {
@@ -85,9 +67,6 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
         }
       },
       init(this: Model, value: T) {
-        if (!storage.has(this)) {
-          storage.get(this).set(value);
-        }
         return value;
       }
     };
@@ -101,44 +80,34 @@ export const syncing = Object.assign(syncingDecorator, {
       context: ClassAccessorDecoratorContext<Model, T> & { name: string }
     ) {
       ((context.metadata.schema ??= {}) as Record<string, any>)[context.name] = "child-val";
-      const storage = new DefaultedWeakMap((target: Model) => {
-        let value: T;
-        return (target[backingStorageSymbol][context.name] = {
-          get() {
-            return value;
-          },
-          set(newValue: T) {
-            value = newValue;
-          }
-        });
-      });
-
       return {
         get(this: Model) {
           trackAccess(this, context.name);
-          return this._yjsModel?.doc
-            ? (deref(this._yjsModel.doc, this._yjsModel.get(context.name) as AllowedYValue | undefined) as T)
-            : storage.get(this).get();
+          return this[backingStorageSymbol].get(context.name);
         },
         set(this: Model, value: T) {
-          const storedValue = storage.get(this).get();
+          const storedValue = this[backingStorageSymbol].get(context.name) as T;
           if (storedValue === value) {
             return;
           }
-          trackModification(this, context.name);
-          storedValue?.[requestOrphanizationSymbol]?.();
-          storage.get(this).set(value);
-          value?.[requestAdoptionSymbol]?.(this, context.name);
-          if (value === undefined) {
-            this._yjsModel?.delete(context.name);
-          } else {
-            this._yjsModel?.set(context.name, maybeReference(value, this._doc!));
-          }
+          maybeTransacting(this._doc, () => {
+            storedValue?.[requestOrphanizationSymbol]?.();
+            if (value === undefined) {
+              this[backingStorageSymbol].delete(context.name);
+            } else {
+              this[backingStorageSymbol].set(context.name, value);
+            }
+            value?.[requestEmancipationSymbol]?.();
+            value?.[informAdoptionSymbol]?.(this, context.name);
+            trackModification(this, context.name);
+            if (value === undefined) {
+              this._yjsModel?.delete(context.name);
+            } else {
+              this._yjsModel?.set(context.name, maybeReference(value, this._doc!));
+            }
+          });
         },
         init(this: Model, value: T) {
-          if (!storage.has(this)) {
-            storage.get(this).set(value);
-          }
           return value;
         }
       };

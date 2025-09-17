@@ -12,6 +12,7 @@ import {
   referenceSymbol,
   ReferenceTuple,
   requestAdoptionSymbol,
+  requestEmancipationSymbol,
   requestOrphanizationSymbol,
   Storageable
 } from "./proxy-runtime-types";
@@ -36,7 +37,8 @@ let currentlyEmancipating = new WeakSet<PlexusModel>();
 export abstract class PlexusModel {
   static modelName: string;
   static schema: GenericRecordSchema;
-  readonly [backingStorageSymbol]: Record<string, { get(): any; set(value: any): void }> = {};
+
+  [backingStorageSymbol] = new Map<string, any>();
 
   #ephemeralParent: PlexusModel | null = null;
   #ephemeralParentKey: string | null = null;
@@ -98,29 +100,36 @@ export abstract class PlexusModel {
     return Object.fromEntries(Object.keys(this._schema).map((key) => [key, this[key]]));
   }
 
+  [requestEmancipationSymbol]() {
+    this.#emancipate();
+  }
+
   [informAdoptionSymbol](newParent: (typeof this)["parent"], field: string, extraFieldMetadata?: string) {
     if (!this._yjsModel) {
+      if (
+        this.#ephemeralParent === newParent &&
+        this.#ephemeralParentKey === field &&
+        this.#extraParentMetadata === extraFieldMetadata
+      ) {
+        return;
+      }
       if (newParent._doc) {
         this[referenceSymbol](newParent._doc);
+        // intentional recursion
+        return this[informAdoptionSymbol](newParent, field, extraFieldMetadata);
       } else {
-        if (
-          this.#ephemeralParent === newParent &&
-          this.#ephemeralParentKey === field &&
-          this.#extraParentMetadata === extraFieldMetadata
-        ) {
-          return;
-        }
-        const referenceDisclosure = newParent?._doc;
-        if (referenceDisclosure) {
-          this[referenceSymbol](referenceDisclosure.doc);
-          // consider that tail recursion
-          return this[informAdoptionSymbol](newParent, field, extraFieldMetadata);
-        }
         this.#ephemeralParent = newParent;
         this.#ephemeralParentKey = field;
         this.#extraParentMetadata = extraFieldMetadata ?? null;
         trackModification(this, "parent");
         return;
+      }
+    } else {
+      if (newParent._doc && this._doc) {
+        invariant(
+          newParent._doc === this._doc,
+          "entities from other document cannot be passed to child-* fields as this breaks the hierarchy tree"
+        );
       }
     }
     const currentParent = (this._yjsModel as Y.Map<any> as Y.Map<ParentReference>).get(YJS_GLOBALS.modelMetadataParent);
@@ -157,9 +166,7 @@ export abstract class PlexusModel {
       : [null, this.#ephemeralParentKey!, this.#extraParentMetadata];
     // avoiding circular dependencies
 
-    if (this._yjsModel) {
-      this._yjsModel.delete(YJS_GLOBALS.modelMetadataParent);
-    }
+    this._yjsModel?.delete(YJS_GLOBALS.modelMetadataParent);
     this.#ephemeralParent = null;
 
     switch ((parent.constructor as PlexusConstructor).schema[parentKey]) {
@@ -184,12 +191,6 @@ export abstract class PlexusModel {
 
   [requestAdoptionSymbol](newParent: (typeof this)["parent"], field: string, extraFieldMetadata?: string) {
     const parent = this.parent;
-    if (newParent._doc && this._doc) {
-      invariant(
-        newParent._doc === this._doc,
-        "entities from other document cannot be passed to child-* fields as this breaks the hierarchy tree"
-      );
-    }
     const parentReference = this._yjsModel?.get(YJS_GLOBALS.modelMetadataParent) as any[] | undefined;
     const [_, parentKey, extraParentMetadata] = this._yjsModel
       ? (parentReference ?? [null, null, null]) // circular edge case
@@ -296,7 +297,7 @@ export abstract class PlexusModel {
           case "child-val":
             yprojectObjectInstanceFields.set(
               schemaKey,
-              boundMaybeReference(this[backingStorageSymbol][schemaKey].get() as AllowedYJSValue)
+              boundMaybeReference(this[backingStorageSymbol].get(schemaKey) as AllowedYJSValue)
             );
             break;
           case "list":
@@ -349,6 +350,10 @@ export abstract class PlexusModel {
     invariant(this._yjsModel, "cannot bootstrap observation without yjs model");
     for (const [key, type] of Object.entries(this._schema)) {
       switch (type) {
+        case "val":
+        case "child-val":
+          this[backingStorageSymbol].set(key, deref(this._doc!, this._yjsModel.get(key)));
+          break;
         case "record":
         case "child-record":
         case "set":
@@ -366,6 +371,7 @@ export abstract class PlexusModel {
       for (const key of event.keysChanged) {
         if (this._schema[key] === "val" || this._schema[key] === "child-val") {
           trackModification(this, key);
+          this[backingStorageSymbol].set(key, deref(this._doc!, this._yjsModel!.get(key) as AllowedYValue));
         } else if (key in this._schema) {
           console.warn("attempted to rewrite the value that should be preserved untouched", this, key);
         } else if (key === YJS_GLOBALS.modelMetadataParent) {

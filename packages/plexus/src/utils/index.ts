@@ -2,8 +2,6 @@ import * as Y from "yjs";
 import {
   AllowedYJSValue,
   AllowedYValue,
-  isProxyEntity,
-  ModelType,
   referenceSymbol,
   ReferenceTuple
 } from "../proxy-runtime-types";

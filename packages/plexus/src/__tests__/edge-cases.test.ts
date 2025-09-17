@@ -432,7 +432,7 @@ describe("Proxy Edge Cases", () => {
       expect(parent.children.length).toBe(2);
       expect(parent.children[0].name).toBe("Child0");
       expect(parent.children[1].name).toBe("Child1");
-      expect(parent.children[2]).toBeNull();
+      expect(parent.children[2]).toBeUndefined();
     });
   });
 

@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { LegitimateSchema, ModelType, ParentReference } from "../proxy-runtime-types";
+import { LegitimateSchema, ParentReference } from "../proxy-runtime-types";
 import { deref } from "../deref";
 import invariant from "tiny-invariant";
 import { maybeTransacting } from "./index";

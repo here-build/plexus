@@ -4,15 +4,16 @@
 
 import * as Y from "yjs";
 import * as awarenessProtocol from "y-protocols/awareness";
-import { CrossProjectReferenceTuple, isProxyEntity, referenceSymbol, Storageable } from "./proxy-runtime-types";
+import { CrossProjectReferenceTuple, referenceSymbol, Storageable } from "./proxy-runtime-types";
 import { Tagged } from "type-fest";
 import invariant from "tiny-invariant";
 import { PlexusAwareness } from "./awareness";
 import { YJS_GLOBALS } from "./YJS_GLOBALS";
-import { DefaultedMap, maybeTransacting, never } from "./utils";
-import { documentEntityCaches, entityClasses } from "./globals";
-import { RestrictedArray, RestrictedRecord, RestrictedSet } from "./load";
+import { DefaultedMap, maybeTransacting } from "./utils";
+import { entityClasses } from "./globals";
+import { documentEntityCaches } from "./entity-cache";
 import { PlexusModel } from "./PlexusModel";
+import { deref } from "./deref";
 
 export type DependencyId = Tagged<string, "Plexus dependency id">;
 export type DependencyVersion = Tagged<string, "Plexus dependency id">;
@@ -32,7 +33,6 @@ export abstract class Plexus<
     ),
   DependencyRootType extends PlexusModel | null = Root extends {
     readonly dependencies: Set<infer DependencyType>;
-    [referenceSymbol](doc: Y.Doc): CrossProjectReferenceTuple;
   }
     ? DependencyType
     : null,
@@ -40,20 +40,20 @@ export abstract class Plexus<
   DependencyVersionType extends DependencyVersion = DependencyVersion
 > {
   static docPlexus = new WeakMap<Y.Doc, Plexus<any, any, any, any>>();
-  public readonly doc: Y.Doc;
   public readonly awareness: PlexusAwareness;
-  public readonly rootPromise: Promise<Root>;
+  // Defer loadRoot() to next tick to ensure child class is fully constructed
+  public readonly rootPromise: Promise<Root> = Promise.resolve().then(() => this.loadRoot());
   private dependencyDocs = new Map<DependencyIdType, Y.Doc>(); // Maps dependency ID -> Y.Doc for load() function
   private dependencyVersions = new Map<DependencyIdType, DependencyVersionType>(); // Maps "id@version" -> Y.Doc for version tracking
   private isRootLoaded = false;
 
-  protected constructor(doc: Y.Doc, awareness?: awarenessProtocol.Awareness) {
+  protected constructor(
+    public readonly doc: Y.Doc,
+    awareness: awarenessProtocol.Awareness = new awarenessProtocol.Awareness(doc)
+  ) {
     invariant(!Plexus.docPlexus.has(doc), "cannot spawn multiple entities of Plexus for same doc");
-    this.doc = doc;
     Plexus.docPlexus.set(doc, this);
-    this.awareness = new PlexusAwareness(awareness || new awarenessProtocol.Awareness(doc));
-    // Defer loadRoot() to next tick to ensure child class is fully constructed
-    this.rootPromise = Promise.resolve().then(() => this.loadRoot());
+    this.awareness = new PlexusAwareness(awareness);
   }
 
   // Abstract method for fetching dependencies
@@ -77,7 +77,6 @@ export abstract class Plexus<
     const depDoc = await this.fetchDependency(dependencyId, dependencyVersion);
     this.dependencyDocs.set(dependencyId, depDoc);
     this.dependencyVersions.set(dependencyId, dependencyVersion);
-
     // Get dependency resolver and create dependency manifestation
     const resolver = docDependencyResolverMap.get(this.doc);
     invariant(resolver, "Missing dependency resolver for document");
@@ -90,10 +89,9 @@ export abstract class Plexus<
     invariant(depRoot, `cannot find root by ID ${depRootId} in dependency ${dependencyId}@${dependencyVersion}`);
 
     // Update root entity with new dependency
-    const dependencies = root.dependencies;
     const dependencyVersionMap = root.dependencyVersion as Record<DependencyIdType, DependencyVersionType>;
 
-    dependencies.add(depRoot);
+    root.dependencies.add(depRoot);
     dependencyVersionMap[dependencyId] = dependencyVersion;
 
     return depRoot;
@@ -127,116 +125,24 @@ export abstract class Plexus<
         return cachedEntity;
       }
 
-      const model = this.dependencyDocs.get(dependencyId)?.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(entityId);
+      const depDoc = this.dependencyDocs.get(dependencyId);
+      invariant(depDoc, `Missing dependency document for ${dependencyId}`);
+
+      // Check if entity already exists in the dependency doc's cache
+      const existingEntity = documentEntityCaches.get(depDoc).get(entityId)?.deref();
+      if (existingEntity) {
+        cache.get(dependencyId).set(entityId, existingEntity as DependencyRootType);
+        return existingEntity as DependencyRootType;
+      }
+
+      const model = depDoc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(entityId);
       invariant(model, `cannot find model data for ${dependencyId}:${entityId}`);
       const type = model.get(YJS_GLOBALS.modelMetadataType) as string;
       const Constructor = entityClasses.get(type);
       invariant(Constructor, `cannot find model type ${type} for ${dependencyId}:${entityId}`);
-      const proxyTarget = {};
-
-      const manifestation = new Proxy(proxyTarget as Exclude<DependencyRootType, null>, {
-        get(target, key) {
-          switch (key) {
-            case "clone":
-              return (newProperties?: Record<string, any>) => {
-                // Clone the manifestation (not the raw proxyTarget snapshot)
-                // @ts-expect-error generic types
-                return clone(manifestation as any, newProperties);
-              };
-            case isProxyEntity:
-              return true;
-            case "constructor":
-              return Constructor;
-            case "uuid":
-              return entityId;
-            case referenceSymbol:
-              return () => [entityId, dependencyId];
-            default:
-              return target[key];
-          }
-        },
-        set() {
-          return false;
-        },
-        defineProperty() {
-          return false;
-        },
-        has(_, key) {
-          return key === referenceSymbol || key === "uuid" || key === isProxyEntity || Reflect.has(proxyTarget, key);
-        }
-      });
-      cache.get(dependencyId).set(entityId, manifestation);
-      Object.assign(
-        proxyTarget,
-        Object.fromEntries(
-          Object.entries(Constructor.schema).map(([key, type]) => {
-            const target = model.get(key);
-            switch (type) {
-              case "val":
-              case "child-val":
-                return [
-                  key,
-                  Array.isArray(target) ? resolver(target[0], (target[1] as DependencyIdType) ?? dependencyId) : target
-                ];
-              case "set":
-              case "child-set":
-                invariant(
-                  target instanceof Y.Array,
-                  `expected array at ${dependencyId}:${entityId}:${key}, got ${typeof target}`
-                );
-                const values = target
-                  .toArray()
-                  .map((val) =>
-                    Array.isArray(val) ? resolver(val[0], (val[1] as DependencyIdType) ?? dependencyId) : val
-                  );
-                const base = new Set(values);
-                Object.setPrototypeOf(base, RestrictedSet.prototype);
-                return [key, Object.freeze(base as unknown as RestrictedSet)];
-              case "list":
-              case "child-list":
-                invariant(
-                  target instanceof Y.Array,
-                  `expected array at ${dependencyId}:${entityId}:${key}, got ${typeof target}`
-                );
-                return [
-                  key,
-                  Object.freeze(
-                    new RestrictedArray(
-                      ...target
-                        .toArray()
-                        .map((val) =>
-                          Array.isArray(val) ? resolver(val[0], (val[1] as DependencyIdType) ?? dependencyId) : val
-                        )
-                    )
-                  )
-                ];
-              case "record":
-              case "child-record":
-                invariant(
-                  target instanceof Y.Map,
-                  `expected record at ${dependencyId}:${entityId}:${key}, got ${typeof target}`
-                );
-                const entries = Array.from(target.entries());
-                return [
-                  key,
-                  Object.freeze(
-                    new RestrictedRecord(
-                      Object.fromEntries(
-                        entries.map(([k, val]) => [
-                          k,
-                          Array.isArray(val) ? resolver(val[0], (val[1] as DependencyIdType) ?? dependencyId) : val
-                        ])
-                      )
-                    )
-                  )
-                ];
-              default:
-                never(type);
-            }
-          })
-        )
-      );
-      return manifestation;
+      const materializedModel = new Constructor([entityId, depDoc]) as DependencyRootType;
+      cache.get(dependencyId).set(entityId, materializedModel);
+      return materializedModel;
     };
     docDependencyResolverMap.set(this.doc, resolver as any); // intentional due to TS2345
 
@@ -258,7 +164,7 @@ export abstract class Plexus<
       }
     });
 
-    const root = new Constructor([rootId, this.doc]) as any as Root; // we're unable to validate types against tests anyway, sadly
+    const root = deref(this.doc, [rootId]) as any as Root; // we're unable to validate types against tests anyway, sadly
     this.isRootLoaded = true;
     return root;
   }

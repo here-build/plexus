@@ -61,7 +61,7 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
       };
     }
     (context.metadata.schema as GenericRecordSchema)[context.name] = "val";
-    return createHandlers(context);
+    return createHandlers(context) as ClassAccessorDecoratorResult<Model, T>;
   }
 }
 

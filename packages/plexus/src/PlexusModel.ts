@@ -1,6 +1,9 @@
 import * as Y from "yjs";
 import {
   AllowedYJSValue,
+  AllowedYJSValueList,
+  AllowedYJSValueMap,
+  AllowedYJSValueSet,
   AllowedYValue,
   backingStorageSymbol,
   GenericRecordSchema,
@@ -34,15 +37,18 @@ export type PlexusConstructor<T extends PlexusModel = PlexusModel> =
   | ((new (...args: any) => T) & {
       modelName: string;
       schema: GenericRecordSchema;
-    })
-export type ConcretePlexusConstructor<T extends PlexusModel = PlexusModel> =
-  | ((new (...args: any) => T) & {
-      modelName: string;
-      schema: GenericRecordSchema;
     });
+export type ConcretePlexusConstructor<T extends PlexusModel = PlexusModel> = (new (...args: any) => T) & {
+  modelName: string;
+  schema: GenericRecordSchema;
+};
 type Initializer<T extends PlexusModel> = [entityId: string, doc: Y.Doc];
 
 let currentlyEmancipating = new WeakSet<PlexusModel>();
+
+export type PlexusInit<T extends PlexusModel> = {
+  [key in keyof T as T[key] extends AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList ? key extends keyof PlexusModel ? never : key : never]?: T[key]
+};
 
 export abstract class PlexusModel {
   static modelName: string;
@@ -64,14 +70,20 @@ export abstract class PlexusModel {
   }
 
   // making things non-enumerable
-  accessor _constructionComplete = false;
-  accessor _initializationState: Partial<typeof this> = {};
+  accessor _initializationState: Record<
+    string,
+    AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList
+  > = {};
   get _doc(): Y.Doc | null {
     return this._yjsModel?.doc ?? null;
   }
   accessor _yjsModel: Y.Map<Storageable> | null = null;
 
-  constructor(init: Partial<typeof this> | Initializer<typeof this> = {}) {
+  constructor(
+    init:
+      | Record<string, AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList>
+      | Initializer<typeof this> = {}
+  ) {
     if (Array.isArray(init)) {
       const [entityId, doc] = init;
       const cached = documentEntityCaches.get(doc).get(entityId)?.deref();
@@ -103,7 +115,6 @@ export abstract class PlexusModel {
         )
       )
     );
-    this._constructionComplete = true;
     Object.seal(this);
   }
 

@@ -12,7 +12,7 @@
 export * from "./proxy-runtime-types";
 
 // New decorator-based API
-export { PlexusModel } from "./PlexusModel";
+export { PlexusModel, PlexusInit } from "./PlexusModel";
 export { syncing } from "./decorators";
 
 // Built-in tracking system

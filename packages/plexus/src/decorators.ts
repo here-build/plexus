@@ -89,6 +89,12 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
         set(this, value);
       },
       init(this: Model, value: T) {
+        // here and below: we have Object.assign in root class constructor that is taking the values as an
+        // initialization input and when there is some, we need to respect what user passed, not what was passed in
+        // default initializer. we're basically relying here on our knowledge that undefined is illegal value, and
+        // we can allow ourselves to override value only when _constructionComplete is flagged, meaning that
+        // if something is defined, we should not touch it - and if value is empty, we can allow overselves overwrite it
+        // with default value
         if (this._constructionComplete && this[context.name] === undefined && value !== undefined) {
           set(this, value);
         }

@@ -64,6 +64,10 @@ export abstract class PlexusModel {
     return (this.constructor as PlexusConstructor).schema;
   }
 
+  get _type() {
+    return (this.constructor as PlexusConstructor).modelName;
+  }
+
   _deref(target: AllowedYValue) {
     invariant(this._doc, "tried to deref without doc");
     return deref(this._doc, target);

@@ -1,6 +1,6 @@
 import { isProxyEntity } from "./proxy-runtime-types";
 import { ACCESS_ALL_SYMBOL, trackAccess } from "./tracking";
-import { PlexusConstructor, PlexusModel } from "./PlexusModel";
+import { ConcretePlexusConstructor, PlexusConstructor, PlexusModel } from "./PlexusModel";
 
 // Global clone transaction mapping for handling cycles and deduplication
 let cloneTransactionMapping: WeakMap<any, any> | null = null;
@@ -15,7 +15,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
     trackAccess(source, ACCESS_ALL_SYMBOL);
     // this is vital to not pass anything at all during that phase. we need to first register cloned entity
     // in cloneTransactionMapping, then assign values to solve circular dependencies
-    const clonedModel = new (source.constructor as PlexusConstructor)();
+    const clonedModel = new (source.constructor as ConcretePlexusConstructor)();
     cloneTransactionMapping.set(source, clonedModel);
     // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
     for (const [fieldKey, type] of Object.entries(source._schema)) {

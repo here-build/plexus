@@ -8,6 +8,7 @@ import { entityClasses } from "./globals";
 import { documentEntityCaches } from "./entity-cache";
 import { isTupleReference } from "./utils";
 import { docDependencyResolverMap } from "./Plexus";
+import { ConcretePlexusConstructor } from "./PlexusModel";
 
 export const deref = (doc: Y.Doc, pointer: AllowedYValue | undefined): AllowedYJSValue => {
   if (pointer == null) {
@@ -38,7 +39,7 @@ export const deref = (doc: Y.Doc, pointer: AllowedYValue | undefined): AllowedYJ
     ?.get(YJS_GLOBALS.modelMetadataType) as string;
   invariant(targetType, `missing type for ${targetEntityId}`);
 
-  const constructor = entityClasses.get(targetType);
+  const constructor = entityClasses.get(targetType) as ConcretePlexusConstructor;
   invariant(constructor, `missing constructor ${targetType} for ${targetEntityId}`);
 
   return documentEntityCaches.get(doc).get(targetEntityId)?.deref() ?? new constructor([targetEntityId, doc]);

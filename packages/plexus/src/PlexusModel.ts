@@ -26,10 +26,20 @@ import { nanoid } from "nanoid";
 import { DependencyId, Plexus } from "./Plexus";
 import { clone } from "./clone";
 
-export type PlexusConstructor<T extends PlexusModel = PlexusModel> = (new (...args: any) => T) & {
-  modelName: string;
-  schema: GenericRecordSchema;
-};
+export type PlexusConstructor<T extends PlexusModel = PlexusModel> =
+  | ((abstract new (...args: any) => T) & {
+      modelName: string;
+      schema: GenericRecordSchema;
+    })
+  | ((new (...args: any) => T) & {
+      modelName: string;
+      schema: GenericRecordSchema;
+    })
+export type ConcretePlexusConstructor<T extends PlexusModel = PlexusModel> =
+  | ((new (...args: any) => T) & {
+      modelName: string;
+      schema: GenericRecordSchema;
+    });
 type Initializer<T extends PlexusModel> = [entityId: string, doc: Y.Doc];
 
 let currentlyEmancipating = new WeakSet<PlexusModel>();
@@ -249,10 +259,6 @@ export abstract class PlexusModel {
     return (this.constructor as PlexusConstructor).modelName;
   }
 
-  get #schema() {
-    return (this.constructor as PlexusConstructor).schema;
-  }
-
   [referenceSymbol](doc: Y.Doc): ReferenceTuple {
     invariant(Plexus.docPlexus.has(doc), "passed doc is not registered as legitimate Plexus root");
     // this is needed explicitly in that manner for cyclic dependencies.
@@ -291,7 +297,7 @@ export abstract class PlexusModel {
         }
         this._yjsModel = yprojectObjectInstanceFields;
       }
-      for (const [schemaKey, type] of Object.entries(this.#schema)) {
+      for (const [schemaKey, type] of Object.entries(this._schema)) {
         switch (type) {
           case "val":
           case "child-val":
@@ -352,7 +358,7 @@ export abstract class PlexusModel {
       switch (type) {
         case "val":
         case "child-val":
-          this[backingStorageSymbol].set(key, deref(this._doc!, this._yjsModel.get(key)));
+          this[backingStorageSymbol].set(key, deref(this._doc!, this._yjsModel.get(key) as AllowedYValue));
           break;
         case "record":
         case "child-record":

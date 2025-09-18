@@ -12,7 +12,7 @@ import { YJS_GLOBALS } from "./YJS_GLOBALS";
 import { DefaultedMap, maybeTransacting } from "./utils";
 import { entityClasses } from "./globals";
 import { documentEntityCaches } from "./entity-cache";
-import { PlexusModel } from "./PlexusModel";
+import { ConcretePlexusConstructor, PlexusModel } from "./PlexusModel";
 import { deref } from "./deref";
 
 export type DependencyId = Tagged<string, "Plexus dependency id">;
@@ -138,7 +138,7 @@ export abstract class Plexus<
       const model = depDoc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(entityId);
       invariant(model, `cannot find model data for ${dependencyId}:${entityId}`);
       const type = model.get(YJS_GLOBALS.modelMetadataType) as string;
-      const Constructor = entityClasses.get(type);
+      const Constructor = entityClasses.get(type) as ConcretePlexusConstructor;
       invariant(Constructor, `cannot find model type ${type} for ${dependencyId}:${entityId}`);
       const materializedModel = new Constructor([entityId, depDoc]) as DependencyRootType;
       cache.get(dependencyId).set(entityId, materializedModel);
@@ -205,7 +205,7 @@ export abstract class Plexus<
 
     // Get constructor
     const type = modelData.get(YJS_GLOBALS.modelMetadataType) as string;
-    const Constructor = entityClasses.get(type);
+    const Constructor = entityClasses.get(type) as ConcretePlexusConstructor | undefined;
     invariant(Constructor, `Unknown entity type: ${type}`);
 
     // Spawn and return

@@ -25,15 +25,15 @@ function setDifference<T>(a: Set<T>, b: Set<T>): Set<T> {
   return res;
 }
 
-export type MaterializedArrayProxyInitTarget<T extends AllowedYJSValue> = {
+export type MaterializedArrayProxyInitTarget = {
   owner: PlexusModel;
-  context: ClassAccessorDecoratorContext<PlexusModel, T[]> & { name: string };
+  key: string;
   isChildField?: boolean;
 };
 
-export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, context, isChildField }: MaterializedArrayProxyInitTarget<T>) => {
+export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, key, isChildField }: MaterializedArrayProxyInitTarget) => {
   let backingArray: Array<T | null> = [];
-  const getYjsArray = () => owner._yjsModel?.get(context.name) as Y.Array<AllowedYValue> | null;
+  const getYjsArray = () => owner._yjsModel?.get(key) as Y.Array<AllowedYValue> | null;
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
     const yjsArray = getYjsArray();
     if (event.target !== yjsArray) {
@@ -67,13 +67,13 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, context, isC
                   if (backingArray.includes(element)) {
                     reusedElements.add(element);
                   }
-                  element?.[requestAdoptionSymbol]?.(owner, context.name);
+                  element?.[requestAdoptionSymbol]?.(owner, key);
                 }
               }
 
               backingArray.push(...elements);
               for (const element of reusedElements) {
-                element?.[informAdoptionSymbol](owner, context.name);
+                element?.[informAdoptionSymbol](owner, key);
               }
               const yjsArray = getYjsArray();
               if (yjsArray) {
@@ -91,7 +91,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, context, isC
               // Update parent tracking for child fields
               if (isChildField) {
                 for (const element of elements) {
-                  element?.[requestAdoptionSymbol]?.(owner, context.name);
+                  element?.[requestAdoptionSymbol]?.(owner, key);
                 }
               }
 
@@ -140,7 +140,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, context, isC
                   item?.[informOrphanizationSymbol]?.();
                 }
                 for (const item of addedItems) {
-                  item?.[requestAdoptionSymbol]?.(owner, context.name);
+                  item?.[requestAdoptionSymbol]?.(owner, key);
                 }
               }
               const yjsArray = getYjsArray();
@@ -155,7 +155,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, context, isC
             });
           };
         case "length": // Report length access to this array
-          trackAccess(owner, context.name);
+          trackAccess(owner, key);
           trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
           return backingArray.length;
         case materializationSymbol:
@@ -166,7 +166,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, context, isC
           };
         case Symbol.iterator:
           return () => {
-            trackAccess(owner, context.name);
+            trackAccess(owner, key);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             return backingArray[Symbol.iterator]();
           };
@@ -204,7 +204,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, context, isC
                     item?.[informOrphanizationSymbol]?.();
                   }
                   for (const item of addedItems) {
-                    item?.[requestAdoptionSymbol]?.(owner, context.name);
+                    item?.[requestAdoptionSymbol]?.(owner, key);
                   }
 
                   maybeTransacting(yjsArray.doc, () => {
@@ -220,13 +220,13 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, context, isC
             : // eslint-disable-next-line sonarjs/no-nested-functions
               (...args) => {
                 // Non-mutating array methods that iterate over all elements
-                trackAccess(owner, context.name);
+                trackAccess(owner, key);
                 trackAccess(self, ACCESS_ALL_SYMBOL);
                 return backingArray[elementKey](...args);
               };
         } else {
           // Report keyset access to this array for Array.prototype property access
-          trackAccess(owner, context.name);
+          trackAccess(owner, key);
           trackAccess(self, elementKey);
           return Array.prototype[elementKey];
         }
@@ -237,7 +237,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, context, isC
         const parsedElementKey = Number.parseInt(elementKey);
         if (Number.isSafeInteger(parsedElementKey)) {
           // Report specific index access
-          trackAccess(owner, context.name);
+          trackAccess(owner, key);
           trackAccess(self, elementKey);
           return backingArray[parsedElementKey];
         }
@@ -318,7 +318,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, context, isC
                 yjsArray.delete(parsedElementKey, 1);
                 yjsArray.insert(parsedElementKey, [maybeReference(value, owner._doc!)]);
               }
-              value?.[informAdoptionSymbol]?.(owner, context.name);
+              value?.[informAdoptionSymbol]?.(owner, key);
             }
             return true;
           }
@@ -348,7 +348,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, context, isC
       return elementKey in Array.prototype;
     },
     ownKeys(target) {
-      trackAccess(owner, context.name);
+      trackAccess(owner, key);
       trackAccess(self, ACCESS_ALL_SYMBOL);
       return Reflect.ownKeys(target);
     }

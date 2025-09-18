@@ -12,17 +12,17 @@ import { ACCESS_ALL_SYMBOL, trackAccess, trackModification } from "../tracking";
 import { deref } from "../deref";
 import { PlexusModel } from "../PlexusModel";
 
-export type MaterializedSetProxyInitTarget<T extends AllowedYJSValue> = {
+export type MaterializedSetProxyInitTarget = {
   owner: PlexusModel;
-  context: ClassAccessorDecoratorContext<PlexusModel, Set<T>> & { name: string };
+  key: string;
   isChildField?: boolean;
 };
 
 export const buildSetProxy = <T extends AllowedYJSValue>({
   owner,
-  context,
+  key,
   isChildField
-}: MaterializedSetProxyInitTarget<T>) => {
+}: MaterializedSetProxyInitTarget) => {
   let backingSet = new Set<T>();
   let needsRegeneration = false;
   const getBackgingSet = () => {
@@ -36,7 +36,7 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
     }
     return backingSet;
   };
-  const getYjsSet = () => owner._yjsModel?.get(context.name) as Y.Array<AllowedYValue> | null;
+  const getYjsSet = () => owner._yjsModel?.get(key) as Y.Array<AllowedYValue> | null;
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
     if (event.target !== getYjsSet()) {
       return;
@@ -59,7 +59,7 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
                 trackModification(self, ACCESS_ALL_SYMBOL);
                 // Update parent tracking for child fields
                 if (isChildField) {
-                  value?.[requestAdoptionSymbol]?.(owner, context.name);
+                  value?.[requestAdoptionSymbol]?.(owner, key);
                 }
 
                 // Y.Array.push expects an array of items
@@ -112,7 +112,7 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
               if (isChildField) {
                 for (const value of newValues) {
                   if (!backingSet.has(value)) {
-                    value?.[requestAdoptionSymbol]?.(owner, context.name);
+                    value?.[requestAdoptionSymbol]?.(owner, key);
                   }
                 }
               }
@@ -147,20 +147,20 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
           };
         case "entries":
           return () => {
-            trackAccess(owner, context.name);
+            trackAccess(owner, key);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             return getBackgingSet().entries();
           };
         case "values":
         case "keys":
           return () => {
-            trackAccess(owner, context.name);
+            trackAccess(owner, key);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             return getBackgingSet().values();
           };
         case Symbol.iterator:
           return () => {
-            trackAccess(owner, context.name);
+            trackAccess(owner, key);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             return getBackgingSet()[Symbol.iterator]();
           };
@@ -168,13 +168,13 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
           return "Set";
         case "forEach":
           return (callbackfn: (value: T, value2: T, set: Set<T>) => void, thisArg?: any) => {
-            trackAccess(owner, context.name);
+            trackAccess(owner, key);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             return getBackgingSet().forEach(callbackfn, thisArg);
           };
         case "has":
           return (value: T) => {
-            trackAccess(owner, context.name);
+            trackAccess(owner, key);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             return getBackgingSet().has(value);
           };
@@ -182,19 +182,19 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
           throw new Error("not implemented yet");
         case "isDisjointFrom":
           return (set: Set<AllowedYJSValue>) => {
-            trackAccess(owner, context.name);
+            trackAccess(owner, key);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             return getBackgingSet().isDisjointFrom(set);
           };
         case "isSubsetOf":
           return (set: Set<AllowedYJSValue>) => {
-            trackAccess(owner, context.name);
+            trackAccess(owner, key);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             return getBackgingSet().isSubsetOf(set);
           };
         case "isSupersetOf":
           return (set: Set<AllowedYJSValue>) => {
-            trackAccess(owner, context.name);
+            trackAccess(owner, key);
             trackAccess(self, ACCESS_ALL_SYMBOL);
             return getBackgingSet().isSupersetOf(set);
           };

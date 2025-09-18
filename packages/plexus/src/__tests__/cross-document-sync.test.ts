@@ -331,7 +331,7 @@ describe("Cross-Document Proxy Sync", () => {
     expect(parent.children).toHaveLength(3);
     expect(parent.children[2].name).toBe("Child3");
     expect(parent.metadata["newProp"]).toBe("added-in-doc2");
-    expect(parent.metadata["tags"]).toEqual(undefined);
+    expect(parent.metadata["tags"]).toBeUndefined();
     expect(parent.metadata["framework"]).toBe("react"); // Preserved
 
     // Doc1: Test array methods

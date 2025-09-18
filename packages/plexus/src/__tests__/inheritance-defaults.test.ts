@@ -3,6 +3,7 @@ import * as Y from "yjs";
 import { PlexusModel } from "../PlexusModel";
 import { syncing } from "../decorators";
 import { createTestPlexus, initTestPlexus } from "./test-plexus";
+import { backingStorageSymbol } from "../proxy-runtime-types";
 
 // Create a proper inheritance hierarchy to test
 @syncing
@@ -89,6 +90,7 @@ describe("Plexus Inheritance and Default Values", () => {
       expect(root.middleField).toBe("middle-value");
       expect(root.concreteField).toBe("concrete-value");
 
+      console.log(backingStorageSymbol);
       // Modify inherited fields and verify sync
       root.baseField = "updated-base";
       root.middleField = "updated-middle";
@@ -312,6 +314,9 @@ describe("Plexus Inheritance and Default Values", () => {
       // Create second doc
       const doc2 = new Y.Doc();
 
+      // Initial sync - apply doc1's state to doc2
+      Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
+
       // Set up bidirectional sync
       doc1.on("update", (update) => {
         Y.applyUpdate(doc2, update);
@@ -320,8 +325,6 @@ describe("Plexus Inheritance and Default Values", () => {
         Y.applyUpdate(doc1, update);
       });
 
-      // Initial sync
-      Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
       const { root: root2 } = await createTestPlexus<ConcreteEntity>(doc2);
 
       // Verify initial sync
@@ -444,6 +447,277 @@ describe("Plexus Inheritance and Default Values", () => {
       expect(bookRoot.pages).toBe(300);
       expect(movieRoot.duration).toBe(120);
       expect(movieRoot.rating).toBe("PG");
+    });
+  });
+
+  describe("Field type override (changing schema type in child)", () => {
+    it("should allow changing field from reference to owned child", async () => {
+      @syncing
+      class SharedArg extends PlexusModel {
+        @syncing accessor name!: string;
+        @syncing accessor value: number = 0;
+
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      @syncing
+      class WeakRefParent extends PlexusModel {
+        @syncing accessor id!: string;
+        @syncing accessor arg!: SharedArg; // Weak reference
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      @syncing
+      class OwnedChildVersion extends WeakRefParent {
+        @syncing.child accessor arg!: SharedArg; // Override as owned child
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      // Create a shared arg
+      const sharedArg = new SharedArg({
+        name: "shared",
+        value: 100
+      });
+
+      // Test 1: Parent should have weak reference
+      const parent = new WeakRefParent({
+        id: "parent",
+        arg: sharedArg
+      });
+      const { root: parentRoot } = await initTestPlexus(parent);
+      expect(parentRoot.arg.name).toBe("shared");
+      expect(parentRoot.arg.value).toBe(100);
+
+      // Modifying through parent should affect shared instance
+      parentRoot.arg.value = 200;
+      expect(sharedArg.value).toBe(200);
+
+      // Test 2: Child should own the arg
+      const ownedArg = new SharedArg({
+        name: "owned",
+        value: 300
+      });
+
+      const child = new OwnedChildVersion({
+        id: "child",
+        arg: ownedArg
+      });
+      const { root: childRoot } = await initTestPlexus(child);
+      expect(childRoot.arg.name).toBe("owned");
+      expect(childRoot.arg.value).toBe(300);
+
+      // Check parent relationship is established for owned version
+      expect(childRoot.arg.parent).toBe(childRoot);
+    });
+
+    it("should handle list to child.list override", async () => {
+      @syncing
+      class Item extends PlexusModel {
+        @syncing accessor name!: string;
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      @syncing
+      class ListParent extends PlexusModel {
+        @syncing.list accessor items: Item[] = [];
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      @syncing
+      class ChildListVersion extends ListParent {
+        @syncing.child.list accessor items: Item[] = []; // Override as child list
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      const item1 = new Item({ name: "item1" });
+      const item2 = new Item({ name: "item2" });
+
+      // Parent version - items are references
+      const parent = new ListParent({
+        items: [item1, item2]
+      });
+      const { root: parentRoot } = await initTestPlexus(parent);
+      expect(parentRoot.items).toHaveLength(2);
+      expect(parentRoot.items[0].parent).toBeNull(); // Not owned
+
+      // Child version - items are owned
+      const child = new ChildListVersion({
+        items: [new Item({ name: "owned1" }), new Item({ name: "owned2" })]
+      });
+      const { root: childRoot } = await initTestPlexus(child);
+      expect(childRoot.items).toHaveLength(2);
+      expect(childRoot.items[0].parent).toBe(childRoot); // Owned
+      expect(childRoot.items[1].parent).toBe(childRoot); // Owned
+    });
+
+    it("should handle map to child.map override", async () => {
+      @syncing
+      class Config extends PlexusModel {
+        @syncing accessor key!: string;
+        @syncing accessor value!: string;
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      @syncing
+      class MapParent extends PlexusModel {
+        @syncing.map accessor configs: Record<string, Config> = {};
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      @syncing
+      class ChildMapVersion extends MapParent {
+        @syncing.child.map accessor configs: Record<string, Config> = {}; // Override as child map
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      const config1 = new Config({ key: "k1", value: "v1" });
+
+      // Parent version - configs are references
+      const parent = new MapParent({
+        configs: { first: config1 }
+      });
+      const { root: parentRoot } = await initTestPlexus(parent);
+      expect(parentRoot.configs.first.key).toBe("k1");
+      expect(parentRoot.configs.first.parent).toBeNull(); // Not owned
+
+      // Child version - configs are owned
+      const child = new ChildMapVersion({
+        configs: {
+          owned: new Config({ key: "k2", value: "v2" })
+        }
+      });
+      const { root: childRoot } = await initTestPlexus(child);
+      expect(childRoot.configs.owned.key).toBe("k2");
+      expect(childRoot.configs.owned.parent).toBe(childRoot); // Owned
+    });
+
+    it("should handle complex override chain with mixed ownership", async () => {
+      @syncing
+      class Node extends PlexusModel {
+        @syncing accessor id!: string;
+        @syncing accessor label: string = "node";
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      @syncing
+      abstract class BaseGraph extends PlexusModel {
+        @syncing accessor root!: Node; // Reference
+        @syncing.list accessor nodes: Node[] = []; // Reference list
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      @syncing
+      abstract class OwnedRootGraph extends BaseGraph {
+        @syncing.child override accessor root!: Node;
+        // nodes remains reference list
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      @syncing
+      class FullyOwnedGraph extends OwnedRootGraph {
+        @syncing.child.list accessor nodes: Node[] = []; // Override: nodes are now owned too
+        // root remains owned from OwnedRootGraph
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      // Create nodes
+      const rootNode = new Node({ id: "root", label: "Root Node" });
+      const node1 = new Node({ id: "n1", label: "Node 1" });
+      const node2 = new Node({ id: "n2", label: "Node 2" });
+
+      // Test the fully owned version
+      const graph = new FullyOwnedGraph({
+        root: rootNode,
+        nodes: [node1, node2]
+      });
+
+      const { root: graphRoot, doc } = await initTestPlexus(graph);
+
+      // Both root and nodes should be owned
+      expect(graphRoot.root.parent).toBe(graphRoot);
+      expect(graphRoot.nodes[0].parent).toBe(graphRoot);
+      expect(graphRoot.nodes[1].parent).toBe(graphRoot);
+
+      // Test cross-doc sync preserves ownership
+      const doc2 = new Y.Doc();
+      Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc));
+
+      const { root: graphRoot2 } = await createTestPlexus<FullyOwnedGraph>(doc2);
+      expect(graphRoot2.root.parent).toBe(graphRoot2);
+      expect(graphRoot2.nodes[0].parent).toBe(graphRoot2);
+      expect(graphRoot2.nodes[1].parent).toBe(graphRoot2);
+    });
+
+    it("should handle field type override with default values", async () => {
+      @syncing
+      class Value extends PlexusModel {
+        @syncing accessor data: string = "default";
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      @syncing
+      class WeakParent extends PlexusModel {
+        @syncing accessor value: Value | null = null; // Nullable reference with null default
+        constructor(props) {
+          super(props);
+        }
+      }
+
+      @syncing
+      class OwnedChild extends WeakParent {
+        @syncing.child override accessor value: Value = new Value({ data: "child-default" }); // Non-null owned with instance default
+        constructor(props?: Partial<OwnedChild>) {
+          super(props);
+        }
+      }
+
+      // Parent uses null default
+      const parent = new WeakParent({});
+      const { root: parentRoot } = await initTestPlexus(parent);
+      expect(parentRoot.value).toBeNull();
+
+      // Child uses instance default and owns it
+      const child = new OwnedChild();
+      const { root: childRoot } = await initTestPlexus(child);
+      expect(childRoot.value).not.toBeNull();
+      expect(childRoot.value.data).toBe("child-default");
+      expect(childRoot.value.parent).toBe(childRoot); // Owned
+
+      // Can override the default
+      const childWithOverride = new OwnedChild({
+        value: new Value({ data: "override" })
+      });
+      const { root: overrideRoot } = await initTestPlexus(childWithOverride);
+      expect(overrideRoot.value.data).toBe("override");
+      expect(overrideRoot.value.parent).toBe(overrideRoot); // Still owned
     });
   });
 });

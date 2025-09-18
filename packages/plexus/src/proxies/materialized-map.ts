@@ -1,7 +1,6 @@
 import * as Y from "yjs";
 import {
   AllowedYJSValue,
-  AllowedYJSValueMap,
   AllowedYValue,
   informOrphanizationSymbol,
   materializationSymbol,
@@ -15,14 +14,18 @@ import { YJS_GLOBALS } from "../YJS_GLOBALS";
 import { PlexusModel } from "../PlexusModel";
 import { deref } from "../deref";
 
-export type MaterializedRecordProxyInitTarget<T extends AllowedYJSValue> = {
+export type MaterializedRecordProxyInitTarget = {
   owner: PlexusModel;
-  context: ClassAccessorDecoratorContext<PlexusModel, Record<string, T>> & { name: string };
+  key: string;
   isChildField?: boolean;
 };
 
-export const buildRecordProxy = <T extends AllowedYJSValue>({ owner, context, isChildField }: MaterializedRecordProxyInitTarget<T>) => {
-  const getYjsMap = () => owner._yjsModel?.get(context.name) as Y.Map<AllowedYValue> | null;
+export const buildRecordProxy = <T extends AllowedYJSValue>({
+  owner,
+  key,
+  isChildField
+}: MaterializedRecordProxyInitTarget) => {
+  const getYjsMap = () => owner._yjsModel?.get(key) as Y.Map<AllowedYValue> | null;
   let backingStorage: Record<string, T> = {};
   const observer = (event: Y.YMapEvent<AllowedYValue>) => {
     const map = getYjsMap();
@@ -30,7 +33,11 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({ owner, context, is
       return;
     }
     for (const key of event.keysChanged) {
-      backingStorage[key] = owner._deref(map.get(key)!) as T;
+      if (!map.has(key)) {
+        delete backingStorage[key];
+      } else {
+        backingStorage[key] = owner._deref(map.get(key)!) as T;
+      }
       trackModification(self, key);
     }
     trackModification(self, ACCESS_INDICES_SET_SYMBOL);
@@ -87,38 +94,29 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({ owner, context, is
               Object.assign(proxyTarget, newEntries);
 
               const map = getYjsMap();
-              if (map) {
-                maybeTransacting(owner._doc, () => {
-                  map.clear();
+              map?.clear();
 
-                  // Add new entries and update parent tracking
-                  if (Symbol.iterator in Object(newEntries)) {
-                    // Iterable of [key, value] pairs
-                    for (const [k, v] of newEntries as Iterable<[string, PlexusModel]>) {
-                      if (isChildField && v) {
-                        v[requestAdoptionSymbol]?.(owner, context.name, k);
-                      }
-                      map.set(k, maybeReference(v, owner._doc!));
-                    }
-                  } else {
-                    // Record object
-                    for (const [k, v] of Object.entries(newEntries as Record<string, PlexusModel>)) {
-                      if (isChildField && v) {
-                        v[requestAdoptionSymbol]?.(owner, context.name, k);
-                      }
-                      map.set(k, maybeReference(v, owner._doc!));
-                    }
-                  }
-                });
+              if (!isChildField && !map) {
+                return;
+              }
+              // Record object
+              for (const [k, v] of Symbol.iterator in Object(newEntries)
+                ? (newEntries as Iterable<[string, T]>)
+                : Object.entries(newEntries as Record<string, T>)) {
+                if (isChildField) {
+                  v?.[requestAdoptionSymbol]?.(owner, key, k);
+                }
+                map?.set(k, maybeReference(v, owner._doc!));
               }
             });
           };
         case materializationSymbol:
           return () => {
             const map = getYjsMap()!;
-            Object.assign(backingStorage, Object.fromEntries(
-              Object.entries(map.toJSON()).map(([key, value]) => [key, deref(map.doc!, value)])
-            ));
+            Object.assign(
+              backingStorage,
+              Object.fromEntries(Object.entries(map.toJSON()).map(([key, value]) => [key, deref(map.doc!, value)]))
+            );
             map.observe(observer);
           };
       }
@@ -136,57 +134,49 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({ owner, context, is
         if (typeof Object.prototype[elementKey] === "function") {
           return function (this: any, ...args) {
             if (this === self) {
-              trackAccess(owner, context.name);
+              trackAccess(owner, key);
               trackAccess(self, ACCESS_ALL_SYMBOL);
             }
             return Object.prototype[elementKey].apply(self, args);
           };
         } else {
-          trackAccess(owner, context.name);
+          trackAccess(owner, key);
           trackAccess(self, ACCESS_ALL_SYMBOL);
           return Object.prototype[elementKey];
         }
       } else if (typeof elementKey === "string") {
         // Specific field access
-        trackAccess(owner, context.name);
+        trackAccess(owner, key);
         trackAccess(self, elementKey);
-        const map = getYjsMap();
-        if (map) {
-          if (!map.has(elementKey)) {
-            return undefined;
-          }
-          return owner._deref(map.get(elementKey)!);
-        } else {
-          return proxyTarget[elementKey];
-        }
+        // we intentionally treat undefined as null for smaller yjs doc size and consistency
+        // (as we do not differentiate missing field and empty field anywhere but in `has`)
+        return proxyTarget[elementKey];
       }
     },
     set(proxyTarget, elementKey, value) {
       if (typeof elementKey === "string") {
         maybeTransacting(owner._doc, () => {
           trackModification(self, elementKey);
-          // Handle parent tracking for child fields
-          if (isChildField) {
-            // Clear parent tracking for old value if it exists
-            const oldValue = proxyTarget[elementKey];
-            oldValue?.[requestOrphanizationSymbol]?.();
+          if ((elementKey in proxyTarget && value == null) || (!(elementKey in proxyTarget) && value != null)) {
+            trackModification(self, ACCESS_INDICES_SET_SYMBOL);
           }
-          proxyTarget[elementKey] = value;
+          if (isChildField) {
+            // Handle parent tracking for child fields. Clear parent tracking for old value if it exists
+            proxyTarget[elementKey]?.[requestOrphanizationSymbol]?.();
+          }
+          if (value != null) {
+            proxyTarget[elementKey] = value;
+          } else {
+            delete proxyTarget[elementKey];
+          }
           if (isChildField) {
             // Update parent tracking for new value
-            if (value != null) {
-              value[requestAdoptionSymbol]?.(owner, context.name, elementKey);
-            }
+            value?.[requestAdoptionSymbol]?.(owner, key, elementKey);
           }
-          const map = getYjsMap();
-
-          if (map) {
-            if (value != null) {
-              map.set(elementKey, maybeReference(value, owner._doc!));
-            } else {
-              trackModification(self, ACCESS_INDICES_SET_SYMBOL);
-              map.delete(elementKey);
-            }
+          if (value != null) {
+            getYjsMap()?.set(elementKey, maybeReference(value, owner._doc!));
+          } else {
+            getYjsMap()?.delete(elementKey);
           }
         });
         return true;
@@ -199,29 +189,22 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({ owner, context, is
       if (typeof elementKey === "symbol") {
         return false;
       }
+      if (!Object.hasOwn(proxyTarget, elementKey)) {
+        return false;
+      }
 
-      maybeTransacting(owner._doc, () => {
+      return maybeTransacting(owner._doc, () => {
         // Handle parent tracking for child fields
         if (isChildField) {
-          const oldValue = proxyTarget[elementKey];
-          oldValue?.[informOrphanizationSymbol]?.();
+          proxyTarget[elementKey]?.[informOrphanizationSymbol]?.();
         }
-        const map = getYjsMap();
-
-        if (!map) {
-          if (Reflect.deleteProperty(proxyTarget, elementKey)) {
-            trackModification(self, ACCESS_INDICES_SET_SYMBOL);
-          }
-          return true;
-        }
-
-        if (map.has(elementKey)) {
-          map.delete(elementKey);
+        getYjsMap()?.delete(elementKey);
+        if (Reflect.deleteProperty(proxyTarget, elementKey)) {
           trackModification(self, ACCESS_INDICES_SET_SYMBOL);
           return true;
         }
+        return false;
       });
-      return true;
     },
     // todo getOwnPropertyDescriptor
     setPrototypeOf() {
@@ -231,14 +214,14 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({ owner, context, is
       if (typeof elementKey === "symbol") {
         return false;
       }
-      trackAccess(owner, context.name);
+      trackAccess(owner, key);
       trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
-      return getYjsMap()?.has(elementKey) ?? Reflect.has(proxyTarget, elementKey);
+      return Reflect.has(proxyTarget, elementKey);
     },
     ownKeys(proxyTarget) {
-      trackAccess(owner, context.name);
+      trackAccess(owner, key);
       trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
-      return [...(getYjsMap()?.keys() ?? Reflect.ownKeys(proxyTarget))];
+      return Reflect.ownKeys(proxyTarget);
     }
   });
   return self as Record<string, T> & ReadonlyField<Record<string, T>>;

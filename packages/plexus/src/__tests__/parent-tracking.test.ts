@@ -214,6 +214,7 @@ describe("Parent Tracking", () => {
       // record → val
       materializedParent.child = child;
       expect(materializedParent.childMap["key"]).toBeUndefined();
+      expect(materializedParent.childMap).not.toHaveProperty("key");
       expect(materializedParent.child).toBe(child);
     });
 
@@ -257,6 +258,7 @@ describe("Parent Tracking", () => {
 
       materializedParent.childMap["key2"] = child;
       expect(materializedParent.childMap["key1"]).toBeUndefined();
+      expect(materializedParent.childMap).not.toHaveProperty("key1");
       expect(materializedParent.childMap["key2"]).toBe(child);
     });
   });
@@ -302,7 +304,7 @@ describe("Parent Tracking", () => {
       expect(models.get(child1.uuid)?.get(YJS_GLOBALS.modelMetadataParent)).toBeDefined();
       expect(models.get(child2.uuid)?.get(YJS_GLOBALS.modelMetadataParent)).toBeDefined();
 
-      materializedParent.children.clear();
+      materializedParent.children = [];
 
       expect(models.get(child1.uuid)?.get(YJS_GLOBALS.modelMetadataParent)).toBeUndefined();
       expect(models.get(child2.uuid)?.get(YJS_GLOBALS.modelMetadataParent)).toBeUndefined();
@@ -327,7 +329,7 @@ describe("Parent Tracking", () => {
       expect(models.get(child1.uuid)?.get(YJS_GLOBALS.modelMetadataParent)).toBeDefined();
       expect(models.get(child2.uuid)?.get(YJS_GLOBALS.modelMetadataParent)).toBeDefined();
 
-      materializedParent.childMap.assign({});
+      materializedParent.childMap = {};
 
       expect(models.get(child1.uuid)?.get(YJS_GLOBALS.modelMetadataParent)).toBeUndefined();
       expect(models.get(child2.uuid)?.get(YJS_GLOBALS.modelMetadataParent)).toBeUndefined();

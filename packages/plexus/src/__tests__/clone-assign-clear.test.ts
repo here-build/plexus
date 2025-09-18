@@ -180,10 +180,13 @@ describe("clone(), assign(), clear() methods", () => {
         references: new Set()
       });
 
-      const result = model.items.assign(["new1", "new2"]);
+      const newItems = ["new1", "new2"];
+      model.items = newItems;
 
       expect(model.items).toEqual(["new1", "new2"]);
-      expect(result).toBe(undefined); // assign() returns undefined like native methods
+      expect(model.items).not.toBe(newItems);
+      newItems.push("new3");
+      expect(model.items).toEqual(["new1", "new2"]);
     });
 
     it("should handle empty array assignment", () => {
@@ -197,7 +200,7 @@ describe("clone(), assign(), clear() methods", () => {
         references: new Set()
       });
 
-      model.items.assign([]);
+      model.items = [];
       expect(model.items).toEqual([]);
       expect(model.items.length).toBe(0);
     });
@@ -221,7 +224,7 @@ describe("clone(), assign(), clear() methods", () => {
 
       expect(trackedRead()).toBe(1);
 
-      model.items.assign(["new1", "new2"]);
+      model.items = ["new1", "new2"];
       expect(notifyChanges).toHaveBeenCalled();
     });
   });
@@ -238,10 +241,9 @@ describe("clone(), assign(), clear() methods", () => {
         references: new Set()
       });
 
-      const result = model.tags.assign(["new1", "new2", "new3"]);
+      model.tags = new Set(["new1", "new2", "new3"]);
 
       expect([...model.tags]).toEqual(expect.arrayContaining(["new1", "new2", "new3"]));
-      expect(result).toBe(undefined); // assign() returns undefined like native methods
     });
 
     it("should handle duplicate values in assignment (maintains set uniqueness)", () => {
@@ -255,7 +257,7 @@ describe("clone(), assign(), clear() methods", () => {
         references: new Set()
       });
 
-      model.tags.assign(["new1", "new2", "new1", "new2"]);
+      model.tags = ["new1", "new2", "new1", "new2"];
       expect([...model.tags]).toEqual(expect.arrayContaining(["new1", "new2"]));
       expect(model.tags.size).toBe(2);
     });
@@ -275,7 +277,7 @@ describe("clone(), assign(), clear() methods", () => {
         references: new Set([comp1])
       });
 
-      model.references.assign([comp2, comp3]);
+      model.references = [comp2, comp3];
       expect([...model.references]).toEqual(expect.arrayContaining([comp2, comp3]));
       expect(model.references.has(comp1)).toBe(false);
       expect(model.references.has(comp2)).toBe(true);
@@ -295,7 +297,7 @@ describe("clone(), assign(), clear() methods", () => {
         references: new Set()
       });
 
-      model.metadata.assign({ new1: "newValue1", new2: "newValue2" });
+      model.metadata = { new1: "newValue1", new2: "newValue2" };
 
       expect(model.metadata).toEqual({ new1: "newValue1", new2: "newValue2" });
       expect(Object.keys(model.metadata)).toEqual(["new1", "new2"]);
@@ -312,7 +314,7 @@ describe("clone(), assign(), clear() methods", () => {
         references: new Set()
       });
 
-      model.metadata.assign({});
+      model.metadata = {};
       expect(model.metadata).toEqual({});
       expect(Object.keys(model.metadata)).toEqual([]);
     });
@@ -347,10 +349,9 @@ describe("clone(), assign(), clear() methods", () => {
         references: new Set()
       });
 
-      const result = model.metadata.clear();
+      model.metadata = {};
       expect(model.metadata).toEqual({});
       expect(Object.keys(model.metadata)).toEqual([]);
-      expect(result).toBe(undefined); // Map.clear() returns undefined
     });
 
     it("should handle clearing empty collections", () => {
@@ -365,7 +366,7 @@ describe("clone(), assign(), clear() methods", () => {
       });
 
       expect(model.tags.clear()).toBe(undefined); // Native Set.clear() returns undefined
-      expect(model.metadata.clear()).toBe(undefined);
+      model.metadata = {};
       expect(model.tags.size).toBe(0);
       expect(Object.keys(model.metadata)).toEqual([]);
     });
@@ -386,9 +387,9 @@ describe("clone(), assign(), clear() methods", () => {
       const cloned = original.clone();
 
       // Modify the cloned entity collections
-      cloned.items.assign(["new1", "new2", "new3"]);
-      cloned.tags.assign(["newTag1", "newTag2"]);
-      cloned.metadata.assign({ newKey: "newValue" });
+      cloned.items = ["new1", "new2", "new3"];
+      cloned.tags = ["newTag1", "newTag2"];
+      cloned.metadata = { newKey: "newValue" };
 
       // Original should be unchanged
       expect(original.items).toEqual(["item1", "item2"]);
@@ -414,15 +415,15 @@ describe("clone(), assign(), clear() methods", () => {
 
       // Clear everything
       model.tags.clear();
-      model.metadata.clear();
+      model.metadata = {};
 
       expect(model.tags.size).toBe(0);
       expect(Object.keys(model.metadata)).toEqual([]);
 
       // Then assign new values
-      model.items.assign(["new1"]);
-      model.tags.assign(["newTag"]);
-      model.metadata.assign({ newKey: "newValue" });
+      model.items = ["new1"];
+      model.tags = new Set(["newTag"]);
+      model.metadata = { newKey: "newValue" };
 
       expect(model.items).toEqual(["new1"]);
       expect([...model.tags]).toEqual(["newTag"]);

@@ -65,6 +65,7 @@ export abstract class PlexusModel {
 
   // making things non-enumerable
   accessor _constructionComplete = false;
+  accessor _initializationState: Partial<typeof this> = {};
   get _doc(): Y.Doc | null {
     return this._yjsModel?.doc ?? null;
   }
@@ -92,7 +93,7 @@ export abstract class PlexusModel {
       // bootstrap should go after documentEntityCaches.set to handle circular dependencies properlt
       this.#bootstrapYjsObservation();
     } else {
-      Object.assign(this, init);
+      this._initializationState = init;
     }
     Object.defineProperties(
       this,
@@ -202,11 +203,11 @@ export abstract class PlexusModel {
   [requestAdoptionSymbol](newParent: (typeof this)["parent"], field: string, extraFieldMetadata?: string) {
     const parent = this.parent;
     const parentReference = this._yjsModel?.get(YJS_GLOBALS.modelMetadataParent) as any[] | undefined;
-    const [_, parentKey, extraParentMetadata] = this._yjsModel
+    const [_, oldField, oldExtraFieldMetadata] = this._yjsModel
       ? (parentReference ?? [null, null, null]) // circular edge case
       : [null, this.#ephemeralParentKey!, this.#extraParentMetadata];
     this.#emancipate();
-    if (parent === newParent && parentKey === field && extraParentMetadata === extraFieldMetadata) {
+    if (parent === newParent && oldField === field && oldExtraFieldMetadata === extraFieldMetadata) {
       return;
     }
     this[informAdoptionSymbol](newParent, field, extraFieldMetadata);

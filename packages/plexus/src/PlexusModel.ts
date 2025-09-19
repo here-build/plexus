@@ -47,7 +47,11 @@ type Initializer<T extends PlexusModel> = [entityId: string, doc: Y.Doc];
 let currentlyEmancipating = new WeakSet<PlexusModel>();
 
 export type PlexusInit<T extends PlexusModel> = {
-  [key in keyof T as T[key] extends AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList ? key extends keyof PlexusModel ? never : key : never]?: T[key]
+  [key in keyof T as T[key] extends AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList
+    ? key extends keyof PlexusModel
+      ? never
+      : key
+    : never]?: T[key];
 };
 
 export abstract class PlexusModel {
@@ -130,7 +134,7 @@ export abstract class PlexusModel {
     this.#emancipate();
   }
 
-  [informAdoptionSymbol](newParent: (typeof this)["parent"], field: string, extraFieldMetadata?: string) {
+  [informAdoptionSymbol](newParent: Exclude<(typeof this)["parent"], null>, field: string, extraFieldMetadata?: string) {
     if (!this._yjsModel) {
       if (
         this.#ephemeralParent === newParent &&
@@ -159,7 +163,7 @@ export abstract class PlexusModel {
       }
     }
     const currentParent = (this._yjsModel as Y.Map<any> as Y.Map<ParentReference>).get(YJS_GLOBALS.modelMetadataParent);
-    const reference = newParent[referenceSymbol](this._doc);
+    const reference = newParent[referenceSymbol](this._doc!);
     if (
       currentParent &&
       currentParent[0] === reference[0] &&
@@ -215,7 +219,7 @@ export abstract class PlexusModel {
     currentlyEmancipating.delete(this);
   }
 
-  [requestAdoptionSymbol](newParent: (typeof this)["parent"], field: string, extraFieldMetadata?: string) {
+  [requestAdoptionSymbol](newParent: Exclude<(typeof this)["parent"], null>, field: string, extraFieldMetadata?: string) {
     const parent = this.parent;
     const parentReference = this._yjsModel?.get(YJS_GLOBALS.modelMetadataParent) as any[] | undefined;
     const [_, oldField, oldExtraFieldMetadata] = this._yjsModel
@@ -248,11 +252,11 @@ export abstract class PlexusModel {
     this[informOrphanizationSymbol]();
   }
 
-  get parent() {
+  get parent(): PlexusModel | null {
     trackAccess(this, "parent");
     if (this._doc && this._yjsModel) {
       const parentReference = (this._yjsModel as Y.Map<any>).get(YJS_GLOBALS.modelMetadataParent);
-      return parentReference ? deref(this._doc, [parentReference[0]]) : null;
+      return parentReference ? (deref(this._doc, [parentReference[0]]) as PlexusModel) : null;
     }
     return this.#ephemeralParent;
   }

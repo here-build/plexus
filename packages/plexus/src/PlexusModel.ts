@@ -78,14 +78,14 @@ export abstract class PlexusModel {
   }
 
   // making things non-enumerable
-  accessor _initializationState: Record<
+  _initializationState: Record<
     string,
     AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList
   > = {};
   get _doc(): Y.Doc | null {
     return this._yjsModel?.doc ?? null;
   }
-  accessor _yjsModel: Y.Map<Storageable> | null = null;
+  _yjsModel: Y.Map<Storageable> | null = null;
 
   constructor(
     init:

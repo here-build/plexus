@@ -1,22 +1,43 @@
 # @dappsnap/plexus
 
-> Constraint network for object state superposition through mathematical field dynamics
+JavaScript objects with reactivity, automatic sync, and parent/child relationships. Built on YJS for conflict-free collaboration.
 
-**Plexus** transforms traditional inheritance hierarchies into proxy networks where objects exist in quantum superposition until materialization collapses them into specific instances.
+## The Problem
 
-## Key Concepts
+JavaScript objects are missing critical features for modern apps:
+- **No reactivity** - Manual UI updates everywhere
+- **No relationships** - Objects don't know their parents or children
+- **No sync** - Manual serialization and merge conflicts
+- **No collaboration** - Every app reinvents real-time sync
 
-### Quantum Superposition Objects
+## The Solution
 
-Objects exist in two states simultaneously:
-- **EPHEMERAL**: Local objects with full functionality, not synced
-- **MATERIALIZED**: Same objects, now synced to YJS and shared across clients
+Plexus makes objects work properly:
 
-The "contagion" happens when ephemeral objects touch the YJS graph: they automatically materialize (get entityId + sync) while preserving object identity.
+```typescript
+// Regular JS - isolated, static, local
+const component = { name: "Button", props: {} };
 
-### The Plexus Pattern
+// Plexus - reactive, related, synced
+const component = new Component({ name: "Button" });
+component.name = "Submit";        // UI updates automatically
+component.parent;                  // Knows its container
+// Changes sync to all clients via YJS
+```
 
-Instead of rigid inheritance chains, Plexus creates constraint networks where relationships emerge organically through mathematical propagation. Like neural plexus - interconnected field where state flows through constraint relationships rather than hierarchical commands.
+## Core Features
+
+### 🔄 MobX-Style Reactivity
+Objects automatically trigger UI updates when modified. No more manual setState or event emitters.
+
+### 🌳 Parent/Child Relationships
+Objects know their position in the tree. Navigate up with `.parent`, down with `.children`. Full tree awareness built-in.
+
+### 🔀 YJS-Powered Sync
+Changes automatically sync across all clients using YJS (best-in-class CRDT). No conflicts, no manual merging, just works.
+
+### 🎭 Ephemeral/Materialized States
+Objects start local (ephemeral) and become synced (materialized) when attached to the tree. Same object reference throughout.
 
 ## Installation
 
@@ -26,61 +47,108 @@ npm install @dappsnap/plexus
 
 ## Usage
 
-### Basic Runtime Usage
+### Defining Models
 
 ```typescript
-import { buildModelClass } from '@dappsnap/plexus';
+import { PlexusModel, syncing } from '@dappsnap/plexus';
 
-// Define schema
-const UserSchema = {
-  name: "val",
-  posts: "list",
-  metadata: "record"
-} as const;
+@syncing
+class Component extends PlexusModel {
+  @syncing
+  accessor name!: string;
 
-// Create model class
-const User = buildModelClass("User", UserSchema);
+  @syncing
+  accessor width!: number;
 
-// Create ephemeral instance
-const user = new User({
-  name: "Alice",
-  posts: [],
-  metadata: {}
+  constructor(props) {
+    super(props);
+  }
+}
+
+@syncing
+class Container extends PlexusModel {
+  @syncing
+  accessor name!: string;
+
+  // Children with automatic parent tracking
+  @syncing.child.list
+  accessor children!: Component[];
+
+  @syncing.child.map
+  accessor components!: Record<string, Component>;
+
+  constructor(props) {
+    super(props);
+  }
+}
+```
+
+### Creating and Syncing Objects
+
+```typescript
+import * as Y from 'yjs';
+import { Plexus } from '@dappsnap/plexus';
+
+// Step 1: Create ephemeral objects (local, not synced)
+const button = new Component({ name: "Button", width: 100 });
+const form = new Container({
+  name: "Form",
+  children: [button],
+  components: {}
 });
 
-// Object exists in superposition until materialized via YJS
+// Step 2: Initialize Plexus with YJS doc
+const doc = new Y.Doc();
+const plexus = new Plexus(doc);
+
+// Step 3: Set as root - triggers materialization (now synced!)
+const metadata = doc.getMap('__metadata__');
+metadata.set('root', form.uuid);
+
+// Step 4: Objects are now synced across all clients
+form.name = "LoginForm"; // This change syncs everywhere
+button.width = 200;       // This too
+
+// Parent tracking works automatically
+console.log(button.parent === form); // true
 ```
 
-### Generator Usage
+### Decorator Options
 
-For codegen from schema DSL:
+- `@syncing` - Makes a class syncable
+- `@syncing` on field - Syncs the field value
+- `@syncing.child` - Single child with parent tracking
+- `@syncing.child.list` - Array of children with parent tracking
+- `@syncing.child.set` - Set of children with parent tracking
+- `@syncing.child.map` - Map of children with parent tracking
+
+## Key Exports
 
 ```typescript
-import { writeProxyModelSchemas } from '@dappsnap/plexus/generator';
+import {
+  // Core classes
+  PlexusModel,      // Base class for all models
+  Plexus,           // Main orchestrator
 
-// Your schema parsing functions
-import { parse, transform, MetaRuntime } from './your-schema-system';
+  // Decorators
+  syncing,          // Makes classes and fields syncable
 
-await writeProxyModelSchemas(
-  schemaString,
-  'output/proxy-models.ts',
-  parse,
-  transform,
-  MetaRuntime
-);
+  // Types
+  YJS_GLOBALS,      // Constants for YJS integration
+  referenceSymbol,  // Symbol for entity references
+
+} from '@dappsnap/plexus';
 ```
 
-## Exports
+## Important: Networking Not Included
 
-### Main Package (`@dappsnap/plexus`)
-- `buildModelClass` - Core factory for creating model classes
-- `ModelType` - TypeScript type for model instances
-- All runtime types and symbols
+Plexus handles object synchronization through YJS, but **you need to provide**:
+- WebSocket server (we use PartyKit)
+- YJS provider for network sync
+- Persistence layer for Y.Doc states
+- Room management and authorization
 
-### Generator (`@dappsnap/plexus/generator`)
-- `generateProxyModelSchemas` - Core generator function
-- `writeProxyModelSchemas` - Convenience wrapper
-- Type interfaces for schema system integration
+For production use, Plexus works best as part of a complete system like here.build that provides these services.
 
 ## Architecture
 

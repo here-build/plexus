@@ -26,7 +26,8 @@ import invariant from "tiny-invariant";
 import { trackAccess, trackModification } from "./tracking";
 import { deref } from "./deref";
 import { nanoid } from "nanoid";
-import { DependencyId, Plexus } from "./Plexus";
+import { DependencyId } from "./Plexus";
+import { docPlexus } from "./plexus-registry";
 import { clone } from "./clone";
 
 export type PlexusConstructor<T extends PlexusModel = PlexusModel> =
@@ -280,7 +281,7 @@ export abstract class PlexusModel {
   }
 
   [referenceSymbol](doc: Y.Doc): ReferenceTuple {
-    invariant(Plexus.docPlexus.has(doc), "passed doc is not registered as legitimate Plexus root");
+    invariant(docPlexus.has(doc), "passed doc is not registered as legitimate Plexus root");
     // this is needed explicitly in that manner for cyclic dependencies.
     // It will never cause cross-doc issues as we only materialize root doc entities.
     // Lucky for us, Plexus is doing not structural but reference equivalence - so we can safely assume that returning pointer will do nothing wrong.

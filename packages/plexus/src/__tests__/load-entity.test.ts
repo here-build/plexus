@@ -282,8 +282,18 @@ describe("Plexus Entity Loading", () => {
       // Delete the entity from the document
       doc.getMap(YJS_GLOBALS.models).delete(user.uuid);
 
-      // Should fail to load due to missing entity
-      await expect(createTestPlexus<TestRoot>(doc)).rejects.toThrow();
+      // Create a new Plexus instance (allowed with new behavior)
+      const { plexus: newPlexus } = await createTestPlexus<TestRoot>(doc);
+
+      // The root should still be loaded from cache
+      const newRoot = await newPlexus.rootPromise;
+      expect(newRoot).toBe(root); // Same instance due to caching
+
+      // But the deleted entity should no longer be in the doc's models
+      expect(doc.getMap(YJS_GLOBALS.models).has(user.uuid)).toBe(false);
+
+      // The entity still exists in memory due to caching
+      expect(user.name).toBe("John Doe");
     });
   });
 

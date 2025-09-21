@@ -4,23 +4,24 @@
 
 import * as Y from "yjs";
 import * as awarenessProtocol from "y-protocols/awareness";
-import { CrossProjectReferenceTuple, referenceSymbol, Storageable } from "./proxy-runtime-types";
+import { referenceSymbol, Storageable } from "./proxy-runtime-types";
 import { Tagged } from "type-fest";
 import invariant from "tiny-invariant";
 import { PlexusAwareness } from "./awareness";
 import { YJS_GLOBALS } from "./YJS_GLOBALS";
-import { DefaultedMap, maybeTransacting } from "./utils";
+import { maybeTransacting } from "./utils";
 import { entityClasses } from "./globals";
 import { documentEntityCaches } from "./entity-cache";
 import { ConcretePlexusConstructor, PlexusModel } from "./PlexusModel";
 import { deref } from "./deref";
+import { docPlexus, sharedDependencyDocs, sharedDependencyVersions } from "./plexus-registry";
+import { SubPlexus } from "./SubPlexus";
 
 export type DependencyId = Tagged<string, "Plexus dependency id">;
 export type DependencyVersion = Tagged<string, "Plexus dependency id">;
-export const docDependencyResolverMap = new WeakMap<
-  Y.Doc,
-  (entityId: string, dependencyId: DependencyId) => PlexusModel
->();
+
+// Re-export from registry for backward compatibility
+export { getDependencyDoc } from "./plexus-registry";
 
 export abstract class Plexus<
   Root extends PlexusModel &
@@ -39,21 +40,56 @@ export abstract class Plexus<
   DependencyIdType extends DependencyId = DependencyId,
   DependencyVersionType extends DependencyVersion = DependencyVersion
 > {
-  static docPlexus = new WeakMap<Y.Doc, Plexus<any, any, any, any>>();
+  static get docPlexus() {
+    return docPlexus as WeakMap<Y.Doc, Plexus<any, any, any, any>>;
+  }
   public readonly awareness: PlexusAwareness;
   // Defer loadRoot() to next tick to ensure child class is fully constructed
   public readonly rootPromise: Promise<Root> = Promise.resolve().then(() => this.loadRoot());
-  private dependencyDocs = new Map<DependencyIdType, Y.Doc>(); // Maps dependency ID -> Y.Doc for load() function
-  private dependencyVersions = new Map<DependencyIdType, DependencyVersionType>(); // Maps "id@version" -> Y.Doc for version tracking
   private isRootLoaded = false;
+
+  // Use getters to access shared per-doc mappings
+  private get dependencyDocs(): Map<DependencyIdType, Y.Doc> {
+    return sharedDependencyDocs.get(this.doc) as Map<DependencyIdType, Y.Doc>;
+  }
+
+  private get dependencyVersions(): Map<DependencyIdType, DependencyVersionType> {
+    return sharedDependencyVersions.get(this.doc) as Map<DependencyIdType, DependencyVersionType>;
+  }
+
+  // Hierarchical dependency tracking
+  private rootPlexus: Plexus<any, any, any, any> | null = null; // Points to the ultimate root plexus
+  private subPlexuses = new Map<
+    DependencyIdType,
+    SubPlexus<any, Plexus<Root, DependencyRootType, DependencyIdType, DependencyVersionType>>
+  >(); // Sub-plexuses for each dependency
+  private globalDependencyRegistry: Map<
+    string,
+    { doc: Y.Doc; plexus: SubPlexus<any, Plexus<Root, DependencyRootType, DependencyIdType, DependencyVersionType>> }
+  >; // Global registry for deduplication
 
   protected constructor(
     public readonly doc: Y.Doc,
-    awareness: awarenessProtocol.Awareness = new awarenessProtocol.Awareness(doc)
+    awareness: awarenessProtocol.Awareness = new awarenessProtocol.Awareness(doc),
+    rootPlexus?: Plexus<any, any, any, any>
   ) {
-    invariant(!Plexus.docPlexus.has(doc), "cannot spawn multiple entities of Plexus for same doc");
-    Plexus.docPlexus.set(doc, this);
+    // Allow multiple Plexus instances but track the most recent one
+    // Multiple instances will share dependency mappings via DefaultedWeakMap
+    if (docPlexus.has(doc)) {
+      console.warn("Creating additional Plexus for same doc - will share dependency mappings");
+    }
+    docPlexus.set(doc, this);
     this.awareness = new PlexusAwareness(awareness);
+
+    // Set up hierarchical tracking
+    if (rootPlexus) {
+      this.rootPlexus = rootPlexus;
+      this.globalDependencyRegistry = rootPlexus.globalDependencyRegistry;
+    } else {
+      // This is the root plexus
+      this.rootPlexus = this;
+      this.globalDependencyRegistry = new Map();
+    }
   }
 
   // Abstract method for fetching dependencies
@@ -75,26 +111,25 @@ export abstract class Plexus<
     );
     // todo should stop the world when we have this feature? maybe
     const depDoc = await this.fetchDependency(dependencyId, dependencyVersion);
-    this.dependencyDocs.set(dependencyId, depDoc);
-    this.dependencyVersions.set(dependencyId, dependencyVersion);
-    // Get dependency resolver and create dependency manifestation
-    const resolver = docDependencyResolverMap.get(this.doc);
-    invariant(resolver, "Missing dependency resolver for document");
+    return this.transact(() => {
+      this.dependencyDocs.set(dependencyId, depDoc);
+      this.dependencyVersions.set(dependencyId, dependencyVersion);
 
-    // Get the dependency root entity
-    const depRootId = depDoc.getMap<string>(YJS_GLOBALS.metadataMap)?.get(YJS_GLOBALS.metadataMapFields.root);
-    invariant(depRootId, "Dependency document missing root");
+      // Get the dependency root entity
+      const depRootId = depDoc.getMap<string>(YJS_GLOBALS.metadataMap)?.get(YJS_GLOBALS.metadataMapFields.root);
+      invariant(depRootId, "Dependency document missing root");
 
-    const depRoot = resolver(depRootId, dependencyId) as T;
-    invariant(depRoot, `cannot find root by ID ${depRootId} in dependency ${dependencyId}@${dependencyVersion}`);
+      // Use deref to materialize the dependency root entity
+      const depRoot = deref(depDoc, [depRootId]) as T;
+      invariant(depRoot, `cannot find root by ID ${depRootId} in dependency ${dependencyId}@${dependencyVersion}`);
 
-    // Update root entity with new dependency
-    const dependencyVersionMap = root.dependencyVersion as Record<DependencyIdType, DependencyVersionType>;
+      // Update root entity with new dependency
+      const dependencyVersionMap = root.dependencyVersion as Record<DependencyIdType, DependencyVersionType>;
 
-    root.dependencies.add(depRoot);
-    dependencyVersionMap[dependencyId] = dependencyVersion;
-
-    return depRoot;
+      root.dependencies.add(depRoot);
+      dependencyVersionMap[dependencyId] = dependencyVersion;
+      return depRoot;
+    });
   }
 
   /**
@@ -116,36 +151,6 @@ export abstract class Plexus<
   }
 
   protected async loadRoot(): Promise<Root> {
-    // Load initial root to discover dependencies
-    // initializing
-    const cache = new DefaultedMap<string, Map<string, DependencyRootType>>(() => new Map());
-    const resolver = (entityId: string, dependencyId: DependencyIdType) => {
-      const cachedEntity = cache.get(dependencyId).get(entityId);
-      if (cachedEntity) {
-        return cachedEntity;
-      }
-
-      const depDoc = this.dependencyDocs.get(dependencyId);
-      invariant(depDoc, `Missing dependency document for ${dependencyId}`);
-
-      // Check if entity already exists in the dependency doc's cache
-      const existingEntity = documentEntityCaches.get(depDoc).get(entityId)?.deref();
-      if (existingEntity) {
-        cache.get(dependencyId).set(entityId, existingEntity as DependencyRootType);
-        return existingEntity as DependencyRootType;
-      }
-
-      const model = depDoc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(entityId);
-      invariant(model, `cannot find model data for ${dependencyId}:${entityId}`);
-      const type = model.get(YJS_GLOBALS.modelMetadataType) as string;
-      const Constructor = entityClasses.get(type) as ConcretePlexusConstructor;
-      invariant(Constructor, `cannot find model type ${type} for ${dependencyId}:${entityId}`);
-      const materializedModel = new Constructor([entityId, depDoc]) as DependencyRootType;
-      cache.get(dependencyId).set(entityId, materializedModel);
-      return materializedModel;
-    };
-    docDependencyResolverMap.set(this.doc, resolver as any); // intentional due to TS2345
-
     const rootId = this.doc.getMap<string>(YJS_GLOBALS.metadataMap).get(YJS_GLOBALS.metadataMapFields.root);
     invariant(rootId, "missing root model id");
     const rootModel = this.doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(rootId);
@@ -180,8 +185,18 @@ export abstract class Plexus<
       // todo pause doc updates
       await Promise.all(
         missingDependencies.map(async ([dependencyId, dependencyVersion]) => {
-          this.dependencyDocs.set(dependencyId, await this.fetchDependency(dependencyId, dependencyVersion));
+          const depDoc = await this.fetchDependency(dependencyId, dependencyVersion);
+          this.dependencyDocs.set(dependencyId, depDoc);
           this.dependencyVersions.set(dependencyId, dependencyVersion);
+
+          // Create SubPlexus for this dependency to handle nested dependencies
+          const { SubPlexus } = await import("./SubPlexus");
+          const subPlexus = new SubPlexus(depDoc, dependencyId, dependencyVersion, this, this.rootPlexus || this);
+
+          this.subPlexuses.set(dependencyId, subPlexus);
+
+          // Wait for sub-dependencies to load
+          await subPlexus.rootPromise;
         })
       );
     }

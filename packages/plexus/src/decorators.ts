@@ -22,6 +22,15 @@ const argsAreClassDecoratorArgs = <Model extends PlexusModel, T extends AllowedY
     | [ClassAccessorDecoratorTarget<Model, T>, ClassAccessorDecoratorContext<Model, T> & { name: string }]
 ): args is [PlexusConstructor<Model>, ClassDecoratorContext<PlexusConstructor<Model>>] => args[1].kind === "class";
 
+try {
+// this is letting compiled stage-3 decorators work in wrangler environment
+// @ts-expect-error
+// noinspection JSConstantReassignment
+  Symbol.metadata ??= Symbol.for("metadata");
+} finally {
+
+}
+
 function syncingDecorator<
   Model extends PlexusModel,
   T extends AllowedYJSValue,

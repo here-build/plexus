@@ -5,6 +5,7 @@ export const YJS_GLOBALS = {
   metadataMap: "__metadata__",
   metadataMapFields: {
     root: "rootEntityId",
-    documentId: "documentId"
+    documentId: "documentId",
+    version: "version"
   }
 } as const;

@@ -7,8 +7,8 @@ import { YJS_GLOBALS } from "./YJS_GLOBALS";
 import { entityClasses } from "./globals";
 import { documentEntityCaches } from "./entity-cache";
 import { isTupleReference } from "./utils";
-import { docDependencyResolverMap } from "./Plexus";
 import { ConcretePlexusConstructor } from "./PlexusModel";
+import { getDependencyDoc } from "./plexus-registry";
 
 export const deref = (doc: Y.Doc, pointer: AllowedYValue | undefined): AllowedYJSValue => {
   if (pointer == null) {
@@ -25,9 +25,12 @@ export const deref = (doc: Y.Doc, pointer: AllowedYValue | undefined): AllowedYJ
 
   // cross-project reference
   if (pointer[1]) {
-    const resolver = docDependencyResolverMap.get(doc);
-    invariant(resolver, `No dependency resolver found for document clientID:${doc.clientID}`);
-    return resolver(pointer[0], pointer[1]);
+    // Get the dependency doc directly
+    const depDoc = getDependencyDoc(doc, pointer[1]);
+    invariant(depDoc, `No dependency doc found for ${pointer[1]} from doc clientID:${doc.clientID}`);
+
+    // Recursively deref in the dependency doc (without the dependency ID)
+    return deref(depDoc, [pointer[0]]);
   }
 
   const targetEntityId = pointer[0];

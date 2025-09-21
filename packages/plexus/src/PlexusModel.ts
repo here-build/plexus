@@ -26,7 +26,7 @@ import invariant from "tiny-invariant";
 import { trackAccess, trackModification } from "./tracking";
 import { deref } from "./deref";
 import { nanoid } from "nanoid";
-import { DependencyId } from "./Plexus";
+import { DependencyId, undoNotifications } from "./Plexus";
 import { docPlexus } from "./plexus-registry";
 import { clone } from "./clone";
 
@@ -61,9 +61,9 @@ export abstract class PlexusModel {
 
   [backingStorageSymbol] = new Map<string, any>();
 
-  #ephemeralParent: PlexusModel | null = null;
-  #ephemeralParentKey: string | null = null;
-  #extraParentMetadata: string | null = null;
+  #runtimeParent: PlexusModel | null = null;
+  #runtimeParentKey: string | null = null;
+  #runtimeParentMetadata: string | null = null;
 
   get _schema(): GenericRecordSchema {
     return (this.constructor as PlexusConstructor).schema;
@@ -135,26 +135,20 @@ export abstract class PlexusModel {
     this.#emancipate();
   }
 
-  [informAdoptionSymbol](newParent: Exclude<(typeof this)["parent"], null>, field: string, extraFieldMetadata?: string) {
-    if (!this._yjsModel) {
-      if (
-        this.#ephemeralParent === newParent &&
-        this.#ephemeralParentKey === field &&
-        this.#extraParentMetadata === extraFieldMetadata
-      ) {
-        return;
-      }
-      if (newParent._doc) {
-        this[referenceSymbol](newParent._doc);
-        // intentional recursion
-        return this[informAdoptionSymbol](newParent, field, extraFieldMetadata);
-      } else {
-        this.#ephemeralParent = newParent;
-        this.#ephemeralParentKey = field;
-        this.#extraParentMetadata = extraFieldMetadata ?? null;
-        trackModification(this, "parent");
-        return;
-      }
+  [informAdoptionSymbol](
+    newParent: Exclude<(typeof this)["parent"], null>,
+    field: string,
+    extraFieldMetadata?: string
+  ) {
+    if (
+      this.#runtimeParent === newParent &&
+      this.#runtimeParentKey === field &&
+      this.#runtimeParentMetadata === extraFieldMetadata
+    ) {
+      return;
+    }
+    if (!this._yjsModel && newParent._doc) {
+      this[referenceSymbol](newParent._doc);
     } else {
       if (newParent._doc && this._doc) {
         invariant(
@@ -163,24 +157,25 @@ export abstract class PlexusModel {
         );
       }
     }
-    const currentParent = (this._yjsModel as Y.Map<any> as Y.Map<ParentReference>).get(YJS_GLOBALS.modelMetadataParent);
-    const reference = newParent[referenceSymbol](this._doc!);
-    if (
-      currentParent &&
-      currentParent[0] === reference[0] &&
-      currentParent[1] === field &&
-      currentParent[2] === extraFieldMetadata
-    ) {
-      return;
-    }
+
+    this.#runtimeParent = newParent;
+    this.#runtimeParentKey = field;
+    this.#runtimeParentMetadata = extraFieldMetadata ?? null;
+
     maybeTransacting(this._doc, () => {
       trackModification(this, "parent");
+      if (!this._doc) {
+        return;
+      }
+      const reference = newParent[referenceSymbol](this._doc!);
+
       (this._yjsModel as Y.Map<any> as Y.Map<ParentReference>).set(
         YJS_GLOBALS.modelMetadataParent,
         extraFieldMetadata ? [reference[0], field, extraFieldMetadata] : [reference[0], field]
       );
     });
   }
+
   #emancipate() {
     if (!this.parent) {
       return;
@@ -194,11 +189,11 @@ export abstract class PlexusModel {
     const parent = this.parent;
     const [_, parentKey, extraParentMetadata] = this._yjsModel
       ? (this._yjsModel.get(YJS_GLOBALS.modelMetadataParent) as ParentReference)
-      : [null, this.#ephemeralParentKey!, this.#extraParentMetadata];
+      : [null, this.#runtimeParentKey!, this.#runtimeParentMetadata];
     // avoiding circular dependencies
 
     this._yjsModel?.delete(YJS_GLOBALS.modelMetadataParent);
-    this.#ephemeralParent = null;
+    this.#runtimeParent = null;
 
     switch ((parent.constructor as PlexusConstructor).schema[parentKey]) {
       case "child-val":
@@ -220,12 +215,14 @@ export abstract class PlexusModel {
     currentlyEmancipating.delete(this);
   }
 
-  [requestAdoptionSymbol](newParent: Exclude<(typeof this)["parent"], null>, field: string, extraFieldMetadata?: string) {
+  [requestAdoptionSymbol](
+    newParent: Exclude<(typeof this)["parent"], null>,
+    field: string,
+    extraFieldMetadata?: string
+  ) {
     const parent = this.parent;
-    const parentReference = this._yjsModel?.get(YJS_GLOBALS.modelMetadataParent) as any[] | undefined;
-    const [_, oldField, oldExtraFieldMetadata] = this._yjsModel
-      ? (parentReference ?? [null, null, null]) // circular edge case
-      : [null, this.#ephemeralParentKey!, this.#extraParentMetadata];
+    const oldField = this.#runtimeParentKey;
+    const oldExtraFieldMetadata = this.#runtimeParentMetadata;
     this.#emancipate();
     if (parent === newParent && oldField === field && oldExtraFieldMetadata === extraFieldMetadata) {
       return;
@@ -233,21 +230,21 @@ export abstract class PlexusModel {
     this[informAdoptionSymbol](newParent, field, extraFieldMetadata);
   }
   [informOrphanizationSymbol]() {
-    if (!this._yjsModel) {
-      this.#ephemeralParent = null;
-      this.#ephemeralParentKey = null;
-      this.#extraParentMetadata = null;
-      return;
-    }
-    const currentParent = this._yjsModel.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
-    if (currentParent) {
-      maybeTransacting(this._doc, () => {
-        trackModification(this, "parent");
-        // it is VERY important to alter fieldMap first to avoid cyclic processing
-        this._yjsModel!.delete(YJS_GLOBALS.modelMetadataParent);
-      });
+    this.#runtimeParent = null;
+    this.#runtimeParentKey = null;
+    this.#runtimeParentMetadata = null;
+    if (this._yjsModel) {
+      const currentParent = this._yjsModel.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
+      if (currentParent) {
+        maybeTransacting(this._doc, () => {
+          trackModification(this, "parent");
+          // it is VERY important to alter fieldMap first to avoid cyclic processing
+          this._yjsModel!.delete(YJS_GLOBALS.modelMetadataParent);
+        });
+      }
     }
   }
+
   [requestOrphanizationSymbol]() {
     this.#emancipate();
     this[informOrphanizationSymbol]();
@@ -255,11 +252,7 @@ export abstract class PlexusModel {
 
   get parent(): PlexusModel | null {
     trackAccess(this, "parent");
-    if (this._doc && this._yjsModel) {
-      const parentReference = (this._yjsModel as Y.Map<any>).get(YJS_GLOBALS.modelMetadataParent);
-      return parentReference ? (deref(this._doc, [parentReference[0]]) as PlexusModel) : null;
-    }
-    return this.#ephemeralParent;
+    return this.#runtimeParent;
   }
 
   clone(newProps: Partial<typeof this> = {}): this {
@@ -304,13 +297,13 @@ export abstract class PlexusModel {
         yprojectObjectInstanceFields = new Y.Map<Storageable>();
         yprojectObjectInstances.set(this.uuid, yprojectObjectInstanceFields);
         yprojectObjectInstanceFields.set(YJS_GLOBALS.modelMetadataType, this.#type);
-        if (this.#ephemeralParent) {
-          const parentReference = this.#ephemeralParent[referenceSymbol](doc);
+        if (this.#runtimeParent) {
+          const parentReference = this.#runtimeParent[referenceSymbol](doc);
           (yprojectObjectInstanceFields as Y.Map<any> as Y.Map<ParentReference>).set(
             YJS_GLOBALS.modelMetadataParent,
-            this.#extraParentMetadata
-              ? [parentReference[0], this.#ephemeralParentKey!, this.#extraParentMetadata]
-              : [parentReference[0], this.#ephemeralParentKey!]
+            this.#runtimeParentMetadata
+              ? [parentReference[0], this.#runtimeParentKey!, this.#runtimeParentMetadata]
+              : [parentReference[0], this.#runtimeParentKey!]
           );
         }
         if (this.#uuid) {
@@ -375,6 +368,20 @@ export abstract class PlexusModel {
 
   #bootstrapYjsObservation() {
     invariant(this._yjsModel, "cannot bootstrap observation without yjs model");
+
+    // Initialize runtime parent from Y.js
+    const parentReference = this._yjsModel.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
+    if (parentReference) {
+      this.#runtimeParent = deref(this._doc!, [parentReference[0]]) as PlexusModel;
+      this.#runtimeParentKey = parentReference[1];
+      this.#runtimeParentMetadata = parentReference[2] ?? null;
+    }
+
+    // Register for undo notifications
+    undoNotifications.set(this._yjsModel, (event) => {
+      this.#handleUndoNotification(event);
+    });
+
     for (const [key, type] of Object.entries(this._schema)) {
       switch (type) {
         case "val":
@@ -402,11 +409,57 @@ export abstract class PlexusModel {
         } else if (key in this._schema) {
           console.warn("attempted to rewrite the value that should be preserved untouched", this, key);
         } else if (key === YJS_GLOBALS.modelMetadataParent) {
-          trackAccess(this, "parent");
+          // Update runtime parent when Y.js changes
+          const parentReference = this._yjsModel!.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
+          if (parentReference) {
+            this.#runtimeParent = deref(this._doc!, [parentReference[0]]) as PlexusModel;
+            this.#runtimeParentKey = parentReference[1];
+            this.#runtimeParentMetadata = parentReference[2] ?? null;
+          } else {
+            this.#runtimeParent = null;
+            this.#runtimeParentKey = null;
+            this.#runtimeParentMetadata = null;
+          }
+          trackModification(this, "parent");
         } else {
           console.warn("attempted to write the value that is not in schema", this, key);
         }
       }
     });
+  }
+
+  #handleUndoNotification(event: any) {
+    // Undo/redo happened - only track val/child-val and parent changes
+    // Collections (set/list/record) are immutable references and handle themselves
+
+    // Check all val/child-val fields
+    for (const [key, type] of Object.entries(this._schema)) {
+      if (type === "val" || type === "child-val") {
+        const newValue = deref(this._doc!, this._yjsModel!.get(key) as AllowedYValue);
+        const currentValue = this[backingStorageSymbol].get(key);
+        if (newValue !== currentValue) {
+          trackModification(this, key);
+          this[backingStorageSymbol].set(key, newValue);
+        }
+      }
+    }
+
+    // Check parent changes
+    const parentReference = this._yjsModel!.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
+    const newParent = parentReference ? (deref(this._doc!, [parentReference[0]]) as PlexusModel) : null;
+    const newParentKey = parentReference ? parentReference[1] : null;
+    const newParentMetadata = parentReference ? (parentReference[2] ?? null) : null;
+
+    if (
+      newParent !== this.#runtimeParent ||
+      newParentKey !== this.#runtimeParentKey ||
+      newParentMetadata !== this.#runtimeParentMetadata
+    ) {
+      // Parent, field, or metadata changed - update runtime state
+      this.#runtimeParent = newParent;
+      this.#runtimeParentKey = newParentKey;
+      this.#runtimeParentMetadata = newParentMetadata;
+      trackModification(this, "parent");
+    }
   }
 }

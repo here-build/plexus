@@ -11,6 +11,7 @@ import { maybeReference, maybeTransacting } from "../utils";
 import { ACCESS_ALL_SYMBOL, trackAccess, trackModification } from "../tracking";
 import { deref } from "../deref";
 import { PlexusModel } from "../PlexusModel";
+import { undoManagerNotifications } from "../Plexus";
 
 export type MaterializedSetProxyInitTarget = {
   owner: PlexusModel;
@@ -45,7 +46,13 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
     // todo narrowed observer event triggers
     trackModification(self, ACCESS_ALL_SYMBOL);
   };
-  getYjsSet()?.observe(observer);
+  const yjsSet = getYjsSet();
+  yjsSet?.observe(observer);
+
+  // Register for undo notifications
+  if (yjsSet) {
+    undoManagerNotifications.set(yjsSet, observer);
+  }
 
   const self = new Proxy(Object.seal(backingSet), {
     get(_, elementKey) {
@@ -202,7 +209,10 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
           return () => {
             needsRegeneration = true;
             // todo duplicate observation tracking
-            getYjsSet()!.observe(observer);
+            const yjsSet = getYjsSet()!;
+            yjsSet.observe(observer);
+            // Register for undo notifications during materialization
+            undoManagerNotifications.set(yjsSet, observer);
           };
         default:
           return false;

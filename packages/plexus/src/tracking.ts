@@ -52,7 +52,11 @@ const unconsumedNotifiers = new Set<{
  * Built-in access reporter that adds specific field access to ALL currently active tracking maps
  */
 export function trackAccess(entity: any, field: string | symbol): void {
+  let isSomethingUpdated = false;
   for (const fieldset of activeTrackingMaps) {
+    if (!fieldset.get(entity).has(field)) {
+      isSomethingUpdated = true;
+    }
     fieldset.get(entity).add(field);
   }
 }
@@ -73,8 +77,12 @@ export function trackModification(entity: any, field: string | symbol): void {
         // Queue notification for later
         pendingNotifications.add(notifier.trackingFunction);
       } else {
-        // Execute immediately
-        notifier.trackingFunction();
+        try {
+          // Execute immediately
+          notifier.trackingFunction();
+        } catch (e) {
+          console.debug("error while handling reaction on", entity, field, notifier.trackingFunction);
+        }
       }
     }
   }

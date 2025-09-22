@@ -13,6 +13,7 @@ import {
 import { maybeReference, maybeTransacting } from "../utils";
 import { mutableArrayMethods } from "../globals";
 import { PlexusModel } from "../PlexusModel";
+import { undoManagerNotifications } from "../Plexus";
 
 // Node/JS engines prior to Set.prototype.difference support
 function setDifference<T>(a: Set<T>, b: Set<T>): Set<T> {
@@ -31,7 +32,11 @@ export type MaterializedArrayProxyInitTarget = {
   isChildField?: boolean;
 };
 
-export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, key, isChildField }: MaterializedArrayProxyInitTarget) => {
+export const buildArrayProxy = <T extends AllowedYJSValue>({
+  owner,
+  key,
+  isChildField
+}: MaterializedArrayProxyInitTarget) => {
   let backingArray: Array<T | null> = [];
   const getYjsArray = () => owner._yjsModel?.get(key) as Y.Array<AllowedYValue> | null;
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
@@ -47,7 +52,13 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, key, isChild
     }
     trackModification(self, ACCESS_ALL_SYMBOL);
   };
-  getYjsArray()?.observe(observer);
+  const yjsArray = getYjsArray();
+  yjsArray?.observe(observer);
+
+  // Register for undo notifications
+  if (yjsArray) {
+    undoManagerNotifications.set(yjsArray, observer);
+  }
 
   const self = new Proxy(backingArray, {
     // eslint-disable-next-line sonarjs/cognitive-complexity
@@ -76,12 +87,8 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, key, isChild
                 element?.[informAdoptionSymbol](owner, key);
               }
               const yjsArray = getYjsArray();
-              if (yjsArray) {
-                yjsArray.push(elements.map((element) => maybeReference(element, owner._doc!)));
-                return yjsArray.length;
-              } else {
-                return backingArray.length;
-              }
+              yjsArray?.push(elements.map((element) => maybeReference(element, owner._doc!)));
+              return backingArray.length;
             });
         case "unshift": // arr.unshift(entity) → yArray.unshift(entity.reference())
           // eslint-disable-next-line sonarjs/no-nested-functions
@@ -97,12 +104,8 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, key, isChild
 
               backingArray.unshift(...elements);
               const yjsArray = getYjsArray();
-              if (yjsArray) {
-                yjsArray.unshift(elements.map((element) => maybeReference(element, owner._doc!)));
-                return yjsArray.length;
-              } else {
-                return backingArray.length;
-              }
+              yjsArray?.unshift(elements.map((element) => maybeReference(element, owner._doc!)));
+              return backingArray.length;
             });
           };
         case "clear": // arr.assign(newElements) → replace entire array contents
@@ -117,10 +120,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, key, isChild
             }
 
             backingArray.splice(0, backingArray.length);
-            if (yjsArray) {
-              // Clear existing contents
-              yjsArray.delete(0, yjsArray.length);
-            }
+            yjsArray?.delete(0, yjsArray.length);
             trackModification(self, ACCESS_ALL_SYMBOL);
           };
         case "assign": // arr.assign(newElements) → replace entire array contents
@@ -146,12 +146,8 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, key, isChild
               const yjsArray = getYjsArray();
 
               backingArray.splice(0, backingArray.length, ...newElements);
-              if (yjsArray) {
-                // Clear existing contents
-                yjsArray.delete(0, yjsArray.length);
-                // Add new elements
-                yjsArray.push(newElements.map((element) => maybeReference(element, owner._doc!)));
-              }
+              yjsArray?.delete(0, yjsArray.length);
+              yjsArray?.push(newElements.map((element) => maybeReference(element, owner._doc!)));
             });
           };
         case "length": // Report length access to this array
@@ -163,6 +159,8 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, key, isChild
             const yjsArray = getYjsArray()!;
             backingArray.splice(0, backingArray.length, ...yjsArray.toArray().map((item) => owner._deref(item) as T));
             yjsArray.observe(observer);
+            // Register for undo notifications during materialization
+            undoManagerNotifications.set(yjsArray, observer);
           };
         case Symbol.iterator:
           return () => {
@@ -182,20 +180,15 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, key, isChild
           return mutableArrayMethods.has(elementKey)
             ? // eslint-disable-next-line sonarjs/no-nested-functions
               (...args) => {
-                const yjsArray = getYjsArray();
-                if (!yjsArray) {
-                  const result = backingArray[elementKey](...args);
-                  trackModification(self, ACCESS_ALL_SYMBOL);
+                const array = backingArray;
+                const resultingArray = [...array];
+                const result = resultingArray[elementKey](...args);
+                if (resultingArray.length === array.length && resultingArray.every((val, i) => val === array[i])) {
                   return result;
                 }
-                return maybeTransacting(yjsArray?.doc, () => {
-                  const array = backingArray;
-                  const resultingArray = [...array];
-                  const result = resultingArray[elementKey](...args);
-                  if (resultingArray.length === array.length && resultingArray.every((val, i) => val === array[i])) {
-                    return result;
-                  }
 
+                const yjsArray = getYjsArray();
+                return maybeTransacting(yjsArray?.doc, () => {
                   // todo duplicate models detection
                   // Clear parent tracking for old items
                   const removedItems = setDifference(new Set(backingArray), new Set(resultingArray));
@@ -206,14 +199,13 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({ owner, key, isChild
                   for (const item of addedItems) {
                     item?.[requestAdoptionSymbol]?.(owner, key);
                   }
-
-                  maybeTransacting(yjsArray.doc, () => {
-                    // todo optimized update strategy
-                    yjsArray.delete(0, yjsArray.length);
-                    yjsArray.push(resultingArray.map((element) => maybeReference(element, owner._doc!)));
-                  });
-                  trackModification(self, ACCESS_ALL_SYMBOL);
+                  // backing array update should happen AFTER removed/added items calculation as it uses previous version of backing array
                   backingArray.splice(0, backingArray.length, ...resultingArray);
+                  trackModification(self, ACCESS_ALL_SYMBOL);
+
+                  // todo optimized update strategy
+                  yjsArray?.delete(0, yjsArray.length);
+                  yjsArray?.push(resultingArray.map((element) => maybeReference(element, owner._doc!)));
                   return result;
                 });
               }

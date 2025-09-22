@@ -4,7 +4,6 @@ import {
   backingStorageSymbol,
   GenericRecordSchema,
   informAdoptionSymbol,
-  ReadonlyField,
   requestEmancipationSymbol,
   requestOrphanizationSymbol
 } from "./proxy-runtime-types";
@@ -175,7 +174,7 @@ const createHandlers = <
         return;
       }
 
-      backingStructures[this._schema[context.name]].get(this).assign(value);
+        backingStructures[this._schema[context.name]].get(this).assign(value);
     },
     init(this: Model, value: any) {
       const setter = this._schema[context.name] === "val" ? set : setChild;

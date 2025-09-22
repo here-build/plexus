@@ -20,13 +20,13 @@ import {
   Storageable
 } from "./proxy-runtime-types";
 import { documentEntityCaches } from "./entity-cache";
-import { curryMaybeReference, maybeTransacting, never } from "./utils";
+import { curryMaybeReference, maybeTransacting, never, isTransacting, pendingNotifications } from "./utils";
 import { YJS_GLOBALS } from "./YJS_GLOBALS";
 import invariant from "tiny-invariant";
 import { trackAccess, trackModification } from "./tracking";
 import { deref } from "./deref";
 import { nanoid } from "nanoid";
-import { DependencyId, undoNotifications } from "./Plexus";
+import { DependencyId, undoManagerNotifications } from "./Plexus";
 import { docPlexus } from "./plexus-registry";
 import { clone } from "./clone";
 
@@ -377,11 +377,6 @@ export abstract class PlexusModel {
       this.#runtimeParentMetadata = parentReference[2] ?? null;
     }
 
-    // Register for undo notifications
-    undoNotifications.set(this._yjsModel, (event) => {
-      this.#handleUndoNotification(event);
-    });
-
     for (const [key, type] of Object.entries(this._schema)) {
       switch (type) {
         case "val":
@@ -397,15 +392,29 @@ export abstract class PlexusModel {
           this[key][materializationSymbol]();
       }
     }
-    this._yjsModel!.observe((event) => {
-      if (event.transaction.local) {
-        // we handled it already
-        return;
-      }
+
+    const onChange = (event: Y.YMapEvent<any>) => {
       for (const key of event.keysChanged) {
         if (this._schema[key] === "val" || this._schema[key] === "child-val") {
-          trackModification(this, key);
-          this[backingStorageSymbol].set(key, deref(this._doc!, this._yjsModel!.get(key) as AllowedYValue));
+          const oldValue = this[backingStorageSymbol].get(key);
+          const yjsValue = this._yjsModel!.get(key) as AllowedYValue;
+          const newValue = deref(this._doc!, yjsValue);
+          if (key === "primaryChild") {
+            console.log("[onChange] primaryChild change detected");
+            console.log("  Y.js value:", yjsValue);
+            console.log("  oldValue:", oldValue);
+            console.log("  newValue:", newValue);
+            console.log("  equal?:", oldValue === newValue);
+          }
+          if (newValue !== oldValue) {
+            if (key === "primaryChild") {
+              console.log("  -> calling trackModification");
+            }
+            trackModification(this, key);
+            this[backingStorageSymbol].set(key, newValue);
+          } else if (key === "primaryChild") {
+            console.log("  -> NOT calling trackModification (values equal)");
+          }
         } else if (key in this._schema) {
           console.warn("attempted to rewrite the value that should be preserved untouched", this, key);
         } else if (key === YJS_GLOBALS.modelMetadataParent) {
@@ -425,41 +434,8 @@ export abstract class PlexusModel {
           console.warn("attempted to write the value that is not in schema", this, key);
         }
       }
-    });
-  }
-
-  #handleUndoNotification(event: any) {
-    // Undo/redo happened - only track val/child-val and parent changes
-    // Collections (set/list/record) are immutable references and handle themselves
-
-    // Check all val/child-val fields
-    for (const [key, type] of Object.entries(this._schema)) {
-      if (type === "val" || type === "child-val") {
-        const newValue = deref(this._doc!, this._yjsModel!.get(key) as AllowedYValue);
-        const currentValue = this[backingStorageSymbol].get(key);
-        if (newValue !== currentValue) {
-          trackModification(this, key);
-          this[backingStorageSymbol].set(key, newValue);
-        }
-      }
-    }
-
-    // Check parent changes
-    const parentReference = this._yjsModel!.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
-    const newParent = parentReference ? (deref(this._doc!, [parentReference[0]]) as PlexusModel) : null;
-    const newParentKey = parentReference ? parentReference[1] : null;
-    const newParentMetadata = parentReference ? (parentReference[2] ?? null) : null;
-
-    if (
-      newParent !== this.#runtimeParent ||
-      newParentKey !== this.#runtimeParentKey ||
-      newParentMetadata !== this.#runtimeParentMetadata
-    ) {
-      // Parent, field, or metadata changed - update runtime state
-      this.#runtimeParent = newParent;
-      this.#runtimeParentKey = newParentKey;
-      this.#runtimeParentMetadata = newParentMetadata;
-      trackModification(this, "parent");
-    }
+    };
+    undoManagerNotifications.set(this._yjsModel, onChange);
+    this._yjsModel!.observe(onChange);
   }
 }

@@ -3,6 +3,7 @@
  */
 
 import * as Y from "yjs";
+import { UndoManager } from "yjs";
 import * as awarenessProtocol from "y-protocols/awareness";
 import { referenceSymbol, Storageable } from "./proxy-runtime-types";
 import { Tagged } from "type-fest";
@@ -16,6 +17,9 @@ import { ConcretePlexusConstructor, PlexusModel } from "./PlexusModel";
 import { deref } from "./deref";
 import { docPlexus, sharedDependencyDocs, sharedDependencyVersions } from "./plexus-registry";
 import { SubPlexus } from "./SubPlexus";
+
+// Global registry for undo notifications - Y entities are singletons anyway
+export const undoManagerNotifications = new WeakMap<Y.AbstractType<any>, (event: any) => void>();
 
 export type DependencyId = Tagged<string, "Plexus dependency id">;
 export type DependencyVersion = Tagged<string, "Plexus dependency id">;
@@ -67,6 +71,9 @@ export abstract class Plexus<
     string,
     { doc: Y.Doc; plexus: SubPlexus<any, Plexus<Root, DependencyRootType, DependencyIdType, DependencyVersionType>> }
   >; // Global registry for deduplication
+
+  // @ts-expect-error
+  public readonly undoManager: UndoManager;
 
   protected constructor(
     public readonly doc: Y.Doc,
@@ -171,6 +178,43 @@ export abstract class Plexus<
 
     const root = deref(this.doc, [rootId]) as any as Root; // we're unable to validate types against tests anyway, sadly
     this.isRootLoaded = true;
+    // Initialize UndoManager with all models tracked
+    const modelsMap = this.doc.getMap(YJS_GLOBALS.models);
+    // @ts-expect-error
+    // noinspection JSConstantReassignment
+    this.undoManager = new UndoManager([modelsMap], {
+      captureTimeout: 500
+    });
+
+    // Wire up undo/redo notification bridge
+    // stack-item-popped is fired for undo operations
+    this.undoManager.on("stack-item-popped", (event) => {
+      // Deduplicate notifications - only notify each target once
+      const notifiedTargets = new Set<Y.AbstractType<any>>();
+      for (const yEvents of event.changedParentTypes.values()) {
+        for (const event of yEvents) {
+          if (!notifiedTargets.has(event.target)) {
+            notifiedTargets.add(event.target);
+            undoManagerNotifications.get(event.target)?.(event);
+          }
+        }
+      }
+    });
+
+    // stack-item-added is fired for redo operations
+    this.undoManager.on("stack-item-added", (event) => {
+      // Deduplicate notifications - only notify each target once
+      const notifiedTargets = new Set<Y.AbstractType<any>>();
+      for (const yEvents of event.changedParentTypes.values()) {
+        for (const event of yEvents) {
+          if (!notifiedTargets.has(event.target)) {
+            notifiedTargets.add(event.target);
+            undoManagerNotifications.get(event.target)?.(event);
+          }
+        }
+      }
+    });
+
     return root;
   }
 

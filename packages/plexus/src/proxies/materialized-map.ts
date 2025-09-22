@@ -13,6 +13,7 @@ import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModific
 import { YJS_GLOBALS } from "../YJS_GLOBALS";
 import { PlexusModel } from "../PlexusModel";
 import { deref } from "../deref";
+import { undoManagerNotifications } from "../Plexus";
 
 export type MaterializedRecordProxyInitTarget = {
   owner: PlexusModel;
@@ -45,6 +46,12 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
   const map = getYjsMap();
 
   map?.observe(observer);
+
+  // Register for undo notifications
+  if (map) {
+    undoManagerNotifications.set(map, observer);
+  }
+
   if (map) {
     const {
       [YJS_GLOBALS.modelMetadataType]: _type,
@@ -118,6 +125,8 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
               Object.fromEntries(Object.entries(map.toJSON()).map(([key, value]) => [key, deref(map.doc!, value)]))
             );
             map.observe(observer);
+            // Register for undo notifications during materialization
+            undoManagerNotifications.set(map, observer);
           };
       }
 
@@ -187,10 +196,10 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
     deleteProperty(proxyTarget, elementKey) {
       // noinspection SuspiciousTypeOfGuard
       if (typeof elementKey === "symbol") {
-        return false;
+        return true;
       }
       if (!Object.hasOwn(proxyTarget, elementKey)) {
-        return false;
+        return true;
       }
 
       return maybeTransacting(owner._doc, () => {
@@ -201,9 +210,8 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
         getYjsMap()?.delete(elementKey);
         if (Reflect.deleteProperty(proxyTarget, elementKey)) {
           trackModification(self, ACCESS_INDICES_SET_SYMBOL);
-          return true;
         }
-        return false;
+        return true;
       });
     },
     // todo getOwnPropertyDescriptor

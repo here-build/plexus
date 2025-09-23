@@ -1,6 +1,6 @@
 import { isProxyEntity } from "./proxy-runtime-types";
-import { ACCESS_ALL_SYMBOL, trackAccess } from "./tracking";
-import { ConcretePlexusConstructor, PlexusConstructor, PlexusModel } from "./PlexusModel";
+import { __untracked__, ACCESS_ALL_SYMBOL, trackAccess } from "./tracking";
+import { ConcretePlexusConstructor, PlexusModel } from "./PlexusModel";
 
 // Global clone transaction mapping for handling cycles and deduplication
 let cloneTransactionMapping: WeakMap<any, any> | null = null;
@@ -23,42 +23,44 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
       if (fieldValue && fieldValue[isProxyEntity]) {
         trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
       }
-      switch (type) {
-        case "val":
-          clonedModel[fieldKey] = fieldValue;
-          break;
-        case "list":
-        case "record":
-        case "set":
-          clonedModel[fieldKey].assign(fieldValue);
-          break;
-        case "child-val":
-          const clonedValue = fieldValue instanceof PlexusModel ? fieldValue.clone() : fieldValue;
-          clonedModel[fieldKey] = clonedValue;
-          break;
-        case "child-list":
-          clonedModel[fieldKey].assign(
-            (fieldValue as any as any[]).map((item) => (item instanceof PlexusModel ? item.clone() : item))
-          );
-          break;
-        case "child-set":
-          clonedModel[fieldKey].assign(
-            new Set(
-              [...(fieldValue as any as Set<any>)].map((item) => (item instanceof PlexusModel ? item.clone() : item))
-            )
-          );
-          break;
-        case "child-record":
-          clonedModel[fieldKey].assign(
-            Object.fromEntries(
-              Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
-                key,
-                item instanceof PlexusModel ? item.clone() : item
-              ])
-            )
-          );
-          break;
-      }
+      __untracked__(() => {
+        switch (type) {
+          case "val":
+            clonedModel[fieldKey] = fieldValue;
+            break;
+          case "list":
+          case "record":
+          case "set":
+            clonedModel[fieldKey].assign(fieldValue);
+            break;
+          case "child-val":
+            const clonedValue = fieldValue instanceof PlexusModel ? fieldValue.clone() : fieldValue;
+            clonedModel[fieldKey] = clonedValue;
+            break;
+          case "child-list":
+            clonedModel[fieldKey].assign(
+              (fieldValue as any as any[]).map((item) => (item instanceof PlexusModel ? item.clone() : item))
+            );
+            break;
+          case "child-set":
+            clonedModel[fieldKey].assign(
+              new Set(
+                [...(fieldValue as any as Set<any>)].map((item) => (item instanceof PlexusModel ? item.clone() : item))
+              )
+            );
+            break;
+          case "child-record":
+            clonedModel[fieldKey].assign(
+              Object.fromEntries(
+                Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
+                  key,
+                  item instanceof PlexusModel ? item.clone() : item
+                ])
+              )
+            );
+            break;
+        }
+      });
     }
     return clonedModel;
   } finally {

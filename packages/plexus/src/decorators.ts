@@ -9,7 +9,7 @@ import {
 } from "./proxy-runtime-types";
 import invariant from "tiny-invariant";
 import { entityClasses } from "./globals";
-import { trackAccess, trackModification } from "./tracking";
+import { __untracked__, trackAccess, trackModification } from "./tracking";
 import { DefaultedMap, DefaultedWeakMap, maybeReference, maybeTransacting } from "./utils";
 import { buildRecordProxy } from "./proxies/materialized-map";
 import { buildSetProxy } from "./proxies/materialized-set";
@@ -80,7 +80,7 @@ const set = <
 >(
   context: Context,
   object: Model,
-  value: T
+  value: T,
 ) => {
   const storedValue = object[backingStorageSymbol].get(context.name) as T;
   if (storedValue === value) {
@@ -177,29 +177,31 @@ const createHandlers = <
         backingStructures[this._schema[context.name]].get(this).assign(value);
     },
     init(this: Model, value: any) {
-      const setter = this._schema[context.name] === "val" ? set : setChild;
-      switch (this._schema[context.name]) {
-        case "val":
-        case "child-val": {
-          if (this._yjsModel) {
-            const reflectedValue = this[context.name];
-            setter(context, this, reflectedValue);
-            return reflectedValue;
+      __untracked__(() => {
+        const setter = this._schema[context.name] === "val" ? set : setChild;
+        switch (this._schema[context.name]) {
+          case "val":
+          case "child-val": {
+            if (this._yjsModel) {
+              const reflectedValue = this[context.name];
+              setter(context, this, reflectedValue);
+              return reflectedValue;
+            }
+            const actualValue = this._initializationState[context.name] ?? value;
+            setter(context, this, actualValue);
+            return actualValue;
           }
-          const actualValue = this._initializationState[context.name] ?? value;
-          setter(context, this, actualValue);
-          return actualValue;
+          default:
+            if (this._yjsModel) {
+              return this[context.name];
+            }
+            const actualValue = this._initializationState[context.name] ?? value;
+            if (actualValue) {
+              backingStructures[this._schema[context.name]].get(this).assign(actualValue);
+            }
+            return actualValue;
         }
-        default:
-          if (this._yjsModel) {
-            return this[context.name];
-          }
-          const actualValue = this._initializationState[context.name] ?? value;
-          if (actualValue) {
-            backingStructures[this._schema[context.name]].get(this).assign(actualValue);
-          }
-          return actualValue;
-      }
+      });
     }
   };
 };

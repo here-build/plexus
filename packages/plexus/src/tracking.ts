@@ -48,6 +48,19 @@ const unconsumedNotifiers = new Set<{
   trackingFunction: () => void;
   fieldset: DefaultedMap<any, Set<string | symbol>>;
 }>();
+
+
+let untracked = false;
+/** @protected this is internal metod to do some magic and should not be used outside explicitly */
+export const __untracked__ = <T>(fn: () => T): T => {
+  untracked = true;
+  try {
+    return fn();
+  } finally {
+    untracked = false;
+  }
+};
+
 /**
  * Built-in access reporter that adds specific field access to ALL currently active tracking maps
  */
@@ -60,32 +73,34 @@ export function trackAccess(entity: any, field: string | symbol): void {
     fieldset.get(entity).add(field);
   }
 }
-
 /**
  * Built-in modification reporter - notifies interested TrackedFunctions when data changes
  */
 export function trackModification(entity: any, field: string | symbol): void {
-  for (const notifier of unconsumedNotifiers) {
-    if (!notifier.fieldset.has(entity)) {
-      continue;
-    }
-    const entityKeyset = notifier.fieldset.get(entity)!;
-    if (field === ACCESS_ALL_SYMBOL || entityKeyset.has(field) || entityKeyset.has(ACCESS_ALL_SYMBOL)) {
-      unconsumedNotifiers.delete(notifier);
+  if (untracked) {
+    return;
+  }
+    for (const notifier of unconsumedNotifiers) {
+      if (!notifier.fieldset.has(entity)) {
+        continue;
+      }
+      const entityKeyset = notifier.fieldset.get(entity)!;
+      if (field === ACCESS_ALL_SYMBOL || entityKeyset.has(field) || entityKeyset.has(ACCESS_ALL_SYMBOL)) {
+        unconsumedNotifiers.delete(notifier);
 
-      if (isTransacting) {
-        // Queue notification for later
-        pendingNotifications.add(notifier.trackingFunction);
-      } else {
-        try {
-          // Execute immediately
-          notifier.trackingFunction();
-        } catch (e) {
-          console.debug("error while handling reaction on", entity, field, notifier.trackingFunction);
+        if (isTransacting) {
+          // Queue notification for later
+          pendingNotifications.add(notifier.trackingFunction);
+        } else {
+          try {
+            // Execute immediately
+            notifier.trackingFunction();
+          } catch (e) {
+            console.debug("error while handling reaction on", entity, field, notifier.trackingFunction);
+          }
         }
       }
     }
-  }
 }
 
 export function isObserving(): boolean {

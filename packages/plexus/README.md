@@ -1,4 +1,4 @@
-# @dappsnap/plexus
+# @here.build/plexus
 
 JavaScript objects with reactivity, automatic sync, and parent/child relationships. Built on YJS for conflict-free collaboration.
 
@@ -42,7 +42,7 @@ Objects start local (ephemeral) and become synced (materialized) when attached t
 ## Installation
 
 ```bash
-npm install @dappsnap/plexus
+npm install @here.build/plexus
 ```
 
 ## Usage
@@ -50,7 +50,7 @@ npm install @dappsnap/plexus
 ### Defining Models
 
 ```typescript
-import { PlexusModel, syncing } from '@dappsnap/plexus';
+import { PlexusModel, syncing } from '@here.build/plexus';
 
 @syncing
 class Component extends PlexusModel {
@@ -87,7 +87,7 @@ class Container extends PlexusModel {
 
 ```typescript
 import * as Y from 'yjs';
-import { Plexus } from '@dappsnap/plexus';
+import { Plexus } from '@here.build/plexus';
 
 // Step 1: Create ephemeral objects (local, not synced)
 const button = new Component({ name: "Button", width: 100 });
@@ -137,7 +137,7 @@ import {
   YJS_GLOBALS,      // Constants for YJS integration
   referenceSymbol,  // Symbol for entity references
 
-} from '@dappsnap/plexus';
+} from '@here.build/plexus';
 ```
 
 ## Important: Networking Not Included

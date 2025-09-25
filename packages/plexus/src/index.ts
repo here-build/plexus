@@ -1,5 +1,5 @@
 /**
- * @dappsnap/plexus
+ * @here.build/plexus
  *
  * Constraint network for object state superposition through mathematical field dynamics.
  *

@@ -1,5 +1,5 @@
 {
-  "name": "@dappsnap/plexus",
+  "name": "@here.build/plexus",
   "version": "0.1.0",
   "description": "Constraint network for object state superposition through mathematical field dynamics",
   "type": "module",

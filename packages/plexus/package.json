@@ -2,9 +2,17 @@
   "name": "@here.build/plexus",
   "version": "0.1.0",
   "description": "Constraint network for object state superposition through mathematical field dynamics",
+  "keywords": [
+    "proxy",
+    "model",
+    "constraint",
+    "field",
+    "superposition",
+    "mathematics"
+  ],
+  "license": "MIT",
+  "author": "DappSnap",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -25,17 +33,19 @@
       "default": "./dist/runtime.js"
     }
   },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
     "dist/**/*",
     "src/**/*"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsc -p tsconfig.json --watch",
     "clean": "rm -rf dist",
-    "typecheck": "tsc -p tsconfig.test.json",
+    "dev": "tsc -p tsconfig.json --watch",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "nanoid": "^5.0.0",
@@ -45,24 +55,14 @@
     "yjs": "^13.6.0"
   },
   "devDependencies": {
-    "tslib": "^2.8.1",
     "@types/node": "^20.0.0",
     "dedent": "^1.5.0",
     "prettier": "^3.3.0",
+    "tslib": "^2.8.1",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   },
   "peerDependencies": {
     "prettier": "^3.0.0"
-  },
-  "keywords": [
-    "proxy",
-    "model",
-    "constraint",
-    "field",
-    "superposition",
-    "mathematics"
-  ],
-  "author": "DappSnap",
-  "license": "MIT"
+  }
 }

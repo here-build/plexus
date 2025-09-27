@@ -22,12 +22,11 @@ const argsAreClassDecoratorArgs = <Model extends PlexusModel, T extends AllowedY
 ): args is [PlexusConstructor<Model>, ClassDecoratorContext<PlexusConstructor<Model>>] => args[1].kind === "class";
 
 try {
-// this is letting compiled stage-3 decorators work in wrangler environment
-// @ts-expect-error
-// noinspection JSConstantReassignment
+  // this is letting compiled stage-3 decorators work in wrangler environment
+  // @ts-expect-error
+  // noinspection JSConstantReassignment
   Symbol.metadata ??= Symbol.for("metadata");
 } finally {
-
 }
 
 function syncingDecorator<
@@ -80,7 +79,7 @@ const set = <
 >(
   context: Context,
   object: Model,
-  value: T,
+  value: T
 ) => {
   const storedValue = object[backingStorageSymbol].get(context.name) as T;
   if (storedValue === value) {
@@ -146,14 +145,14 @@ const createBackingStructuresMap = new DefaultedMap((key: string) => ({
 const createHandlers = <
   Model extends PlexusModel,
   T extends AllowedYJSValue | Set<AllowedYJSValue> | AllowedYJSValue[] | Record<string, AllowedYJSValue>,
-  Context extends ClassAccessorDecoratorContext<Model, T> & { name: string }
+  Context extends ClassAccessorDecoratorContext<Model, T> & { name: string } = ClassAccessorDecoratorContext<Model, T> & { name: string }
 >(
   context: Context
 ) => {
   // we need those backing structures to be spawned individually to make them isolated per-key
   const backingStructures = createBackingStructuresMap.get(context.name);
   return {
-    get(this: Model) {
+    get(this: Model): T {
       trackAccess(this, context.name);
       switch (this._schema[context.name]) {
         case "val":
@@ -163,22 +162,22 @@ const createHandlers = <
           return backingStructures[this._schema[context.name]].get(this);
       }
     },
-    set(this: Model, value: any) {
+    set(this: Model, value: T) {
       if (this._schema[context.name] === "val") {
-        set(context, this, value);
+        set(context as any, this, value as Extract<T, AllowedYJSValue>);
         return;
       }
 
       if (this._schema[context.name] === "child-val") {
-        setChild(context, this, value);
+        setChild(context as any, this, value as Extract<T, AllowedYJSValue>);
         return;
       }
 
-        backingStructures[this._schema[context.name]].get(this).assign(value);
+      backingStructures[this._schema[context.name]].get(this).assign(value);
     },
-    init(this: Model, value: any) {
-      __untracked__(() => {
-        const setter = this._schema[context.name] === "val" ? set : setChild;
+    init(this: Model, value: T): T {
+      const setter = this._schema[context.name] === "val" ? set : setChild;
+      return __untracked__(() => {
         switch (this._schema[context.name]) {
           case "val":
           case "child-val": {
@@ -188,7 +187,7 @@ const createHandlers = <
               return reflectedValue;
             }
             const actualValue = this._initializationState[context.name] ?? value;
-            setter(context, this, actualValue);
+            setter(context as any, this, actualValue as Extract<T, AllowedYJSValue>);
             return actualValue;
           }
           default:
@@ -211,18 +210,18 @@ const buildDecorator = <
 >(
   kind: GenericRecordSchema[string]
 ) =>
-  function plexusDynamicDecorator<Model extends PlexusModel>(
-    target: ClassAccessorDecoratorTarget<Model, T>,
-    context: ClassAccessorDecoratorContext<Model, T> & { name: string }
+  function plexusDynamicDecorator<Model extends PlexusModel, Type extends T>(
+    target: ClassAccessorDecoratorTarget<Model, Type>,
+    context: ClassAccessorDecoratorContext<Model, Type> & { name: string }
   ) {
     if (!Object.hasOwn(context.metadata, "schema")) {
       context.metadata.schema = {
-        // it may be coming from inherited state and we need to use the inheritance here too
+        // it may be coming from inherited state, and we need to use the inheritance here too
         __proto__: context.metadata.schema ?? {}
       };
     }
     (context.metadata.schema as GenericRecordSchema)[context.name] = kind;
-    return createHandlers(context);
+    return createHandlers<Model, Type>(context);
   };
 
 export const syncing = Object.assign(syncingDecorator, {

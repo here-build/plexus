@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "description": "Constraint network for object state superposition through mathematical field dynamics",
   "keywords": [
-    "proxy",
-    "model",
     "constraint",
     "field",
-    "superposition",
-    "mathematics"
+    "mathematics",
+    "model",
+    "proxy",
+    "superposition"
   ],
   "license": "MIT",
   "author": "DappSnap",

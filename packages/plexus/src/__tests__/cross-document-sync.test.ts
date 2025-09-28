@@ -210,9 +210,9 @@ describe("Cross-Document Proxy Sync", () => {
     site1.components["parent"] = parentComponent; // Trigger contagion for all
 
     // Verify nested references work in doc1
-    expect(site1.components["parent"].tplTree.tag).toBe("div");
-    expect(site1.components["parent"].tplTree.children[0].tag).toBe("span");
-    expect(site1.components["parent"].tplTree.children[0].attrs["id"]).toBe("child-1");
+    expect(site1.components["parent"].tplTree?.tag).toBe("div");
+    expect(site1.components["parent"].tplTree?.children[0].tag).toBe("span");
+    expect(site1.components["parent"].tplTree?.children[0].attrs["id"]).toBe("child-1");
 
     // Sync to doc2
     syncDocs(doc1, doc2);
@@ -223,18 +223,19 @@ describe("Cross-Document Proxy Sync", () => {
 
     // Verify nested structure synced completely
     expect(parent2.name).toBe("Parent");
-    expect(parent2.tplTree.tag).toBe("div");
-    expect(parent2.tplTree.name).toBe("Root");
-    expect(parent2.tplTree.attrs["className"]).toBe("container");
-    expect(parent2.tplTree.children).toHaveLength(1);
-    expect(parent2.tplTree.children[0].tag).toBe("span");
-    expect(parent2.tplTree.children[0].name).toBe("Child");
-    expect(parent2.tplTree.children[0].attrs["id"]).toBe("child-1");
+    expect(parent2.tplTree?.tag).toBe("div");
+    expect(parent2.tplTree?.name).toBe("Root");
+    expect(parent2.tplTree?.attrs["className"]).toBe("container");
+    expect(parent2.tplTree?.children).toHaveLength(1);
+    expect(parent2.tplTree?.children[0].tag).toBe("span");
+    expect(parent2.tplTree?.children[0].name).toBe("Child");
+    expect(parent2.tplTree?.children[0].attrs["id"]).toBe("child-1");
 
     // Doc2: Modify nested structure
-    parent2.tplTree.children[0].attrs["modified"] = "true";
-    parent2.tplTree.attrs["updated"] = "doc2";
-
+    if (parent2.tplTree){
+        parent2.tplTree.children[0].attrs["modified"] = "true";
+        parent2.tplTree.attrs["updated"] = "doc2";
+    }
     // Sync back
     syncDocs(doc1, doc2);
 

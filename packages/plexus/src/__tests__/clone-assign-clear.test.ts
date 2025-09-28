@@ -257,7 +257,7 @@ describe("clone(), assign(), clear() methods", () => {
         references: new Set()
       });
 
-      model.tags = ["new1", "new2", "new1", "new2"];
+      model.tags = new Set(["new1", "new2", "new1", "new2"]);
       expect([...model.tags]).toEqual(expect.arrayContaining(["new1", "new2"]));
       expect(model.tags.size).toBe(2);
     });
@@ -277,7 +277,7 @@ describe("clone(), assign(), clear() methods", () => {
         references: new Set([comp1])
       });
 
-      model.references = [comp2, comp3];
+      model.references = new Set([comp2, comp3]);
       expect([...model.references]).toEqual(expect.arrayContaining([comp2, comp3]));
       expect(model.references.has(comp1)).toBe(false);
       expect(model.references.has(comp2)).toBe(true);
@@ -388,7 +388,7 @@ describe("clone(), assign(), clear() methods", () => {
 
       // Modify the cloned entity collections
       cloned.items = ["new1", "new2", "new3"];
-      cloned.tags = ["newTag1", "newTag2"];
+      cloned.tags = new Set(["newTag1", "newTag2"]);
       cloned.metadata = { newKey: "newValue" };
 
       // Original should be unchanged

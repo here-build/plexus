@@ -473,6 +473,7 @@ describe("Plexus Inheritance and Default Values", () => {
 
       @syncing
       class OwnedChildVersion extends WeakRefParent {
+        // @ts-expect-error
         @syncing.child accessor arg!: SharedArg; // Override as owned child
         constructor(props) {
           super(props);
@@ -630,6 +631,7 @@ describe("Plexus Inheritance and Default Values", () => {
 
       @syncing
       abstract class OwnedRootGraph extends BaseGraph {
+        // @ts-expect-error
         @syncing.child override accessor root!: Node;
         // nodes remains reference list
         constructor(props) {

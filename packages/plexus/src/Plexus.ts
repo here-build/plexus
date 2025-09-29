@@ -100,7 +100,9 @@ export abstract class Plexus<
   }
 
   // Abstract method for fetching dependencies
-  abstract fetchDependency(dependencyId: DependencyIdType, dependencyVersion?: DependencyVersionType): Promise<Y.Doc>;
+  fetchDependency(dependencyId: DependencyIdType, dependencyVersion?: DependencyVersionType): Promise<Y.Doc> {
+    throw new Error('not implemented');
+  };
 
   /**
    * Add a dependency to this Plexus document.

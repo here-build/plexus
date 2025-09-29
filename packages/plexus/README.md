@@ -1,227 +1,157 @@
-# @here.build/plexus
+# @here.build/arbor
+TODO rename the package itself
 
-JavaScript objects with reactivity, automatic sync, and parent/child relationships. Built on YJS for conflict-free collaboration.
+Arbor is both a conceptual and programmatic framework for application state management, aiming to solve the biggest
+pain points of state management - automatic replication, scoping and debugability - by setupping the middle ground of state.
 
-## The Problem
+It provides few primitives on top of well-known ideas and technologies.
+To start with, you can think of it as "MobX on top of YJS" or "JS classes but with collaboration and reactivity".
+It intentionally resembles the design of MobX while using yjs as CRDT runtime to provide the cross-client sync.
 
-JavaScript objects are missing critical features for modern apps:
-- **No reactivity** - Manual UI updates everywhere
-- **No relationships** - Objects don't know their parents or children
-- **No sync** - Manual serialization and merge conflicts
-- **No collaboration** - Every app reinvents real-time sync
-
-## The Solution
-
-Plexus makes objects work properly:
+Arbor (referring to Arbor Mundi, "the world tree") is doing exactly that - the app world tree.
+By treating the web application (or mobile app, or anything else you want, for example, CLI) as some material representation
+of "platonic" application being represented by tree of classes, we become able to narrow down the scope of anything we need.
 
 ```typescript
-// Regular JS - isolated, static, local
-const component = { name: "Button", props: {} };
-
-// Plexus - reactive, related, synced
-const component = new Component({ name: "Button" });
-component.name = "Submit";        // UI updates automatically
-component.parent;                  // Knows its container
-// Changes sync to all clients via YJS
-```
-
-## Core Features
-
-### 🔄 MobX-Style Reactivity
-Objects automatically trigger UI updates when modified. No more manual setState or event emitters.
-
-### 🌳 Parent/Child Relationships
-Objects know their position in the tree. Navigate up with `.parent`, down with `.children`. Full tree awareness built-in.
-
-### 🔀 YJS-Powered Sync
-Changes automatically sync across all clients using YJS (best-in-class CRDT). No conflicts, no manual merging, just works.
-
-### 🎭 Ephemeral/Materialized States
-Objects start local (ephemeral) and become synced (materialized) when attached to the tree. Same object reference throughout.
-
-## Installation
-
-```bash
-npm install @here.build/plexus
-```
-
-## Usage
-
-### Defining Models
-
-```typescript
-import { PlexusModel, syncing } from '@here.build/plexus';
-
+ // we explicitly state each Arbor class as syncing.
+ // That allows to do some inheritance with abstract classes without polluting the global state
 @syncing
-class Component extends PlexusModel {
+class User extends ArborModel {
+  // todo actually support override
+  // modelName, that is used as a key in hydration flow, is automatically inferred from class name but can be overridden
+  // this is done to make single-tree apps simple while making multi-tree apps possible
+  // static modelName = "User"
+  
+  // any @syncing field gets synced  
   @syncing
-  accessor name!: string;
+  accessor name: string;
 
+  // the only constraint you have is the types allowed to be synced. It can be any primitive value or any ArborModel.
   @syncing
-  accessor width!: number;
+  accessor email: string;
+  
+  // if you need maps, you have to use a bit different declaration
+  @syncing.map
+  accessor userAttributes: {
+    // yes, you are allowed to mix primitives and ArborModels.
+    // However, you are still limited to them. If you need complex type, you need to register it as another ArborModel
+    inviter: User,
+    registeredAt: string
+  } 
+  
+  // same works with arrays
+  @syncing.array
+  accessor projects: Project[];
+  
+  // and even sets
+  @syncing.set
+  accessor featureFlags: Set<string>
+  
+  // you can just define anything you want. It's still JS classes. Just with some fields being synced
+  get nickname() {
+    return this.name || this.email.split('@')[0];
+  }
+}
+```
 
-  constructor(props) {
-    super(props);
+From this perspective it's quite clear that it is actually looking like "MobX with replication".
+You do not need to know anything new. Just add `@syncing` to make something syncing (ok, with few constraints coming from types not available from the runtime).
+
+## World tree class
+
+But the "world tree" concept is a bit more complex, adding new primitives to the whole structure.
+
+First, any Arbor tree starts with root, that is defined in Arbor class:
+```typescript
+// Arbor class itself is abstract, so you need to do explicit declaration for implementation.
+// We're syncing via yjs. Since yjs is highly flexible, it's basically your responsibility to decide how to make it work.
+// This is done specifically to not limit the access to the initialization flow.
+// One of reasons why Arbor class is abstract is to promote the document setup in child constructor.
+class MyArbor extends Arbor<User> {
+  constructor(projectId: string) {
+    const doc = new Y.Doc();
+    super(doc);
+    // Set up sync provider of choice. at this point of time you are free to implement any logic over the doc
+    this.syncProvider = {...};
+    // this.rootPromise is represented in Arbor class already but you are free to overwrite it in constructor
+    this.rootPromise = new Promise((res) => this.syncProvider.on("synced", res))
+      // root loading is postpoined until state is synced
+      .then(() => this.loadRoot());
   }
 }
 
-@syncing
-class Container extends PlexusModel {
-  @syncing
-  accessor name!: string;
+const arbor = new MyArbor('test project');
+const user = await arbor.rootPromise;
+```
 
-  // Children with automatic parent tracking
+When application starts with some root node (even the god object), it becomes dramatically way simpler to manage what's
+happening inside the application.
+
+Yes, arbor brings several easily mitigatable constraints, but in exchange it offers something amazing.
+
+First, it allows to use single instances to represent any node:
+```typescript
+const arbor = new MyArbor('test project');
+const user = await arbor.rootPromise;
+user === arbor.loadEntity(user.uuid) // true. you do not need to check by uuid or in any other manner
+```
+
+By detaching the state tree from render tree, we are able to think with application, not render.
+```typescript
+@syncing
+class User extends ArborModel {
+  @syncing
+  accessor name: string;
+
+  @syncing
+  accessor email: string;
+
+  useStore = create((set) => ({...})) // zustand store 
+  $counter = createStore(0); // effector store
+  
+  @observable
+  accessor newName: string; // mobx
+}
+```
+
+Since this is stored in a singleton representing the app, it is persistent - when you exit the component, it does not get destructed.
+Of course, if you need some component grade state, you can do it - just outside the Arbor model. Simply because it's render state, not app state.
+
+## Child management
+
+In addition to common syncing fields, arbor also supports automatich parent-child relationship tracking
+
+```typescript
+@syncing
+class Project extends ArborModel {
   @syncing.child.list
-  accessor children!: Component[];
-
-  @syncing.child.map
-  accessor components!: Record<string, Component>;
-
-  constructor(props) {
-    super(props);
-  }
+  accessor pages: Page[];
 }
+@syncing
+class Page extends ArborModel {
+  // TypeScript does not allow to dynamically detect child/parent relations, sadly, so we need to define that manually  
+  declare parent: Project;
+  
+  @syncing
+  accessor name: string;
+}
+
+const page1 = new Page({name: "page 1"});
+const page2 = new Page({name: "page 2"});
+const project1 = new Project({
+  pages: [page1, page2]
+})
+const project2 = new Project({
+  pages: [project1.pages[0]]
+})
+console.log(project1.pages) // new Page({name: "page 2"})
+console.log(page1.parent) // project2
 ```
 
-### Creating and Syncing Objects
+This works only with child fields; non-child fields will not use this logic.
+value field, record field (`@syncing.child.map`), set field (`@syncing.child.set`), array field (`@syncing.child.list`) are all supported in that flow.
 
-```typescript
-import * as Y from 'yjs';
-import { Plexus } from '@here.build/plexus';
+Besides other benefits, this allows making the answer to the question "what to sync" dead simple.
 
-// Step 1: Create ephemeral objects (local, not synced)
-const button = new Component({ name: "Button", width: 100 });
-const form = new Container({
-  name: "Form",
-  children: [button],
-  components: {}
-});
+> Anything that can be reached from Arbor root is expected to synced. Everything else is ephemeral.
 
-// Step 2: Initialize Plexus with YJS doc
-const doc = new Y.Doc();
-const plexus = new Plexus(doc);
-
-// Step 3: Set as root - triggers materialization (now synced!)
-const metadata = doc.getMap('__metadata__');
-metadata.set('root', form.uuid);
-
-// Step 4: Objects are now synced across all clients
-form.name = "LoginForm"; // This change syncs everywhere
-button.width = 200;       // This too
-
-// Parent tracking works automatically
-console.log(button.parent === form); // true
-```
-
-### Decorator Options
-
-- `@syncing` - Makes a class syncable
-- `@syncing` on field - Syncs the field value
-- `@syncing.child` - Single child with parent tracking
-- `@syncing.child.list` - Array of children with parent tracking
-- `@syncing.child.set` - Set of children with parent tracking
-- `@syncing.child.map` - Map of children with parent tracking
-
-## Key Exports
-
-```typescript
-import {
-  // Core classes
-  PlexusModel,      // Base class for all models
-  Plexus,           // Main orchestrator
-
-  // Decorators
-  syncing,          // Makes classes and fields syncable
-
-  // Types
-  YJS_GLOBALS,      // Constants for YJS integration
-  referenceSymbol,  // Symbol for entity references
-
-} from '@here.build/plexus';
-```
-
-## Important: Networking Not Included
-
-Plexus handles object synchronization through YJS, but **you need to provide**:
-- WebSocket server (we use PartyKit)
-- YJS provider for network sync
-- Persistence layer for Y.Doc states
-- Room management and authorization
-
-For production use, Plexus works best as part of a complete system like here.build that provides these services.
-
-## Architecture
-
-Plexus implements a constraint network that reveals object relationships through mathematical field dynamics instead of inheritance chains. The system:
-
-1. **Creates object superposition** - Same reference, different behavior based on materialization state
-2. **Enables seamless transitions** - No "upgrade" or replacement during ephemeral → materialized transition  
-3. **Maintains identity preservation** - Objects remain themselves throughout state changes
-4. **Provides automatic contagion** - Materialization spreads through object graphs organically
-
-## Philosophy
-
-> "Objects don't inherit behavior - they participate in constraint fields that determine their possibilities."
-
-The mathematical beauty: objects exist in all possible states simultaneously until interaction collapses them into specific manifestations. Like quantum mechanics, but for TypeScript.
-
-## Architecture: Ownership Tree + Living Graph
-
-Plexus implements a hybrid structure combining hierarchical ownership with graph relationships:
-
-### Core Model
-
-- **Ownership Tree**: Hierarchical structure where nodes have zero or one parent, forming a tree of containment
-- **Living Graph**: Fully connected graph including weak references and potentially detached nodes
-- **Main Subgraph**: All nodes transitively reachable from root - these are "materialized" and synced
-- **Detached Nodes**: Exist outside the main subgraph but remain in memory, can be re-attached
-
-### Key Behaviors
-
-**Reachability Determines Materialization**
-- Nodes reachable from root are part of the main subgraph (materialized, synced)
-- Detached nodes become ephemeral but aren't immediately destroyed
-- Re-attaching a detached node to the tree re-materializes it instantly
-
-**Bidirectional Materialization Contagion**
-```typescript
-ephemeralParent.child = materializedNode  // Both become materialized
-materializedNode.parent = ephemeralParent  // Both become materialized
-```
-
-**Identity Semantics**
-- Primitives and collections (sets, records): Structural identity
-- Entities: Reference identity preserved by pointer
-
-### Temporal Garbage Collection
-
-Plexus uses temporal boundaries to resolve distributed GC challenges:
-
-- Detached nodes remain valid and usable after detachment
-- Server-side mark-and-sweep GC runs periodically
-- Nodes unreachable for >1 week become eligible for collection
-- Re-attachment resets the GC timer
-
-This "eventual convergence" approach means:
-- No immediate consistency requirements
-- Users can work with detached subgraphs seamlessly  
-- Temporary inconsistencies resolve through time
-- The system naturally tends toward correctness
-
-### Practical Implications
-
-**For Developers**
-- Clone operations create detached nodes by default
-- Tree operations are destructive (delete parent → children detached)
-- Graph operations are selective (remove reference → target remains)
-- Detached nodes can be freely edited and later re-attached
-
-**For Users**
-- Deleted content has a 1-week grace period
-- Undo/redo boundaries follow tree structure
-- References to detached nodes remain valid
-- No "stale reference" errors - everything eventually converges
-
-## License
-
-MIT

@@ -4,6 +4,7 @@ import { DependencyId, DependencyVersion, Plexus } from "../Plexus";
 import { referenceSymbol } from "../proxy-runtime-types";
 import { YJS_GLOBALS } from "../YJS_GLOBALS";
 import { PlexusModel } from "../PlexusModel";
+import { nanoid } from "nanoid";
 
 /**
  * Test implementation of Plexus for testing purposes.
@@ -94,13 +95,13 @@ export async function initTestPlexus<
   // Create Plexus instance first - this registers the doc
   const plexus = new TestPlexus<Root>(doc, dependencies, awareness);
 
-  // Now we can safely use referenceSymbol since the doc is registered
-  const [rootId] = rootEntity[referenceSymbol](doc);
+  // Force root UUID and materialize
+  rootEntity._uuid = "root";
+  rootEntity[referenceSymbol](doc);
 
   // Set up metadata
   const metadata = doc.getMap(YJS_GLOBALS.metadataMap);
-  metadata.set(YJS_GLOBALS.metadataMapFields.root, rootId);
-  metadata.set(YJS_GLOBALS.metadataMapFields.documentId, documentId ?? rootId);
+  metadata.set(YJS_GLOBALS.metadataMapFields.documentId, documentId ?? nanoid());
 
   // Load the root through Plexus
   const root = await plexus.rootPromise;

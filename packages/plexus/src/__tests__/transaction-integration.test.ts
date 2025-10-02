@@ -44,7 +44,6 @@ class TodoList extends PlexusModel {
 class TodoPlexus extends Plexus<TodoList> {
   constructor(doc: Y.Doc) {
     // Set up root data before calling super to avoid loadRoot errors
-    doc.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.root, "list-id");
     const models = doc.getMap(YJS_GLOBALS.models);
 
     // Create root TodoList
@@ -53,9 +52,13 @@ class TodoPlexus extends Plexus<TodoList> {
     listModel.set("name", "My Tasks");
     listModel.set("items", new Y.Array());
     listModel.set("tags", new Y.Array());
-    models.set("list-id", listModel);
+    models.set("root", listModel);
 
     super(doc);
+  }
+
+  protected createDefaultRoot(): TodoList {
+    return new TodoList({ name: "Default List", items: [], tags: [] });
   }
 
   async fetchDependency(): Promise<Y.Doc> {

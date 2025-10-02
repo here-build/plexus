@@ -75,7 +75,7 @@ export abstract class Plexus<
   // @ts-expect-error
   public readonly undoManager: UndoManager;
 
-  protected constructor(
+  constructor(
     public readonly doc: Y.Doc,
     awareness: awarenessProtocol.Awareness = new awarenessProtocol.Awareness(doc),
     rootPlexus?: Plexus<any, any, any, any>
@@ -99,10 +99,13 @@ export abstract class Plexus<
     }
   }
 
+  // Abstract method for creating default root when document is empty
+  protected abstract createDefaultRoot(): Root;
+
   // Abstract method for fetching dependencies
   fetchDependency(dependencyId: DependencyIdType, dependencyVersion?: DependencyVersionType): Promise<Y.Doc> {
-    throw new Error('not implemented');
-  };
+    throw new Error("not implemented");
+  }
 
   /**
    * Add a dependency to this Plexus document.
@@ -124,13 +127,9 @@ export abstract class Plexus<
       this.dependencyDocs.set(dependencyId, depDoc);
       this.dependencyVersions.set(dependencyId, dependencyVersion);
 
-      // Get the dependency root entity
-      const depRootId = depDoc.getMap<string>(YJS_GLOBALS.metadataMap)?.get(YJS_GLOBALS.metadataMapFields.root);
-      invariant(depRootId, "Dependency document missing root");
-
       // Use deref to materialize the dependency root entity
-      const depRoot = deref(depDoc, [depRootId]) as T;
-      invariant(depRoot, `cannot find root by ID ${depRootId} in dependency ${dependencyId}@${dependencyVersion}`);
+      const depRoot = deref(depDoc, ["root"]) as T;
+      invariant(depRoot, `cannot find root in dependency ${dependencyId}@${dependencyVersion}`);
 
       // Update root entity with new dependency
       const dependencyVersionMap = root.dependencyVersion as Record<DependencyIdType, DependencyVersionType>;
@@ -160,13 +159,17 @@ export abstract class Plexus<
   }
 
   protected async loadRoot(): Promise<Root> {
-    const rootId = this.doc.getMap<string>(YJS_GLOBALS.metadataMap).get(YJS_GLOBALS.metadataMapFields.root);
-    invariant(rootId, "missing root model id");
-    const rootModel = this.doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(rootId);
-    invariant(rootModel, "missing root model description");
-    const rootType = rootModel.get(YJS_GLOBALS.modelMetadataType) as string;
-    const Constructor = entityClasses.get(rootType);
-    invariant(Constructor, `missing constructor of ${rootType} for root entity`);
+    const modelsMap = this.doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models);
+    let rootModel = modelsMap.get("root");
+
+    if (!rootModel) {
+      // Fresh document - create default root
+      const root = this.createDefaultRoot();
+      root._uuid = "root";
+      root[referenceSymbol](this.doc);
+      rootModel = modelsMap.get("root");
+      invariant(rootModel, "Failed to create root model");
+    }
 
     // Resolve all dependencies if they exist
     if ("dependencyVersion" in rootModel) {
@@ -178,10 +181,8 @@ export abstract class Plexus<
       }
     });
 
-    const root = deref(this.doc, [rootId]) as any as Root; // we're unable to validate types against tests anyway, sadly
+    const root = deref(this.doc, ["root"]) as any as Root;
     this.isRootLoaded = true;
-    // Initialize UndoManager with all models tracked
-    const modelsMap = this.doc.getMap(YJS_GLOBALS.models);
     // @ts-expect-error
     // noinspection JSConstantReassignment
     this.undoManager = new UndoManager([modelsMap], {

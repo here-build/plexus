@@ -64,11 +64,7 @@ export class SubPlexus<
   }
 
   private async loadRoot(): Promise<Root> {
-    const rootId = this.doc.getMap<string>(YJS_GLOBALS.metadataMap).get(YJS_GLOBALS.metadataMapFields.root);
-    invariant(rootId, `SubPlexus: missing root model id for dependency ${this.dependencyId}`);
-
-    // Check if this dependency has its own dependencies (immutable - only load once)
-    const rootModel = this.doc.getMap<Y.Map<any>>(YJS_GLOBALS.models).get(rootId);
+    const rootModel = this.doc.getMap<Y.Map<any>>(YJS_GLOBALS.models).get("root");
     invariant(rootModel, `SubPlexus: missing root model for dependency ${this.dependencyId}`);
 
     // Load sub-dependencies if they exist (no observation - dependencies are immutable)
@@ -78,7 +74,7 @@ export class SubPlexus<
     }
 
     // Return the root entity (will be materialized by parent's resolver)
-    const root = deref(this.doc, [rootId]) as Root;
+    const root = deref(this.doc, ["root"]) as Root;
     this.isRootLoaded = true;
     return root;
   }

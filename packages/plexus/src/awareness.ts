@@ -51,7 +51,7 @@ export class PlexusAwareness {
     isFocused: true
   };
 
-  constructor(private readonly awareness: awarenessProtocol.Awareness) {}
+  constructor(public readonly awareness: awarenessProtocol.Awareness) {}
 
   // Update local user state
   updateUserInfo(userInfo: PlexusUserState["userInfo"]) {

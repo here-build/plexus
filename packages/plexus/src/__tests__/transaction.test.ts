@@ -26,18 +26,21 @@ class TestPlexus extends Plexus<TestEntity> {
   constructor(doc: Y.Doc, autoSetupRoot = true) {
     // Set up root data before calling super to avoid loadRoot errors
     if (autoSetupRoot) {
-      doc.getMap(YJS_GLOBALS.metadataMap).set(YJS_GLOBALS.metadataMapFields.root, "root-id");
       const models = doc.getMap(YJS_GLOBALS.models);
       const rootModel = new Y.Map();
       rootModel.set(YJS_GLOBALS.modelMetadataType, "TestEntity");
       rootModel.set("value", "initial");
       rootModel.set("count", 0);
       rootModel.set("child", null);
-      models.set("root-id", rootModel);
+      models.set("root", rootModel);
       TestPlexus.rootSetup = true;
     }
 
     super(doc);
+  }
+
+  protected createDefaultRoot(): TestEntity {
+    return new TestEntity({ value: "default", count: 0, child: null });
   }
 
   async fetchDependency(): Promise<Y.Doc> {
@@ -46,7 +49,7 @@ class TestPlexus extends Plexus<TestEntity> {
 
   // Helper to get root entity
   getRoot(): TestEntity {
-    return this.loadEntity("root-id") as TestEntity;
+    return this.loadEntity("root") as TestEntity;
   }
 
   private static rootSetup = false;

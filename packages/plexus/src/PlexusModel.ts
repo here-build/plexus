@@ -101,7 +101,7 @@ export abstract class PlexusModel {
         return cached as any as typeof this;
       }
       documentEntityCaches.get(doc).set(entityId, new WeakRef<PlexusModel>(this));
-      this.#uuid = entityId;
+      this._uuid = entityId;
       const modelsMap = doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models);
       const map = modelsMap.get(this.uuid);
       invariant(
@@ -140,6 +140,8 @@ export abstract class PlexusModel {
     field: string,
     extraFieldMetadata?: string
   ) {
+    invariant(this._uuid !== "root" || newParent as PlexusModel === this, "Root entity cannot have a parent");
+
     if (
       this.#runtimeParent === newParent &&
       this.#runtimeParentKey === field &&
@@ -259,10 +261,10 @@ export abstract class PlexusModel {
     return clone(this, newProps);
   }
 
-  #uuid: string | undefined;
+  _uuid: string | undefined;
 
   get uuid(): PlexusUUID<string, this> {
-    return (this.#uuid ??= nanoid()) as PlexusUUID<string, this>;
+    return (this._uuid ??= nanoid()) as PlexusUUID<string, this>;
   }
 
   get #reference(): ReferenceTuple {
@@ -306,8 +308,8 @@ export abstract class PlexusModel {
               : [parentReference[0], this.#runtimeParentKey!]
           );
         }
-        if (this.#uuid) {
-          documentEntityCaches.get(doc).set(this.#uuid, new WeakRef<PlexusModel>(this));
+        if (this._uuid) {
+          documentEntityCaches.get(doc).set(this._uuid, new WeakRef<PlexusModel>(this));
         }
         this._yjsModel = yprojectObjectInstanceFields;
       }

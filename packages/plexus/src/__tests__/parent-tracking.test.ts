@@ -338,6 +338,13 @@ describe("Parent Tracking", () => {
 
   describe("Cycles", () => {
     it("handles direct cycle (A.child = B, B.child = A)", async () => {
+      const root = new Parent({
+        name: "root",
+        child: null,
+        children: [],
+        childSet: new Set(),
+        childMap: {}
+      });
       const a = new Parent({
         name: "a",
         child: null,
@@ -353,12 +360,13 @@ describe("Parent Tracking", () => {
         childMap: {}
       });
 
-      // For cross-parent operations, both entities need to be in the same document
-      const { doc, plexus } = await initTestPlexus<Parent>(a);
-      const materializedA = await plexus.rootPromise;
+      // Create plexus with root
+      const { doc, plexus } = await initTestPlexus<Parent>(root);
 
-      // Materialize B in the same document
+      // Materialize A and B in the same document
+      const [aId] = a[referenceSymbol](doc);
       const [bId] = b[referenceSymbol](doc);
+      const materializedA = plexus.loadEntity<Parent>(aId)!;
       const materializedB = plexus.loadEntity<Parent>(bId)!;
 
       materializedA.child = materializedB;
@@ -391,6 +399,13 @@ describe("Parent Tracking", () => {
     });
 
     it("handles cycle through collections", async () => {
+      const root = new Parent({
+        name: "root",
+        child: null,
+        children: [],
+        childSet: new Set(),
+        childMap: {}
+      });
       const a = new Parent({
         name: "a",
         child: null,
@@ -406,12 +421,13 @@ describe("Parent Tracking", () => {
         childMap: {}
       });
 
-      // For cross-parent operations, both entities need to be in the same document
-      const { doc, plexus } = await initTestPlexus<Parent>(a);
-      const materializedA = await plexus.rootPromise;
+      // Create plexus with root
+      const { doc, plexus } = await initTestPlexus<Parent>(root);
 
-      // Materialize B in the same document
+      // Materialize A and B in the same document
+      const [aId] = (a as any)[referenceSymbol](doc);
       const [bId] = (b as any)[referenceSymbol](doc);
+      const materializedA = plexus.loadEntity<Parent>(aId)!;
       const materializedB = plexus.loadEntity<Parent>(bId)!;
 
       materializedA.children.push(materializedB);

@@ -20,6 +20,9 @@ export class TestPlexus<
         }
     )
 > extends Plexus<Root> {
+  protected createDefaultRoot(): Root {
+    return null as any;
+  }
   private dependencies: Record<string, Y.Doc>;
   private availableDependencies: Map<string, () => Promise<Y.Doc>>; // For dynamic dependency creation
 

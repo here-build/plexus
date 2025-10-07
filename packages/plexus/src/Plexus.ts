@@ -6,7 +6,6 @@ import * as Y from "yjs";
 import { UndoManager } from "yjs";
 import * as awarenessProtocol from "y-protocols/awareness";
 import { referenceSymbol, Storageable } from "./proxy-runtime-types";
-import { Tagged } from "type-fest";
 import invariant from "tiny-invariant";
 import { PlexusAwareness } from "./awareness";
 import { YJS_GLOBALS } from "./YJS_GLOBALS";
@@ -21,8 +20,8 @@ import { SubPlexus } from "./SubPlexus";
 // Global registry for undo notifications - Y entities are singletons anyway
 export const undoManagerNotifications = new WeakMap<Y.AbstractType<any>, (event: any) => void>();
 
-export type DependencyId = Tagged<string, "Plexus dependency id">;
-export type DependencyVersion = Tagged<string, "Plexus dependency id">;
+export type DependencyId = string;
+export type DependencyVersion = string | number;
 
 // Re-export from registry for backward compatibility
 export { getDependencyDoc } from "./plexus-registry";

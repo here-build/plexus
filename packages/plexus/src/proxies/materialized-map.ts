@@ -209,6 +209,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
         }
         getYjsMap()?.delete(elementKey);
         if (Reflect.deleteProperty(proxyTarget, elementKey)) {
+          trackModification(self, elementKey);
           trackModification(self, ACCESS_INDICES_SET_SYMBOL);
         }
         return true;

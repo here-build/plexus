@@ -30,6 +30,9 @@ class ParentWithChildVal extends PlexusModel {
   accessor child!: ChildComponent | null; // Ownership: clone child recursively
 
   @syncing
+  accessor participatingReference!: ChildComponent | null; // No ownership but updated as new entity of that was cloned
+
+  @syncing
   accessor reference!: ChildComponent | null; // No ownership: preserve reference
 
   constructor(props) {
@@ -95,11 +98,13 @@ describe("Ownership-aware cloning", () => {
   describe("child-val ownership", () => {
     it("should deep clone child-val but preserve val references", () => {
       const child = new ChildComponent({ name: "child", value: 1 });
+      const child2 = new ChildComponent({ name: "child2", value: 1 });
 
       const parent = new ParentWithChildVal({
         name: "parent",
         child: child, // Will be cloned
-        reference: child // Will be preserved as reference
+        participatingReference: child, // Will be updated as new entity of that was spawned
+        reference: child2 // Will be preserved as reference
       });
 
       const cloned = parent.clone();
@@ -114,8 +119,11 @@ describe("Ownership-aware cloning", () => {
       expect(cloned.child!.value).toBe(1);
 
       // val: reference should be preserved (same UUID)
-      expect(cloned.reference!.uuid).toBe(child.uuid);
-      expect(cloned.reference).toBe(child); // Same object reference
+      expect(cloned.participatingReference!.uuid).not.toBe(child.uuid);
+      expect(cloned.participatingReference).toBe(cloned.child); // Same object reference
+      // val: reference should be preserved (same UUID)
+      expect(cloned.reference!.uuid).toBe(child2.uuid);
+      expect(cloned.reference).toBe(child2); // Same object reference
     });
 
     it("should handle null child-val gracefully", () => {

@@ -23,16 +23,13 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
       if (fieldValue && fieldValue[isProxyEntity]) {
         trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
       }
+    }
+    // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
+    for (const [fieldKey, type] of Object.entries(source._schema)) {
+      const fieldValue = fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
       __untracked__(() => {
+        // we need to spawn children first to fill the tracking cache
         switch (type) {
-          case "val":
-            clonedModel[fieldKey] = fieldValue;
-            break;
-          case "list":
-          case "record":
-          case "set":
-            clonedModel[fieldKey].assign(fieldValue);
-            break;
           case "child-val":
             const clonedValue = fieldValue instanceof PlexusModel ? fieldValue.clone() : fieldValue;
             clonedModel[fieldKey] = clonedValue;
@@ -57,6 +54,37 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
                   item instanceof PlexusModel ? item.clone() : item
                 ])
               )
+            );
+            break;
+        }
+      });
+    }
+    // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
+    for (const [fieldKey, type] of Object.entries(source._schema)) {
+      const fieldValue = fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
+      __untracked__(() => {
+        switch (type) {
+          case "val":
+            clonedModel[fieldKey] = cloneTransactionMapping!.get(fieldValue) ?? fieldValue;
+            break;
+          case "list":
+            clonedModel[fieldKey].assign(
+              (fieldValue as any as any[]).map((item) => cloneTransactionMapping!.get(item) ?? item)
+            );
+            break;
+          case "record":
+            clonedModel[fieldKey].assign(
+              Object.fromEntries(
+                Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
+                  key,
+                  cloneTransactionMapping!.get(item) ?? item
+                ])
+              )
+            );
+            break;
+          case "set":
+            clonedModel[fieldKey].assign(
+              new Set([...(fieldValue as any as Set<any>)].map((item) => cloneTransactionMapping!.get(item) ?? item))
             );
             break;
         }

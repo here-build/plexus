@@ -141,14 +141,15 @@ describe("Ownership-aware cloning", () => {
   });
 
   describe("child-list ownership", () => {
-    it("should deep clone child-list elements but preserve list references", () => {
+    it("should deep clone child-list elements and remap references to cloned entities", () => {
       const child1 = new ChildComponent({ name: "child1", value: 1 });
       const child2 = new ChildComponent({ name: "child2", value: 2 });
+      const child3 = new ChildComponent({ name: "child3", value: 3 });
 
       const parent = new ParentWithChildList({
         name: "parent",
         children: [child1, child2], // Will be cloned
-        references: [child1, child2] // Will be preserved as references
+        references: [child1, child2, child3] // child1 and child2 will be remapped to clones, child3 preserved
       });
 
       const cloned = parent.clone();
@@ -164,21 +165,22 @@ describe("Ownership-aware cloning", () => {
       expect(cloned.children[0].name).toBe("child1"); // But same values
       expect(cloned.children[1].name).toBe("child2");
 
-      // list: references should be preserved (same UUIDs)
-      expect(cloned.references).toHaveLength(2);
-      expect(cloned.references[0].uuid).toBe(child1.uuid);
-      expect(cloned.references[1].uuid).toBe(child2.uuid);
-      expect(cloned.references[0]).toBe(child1); // Same object reference
-      expect(cloned.references[1]).toBe(child2);
+      // list: references to cloned entities should be remapped, non-cloned preserved
+      expect(cloned.references).toHaveLength(3);
+      expect(cloned.references[0]).toBe(cloned.children[0]); // Remapped to clone
+      expect(cloned.references[1]).toBe(cloned.children[1]); // Remapped to clone
+      expect(cloned.references[2]).toBe(child3); // Not cloned, so preserved
+      expect(cloned.references[2].uuid).toBe(child3.uuid);
     });
 
     it("should handle modifications to cloned children independently", () => {
       const child1 = new ChildComponent({ name: "child1", value: 1 });
+      const child2 = new ChildComponent({ name: "child2", value: 2 });
 
       const parent = new ParentWithChildList({
         name: "parent",
         children: [child1],
-        references: [child1]
+        references: [child1, child2] // child1 will be remapped, child2 preserved
       });
 
       const cloned = parent.clone();
@@ -193,21 +195,26 @@ describe("Ownership-aware cloning", () => {
       // Cloned child should be changed
       expect(cloned.children[0].name).toBe("modified");
 
-      // Reference should still point to original
-      expect(cloned.references[0].name).toBe("child1");
-      expect(cloned.references[0]).toBe(child1);
+      // Reference to cloned child should also see the modification (same object)
+      expect(cloned.references[0].name).toBe("modified");
+      expect(cloned.references[0]).toBe(cloned.children[0]); // Remapped to clone
+
+      // Reference to non-cloned child should be unchanged
+      expect(cloned.references[1]).toBe(child2);
+      expect(cloned.references[1].name).toBe("child2");
     });
   });
 
   describe("child-set ownership", () => {
-    it("should deep clone child-set elements but preserve set references", () => {
+    it("should deep clone child-set elements and remap set references to cloned entities", () => {
       const child1 = new ChildComponent({ name: "child1", value: 1 });
       const child2 = new ChildComponent({ name: "child2", value: 2 });
+      const child3 = new ChildComponent({ name: "child3", value: 3 });
 
       const parent = new ParentWithChildSet({
         name: "parent",
         childSet: new Set([child1, child2]), // Will be cloned
-        refSet: new Set([child1, child2]) // Will be preserved as references
+        refSet: new Set([child1, child2, child3]) // child1 and child2 remapped, child3 preserved
       });
 
       const cloned = parent.clone();
@@ -218,22 +225,26 @@ describe("Ownership-aware cloning", () => {
       expect(clonedChildren[0].uuid).not.toBe(child1.uuid);
       expect(clonedChildren[1].uuid).not.toBe(child2.uuid);
 
-      // set: references should be preserved
-      expect(cloned.refSet.size).toBe(2);
-      expect(cloned.refSet.has(child1)).toBe(true);
-      expect(cloned.refSet.has(child2)).toBe(true);
+      // set: references to cloned entities should be remapped
+      expect(cloned.refSet.size).toBe(3);
+      expect(cloned.refSet.has(clonedChildren[0])).toBe(true); // Remapped to clone
+      expect(cloned.refSet.has(clonedChildren[1])).toBe(true); // Remapped to clone
+      expect(cloned.refSet.has(child3)).toBe(true); // Not cloned, preserved
+      expect(cloned.refSet.has(child1)).toBe(false); // Original no longer in set
+      expect(cloned.refSet.has(child2)).toBe(false); // Original no longer in set
     });
   });
 
   describe("child-record ownership", () => {
-    it("should deep clone child-record values but preserve record references", () => {
+    it("should deep clone child-record values and remap record references to cloned entities", () => {
       const child1 = new ChildComponent({ name: "child1", value: 1 });
       const child2 = new ChildComponent({ name: "child2", value: 2 });
+      const child3 = new ChildComponent({ name: "child3", value: 3 });
 
       const parent = new ParentWithChildRecord({
         name: "parent",
         childMap: { first: child1, second: child2 }, // Will be cloned
-        refMap: { first: child1, second: child2 } // Will be preserved as references
+        refMap: { first: child1, second: child2, third: child3 } // first and second remapped, third preserved
       });
 
       const cloned = parent.clone();
@@ -245,11 +256,12 @@ describe("Ownership-aware cloning", () => {
       expect(cloned.childMap.first.name).toBe("child1"); // Same values
       expect(cloned.childMap.second.name).toBe("child2");
 
-      // record: references should be preserved
-      expect(cloned.refMap.first.uuid).toBe(child1.uuid);
-      expect(cloned.refMap.second.uuid).toBe(child2.uuid);
-      expect(cloned.refMap.first).toBe(child1); // Same object reference
-      expect(cloned.refMap.second).toBe(child2);
+      // record: references to cloned entities should be remapped
+      expect(Object.keys(cloned.refMap)).toEqual(["first", "second", "third"]);
+      expect(cloned.refMap.first).toBe(cloned.childMap.first); // Remapped to clone
+      expect(cloned.refMap.second).toBe(cloned.childMap.second); // Remapped to clone
+      expect(cloned.refMap.third).toBe(child3); // Not cloned, preserved
+      expect(cloned.refMap.third.uuid).toBe(child3.uuid);
     });
   });
 
@@ -479,13 +491,14 @@ describe("Ownership-aware cloning", () => {
       expect(sharedFromRight.value).toBe(42);
     });
 
-    it("should handle mixed ownership and reference semantics", () => {
+    it("should handle mixed ownership and reference semantics with remapping", () => {
       const sharedChild = new ChildComponent({ name: "shared", value: 100 });
+      const otherChild = new ChildComponent({ name: "other", value: 200 });
 
       const mixedParent = new ParentWithChildList({
         name: "mixed",
         children: [sharedChild], // child-list: will clone
-        references: [sharedChild] // list: will preserve reference
+        references: [sharedChild, otherChild] // list: sharedChild remapped, otherChild preserved
       });
 
       const cloned = mixedParent.clone();
@@ -495,12 +508,13 @@ describe("Ownership-aware cloning", () => {
       expect(cloned.children[0].name).toBe("shared");
       expect(cloned.children[0].value).toBe(100);
 
-      // The child in references should be the original
-      expect(cloned.references[0]).toBe(sharedChild);
-      expect(cloned.references[0].uuid).toBe(sharedChild.uuid);
+      // The child in references should be remapped to the clone
+      expect(cloned.references[0]).toBe(cloned.children[0]); // Remapped to clone
+      expect(cloned.references[0].uuid).toBe(cloned.children[0].uuid);
 
-      // They should be different objects
-      expect(cloned.children[0]).not.toBe(cloned.references[0]);
+      // The other reference should be preserved
+      expect(cloned.references[1]).toBe(otherChild);
+      expect(cloned.references[1].uuid).toBe(otherChild.uuid);
     });
 
     it("should handle empty collections properly", () => {
@@ -779,7 +793,7 @@ describe("Ownership-aware cloning", () => {
       expect(cloned.reference!.uuid).toBe(storedChild.uuid);
     });
 
-    it("should handle mixed ephemeral/materialized in lists - clone child-list but preserve list", () => {
+    it("should handle mixed ephemeral/materialized in lists - clone child-list and remap references", () => {
       const materializedChild1 = new ChildComponent({ name: "materialized1", value: 1 });
       const materializedChild2 = new ChildComponent({ name: "materialized2", value: 2 });
       const ephemeralChild = new ChildComponent({ name: "ephemeral", value: 3 });
@@ -787,7 +801,7 @@ describe("Ownership-aware cloning", () => {
       const parent = new ParentWithChildList({
         name: "mixed",
         children: [ephemeralChild, materializedChild1], // child-list: should clone both
-        references: [ephemeralChild, materializedChild2] // list: should preserve both
+        references: [ephemeralChild, materializedChild2] // list: ephemeralChild remapped, materializedChild2 preserved
       });
 
       const cloned = parent.clone();
@@ -799,17 +813,18 @@ describe("Ownership-aware cloning", () => {
       expect(cloned.children[0].name).toBe("ephemeral");
       expect(cloned.children[1].name).toBe("materialized1");
 
-      // list: both items should be preserved as references (same UUIDs)
+      // list: ephemeralChild should be remapped, materializedChild2 preserved
       expect(cloned.references).toHaveLength(2);
-      expect(cloned.references[0]).toBe(ephemeralChild); // Same reference
-      expect(cloned.references[1]).toBe(materializedChild2); // Same reference
-      expect(cloned.references[0].uuid).toBe(ephemeralChild.uuid);
+      expect(cloned.references[0]).toBe(cloned.children[0]); // Remapped to clone
+      expect(cloned.references[1]).toBe(materializedChild2); // Not cloned, preserved
+      expect(cloned.references[0].uuid).toBe(cloned.children[0].uuid);
       expect(cloned.references[1].uuid).toBe(materializedChild2.uuid);
     });
 
-    it("should handle mixed ephemeral/materialized in records - clone child-record but preserve record", () => {
+    it("should handle mixed ephemeral/materialized in records - clone child-record and remap references", () => {
       const materializedChild = new ChildComponent({ name: "materialized", value: 1 });
       const ephemeralChild = new ChildComponent({ name: "ephemeral", value: 2 });
+      const otherChild = new ChildComponent({ name: "other", value: 3 });
 
       const parent = new ParentWithChildRecord({
         name: "mixed",
@@ -819,8 +834,9 @@ describe("Ownership-aware cloning", () => {
         }, // child-record: should clone both
         refMap: {
           mat: materializedChild,
-          eph: ephemeralChild
-        } // record: should preserve both
+          eph: ephemeralChild,
+          other: otherChild
+        } // record: mat and eph remapped, other preserved
       });
 
       const cloned = parent.clone();
@@ -832,21 +848,25 @@ describe("Ownership-aware cloning", () => {
       expect(cloned.childMap.mat.name).toBe("materialized");
       expect(cloned.childMap.eph.name).toBe("ephemeral");
 
-      // record: both values should be preserved as references
-      expect(cloned.refMap.mat).toBe(materializedChild);
-      expect(cloned.refMap.eph).toBe(ephemeralChild);
-      expect(cloned.refMap.mat.uuid).toBe(materializedChild.uuid);
-      expect(cloned.refMap.eph.uuid).toBe(ephemeralChild.uuid);
+      // record: cloned values should be remapped, other preserved
+      expect(Object.keys(cloned.refMap)).toEqual(["mat", "eph", "other"]);
+      expect(cloned.refMap.mat).toBe(cloned.childMap.mat); // Remapped to clone
+      expect(cloned.refMap.eph).toBe(cloned.childMap.eph); // Remapped to clone
+      expect(cloned.refMap.other).toBe(otherChild); // Not cloned, preserved
+      expect(cloned.refMap.mat.uuid).toBe(cloned.childMap.mat.uuid);
+      expect(cloned.refMap.eph.uuid).toBe(cloned.childMap.eph.uuid);
+      expect(cloned.refMap.other.uuid).toBe(otherChild.uuid);
     });
 
-    it("should handle mixed ephemeral/materialized in sets - clone child-set but preserve set", () => {
+    it("should handle mixed ephemeral/materialized in sets - clone child-set and remap references", () => {
       const materializedChild = new ChildComponent({ name: "materialized", value: 1 });
       const ephemeralChild = new ChildComponent({ name: "ephemeral", value: 2 });
+      const otherChild = new ChildComponent({ name: "other", value: 3 });
 
       const parent = new ParentWithChildSet({
         name: "mixed",
         childSet: new Set([materializedChild, ephemeralChild]), // child-set: should clone both
-        refSet: new Set([materializedChild, ephemeralChild]) // set: should preserve both
+        refSet: new Set([materializedChild, ephemeralChild, otherChild]) // set: mat and eph remapped, other preserved
       });
 
       const cloned = parent.clone();
@@ -860,10 +880,13 @@ describe("Ownership-aware cloning", () => {
       expect(clonedChildren.some((child) => child.name === "materialized")).toBe(true);
       expect(clonedChildren.some((child) => child.name === "ephemeral")).toBe(true);
 
-      // set: both items should be preserved as references
-      expect(cloned.refSet.size).toBe(2);
-      expect(cloned.refSet.has(materializedChild)).toBe(true);
-      expect(cloned.refSet.has(ephemeralChild)).toBe(true);
+      // set: cloned items should be remapped, other preserved
+      expect(cloned.refSet.size).toBe(3);
+      expect(cloned.refSet.has(clonedChildren[0])).toBe(true); // One of the clones
+      expect(cloned.refSet.has(clonedChildren[1])).toBe(true); // Other clone
+      expect(cloned.refSet.has(otherChild)).toBe(true); // Not cloned, preserved
+      expect(cloned.refSet.has(materializedChild)).toBe(false); // Original not in set
+      expect(cloned.refSet.has(ephemeralChild)).toBe(false); // Original not in set
     });
   });
 });

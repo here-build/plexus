@@ -53,11 +53,14 @@ const unconsumedNotifiers = new Set<{
 let untracked = false;
 /** @protected this is internal metod to do some magic and should not be used outside explicitly */
 export const __untracked__ = <T>(fn: () => T): T => {
+  const wasUntracked = untracked;
   untracked = true;
   try {
     return fn();
   } finally {
-    untracked = false;
+    if (!wasUntracked) {
+      untracked = false;
+    }
   }
 };
 

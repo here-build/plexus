@@ -35,25 +35,21 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
             clonedModel[fieldKey] = clonedValue;
             break;
           case "child-list":
-            clonedModel[fieldKey].assign(
-              (fieldValue as any as any[]).map((item) => (item instanceof PlexusModel ? item.clone() : item))
+            clonedModel[fieldKey] = (fieldValue as any as any[]).map((item) =>
+              item instanceof PlexusModel ? item.clone() : item
             );
             break;
           case "child-set":
-            clonedModel[fieldKey].assign(
-              new Set(
-                [...(fieldValue as any as Set<any>)].map((item) => (item instanceof PlexusModel ? item.clone() : item))
-              )
+            clonedModel[fieldKey] = new Set(
+              [...(fieldValue as any as Set<any>)].map((item) => (item instanceof PlexusModel ? item.clone() : item))
             );
             break;
           case "child-record":
-            clonedModel[fieldKey].assign(
-              Object.fromEntries(
-                Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
-                  key,
-                  item instanceof PlexusModel ? item.clone() : item
-                ])
-              )
+            clonedModel[fieldKey] = Object.fromEntries(
+              Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
+                key,
+                item instanceof PlexusModel ? item.clone() : item
+              ])
             );
             break;
         }
@@ -68,23 +64,21 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
             clonedModel[fieldKey] = cloneTransactionMapping!.get(fieldValue) ?? fieldValue;
             break;
           case "list":
-            clonedModel[fieldKey].assign(
-              (fieldValue as any as any[]).map((item) => cloneTransactionMapping!.get(item) ?? item)
+            clonedModel[fieldKey] = (fieldValue as any[]).map(
+              (item) => cloneTransactionMapping!.get(item) ?? item
             );
             break;
           case "record":
-            clonedModel[fieldKey].assign(
-              Object.fromEntries(
-                Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
-                  key,
-                  cloneTransactionMapping!.get(item) ?? item
-                ])
-              )
+            clonedModel[fieldKey] = Object.fromEntries(
+              Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
+                key,
+                cloneTransactionMapping!.get(item) ?? item
+              ])
             );
             break;
           case "set":
-            clonedModel[fieldKey].assign(
-              new Set([...(fieldValue as any as Set<any>)].map((item) => cloneTransactionMapping!.get(item) ?? item))
+            clonedModel[fieldKey] = new Set(
+              [...(fieldValue as any as Set<any>)].map((item) => cloneTransactionMapping!.get(item) ?? item)
             );
             break;
         }

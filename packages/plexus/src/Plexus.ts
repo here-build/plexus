@@ -1,13 +1,11 @@
 /**
- * Plexus Document - Orchestrates YJS, dependencies, and semantic awareness
+ * Plexus Document - Orchestrates YJS and dependencies
  */
 
 import * as Y from "yjs";
 import { UndoManager } from "yjs";
-import * as awarenessProtocol from "y-protocols/awareness";
 import { referenceSymbol, Storageable } from "./proxy-runtime-types";
 import invariant from "tiny-invariant";
-import { PlexusAwareness } from "./awareness";
 import { YJS_GLOBALS } from "./YJS_GLOBALS";
 import { maybeTransacting } from "./utils";
 import { entityClasses } from "./globals";
@@ -46,7 +44,6 @@ export abstract class Plexus<
   static get docPlexus() {
     return docPlexus as WeakMap<Y.Doc, Plexus<any, any, any, any>>;
   }
-  public readonly awareness: PlexusAwareness;
   // Defer loadRoot() to next tick to ensure child class is fully constructed
   public readonly rootPromise: Promise<Root> = Promise.resolve().then(() => this.loadRoot());
   private isRootLoaded = false;
@@ -76,7 +73,6 @@ export abstract class Plexus<
 
   constructor(
     public readonly doc: Y.Doc,
-    awareness: awarenessProtocol.Awareness = new awarenessProtocol.Awareness(doc),
     rootPlexus?: Plexus<any, any, any, any>
   ) {
     // Allow multiple Plexus instances but track the most recent one
@@ -85,7 +81,6 @@ export abstract class Plexus<
       console.warn("Creating additional Plexus for same doc - will share dependency mappings");
     }
     docPlexus.set(doc, this);
-    this.awareness = new PlexusAwareness(awareness);
 
     // Set up hierarchical tracking
     if (rootPlexus) {

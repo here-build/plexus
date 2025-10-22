@@ -11,7 +11,7 @@
     "superposition"
   ],
   "license": "MIT",
-  "author": "DappSnap",
+  "author": "here.build",
   "type": "module",
   "exports": {
     ".": {

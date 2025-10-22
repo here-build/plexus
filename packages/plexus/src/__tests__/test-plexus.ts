@@ -1,5 +1,4 @@
 import * as Y from "yjs";
-import * as awarenessProtocol from "y-protocols/awareness";
 import { DependencyId, DependencyVersion, Plexus } from "../Plexus";
 import { referenceSymbol } from "../proxy-runtime-types";
 import { YJS_GLOBALS } from "../YJS_GLOBALS";
@@ -23,13 +22,13 @@ export class TestPlexus<
   protected createDefaultRoot(): Root {
     return null as any;
   }
-  private dependencies: Record<string, Y.Doc>;
-  private availableDependencies: Map<string, () => Promise<Y.Doc>>; // For dynamic dependency creation
+  private availableDependencies: Map<string, () => Promise<Y.Doc>> = new Map(); // For dynamic dependency creation
 
-  constructor(doc: Y.Doc, dependencies: Record<string, Y.Doc> = {}, awareness?: awarenessProtocol.Awareness) {
-    super(doc, awareness);
-    this.dependencies = dependencies;
-    this.availableDependencies = new Map();
+  constructor(
+    doc: Y.Doc,
+    private readonly dependencies: Record<string, Y.Doc> = {}
+  ) {
+    super(doc);
   }
 
   /**
@@ -68,9 +67,8 @@ export class TestPlexus<
 export async function createTestPlexus<Root extends PlexusModel>(
   doc: Y.Doc,
   dependencies: Record<string, Y.Doc> = {},
-  awareness?: awarenessProtocol.Awareness
 ): Promise<{ plexus: TestPlexus<Root>; root: Root }> {
-  const plexus = new TestPlexus<Root>(doc, dependencies, awareness);
+  const plexus = new TestPlexus<Root>(doc, dependencies);
   const root = await plexus.rootPromise;
   return { plexus, root };
 }
@@ -90,13 +88,12 @@ export async function initTestPlexus<
 >(
   rootEntity: Root,
   dependencies: Record<string, Y.Doc> = {},
-  awareness?: awarenessProtocol.Awareness,
   documentId?: string
 ): Promise<{ doc: Y.Doc; plexus: TestPlexus<Root>; root: Root }> {
   const doc = new Y.Doc();
 
   // Create Plexus instance first - this registers the doc
-  const plexus = new TestPlexus<Root>(doc, dependencies, awareness);
+  const plexus = new TestPlexus<Root>(doc, dependencies);
 
   // Force root UUID and materialize
   rootEntity._uuid = "root";

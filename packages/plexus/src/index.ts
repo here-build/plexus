@@ -21,5 +21,3 @@ export * from "./YJS_GLOBALS";
 
 // Plexus document orchestration
 export * from "./Plexus";
-export { PlexusAwareness } from "./awareness";
-export { PlexusUserState } from "./awareness";

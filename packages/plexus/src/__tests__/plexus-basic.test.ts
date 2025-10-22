@@ -107,7 +107,6 @@ describe("Plexus Basic Functionality", () => {
 
     // Verify Plexus is associated with document
     expect(plexus.doc).toBe(doc);
-    expect(plexus.awareness).toBeDefined();
   });
 
   it("should handle entity relationships correctly", async () => {

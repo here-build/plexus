@@ -20,7 +20,7 @@ import {
   Storageable
 } from "./proxy-runtime-types";
 import { documentEntityCaches } from "./entity-cache";
-import { curryMaybeReference, maybeTransacting, never, isTransacting, pendingNotifications } from "./utils";
+import { curryMaybeReference, maybeTransacting, never } from "./utils";
 import { YJS_GLOBALS } from "./YJS_GLOBALS";
 import invariant from "tiny-invariant";
 import { trackAccess, trackModification } from "./tracking";
@@ -48,18 +48,30 @@ type Initializer<T extends PlexusModel> = [entityId: string, doc: Y.Doc];
 let currentlyEmancipating = new WeakSet<PlexusModel>();
 
 export type PlexusInit<T extends PlexusModel> = {
-  [key in keyof T as T[key] extends AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList
-    ? key extends keyof PlexusModel
-      ? never
-      : key
-    : never]?: T[key];
+  [key in keyof T as key extends keyof PlexusModel
+    ? never
+    : T[key] extends AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList
+      ? key
+      : T[key] extends AllowedYJSValue
+        ? null extends T[key]
+          ? key
+          : never
+        : never]?: T[key];
+} & {
+  [key in keyof T as key extends keyof PlexusModel
+    ? never
+    : T[key] extends AllowedYJSValue
+      ? null extends T[key]
+        ? never
+        : key
+      : never]: T[key];
 };
 
 export abstract class PlexusModel {
   static modelName: string;
   static schema: GenericRecordSchema;
-
-  [backingStorageSymbol] = new Map<string, any>();
+  // here and in other places we're using accessors only to remove elements from enumerable set
+  accessor [backingStorageSymbol] = new Map<string, any>();
 
   #runtimeParent: PlexusModel | null = null;
   #runtimeParentKey: string | null = null;
@@ -79,14 +91,14 @@ export abstract class PlexusModel {
   }
 
   // making things non-enumerable
-  _initializationState: Record<
+  accessor _initializationState: Record<
     string,
     AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList
   > = {};
   get _doc(): Y.Doc | null {
     return this._yjsModel?.doc ?? null;
   }
-  _yjsModel: Y.Map<Storageable> | null = null;
+  accessor _yjsModel: Y.Map<Storageable> | null = null;
 
   constructor(
     init:
@@ -119,9 +131,28 @@ export abstract class PlexusModel {
     Object.defineProperties(
       this,
       Object.fromEntries(
-        Object.entries(Object.getOwnPropertyDescriptors(this.constructor.prototype)).filter(
-          ([key]) => key in this._schema
-        )
+        Object.keys(this._schema).map((key) => {
+          let prototype = (this as any).__proto__;
+          while (prototype && prototype !== prototype.__proto__) {
+            if (Object.hasOwn(prototype, key)) {
+              break;
+            }
+            prototype = prototype.__proto__;
+          }
+          invariant(prototype, "terribly wrong state");
+          return [
+            key,
+            // this helps us auto-correct user's mistakes when instead of accessor declaration of schema field
+            // prop declaration is used - this only happens in children of synced elements, thus, we just need to override
+            // "wrong" field with its actual behavior.
+            // this also makes all of them enumerable of course. examples of "why it's needed" are in inheritance tests
+            {
+              ...Object.getOwnPropertyDescriptor(prototype, key),
+              enumerable: true,
+              configurable: false
+            } satisfies PropertyDescriptor
+          ] as const;
+        })
       )
     );
     Object.seal(this);
@@ -140,7 +171,7 @@ export abstract class PlexusModel {
     field: string,
     extraFieldMetadata?: string
   ) {
-    invariant(this._uuid !== "root" || newParent as PlexusModel === this, "Root entity cannot have a parent");
+    invariant(this._uuid !== "root" || (newParent as PlexusModel) === this, "Root entity cannot have a parent");
 
     if (
       this.#runtimeParent === newParent &&
@@ -261,7 +292,7 @@ export abstract class PlexusModel {
     return clone(this, newProps);
   }
 
-  _uuid: string | undefined;
+  accessor _uuid: string | undefined;
 
   get uuid(): PlexusUUID<string, this> {
     return (this._uuid ??= nanoid()) as PlexusUUID<string, this>;
@@ -422,6 +453,7 @@ export abstract class PlexusModel {
         } else if (key === YJS_GLOBALS.modelMetadataParent) {
           // Update runtime parent when Y.js changes
           const parentReference = this._yjsModel!.get(YJS_GLOBALS.modelMetadataParent) as ParentReference | undefined;
+          const previousParent = this.parent;
           if (parentReference) {
             this.#runtimeParent = deref(this._doc!, [parentReference[0]]) as PlexusModel;
             this.#runtimeParentKey = parentReference[1];
@@ -431,7 +463,10 @@ export abstract class PlexusModel {
             this.#runtimeParentKey = null;
             this.#runtimeParentMetadata = null;
           }
-          trackModification(this, "parent");
+          // this may be needed e.g. when item moved from one field to another in same parent
+          if (this.parent !== previousParent) {
+            trackModification(this, "parent");
+          }
         } else {
           console.warn("attempted to write the value that is not in schema", this, key);
         }

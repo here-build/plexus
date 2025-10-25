@@ -21,7 +21,7 @@
  * - createTrackedFunction: Main API for React integration
  */
 
-import { isTransacting, pendingNotifications } from "./utils";
+import { flushNotifications, isTransacting, pendingNotifications } from "./utils";
 
 // Special symbols for tracking comprehensive access patterns
 export const ACCESS_ALL_SYMBOL = Symbol("ACCESS_ALL");
@@ -48,7 +48,6 @@ const unconsumedNotifiers = new Set<{
   trackingFunction: () => void;
   fieldset: DefaultedMap<any, Set<string | symbol>>;
 }>();
-
 
 let untracked = false;
 /** @protected this is internal metod to do some magic and should not be used outside explicitly */
@@ -83,27 +82,21 @@ export function trackModification(entity: any, field: string | symbol): void {
   if (untracked) {
     return;
   }
-    for (const notifier of unconsumedNotifiers) {
-      if (!notifier.fieldset.has(entity)) {
-        continue;
-      }
-      const entityKeyset = notifier.fieldset.get(entity)!;
-      if (field === ACCESS_ALL_SYMBOL || entityKeyset.has(field) || entityKeyset.has(ACCESS_ALL_SYMBOL)) {
-        unconsumedNotifiers.delete(notifier);
-
-        if (isTransacting) {
-          // Queue notification for later
-          pendingNotifications.add(notifier.trackingFunction);
-        } else {
-          try {
-            // Execute immediately
-            notifier.trackingFunction();
-          } catch (e) {
-            console.debug("error while handling reaction on", entity, field, notifier.trackingFunction);
-          }
-        }
-      }
+  const relatedTrackingFunctions = new Set();
+  for (const notifier of unconsumedNotifiers) {
+    if (!notifier.fieldset.has(entity)) {
+      continue;
     }
+    const entityKeyset = notifier.fieldset.get(entity)!;
+    if (field === ACCESS_ALL_SYMBOL || entityKeyset.has(field) || entityKeyset.has(ACCESS_ALL_SYMBOL)) {
+      unconsumedNotifiers.delete(notifier);
+
+      pendingNotifications.add(notifier.trackingFunction);
+    }
+  }
+  if (!isTransacting) {
+    flushNotifications();
+  }
 }
 
 export function isObserving(): boolean {
@@ -136,6 +129,7 @@ export function createTrackedFunction<Args extends readonly unknown[], Return>(
         if (!executed) {
           triggered = true;
         } else {
+          activeTrackingMaps.delete(myTrackingMap);
           notifyChanges();
         }
       },
@@ -146,10 +140,11 @@ export function createTrackedFunction<Args extends readonly unknown[], Return>(
       return fn(...args);
     } finally {
       executed = true;
+      // activeTrackingMaps cleanup should be placed BEFORE notifyChanges to avoid recursion
+      activeTrackingMaps.delete(myTrackingMap);
       if (triggered) {
         notifyChanges();
       }
-      activeTrackingMaps.delete(myTrackingMap);
     }
   };
 }

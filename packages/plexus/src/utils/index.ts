@@ -30,7 +30,7 @@ const docInTransactionMotion = new WeakSet();
 export let isTransacting = false;
 export const pendingNotifications: Set<() => void> = new Set();
 
-const flushNotifications = () => {
+export const flushNotifications = () => {
   const toNotify = new Set(pendingNotifications);
   pendingNotifications.clear();
 

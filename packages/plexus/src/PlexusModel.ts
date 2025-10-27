@@ -118,7 +118,7 @@ export abstract class PlexusModel {
       const map = modelsMap.get(this.uuid);
       invariant(
         map,
-        `you are trying to instantate ${this.constructor.name}#${entityId} that is non-existent on this document`
+        `you are trying to instantiate ${this.constructor.name}#${entityId} that is non-existent on this document`
       );
       const storedType = map.get(YJS_GLOBALS.modelMetadataType) as string;
       invariant(storedType === this.#type, `spawn type mismatch, ${storedType} !== ${this.#type}`);
@@ -288,7 +288,7 @@ export abstract class PlexusModel {
     return this.#runtimeParent;
   }
 
-  clone(newProps: Partial<typeof this> = {}): this {
+  clone<T extends PlexusModel>(this: T, newProps: Partial<Omit<T, keyof PlexusModel>> = {}): T {
     return clone(this, newProps);
   }
 

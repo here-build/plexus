@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import "@here.build/arrival-env";
 import {
   AllowedYJSValue,
   AllowedYJSValueList,
@@ -160,6 +161,10 @@ export abstract class PlexusModel {
 
   toJSON() {
     return Object.fromEntries(Object.keys(this._schema).map((key) => [key, this[key]]));
+  }
+
+  [Symbol.SExpr]({ quote }: SExprSerializationContext): string {
+    return this._type;
   }
 
   [requestEmancipationSymbol]() {

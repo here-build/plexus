@@ -163,7 +163,7 @@ export abstract class PlexusModel {
     return Object.fromEntries(Object.keys(this._schema).map((key) => [key, this[key]]));
   }
 
-  [Symbol.SExpr]({ quote }: SExprSerializationContext): string {
+  [Symbol.SExpr](): string {
     return this._type;
   }
 

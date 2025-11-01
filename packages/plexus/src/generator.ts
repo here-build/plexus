@@ -26,7 +26,7 @@ export interface Field {
 
 export interface Class {
   name: string;
-  base: string | null | undefined; // Match DappSnap's expected interface
+  base: string | null | undefined; // Match here.build's expected interface
   fields: Field[];
   concrete?: boolean;
 }

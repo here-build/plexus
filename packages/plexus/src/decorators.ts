@@ -312,9 +312,15 @@ const createHandlers = <
              * - new Model([entityId: string, doc: Y.Doc]) - materialized, internal
              *
              * in materialized flow, we need to ignore all "init values" and just use data from underlying yjs model.
+             * however, constructor args override the yjs model presence as we may sometimes encounter the model
+             * assignment during the post-constructor phase. This will clearly mean that we're initializing
+             * as a definition, not synced state, and should represent that value.
              */
             if (this._yjsModel) {
-              const reflectedValue = this[context.name];
+              const reflectedValue =
+                this._initializationState[context.name] !== undefined
+                  ? this._initializationState[context.name]
+                  : this[context.name];
               setter(context, this, reflectedValue);
               return reflectedValue;
             }

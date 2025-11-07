@@ -93,8 +93,9 @@ export abstract class Plexus<
     }
   }
 
-  // Abstract method for creating default root when document is empty
-  protected abstract createDefaultRoot(): Root;
+  protected createDefaultRoot(): Root {
+    throw new Error("default root fallback is not supported in this instance");
+  };
 
   // Abstract method for fetching dependencies
   fetchDependency(dependencyId: DependencyIdType, dependencyVersion?: DependencyVersionType): Promise<Y.Doc> {

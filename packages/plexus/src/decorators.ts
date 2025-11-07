@@ -316,7 +316,7 @@ const createHandlers = <
              * assignment during the post-constructor phase. This will clearly mean that we're initializing
              * as a definition, not synced state, and should represent that value.
              */
-            if (this._yjsModel) {
+            if (this._yjsModel && !this._isWithinYjsModelSeed) {
               const reflectedValue =
                 this._initializationState[context.name] !== undefined
                   ? this._initializationState[context.name]

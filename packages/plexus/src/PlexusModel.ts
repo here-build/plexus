@@ -99,6 +99,7 @@ export abstract class PlexusModel {
   get _doc(): Y.Doc | null {
     return this._yjsModel?.doc ?? null;
   }
+  accessor _isWithinYjsModelSeed: boolean = false;
   accessor _yjsModel: Y.Map<Storageable> | null = null;
 
   constructor(
@@ -331,6 +332,7 @@ export abstract class PlexusModel {
     return maybeTransacting(doc, () => {
       const yprojectObjectInstances = doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models);
       let yprojectObjectInstanceFields = yprojectObjectInstances.get(this.uuid);
+      this._isWithinYjsModelSeed = true;
       if (!yprojectObjectInstanceFields) {
         yprojectObjectInstanceFields = new Y.Map<Storageable>();
         yprojectObjectInstances.set(this.uuid, yprojectObjectInstanceFields);
@@ -400,6 +402,7 @@ export abstract class PlexusModel {
       }
       this.#bootstrapYjsObservation();
       documentEntityCaches.get(doc).set(this.uuid, new WeakRef<PlexusModel>(this));
+      this._isWithinYjsModelSeed = false;
       return this.#reference;
     });
   }

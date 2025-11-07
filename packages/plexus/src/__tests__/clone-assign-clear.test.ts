@@ -50,6 +50,20 @@ class TestModel extends PlexusModel {
   }
 }
 
+@syncing
+class EdgeCaseParent extends PlexusModel {
+  @syncing.child
+  accessor value: EdgeCaseChild;
+  @syncing.child
+  accessor field: TestComponent;
+}
+
+@syncing
+class EdgeCaseChild extends PlexusModel {
+  @syncing
+  accessor field: TestComponent;
+}
+
 describe("clone(), assign(), clear() methods", () => {
   let doc: Y.Doc;
 
@@ -283,6 +297,18 @@ describe("clone(), assign(), clear() methods", () => {
       expect(model.references.has(comp2)).toBe(true);
       expect(model.references.has(comp3)).toBe(true);
     });
+
+    it("should properly handle edge case", () => {
+      const field = new TestComponent({});
+      const parent = new EdgeCaseParent({
+        value: new EdgeCaseChild({
+          field
+        }),
+        field
+      }).clone();
+      expect(parent.field).not.toBe(field);
+      expect(parent.field).toBe(parent.value.field);
+    })
   });
 
   describe("map.assign() method", () => {

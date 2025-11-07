@@ -5,8 +5,13 @@ import { ConcretePlexusConstructor, PlexusModel } from "./PlexusModel";
 // Global clone transaction mapping for handling cycles and deduplication
 let cloneTransactionMapping: WeakMap<any, any> | null = null;
 
+const postMappingFill = new Set<() => void>();
+
 export function clone<Model extends PlexusModel>(source: Model, newProps: Partial<Model> = {}) {
   const isTopLevel = cloneTransactionMapping === null;
+  if (isTopLevel) {
+    postMappingFill.clear();
+  }
   cloneTransactionMapping ??= new WeakMap();
   if (cloneTransactionMapping.has(source)) {
     return cloneTransactionMapping.get(source);
@@ -55,38 +60,45 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
         }
       });
     }
-    // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
-    for (const [fieldKey, type] of Object.entries(source._schema)) {
-      const fieldValue = fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
-      __untracked__(() => {
-        switch (type) {
-          case "val":
-            clonedModel[fieldKey] = cloneTransactionMapping!.get(fieldValue) ?? fieldValue;
-            break;
-          case "list":
-            clonedModel[fieldKey] = (fieldValue as any[]).map(
-              (item) => cloneTransactionMapping!.get(item) ?? item
-            );
-            break;
-          case "record":
-            clonedModel[fieldKey] = Object.fromEntries(
-              Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
-                key,
-                cloneTransactionMapping!.get(item) ?? item
-              ])
-            );
-            break;
-          case "set":
-            clonedModel[fieldKey] = new Set(
-              [...(fieldValue as any as Set<any>)].map((item) => cloneTransactionMapping!.get(item) ?? item)
-            );
-            break;
-        }
-      });
+    postMappingFill.add(() => {
+      // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
+      for (const [fieldKey, type] of Object.entries(source._schema)) {
+        const fieldValue = fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
+        __untracked__(() => {
+          switch (type) {
+            case "val":
+              clonedModel[fieldKey] = cloneTransactionMapping!.get(fieldValue) ?? fieldValue;
+              break;
+            case "list":
+              clonedModel[fieldKey] = (fieldValue as any[]).map((item) => cloneTransactionMapping!.get(item) ?? item);
+              break;
+            case "record":
+              clonedModel[fieldKey] = Object.fromEntries(
+                Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
+                  key,
+                  cloneTransactionMapping!.get(item) ?? item
+                ])
+              );
+              break;
+            case "set":
+              clonedModel[fieldKey] = new Set(
+                [...(fieldValue as any as Set<any>)].map((item) => cloneTransactionMapping!.get(item) ?? item)
+              );
+              break;
+          }
+        });
+      }
+    });
+    if (isTopLevel) {
+      for (const fn of postMappingFill) {
+        fn();
+      }
+      postMappingFill.clear();
     }
     return clonedModel;
   } finally {
     if (isTopLevel) {
+      postMappingFill.clear();
       cloneTransactionMapping = null;
     }
   }

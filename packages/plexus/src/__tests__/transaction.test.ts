@@ -192,7 +192,10 @@ describe("Plexus Transactions", () => {
 
       const tracked1 = createTrackedFunction(callback1, () => entity.value);
       const tracked2 = createTrackedFunction(callback2, () => entity.count);
-      const tracked3 = createTrackedFunction(callback3, () => entity.value + entity.count);
+      const tracked3 = createTrackedFunction(
+        callback3,
+        () => entity.value + entity.count,
+      );
 
       tracked1();
       tracked2();
@@ -315,7 +318,10 @@ describe("Plexus Transactions", () => {
 
       const tracked1 = createTrackedFunction(callback1, () => entity.value);
       const tracked2 = createTrackedFunction(callback2, () => entity.count);
-      const tracked3 = createTrackedFunction(callback3, () => entity.value + entity.count);
+      const tracked3 = createTrackedFunction(
+        callback3,
+        () => entity.value + entity.count,
+      );
 
       tracked1();
       tracked2();
@@ -422,8 +428,8 @@ describe("Plexus Transactions", () => {
       }
 
       // Execute all to register tracking
-      trackingFns.forEach(fn => fn());
-      callbacks.forEach(cb => (cb as any).mockClear());
+      trackingFns.forEach((fn) => fn());
+      callbacks.forEach((cb) => (cb as any).mockClear());
 
       plexus.transact(() => {
         // Trigger modifications
@@ -433,13 +439,13 @@ describe("Plexus Transactions", () => {
         }
 
         // None should be called yet
-        callbacks.forEach(cb => {
+        callbacks.forEach((cb) => {
           expect(cb).not.toHaveBeenCalled();
         });
       });
 
       // All should be called after
-      callbacks.forEach(cb => {
+      callbacks.forEach((cb) => {
         expect(cb).toHaveBeenCalledTimes(1);
       });
     });
@@ -454,7 +460,10 @@ describe("Plexus Transactions", () => {
 
       const tracked1 = createTrackedFunction(goodCallback, () => entity.value);
       const tracked2 = createTrackedFunction(badCallback, () => entity.count);
-      const tracked3 = createTrackedFunction(anotherGoodCallback, () => `${entity.value}-${entity.count}`);
+      const tracked3 = createTrackedFunction(
+        anotherGoodCallback,
+        () => `${entity.value}-${entity.count}`,
+      );
 
       tracked1();
       tracked2();

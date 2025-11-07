@@ -177,7 +177,12 @@ describe("Proxy Edge Cases", () => {
   describe("🏎️ Concurrent Mutation Races", () => {
     it("should handle concurrent cross-document mutations", async () => {
       const { site: site1, doc: doc1 } = await createTestSite("Race Test");
-      const comp1 = new Component({ name: "Original", type: "component", children: [], metadata: {} });
+      const comp1 = new Component({
+        name: "Original",
+        type: "component",
+        children: [],
+        metadata: {},
+      });
       site1.components["shared"] = comp1;
 
       // Initial sync
@@ -197,8 +202,18 @@ describe("Proxy Edge Cases", () => {
       comp1_doc2.metadata["source"] = "doc2";
 
       // Add children only from doc1 (the one with Plexus) to avoid contagion issues
-      const child1 = new Component({ name: "Child1", type: "child", children: [], metadata: {} });
-      const child2 = new Component({ name: "Child2", type: "child", children: [], metadata: {} });
+      const child1 = new Component({
+        name: "Child1",
+        type: "child",
+        children: [],
+        metadata: {},
+      });
+      const child2 = new Component({
+        name: "Child2",
+        type: "child",
+        children: [],
+        metadata: {},
+      });
 
       comp1_doc1.children.push(child1);
       comp1_doc1.children.push(child2);

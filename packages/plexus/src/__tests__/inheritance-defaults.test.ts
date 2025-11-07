@@ -80,7 +80,7 @@ describe("Plexus Inheritance and Default Values", () => {
       const entity = new ConcreteEntity({
         baseField: "base-value",
         middleField: "middle-value",
-        concreteField: "concrete-value"
+        concreteField: "concrete-value",
       });
 
       const { plexus, root, doc } = await initTestPlexus(entity);
@@ -114,7 +114,7 @@ describe("Plexus Inheritance and Default Values", () => {
       const entity = new ConcreteEntity({
         baseField: "base",
         middleField: "middle",
-        concreteField: "concrete"
+        concreteField: "concrete",
       });
 
       const { root } = await initTestPlexus(entity);
@@ -140,7 +140,7 @@ describe("Plexus Inheritance and Default Values", () => {
       const entity = new ConcreteEntity({
         baseField: "base",
         middleField: "middle",
-        concreteField: "concrete"
+        concreteField: "concrete",
         // Not providing values for fields with defaults
       });
 
@@ -155,7 +155,7 @@ describe("Plexus Inheritance and Default Values", () => {
       const entity = new ConcreteEntity({
         baseField: "base",
         middleField: "middle",
-        concreteField: "concrete"
+        concreteField: "concrete",
         // Not providing collection values
       });
 
@@ -182,12 +182,12 @@ describe("Plexus Inheritance and Default Values", () => {
       const entity1 = new ConcreteEntity({
         baseField: "base1",
         middleField: "middle1",
-        concreteField: "concrete1"
+        concreteField: "concrete1",
       });
 
       const entity2 = new AnotherConcreteEntity({
         baseField: "base2",
-        middleField: "middle2"
+        middleField: "middle2",
       });
 
       const { root: root1 } = await initTestPlexus(entity1);
@@ -215,7 +215,7 @@ describe("Plexus Inheritance and Default Values", () => {
         baseNumber: 999, // Override default
         middleList: ["custom1"], // Override default array
         middleMap: { customKey: 500 }, // Override default map
-        concreteSet: new Set(["custom"]) // Override default set
+        concreteSet: new Set(["custom"]), // Override default set
       });
 
       const { root } = await initTestPlexus(entity);
@@ -237,7 +237,7 @@ describe("Plexus Inheritance and Default Values", () => {
         concreteField: "concrete",
         baseNumber: 123, // Custom value, not default
         middleList: ["custom1", "custom2"],
-        middleMap: { customKey: 789 }
+        middleMap: { customKey: 789 },
       });
 
       const { doc: doc1 } = await initTestPlexus(entity1);
@@ -268,14 +268,14 @@ describe("Plexus Inheritance and Default Values", () => {
     it("should preserve child entity values during cross-doc sync", async () => {
       const child1 = new ChildEntity({
         name: "child1",
-        value: 555 // Custom value, not default 999
+        value: 555, // Custom value, not default 999
       });
 
       const entity = new ConcreteEntity({
         baseField: "base",
         middleField: "middle",
         concreteField: "concrete",
-        children: [child1]
+        children: [child1],
       });
 
       const { doc: doc1, root: root1 } = await initTestPlexus(entity);
@@ -283,7 +283,7 @@ describe("Plexus Inheritance and Default Values", () => {
       // Add another child after initialization
       const child2 = new ChildEntity({
         name: "child2",
-        value: 777
+        value: 777,
       });
       root1.children.push(child2);
 
@@ -306,7 +306,7 @@ describe("Plexus Inheritance and Default Values", () => {
         baseField: "base",
         middleField: "middle",
         concreteField: "concrete",
-        baseNumber: 100
+        baseNumber: 100,
       });
 
       const { doc: doc1, root: root1 } = await initTestPlexus(entity);
@@ -425,12 +425,12 @@ describe("Plexus Inheritance and Default Values", () => {
       const book = new Book({
         name: "Test Book",
         isbn: "123-456",
-        pages: 300
+        pages: 300,
       });
 
       const movie = new Movie({
         name: "Test Movie",
-        duration: 120
+        duration: 120,
       });
 
       const { root: bookRoot } = await initTestPlexus(book);
@@ -483,13 +483,13 @@ describe("Plexus Inheritance and Default Values", () => {
       // Create a shared arg
       const sharedArg = new SharedArg({
         name: "shared",
-        value: 100
+        value: 100,
       });
 
       // Test 1: Parent should have weak reference
       const parent = new WeakRefParent({
         id: "parent",
-        arg: sharedArg
+        arg: sharedArg,
       });
       const { root: parentRoot } = await initTestPlexus(parent);
       expect(parentRoot.arg.name).toBe("shared");
@@ -502,12 +502,12 @@ describe("Plexus Inheritance and Default Values", () => {
       // Test 2: Child should own the arg
       const ownedArg = new SharedArg({
         name: "owned",
-        value: 300
+        value: 300,
       });
 
       const child = new OwnedChildVersion({
         id: "child",
-        arg: ownedArg
+        arg: ownedArg,
       });
       const { root: childRoot } = await initTestPlexus(child);
       expect(childRoot.arg.name).toBe("owned");
@@ -547,7 +547,7 @@ describe("Plexus Inheritance and Default Values", () => {
 
       // Parent version - items are references
       const parent = new ListParent({
-        items: [item1, item2]
+        items: [item1, item2],
       });
       const { root: parentRoot } = await initTestPlexus(parent);
       expect(parentRoot.items).toHaveLength(2);
@@ -555,7 +555,7 @@ describe("Plexus Inheritance and Default Values", () => {
 
       // Child version - items are owned
       const child = new ChildListVersion({
-        items: [new Item({ name: "owned1" }), new Item({ name: "owned2" })]
+        items: [new Item({ name: "owned1" }), new Item({ name: "owned2" })],
       });
       const { root: childRoot } = await initTestPlexus(child);
       expect(childRoot.items).toHaveLength(2);
@@ -593,7 +593,7 @@ describe("Plexus Inheritance and Default Values", () => {
 
       // Parent version - configs are references
       const parent = new MapParent({
-        configs: { first: config1 }
+        configs: { first: config1 },
       });
       const { root: parentRoot } = await initTestPlexus(parent);
       expect(parentRoot.configs.first.key).toBe("k1");
@@ -602,8 +602,8 @@ describe("Plexus Inheritance and Default Values", () => {
       // Child version - configs are owned
       const child = new ChildMapVersion({
         configs: {
-          owned: new Config({ key: "k2", value: "v2" })
-        }
+          owned: new Config({ key: "k2", value: "v2" }),
+        },
       });
       const { root: childRoot } = await initTestPlexus(child);
       expect(childRoot.configs.owned.key).toBe("k2");
@@ -656,7 +656,7 @@ describe("Plexus Inheritance and Default Values", () => {
       // Test the fully owned version
       const graph = new FullyOwnedGraph({
         root: rootNode,
-        nodes: [node1, node2]
+        nodes: [node1, node2],
       });
 
       const { root: graphRoot, doc } = await initTestPlexus(graph);
@@ -670,7 +670,8 @@ describe("Plexus Inheritance and Default Values", () => {
       const doc2 = new Y.Doc();
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc));
 
-      const { root: graphRoot2 } = await createTestPlexus<FullyOwnedGraph>(doc2);
+      const { root: graphRoot2 } =
+        await createTestPlexus<FullyOwnedGraph>(doc2);
       expect(graphRoot2.root.parent).toBe(graphRoot2);
       expect(graphRoot2.nodes[0].parent).toBe(graphRoot2);
       expect(graphRoot2.nodes[1].parent).toBe(graphRoot2);
@@ -695,7 +696,9 @@ describe("Plexus Inheritance and Default Values", () => {
 
       @syncing
       class OwnedChild extends WeakParent {
-        @syncing.child override accessor value: Value = new Value({ data: "child-default" }); // Non-null owned with instance default
+        @syncing.child override accessor value: Value = new Value({
+          data: "child-default",
+        }); // Non-null owned with instance default
         constructor(props?: Partial<OwnedChild>) {
           super(props);
         }
@@ -715,7 +718,7 @@ describe("Plexus Inheritance and Default Values", () => {
 
       // Can override the default
       const childWithOverride = new OwnedChild({
-        value: new Value({ data: "override" })
+        value: new Value({ data: "override" }),
       });
       const { root: overrideRoot } = await initTestPlexus(childWithOverride);
       expect(overrideRoot.value.data).toBe("override");

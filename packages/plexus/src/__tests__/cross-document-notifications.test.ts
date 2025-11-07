@@ -345,7 +345,7 @@ describe("Cross-Document Notifications", () => {
         title: "Main Post",
         content: "Content",
         author: null,
-        comments: []
+        comments: [],
       });
 
       // Add initial comment (will be materialized via contagion)
@@ -353,11 +353,15 @@ describe("Cross-Document Notifications", () => {
         title: "Initial Comment",
         content: "Content",
         author: null,
-        comments: []
+        comments: [],
       });
       ephemeralPost.comments.push(initialComment);
 
-      const { doc: doc1, root: post1, plexus } = await initTestPlexus<Post>(ephemeralPost);
+      const {
+        doc: doc1,
+        root: post1,
+        plexus,
+      } = await initTestPlexus<Post>(ephemeralPost);
       const entityId = post1.uuid;
 
       // Sync to doc2
@@ -388,7 +392,7 @@ describe("Cross-Document Notifications", () => {
         title: "Main Post",
         content: "Content",
         author: null,
-        comments: []
+        comments: [],
       });
 
       // Add initial comment (will be materialized via contagion)
@@ -396,11 +400,15 @@ describe("Cross-Document Notifications", () => {
         title: "Original Comment",
         content: "Content",
         author: null,
-        comments: []
+        comments: [],
       });
       ephemeralPost.comments.push(initialComment);
 
-      const { doc: doc1, root: post1, plexus } = await initTestPlexus<Post>(ephemeralPost);
+      const {
+        doc: doc1,
+        root: post1,
+        plexus,
+      } = await initTestPlexus<Post>(ephemeralPost);
       const entityId = post1.uuid;
 
       // Sync to doc2

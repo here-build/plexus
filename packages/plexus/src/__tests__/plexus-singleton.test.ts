@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import * as Y from "yjs";
 import { TestPlexus, initTestPlexus } from "./test-plexus";
 import { PlexusModel } from "../PlexusModel";
 import { syncing } from "../decorators";

@@ -80,7 +80,7 @@ describe("Plexus Entity Loading", () => {
 
       // Don't await rootPromise - try to use immediately
       expect(() => plexus.loadEntity("some-id")).toThrow(
-        "Cannot load entities before root is loaded. Await plexus.rootPromise first."
+        "Cannot load entities before root is loaded. Await plexus.rootPromise first.",
       );
 
       // Clean up: catch the rootPromise rejection to avoid unhandled rejection
@@ -125,7 +125,7 @@ describe("Plexus Entity Loading", () => {
       const plexus = new TestPlexus<Container>(doc);
 
       expect(() => plexus.hasEntity("some-id")).toThrow(
-        "Cannot check entities before root is loaded. Await plexus.rootPromise first."
+        "Cannot check entities before root is loaded. Await plexus.rootPromise first.",
       );
 
       // Clean up: catch the rootPromise rejection to avoid unhandled rejection
@@ -183,7 +183,7 @@ describe("Plexus Entity Loading", () => {
       const plexus = new TestPlexus<Container>(doc);
 
       expect(() => plexus.getEntityIds()).toThrow(
-        "Cannot list entities before root is loaded. Await plexus.rootPromise first."
+        "Cannot list entities before root is loaded. Await plexus.rootPromise first.",
       );
 
       // Clean up: catch the rootPromise rejection to avoid unhandled rejection
@@ -214,7 +214,7 @@ describe("Plexus Entity Loading", () => {
       const plexus = new TestPlexus<Container>(doc);
 
       expect(() => plexus.getEntityType("some-id")).toThrow(
-        "Cannot get entity type before root is loaded. Await plexus.rootPromise first."
+        "Cannot get entity type before root is loaded. Await plexus.rootPromise first.",
       );
 
       // Clean up: catch the rootPromise rejection to avoid unhandled rejection
@@ -231,7 +231,8 @@ describe("Plexus Entity Loading", () => {
         items: [],
       });
 
-      const { plexus, root: materializedContainer } = await initTestPlexus(container);
+      const { plexus, root: materializedContainer } =
+        await initTestPlexus(container);
       await plexus.rootPromise;
 
       // Add new item after materialization
@@ -324,7 +325,8 @@ describe("Plexus Entity Loading", () => {
         items: [item],
       });
 
-      const { plexus, root: materializedContainer } = await initTestPlexus(container);
+      const { plexus, root: materializedContainer } =
+        await initTestPlexus(container);
       await plexus.rootPromise;
 
       // Clone an item

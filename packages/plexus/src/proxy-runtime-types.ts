@@ -5,7 +5,7 @@ import { curryMaybeReference } from "./utils";
 import { DependencyId } from "./Plexus";
 import { PlexusModel } from "./PlexusModel";
 
-export const isProxyEntity = Symbol("is Plexus proxy");
+export const isPlexusEntity = Symbol("is Plexus proxy");
 export const referenceSymbol = Symbol("reference");
 export const materializationSymbol = Symbol("materialize proxy structure");
 export const requestEmancipationSymbol = Symbol("request emancipation");

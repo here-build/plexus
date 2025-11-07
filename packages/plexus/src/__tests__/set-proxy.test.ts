@@ -242,7 +242,7 @@ describe("Set Proxy Implementation", () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(),
-        components: new Set([comp1])
+        components: new Set([comp1]),
       });
 
       // Materialize via Plexus

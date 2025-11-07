@@ -180,6 +180,18 @@ describe("clone(), assign(), clear() methods", () => {
       original.name = "changed";
       expect(notifyChanges).toHaveBeenCalled();
     });
+
+    it("should properly handle edge case", () => {
+      const field = new TestComponent({});
+      const parent = new EdgeCaseParent({
+        value: new EdgeCaseChild({
+          field
+        }),
+        field
+      }).clone();
+      expect(parent.field).not.toBe(field);
+      expect(parent.field).toBe(parent.value.field);
+    })
   });
 
   describe("array.assign() method", () => {
@@ -297,18 +309,6 @@ describe("clone(), assign(), clear() methods", () => {
       expect(model.references.has(comp2)).toBe(true);
       expect(model.references.has(comp3)).toBe(true);
     });
-
-    it("should properly handle edge case", () => {
-      const field = new TestComponent({});
-      const parent = new EdgeCaseParent({
-        value: new EdgeCaseChild({
-          field
-        }),
-        field
-      }).clone();
-      expect(parent.field).not.toBe(field);
-      expect(parent.field).toBe(parent.value.field);
-    })
   });
 
   describe("map.assign() method", () => {

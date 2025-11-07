@@ -61,8 +61,18 @@ describe("Dependencies Interactions with Plexus", () => {
     const depAEntity_temp = new DepEntity({ name: "Alpha", version: 1 });
     const depBEntity_temp = new DepEntity({ name: "Beta", version: 2 });
 
-    const { doc: depADoc, root: depARoot } = await initTestPlexus<DepEntity>(depAEntity_temp, {}, undefined, "depA");
-    const { doc: depBDoc, root: depBRoot } = await initTestPlexus<DepEntity>(depBEntity_temp, {}, undefined, "depB");
+    const { doc: depADoc, root: depARoot } = await initTestPlexus<DepEntity>(
+      depAEntity_temp,
+      {},
+      undefined,
+      "depA",
+    );
+    const { doc: depBDoc, root: depBRoot } = await initTestPlexus<DepEntity>(
+      depBEntity_temp,
+      {},
+      undefined,
+      "depB",
+    );
 
     depA = depADoc;
     depB = depBDoc;
@@ -78,11 +88,12 @@ describe("Dependencies Interactions with Plexus", () => {
       depsRecord: {},
       depsList: [],
       dependencies: new Set(), // Start empty - will use addDependency()
-      dependencyVersion: {} // Start empty - will be populated via addDependency()
+      dependencyVersion: {}, // Start empty - will be populated via addDependency()
     });
 
     // Initialize main doc with root and dependencies
-    const { plexus, root: loadedRoot } = await initTestPlexus<RootEntity>(testRoot);
+    const { plexus, root: loadedRoot } =
+      await initTestPlexus<RootEntity>(testRoot);
     rootDoc = plexus.doc;
     root = loadedRoot;
 
@@ -91,8 +102,14 @@ describe("Dependencies Interactions with Plexus", () => {
     (plexus as any).registerDependencyFactory("depB", async () => depB);
 
     // Now explicitly add dependencies using the new API
-    await plexus.addDependency("depA" as DependencyId, "1.0.0" as DependencyVersion);
-    await plexus.addDependency("depB" as DependencyId, "2.0.0" as DependencyVersion);
+    await plexus.addDependency(
+      "depA" as DependencyId,
+      "1.0.0" as DependencyVersion,
+    );
+    await plexus.addDependency(
+      "depB" as DependencyId,
+      "2.0.0" as DependencyVersion,
+    );
   });
 
   it("should automatically resolve and track dependency entities", () => {
@@ -123,7 +140,10 @@ describe("Dependencies Interactions with Plexus", () => {
     const rootFields = models.get((root as any).uuid)!;
 
     expect(rootFields.get("ref")).toEqual([depAEntityId, "depA"]);
-    expect(rootFields.get("depsRecord").get("a")).toEqual([depAEntityId, "depA"]);
+    expect(rootFields.get("depsRecord").get("a")).toEqual([
+      depAEntityId,
+      "depA",
+    ]);
     expect(rootFields.get("depsList").get(0)).toEqual([depBEntityId, "depB"]);
   });
 
@@ -151,7 +171,7 @@ describe("Dependencies Interactions with Plexus", () => {
       depsRecord: {},
       depsList: [],
       dependencies: new Set(),
-      dependencyVersion: {}
+      dependencyVersion: {},
     });
 
     // Create fresh plexus without registering all dependencies
@@ -163,12 +183,18 @@ describe("Dependencies Interactions with Plexus", () => {
 
     // Should succeed for depA
     await expect(
-      freshPlexus.addDependency("depA" as DependencyId, "1.0.0" as DependencyVersion)
+      freshPlexus.addDependency(
+        "depA" as DependencyId,
+        "1.0.0" as DependencyVersion,
+      ),
     ).resolves.toBeDefined();
 
     // Should fail for missing depB
-    await expect(freshPlexus.addDependency("depB" as DependencyId, "2.0.0" as DependencyVersion)).rejects.toThrow(
-      'Dependency "depB" not found'
-    );
+    await expect(
+      freshPlexus.addDependency(
+        "depB" as DependencyId,
+        "2.0.0" as DependencyVersion,
+      ),
+    ).rejects.toThrow('Dependency "depB" not found');
   });
 });

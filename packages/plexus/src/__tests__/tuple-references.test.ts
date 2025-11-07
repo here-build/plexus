@@ -114,7 +114,11 @@ describe("Tuple Reference Format", () => {
   it("should store tuple references in YJS arrays efficiently", async () => {
     // Create related entities and materialize through the API
     const user = new TestUser({ name: "Alice", posts: [] });
-    const post = new TestPost({ title: "Hello World", author: user, comments: [] });
+    const post = new TestPost({
+      title: "Hello World",
+      author: user,
+      comments: [],
+    });
 
     // Initialize with Plexus
     const { doc, plexus } = await initTestPlexus(user);

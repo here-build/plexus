@@ -53,7 +53,10 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
     for (const key in context.metadata.schema) {
       target.schema[key] = context.metadata.schema[key];
     }
-    invariant(!entityClasses.has(target.modelName), `Plexus class name ${target.modelName} is non-unique`);
+    invariant(
+      !entityClasses.has(target.modelName),
+      `Plexus class name ${target.modelName} is non-unique`,
+    );
     entityClasses.set(target.modelName, target);
     return target;
   } else {
@@ -325,28 +328,37 @@ const createHandlers = <
               return reflectedValue;
             }
             const actualValue =
-              this._initializationState[context.name] !== undefined ? this._initializationState[context.name] : value;
-            setter(context as any, this, actualValue as Extract<T, AllowedYJSValue>);
+              this._initializationState[context.name] !== undefined
+                ? this._initializationState[context.name]
+                : value;
+            setter(
+              context as any,
+              this,
+              actualValue as Extract<T, AllowedYJSValue>,
+            );
             return actualValue;
           }
           default:
             /**
              * we must return something, so to avoid code duplication we just redirect init() to get() who does actual logic.
              */
-            if (this._yjsModel) {
+            if (this._yjsModel && !this._isWithinYjsModelSeed) {
               return this[context.name];
             }
             // we do not care about undefined vs null here, as syncing structs have null as banned type too,
             // so it's just simpler and more readable to write like that
-            const actualValue = this._initializationState[context.name] ?? value;
+            const actualValue =
+              this._initializationState[context.name] ?? value;
             if (actualValue != undefined) {
-              backingStructures[this._schema[context.name]].get(this).assign(actualValue);
+              backingStructures[this._schema[context.name]]
+                .get(this)
+                .assign(actualValue);
             }
             // this technically goes to accessor private backing field - but we actually do not care a lot about that
             return actualValue;
         }
       });
-    }
+    },
   };
 };
 

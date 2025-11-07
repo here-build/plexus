@@ -846,7 +846,7 @@ describe("Parent Tracking", () => {
       const second = new Child({ name: "second" });
       const third = new Child({ name: "third" });
 
-      const { doc: doc1, root: materializedParent, plexus: plexus1 } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       // Initial: [first, second, third]
       materializedParent.children.push(first, second, third);

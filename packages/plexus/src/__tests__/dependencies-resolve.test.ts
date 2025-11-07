@@ -43,7 +43,7 @@ describe("Plexus dependency resolution paths", () => {
     const emptyRoot = new RootEntity({
       name: "Root",
       dependencies: new Set(),
-      dependencyVersion: {}
+      dependencyVersion: {},
     });
     const result = await initTestPlexus<RootEntity>(emptyRoot);
     plexus = result.plexus as TestPlexus<RootEntity>;
@@ -60,12 +60,18 @@ describe("Plexus dependency resolution paths", () => {
       return doc;
     });
 
-    const depA1 = await plexus.addDependency<DepEntity>("depA" as DependencyId, "1.0.0" as DependencyVersion);
+    const depA1 = await plexus.addDependency<DepEntity>(
+      "depA" as DependencyId,
+      "1.0.0" as DependencyVersion,
+    );
     expect(root.dependencies.has(depA1)).toBe(true);
     expect(depAFetches).toBe(1);
 
     // Second add with same id should reuse cached doc
-    const depA2 = await plexus.addDependency<DepEntity>("depA" as DependencyId, "1.0.0" as DependencyVersion);
+    const depA2 = await plexus.addDependency<DepEntity>(
+      "depA" as DependencyId,
+      "1.0.0" as DependencyVersion,
+    );
     expect(root.dependencies.has(depA2)).toBe(true);
     expect(depAFetches).toBe(1);
   });
@@ -80,7 +86,10 @@ describe("Plexus dependency resolution paths", () => {
       return doc;
     });
 
-    const dep = await plexus.addDependency<DepEntity>("depA" as DependencyId, "1.0.0" as DependencyVersion);
+    const dep = await plexus.addDependency<DepEntity>(
+      "depA" as DependencyId,
+      "1.0.0" as DependencyVersion,
+    );
     expect(root.dependencies.has(dep)).toBe(true);
     expect(depAFetches).toBe(1);
 

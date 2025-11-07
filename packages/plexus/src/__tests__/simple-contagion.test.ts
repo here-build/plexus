@@ -6,7 +6,7 @@ import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PlexusModel } from "../PlexusModel";
 import { syncing } from "../decorators";
-import { isProxyEntity } from "../index";
+import { isPlexusEntity } from "../index";
 import { initTestPlexus } from "./test-plexus";
 
 // Extended Y.Doc type for testing

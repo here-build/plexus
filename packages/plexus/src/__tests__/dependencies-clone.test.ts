@@ -66,10 +66,11 @@ describe("Clone from dependency node", () => {
       title: "dep-container",
       children: [depItem],
       tags: new Set(["dep-tag"]),
-      meta: { source: "dep" }
+      meta: { source: "dep" },
     });
 
-    const { doc: createdDepDoc, root: materializedDepContainer } = await initTestPlexus<Container>(depContainer);
+    const { doc: createdDepDoc, root: materializedDepContainer } =
+      await initTestPlexus<Container>(depContainer);
     depDoc = createdDepDoc;
     depContainerId = materializedDepContainer.uuid;
 
@@ -78,9 +79,10 @@ describe("Clone from dependency node", () => {
       name: "root",
       containers: {},
       dependencies: new Set(),
-      dependencyVersion: {}
+      dependencyVersion: {},
     });
-    const { doc: createdRootDoc, plexus } = await initTestPlexus<Root>(ephemeralRoot);
+    const { doc: createdRootDoc, plexus } =
+      await initTestPlexus<Root>(ephemeralRoot);
     rootDoc = createdRootDoc;
 
     // Set up dependency factory for the root Plexus

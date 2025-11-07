@@ -39,13 +39,15 @@ export abstract class Plexus<
     ? DependencyType
     : null,
   DependencyIdType extends DependencyId = DependencyId,
-  DependencyVersionType extends DependencyVersion = DependencyVersion
+  DependencyVersionType extends DependencyVersion = DependencyVersion,
 > {
   static get docPlexus() {
     return docPlexus as WeakMap<Y.Doc, Plexus<any, any, any, any>>;
   }
   // Defer loadRoot() to next tick to ensure child class is fully constructed
-  public readonly rootPromise: Promise<Root> = Promise.resolve().then(() => this.loadRoot());
+  public readonly rootPromise: Promise<Root> = Promise.resolve().then(() =>
+    this.loadRoot(),
+  );
   private isRootLoaded = false;
 
   // Use getters to access shared per-doc mappings
@@ -53,19 +55,39 @@ export abstract class Plexus<
     return sharedDependencyDocs.get(this.doc) as Map<DependencyIdType, Y.Doc>;
   }
 
-  private get dependencyVersions(): Map<DependencyIdType, DependencyVersionType> {
-    return sharedDependencyVersions.get(this.doc) as Map<DependencyIdType, DependencyVersionType>;
+  private get dependencyVersions(): Map<
+    DependencyIdType,
+    DependencyVersionType
+  > {
+    return sharedDependencyVersions.get(this.doc) as Map<
+      DependencyIdType,
+      DependencyVersionType
+    >;
   }
 
   // Hierarchical dependency tracking
   private rootPlexus: Plexus<any, any, any, any> | null = null; // Points to the ultimate root plexus
-  private subPlexuses = new Map<
+  public readonly subPlexuses = new Map<
     DependencyIdType,
-    SubPlexus<any, Plexus<Root, DependencyRootType, DependencyIdType, DependencyVersionType>>
+    SubPlexus<
+      any,
+      Plexus<Root, DependencyRootType, DependencyIdType, DependencyVersionType>
+    >
   >(); // Sub-plexuses for each dependency
-  private globalDependencyRegistry: Map<
+  public readonly globalDependencyRegistry: Map<
     string,
-    { doc: Y.Doc; plexus: SubPlexus<any, Plexus<Root, DependencyRootType, DependencyIdType, DependencyVersionType>> }
+    {
+      doc: Y.Doc;
+      plexus: SubPlexus<
+        any,
+        Plexus<
+          Root,
+          DependencyRootType,
+          DependencyIdType,
+          DependencyVersionType
+        >
+      >;
+    }
   >; // Global registry for deduplication
 
   // @ts-expect-error
@@ -73,12 +95,14 @@ export abstract class Plexus<
 
   constructor(
     public readonly doc: Y.Doc,
-    rootPlexus?: Plexus<any, any, any, any>
+    rootPlexus?: Plexus<any, any, any, any>,
   ) {
     // Allow multiple Plexus instances but track the most recent one
     // Multiple instances will share dependency mappings via DefaultedWeakMap
     if (docPlexus.has(doc)) {
-      console.warn("Creating additional Plexus for same doc - will share dependency mappings");
+      console.warn(
+        "Creating additional Plexus for same doc - will share dependency mappings",
+      );
     }
     docPlexus.set(doc, this);
 
@@ -95,10 +119,13 @@ export abstract class Plexus<
 
   protected createDefaultRoot(): Root {
     throw new Error("default root fallback is not supported in this instance");
-  };
+  }
 
   // Abstract method for fetching dependencies
-  fetchDependency(dependencyId: DependencyIdType, dependencyVersion?: DependencyVersionType): Promise<Y.Doc> {
+  fetchDependency(
+    dependencyId: DependencyIdType,
+    dependencyVersion?: DependencyVersionType,
+  ): Promise<Y.Doc> {
     throw new Error("not implemented");
   }
 
@@ -108,13 +135,16 @@ export abstract class Plexus<
    */
   async addDependency<T extends DependencyRootType>(
     dependencyId: DependencyIdType,
-    dependencyVersion: DependencyVersionType
+    dependencyVersion: DependencyVersionType,
   ): Promise<T> {
     const root = await this.rootPromise;
-    invariant("dependencies" in root, `Root entity does not support dependencies - missing 'dependencies' field`);
+    invariant(
+      "dependencies" in root,
+      `Root entity does not support dependencies - missing 'dependencies' field`,
+    );
     invariant(
       "dependencyVersion" in root,
-      `Root entity does not support dependencies - missing 'dependencyVersion' field`
+      `Root entity does not support dependencies - missing 'dependencyVersion' field`,
     );
     // todo should stop the world when we have this feature? maybe
     const depDoc = await this.fetchDependency(dependencyId, dependencyVersion);
@@ -124,10 +154,16 @@ export abstract class Plexus<
 
       // Use deref to materialize the dependency root entity
       const depRoot = deref(depDoc, ["root"]) as T;
-      invariant(depRoot, `cannot find root in dependency ${dependencyId}@${dependencyVersion}`);
+      invariant(
+        depRoot,
+        `cannot find root in dependency ${dependencyId}@${dependencyVersion}`,
+      );
 
       // Update root entity with new dependency
-      const dependencyVersionMap = root.dependencyVersion as Record<DependencyIdType, DependencyVersionType>;
+      const dependencyVersionMap = root.dependencyVersion as Record<
+        DependencyIdType,
+        DependencyVersionType
+      >;
 
       root.dependencies.add(depRoot);
       dependencyVersionMap[dependencyId] = dependencyVersion;
@@ -141,14 +177,19 @@ export abstract class Plexus<
    */
   async updateDependency(
     dependency: Exclude<DependencyRootType, null>,
-    newVersion: DependencyVersionType
+    newVersion: DependencyVersionType,
   ): Promise<void> {
     const [_, dependencyId] = dependency[referenceSymbol](this.doc);
-    const currentVersionId = this.dependencyVersions.get(dependencyId as DependencyIdType);
+    const currentVersionId = this.dependencyVersions.get(
+      dependencyId as DependencyIdType,
+    );
     if (currentVersionId === newVersion) {
       return;
     }
-    const newDoc = await this.fetchDependency(dependencyId as DependencyIdType, newVersion);
+    const newDoc = await this.fetchDependency(
+      dependencyId as DependencyIdType,
+      newVersion,
+    );
     this.dependencyDocs.set(dependencyId as DependencyIdType, newDoc);
     // todo somehow notify everyone that entities have changed
   }
@@ -156,6 +197,7 @@ export abstract class Plexus<
   protected async loadRoot(): Promise<Root> {
     const modelsMap = this.doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models);
     let rootModel = modelsMap.get("root");
+    // todo wait for doc to sync
 
     if (!rootModel) {
       // Fresh document - create default root
@@ -168,20 +210,32 @@ export abstract class Plexus<
 
     // Resolve all dependencies if they exist
     if ("dependencyVersion" in rootModel) {
-      await this.resolveDependencies(rootModel.dependencyVersion as Record<DependencyIdType, DependencyVersionType>);
+      const dependencyVersion = rootModel.dependencyVersion;
+
+      await this.resolveDependencies(
+        rootModel.dependencyVersion as Record<
+          DependencyIdType,
+          DependencyVersionType
+        >,
+      );
+      rootModel.observe(async () => {
+        if ("dependencyVersion" in rootModel) {
+          await this.resolveDependencies(
+            rootModel.dependencyVersion as Record<
+              DependencyIdType,
+              DependencyVersionType
+            >,
+          );
+        }
+      });
     }
-    rootModel.observeDeep(async () => {
-      if ("dependencyVersion" in rootModel) {
-        await this.resolveDependencies(rootModel.dependencyVersion as Record<DependencyIdType, DependencyVersionType>);
-      }
-    });
 
     const root = deref(this.doc, ["root"]) as any as Root;
     this.isRootLoaded = true;
     // @ts-expect-error
     // noinspection JSConstantReassignment
     this.undoManager = new UndoManager([modelsMap], {
-      captureTimeout: 500
+      captureTimeout: 500,
     });
 
     // Wire up undo/redo notification bridge
@@ -216,30 +270,50 @@ export abstract class Plexus<
     return root;
   }
 
-  protected async resolveDependencies(dependencies: Record<DependencyIdType, DependencyVersionType>): Promise<void> {
-    const missingDependencies = (Object.entries(dependencies) as [DependencyIdType, DependencyVersionType][]).flatMap(
-      ([dependencyId, dependencyVersion]) =>
-        this.dependencyVersions.get(dependencyId) !== dependencyVersion
-          ? [[dependencyId, dependencyVersion] as [DependencyIdType, DependencyVersionType]]
-          : []
+  protected async resolveDependencies(
+    dependencies: Record<DependencyIdType, DependencyVersionType>,
+  ): Promise<void> {
+    const missingDependencies = (
+      Object.entries(dependencies) as [
+        DependencyIdType,
+        DependencyVersionType,
+      ][]
+    ).flatMap(([dependencyId, dependencyVersion]) =>
+      this.dependencyVersions.get(dependencyId) !== dependencyVersion
+        ? [
+            [dependencyId, dependencyVersion] as [
+              DependencyIdType,
+              DependencyVersionType,
+            ],
+          ]
+        : [],
     );
     if (missingDependencies.length > 0) {
       // todo pause doc updates
       await Promise.all(
         missingDependencies.map(async ([dependencyId, dependencyVersion]) => {
-          const depDoc = await this.fetchDependency(dependencyId, dependencyVersion);
+          const depDoc = await this.fetchDependency(
+            dependencyId,
+            dependencyVersion,
+          );
           this.dependencyDocs.set(dependencyId, depDoc);
           this.dependencyVersions.set(dependencyId, dependencyVersion);
 
           // Create SubPlexus for this dependency to handle nested dependencies
           const { SubPlexus } = await import("./SubPlexus");
-          const subPlexus = new SubPlexus(depDoc, dependencyId, dependencyVersion, this, this.rootPlexus || this);
+          const subPlexus = new SubPlexus(
+            depDoc,
+            dependencyId,
+            dependencyVersion,
+            this,
+            this.rootPlexus || this,
+          );
 
           this.subPlexuses.set(dependencyId, subPlexus);
 
           // Wait for sub-dependencies to load
           await subPlexus.rootPromise;
-        })
+        }),
       );
     }
   }
@@ -250,19 +324,26 @@ export abstract class Plexus<
    * Used for comments, copy-paste, direct navigation.
    */
   loadEntity<T extends PlexusModel>(entityId: string): T | null {
-    invariant(this.isRootLoaded, "Cannot load entities before root is loaded. Await plexus.rootPromise first.");
+    invariant(
+      this.isRootLoaded,
+      "Cannot load entities before root is loaded. Await plexus.rootPromise first.",
+    );
 
     // Check cache first
     const cached = documentEntityCaches.get(this.doc).get(entityId)?.deref();
     if (cached) return cached as T;
 
     // Get from Y.Doc
-    const modelData = this.doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(entityId);
+    const modelData = this.doc
+      .getMap<Y.Map<Storageable>>(YJS_GLOBALS.models)
+      .get(entityId);
     if (!modelData) return null;
 
     // Get constructor
     const type = modelData.get(YJS_GLOBALS.modelMetadataType) as string;
-    const Constructor = entityClasses.get(type) as ConcretePlexusConstructor | undefined;
+    const Constructor = entityClasses.get(type) as
+      | ConcretePlexusConstructor
+      | undefined;
     invariant(Constructor, `Unknown entity type: ${type}`);
 
     // Spawn and return
@@ -274,7 +355,10 @@ export abstract class Plexus<
    * REQUIRES: rootPromise to be resolved first.
    */
   hasEntity(entityId: string): boolean {
-    invariant(this.isRootLoaded, "Cannot check entities before root is loaded. Await plexus.rootPromise first.");
+    invariant(
+      this.isRootLoaded,
+      "Cannot check entities before root is loaded. Await plexus.rootPromise first.",
+    );
 
     return this.doc.getMap(YJS_GLOBALS.models).has(entityId);
   }
@@ -284,7 +368,10 @@ export abstract class Plexus<
    * REQUIRES: rootPromise to be resolved first.
    */
   getEntityIds(typeName?: string): string[] {
-    invariant(this.isRootLoaded, "Cannot list entities before root is loaded. Await plexus.rootPromise first.");
+    invariant(
+      this.isRootLoaded,
+      "Cannot list entities before root is loaded. Await plexus.rootPromise first.",
+    );
 
     const models = this.doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models);
     const ids: string[] = [];
@@ -303,9 +390,14 @@ export abstract class Plexus<
    * REQUIRES: rootPromise to be resolved first.
    */
   getEntityType(entityId: string): string | null {
-    invariant(this.isRootLoaded, "Cannot get entity type before root is loaded. Await plexus.rootPromise first.");
+    invariant(
+      this.isRootLoaded,
+      "Cannot get entity type before root is loaded. Await plexus.rootPromise first.",
+    );
 
-    const modelData = this.doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models).get(entityId);
+    const modelData = this.doc
+      .getMap<Y.Map<Storageable>>(YJS_GLOBALS.models)
+      .get(entityId);
     if (!modelData) return null;
 
     return modelData.get(YJS_GLOBALS.modelMetadataType) as string;

@@ -4,10 +4,11 @@
  */
 
 import * as Y from "yjs";
-import { DefaultedWeakMap } from "./utils/defaulted-collections";
+import { DefaultedWeakMap } from "./utils";
 import type { DependencyId, DependencyVersion } from "./Plexus";
 
-// Track which docs have Plexus instances
+// Track which docs have Plexus instances.
+// Any is only used because we have some issues with cyclic imports here
 export const docPlexus = new WeakMap<Y.Doc, any>();
 
 // Shared dependency doc mappings per main doc

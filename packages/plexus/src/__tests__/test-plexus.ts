@@ -101,7 +101,10 @@ export async function initTestPlexus<
 
   // Set up metadata
   const metadata = doc.getMap(YJS_GLOBALS.metadataMap);
-  metadata.set(YJS_GLOBALS.metadataMapFields.documentId, documentId ?? nanoid());
+  metadata.set(
+    YJS_GLOBALS.metadataMapFields.documentId,
+    documentId ?? nanoid(),
+  );
 
   // Load the root through Plexus
   const root = await plexus.rootPromise;

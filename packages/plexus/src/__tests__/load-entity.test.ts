@@ -92,20 +92,20 @@ describe("Plexus Entity Loading", () => {
     const testUser = new User({
       name: "John Doe",
       email: "john@example.com",
-      age: 30
+      age: 30,
     });
 
     const testPost = new Post({
       title: "Test Post",
       content: "This is a test post",
       author: testUser,
-      tags: ["test", "plexus"]
+      tags: ["test", "plexus"],
     });
 
     const testComment = new Comment({
       text: "Great post!",
       author: testUser,
-      post: testPost
+      post: testPost,
     });
 
     // Create root containing all entities
@@ -114,7 +114,7 @@ describe("Plexus Entity Loading", () => {
       post: testPost,
       comment: testComment,
       users: [testUser],
-      posts: [testPost]
+      posts: [testPost],
     });
 
     // Initialize doc with Plexus
@@ -195,13 +195,18 @@ describe("Plexus Entity Loading", () => {
 
       // Create new doc with fresh Plexus to verify persistence
       const freshTestRoot = new TestRoot({
-        user: new User({ name: "Jane Doe", email: "john@example.com", age: 31 }),
+        user: new User({
+          name: "Jane Doe",
+          email: "john@example.com",
+          age: 31,
+        }),
         post: null,
         comment: null,
         users: [],
-        posts: []
+        posts: [],
       });
-      const { root: reloadedRoot } = await initTestPlexus<TestRoot>(freshTestRoot);
+      const { root: reloadedRoot } =
+        await initTestPlexus<TestRoot>(freshTestRoot);
       expect(reloadedRoot.user!.name).toBe("Jane Doe");
       expect(reloadedRoot.user!.age).toBe(31);
     });
@@ -249,7 +254,7 @@ describe("Plexus Entity Loading", () => {
       const testUser2 = new User({
         name: "John Doe",
         email: "john@example.com",
-        age: 30
+        age: 30,
       });
 
       const testRoot2 = new TestRoot({
@@ -257,7 +262,7 @@ describe("Plexus Entity Loading", () => {
         post: null,
         comment: null,
         users: [testUser2],
-        posts: []
+        posts: [],
       });
 
       const { root: secondLoad } = await initTestPlexus<TestRoot>(testRoot2);

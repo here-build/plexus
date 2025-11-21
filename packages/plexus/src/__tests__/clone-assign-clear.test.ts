@@ -53,15 +53,15 @@ class TestModel extends PlexusModel {
 @syncing
 class EdgeCaseParent extends PlexusModel {
   @syncing.child
-  accessor value: EdgeCaseChild;
+  accessor value!: EdgeCaseChild;
   @syncing.child
-  accessor field: TestComponent;
+  accessor field!: TestComponent;
 }
 
 @syncing
 class EdgeCaseChild extends PlexusModel {
   @syncing
-  accessor field: TestComponent;
+  accessor field!: TestComponent;
 }
 
 describe("clone(), assign(), clear() methods", () => {

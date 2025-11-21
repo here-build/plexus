@@ -7,14 +7,13 @@
  * exist in quantum superposition until materialization collapses them into specific instances.
  */
 
-// Runtime exports
-
+// this import should go first
+export * from "./utils/defaulted-collections";
 export * from "./proxy-runtime-types";
 
 // New decorator-based API
 export { PlexusModel, PlexusInit } from "./PlexusModel";
 export { syncing } from "./decorators";
-export * from "./utils/defaulted-collections";
 
 // Built-in tracking system
 export * from "./tracking";

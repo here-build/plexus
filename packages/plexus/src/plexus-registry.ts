@@ -4,7 +4,8 @@
  */
 
 import * as Y from "yjs";
-import { DefaultedWeakMap } from "./utils";
+// noinspection ES6PreferShortImport - circular imports issue
+import { DefaultedWeakMap } from "./utils/defaulted-collections";
 import type { DependencyId, DependencyVersion } from "./Plexus";
 
 // Track which docs have Plexus instances.

@@ -1,6 +1,5 @@
-import type { OptionalKeysOf } from "type-fest";
+import type { OptionalKeysOf, UnionToIntersection } from "type-fest";
 import type * as Y from "yjs";
-import { LastOfUnion } from "type-fest/source/union-to-tuple";
 import { curryMaybeReference } from "./utils";
 import { DependencyId } from "./Plexus";
 import { PlexusModel } from "./PlexusModel";
@@ -28,6 +27,11 @@ export type AllowedYJSValueSet = Set<AllowedYJSValue>;
 export type AllowedYJSValueMap = Record<string, AllowedYJSValue>;
 export type AllowedYJSValueList = AllowedYJSValue[];
 export type Storageable = AllowedYValue | Y.Map<AllowedYValue> | Y.Array<AllowedYValue>;
+
+type LastOfUnion<T> =
+  UnionToIntersection<T extends any ? () => T : never> extends () => infer R
+    ? R
+    : never;
 
 // system this complex is needed to materialize readonly flag WITHOUT touching field itself that will cause cyclic dependency triggered
 // it can be obviously done with ReadonlyKeys from type-fest when we're not dealing on cyclic dependencies but for our case this is crucial

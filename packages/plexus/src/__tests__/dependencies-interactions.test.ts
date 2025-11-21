@@ -64,13 +64,11 @@ describe("Dependencies Interactions with Plexus", () => {
     const { doc: depADoc, root: depARoot } = await initTestPlexus<DepEntity>(
       depAEntity_temp,
       {},
-      undefined,
       "depA",
     );
     const { doc: depBDoc, root: depBRoot } = await initTestPlexus<DepEntity>(
       depBEntity_temp,
       {},
-      undefined,
       "depB",
     );
 

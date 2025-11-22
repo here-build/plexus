@@ -157,7 +157,6 @@ export abstract class PlexusModel {
         })
       )
     );
-    Object.seal(this);
   }
 
   toJSON() {

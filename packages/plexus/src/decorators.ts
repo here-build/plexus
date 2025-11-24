@@ -44,20 +44,33 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
 ) {
   if (argsAreClassDecoratorArgs(args)) {
     const [target, context] = args as [PlexusConstructor<Model>, ClassDecoratorContext<PlexusConstructor<Model>>];
-    const name = context.name ?? target.name;
-    invariant(name, "Plexus class should have designated name");
-    invariant(context.metadata.schema, `there's no schema of model ${name} to sync`);
-    target.modelName = name;
-    target.schema = {} as GenericRecordSchema;
-    // we specifically need for...in to traverse over the inherited fields too
-    for (const key in context.metadata.schema) {
-      target.schema[key] = context.metadata.schema[key];
-    }
+    /**
+     * problem here is, decorators are executed BEFORE static declarations.
+     * this mean it's impossible to directly do something like
+     * @syncing
+     * class Model extends PlexusModel {
+     *   static modelName = "Model";
+     * }
+     * to override things - modelName will simply be not present at moment
+     * of @syncing decorator call. Thus, we need to use initializer.
+     */
+
+    context.addInitializer(() => {
+      const name = target.modelName ?? context.name;
+      invariant(name, "Plexus class should have designated name");
+      invariant(context.metadata.schema, `there's no schema of model ${name} to sync`);
+      target.modelName = name;
+      target.schema = {} as GenericRecordSchema;
+      // we specifically need for...in to traverse over the inherited fields too
+      for (const key in context.metadata.schema) {
+        target.schema[key] = context.metadata.schema[key];
+      }
     invariant(
       !entityClasses.has(target.modelName),
       `Plexus class name ${target.modelName} is non-unique`,
     );
-    entityClasses.set(target.modelName, target);
+      entityClasses.set(target.modelName, target);
+    });
     return target;
   } else {
     const [target, context] = args as [
@@ -328,9 +341,7 @@ const createHandlers = <
               return reflectedValue;
             }
             const actualValue =
-              this._initializationState[context.name] !== undefined
-                ? this._initializationState[context.name]
-                : value;
+              this._initializationState[context.name] !== undefined ? this._initializationState[context.name] : value;
             setter(
               context as any,
               this,
@@ -347,12 +358,9 @@ const createHandlers = <
             }
             // we do not care about undefined vs null here, as syncing structs have null as banned type too,
             // so it's just simpler and more readable to write like that
-            const actualValue =
-              this._initializationState[context.name] ?? value;
+            const actualValue = this._initializationState[context.name] ?? value;
             if (actualValue != undefined) {
-              backingStructures[this._schema[context.name]]
-                .get(this)
-                .assign(actualValue);
+              backingStructures[this._schema[context.name]].get(this).assign(actualValue);
             }
             // this technically goes to accessor private backing field - but we actually do not care a lot about that
             return actualValue;

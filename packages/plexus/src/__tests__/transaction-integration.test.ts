@@ -5,7 +5,7 @@ import { PlexusModel } from "../PlexusModel";
 import { syncing } from "../decorators";
 import { createTrackedFunction } from "../tracking";
 import { entityClasses } from "../globals";
-import { YJS_GLOBALS } from "../YJS_GLOBALS";
+import * as YJS_GLOBALS from "../YJS_GLOBALS";
 import { nanoid } from "nanoid";
 
 // Define a more complex model for integration testing
@@ -44,14 +44,19 @@ class TodoList extends PlexusModel {
 class TodoPlexus extends Plexus<TodoList> {
   constructor(doc: Y.Doc) {
     // Set up root data before calling super to avoid loadRoot errors
-    const models = doc.getMap(YJS_GLOBALS.models);
+    const models = doc.getMap(YJS_GLOBALS.models.key);
 
     // Create root TodoList
     const listModel = new Y.Map();
-    listModel.set(YJS_GLOBALS.modelMetadataType, "TodoList");
-    listModel.set("name", "My Tasks");
-    listModel.set("items", new Y.Array());
-    listModel.set("tags", new Y.Array());
+    listModel.set(YJS_GLOBALS.models.recordFields.type, "TodoList");
+    listModel.set(
+      YJS_GLOBALS.models.recordFields.fields,
+      new Y.Map([
+        ["name", "My Tasks"],
+        ["items", new Y.Array()],
+        ["tags", new Y.Array()],
+      ]),
+    );
     models.set("root", listModel);
 
     super(doc);
@@ -86,7 +91,7 @@ describe("Transaction Integration Tests", () => {
       return {
         name: todoList.name,
         itemCount: todoList.items.length,
-        tags: Array.from(todoList.tags)
+        tags: Array.from(todoList.tags),
       };
     });
 
@@ -100,7 +105,7 @@ describe("Transaction Integration Tests", () => {
       const item1 = new TodoItem({
         text: "Buy groceries",
         completed: false,
-        priority: 1
+        priority: 1,
       }) as TodoItem;
 
       todoList.items.push(item1);
@@ -108,7 +113,7 @@ describe("Transaction Integration Tests", () => {
       const item2 = new TodoItem({
         text: "Write tests",
         completed: true,
-        priority: 2
+        priority: 2,
       }) as TodoItem;
 
       todoList.items.push(item2);
@@ -156,7 +161,7 @@ describe("Transaction Integration Tests", () => {
       const item = new TodoItem({
         text,
         completed: false,
-        priority
+        priority,
       });
       todoList.items.push(item);
       return item;
@@ -257,7 +262,7 @@ describe("Transaction Integration Tests", () => {
       const item = new TodoItem({
         text: "New Task",
         completed: false,
-        priority: 1
+        priority: 1,
       });
       todoList.items.push(item);
 

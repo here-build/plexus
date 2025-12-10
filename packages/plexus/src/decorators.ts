@@ -1,16 +1,15 @@
 import invariant from "tiny-invariant";
-
 import { entityClasses } from "./globals";
-import type { PlexusConstructor, PlexusModel } from "./PlexusModel";
+import { PlexusConstructor, PlexusModel } from "./PlexusModel";
 import { buildArrayProxy } from "./proxies/materialized-array";
 import { buildRecordProxy } from "./proxies/materialized-map";
 import { buildSetProxy } from "./proxies/materialized-set";
-import type { AllowedYJSValue, GenericRecordSchema } from "./proxy-runtime-types";
+import { AllowedYJSValue, GenericRecordSchema } from "./proxy-runtime-types";
 import {
   backingStorageSymbol,
   informAdoptionSymbol,
   requestEmancipationSymbol,
-  requestOrphanizationSymbol
+  requestOrphanizationSymbol,
 } from "./proxy-runtime-types";
 import { __untracked__, trackAccess, trackModification } from "./tracking";
 import { DefaultedMap, DefaultedWeakMap, maybeReference, maybeTransacting } from "./utils";
@@ -18,7 +17,7 @@ import { DefaultedMap, DefaultedWeakMap, maybeReference, maybeTransacting } from
 const argsAreClassDecoratorArgs = <Model extends PlexusModel, T extends AllowedYJSValue>(
   args:
     | [PlexusConstructor<Model>, ClassDecoratorContext<PlexusConstructor<Model>>]
-    | [ClassAccessorDecoratorTarget<Model, T>, ClassAccessorDecoratorContext<Model, T> & { name: string }]
+    | [ClassAccessorDecoratorTarget<Model, T>, ClassAccessorDecoratorContext<Model, T> & { name: string }],
 ): args is [PlexusConstructor<Model>, ClassDecoratorContext<PlexusConstructor<Model>>] => args[1].kind === "class";
 
 try {
@@ -32,8 +31,8 @@ try {
 function syncingDecorator<
   Model extends PlexusModel,
   T extends AllowedYJSValue,
-  Constructor extends PlexusConstructor<Model>
->(...args: [Constructor, ClassDecoratorContext<PlexusConstructor<Model>>]): Constructor;
+  TargetConstructor extends PlexusConstructor<Model>,
+>(...args: [TargetConstructor, ClassDecoratorContext<PlexusConstructor<Model>>]): TargetConstructor;
 function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
   ...args: [ClassAccessorDecoratorTarget<Model, T>, ClassAccessorDecoratorContext<Model, T> & { name: string }]
 ): ClassAccessorDecoratorResult<Model, T>;
@@ -45,18 +44,31 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
   if (argsAreClassDecoratorArgs(args)) {
     const [target, context] = args as [PlexusConstructor<Model>, ClassDecoratorContext<PlexusConstructor<Model>>];
     /**
-     * problem here is, decorators are executed BEFORE static declarations.
-     * this mean it's impossible to directly do something like
-     * @syncing
-     * class Model extends PlexusModel {
-     *   static modelName = "Model";
+     * Sometimes, user-defined classes may adjust constructor logic; e.g.:
+     * class Code extends PlexusModel {
+     *   constructor(code: string = "void 0") {
+     *     validateCodeIsCorrect(code);
+     *     super({code});
+     *   }
      * }
-     * to override things - modelName will simply be not present at moment
-     * of @syncing decorator call. Thus, we need to use initializer.
+     *
+     * in order to keep the capability to spawn the models even if constructor is different,
+     * we dynamically switch the prototype to Object during "bypass mode" (where we rehydrate backed classes).
+     * This allows us to access private fields - typical Object.create(Class.prototype) or Reflect.setPrototypeOf(target, Class.prototype)
+     * is not working for private fields, so this is only option here.
      */
-
     context.addInitializer(() => {
-      const name = target.modelName ?? context.name;
+      /**
+       * problem here is, decorators are executed BEFORE static declarations.
+       * this mean it's impossible to directly do something like
+       * @syncing
+       * class Model extends PlexusModel {
+       *   static modelName = "Model";
+       * }
+       * to override things - modelName will simply be not present at moment
+       * of @syncing decorator call. Thus, we need to use initializer.
+       */
+      const name = Object.hasOwn(target, "modelName") ? target.modelName : (context.name ?? target.modelName);
       invariant(name, "Plexus class should have designated name");
       invariant(context.metadata.schema, `there's no schema of model ${name} to sync`);
       target.modelName = name;
@@ -72,12 +84,12 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
   } else {
     const [target, context] = args as [
       ClassAccessorDecoratorTarget<Model, T>,
-      ClassAccessorDecoratorContext<Model, T> & { name: string }
+      ClassAccessorDecoratorContext<Model, T> & { name: string },
     ];
     if (!Object.hasOwn(context.metadata, "schema")) {
       context.metadata.schema = {
         // it may be coming from inherited state and we need to use the inheritance here too
-        __proto__: context.metadata.schema ?? {}
+        __proto__: context.metadata.schema ?? {},
       };
     }
     (context.metadata.schema as GenericRecordSchema)[context.name] = "val";
@@ -88,11 +100,11 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
 const set = <
   Model extends PlexusModel,
   T extends AllowedYJSValue,
-  Context extends ClassAccessorDecoratorContext<Model, T> & { name: string }
+  Context extends ClassAccessorDecoratorContext<Model, T> & { name: string },
 >(
   context: Context,
   object: Model,
-  value: T
+  value: T,
 ) => {
   const storedValue = object[backingStorageSymbol].get(context.name) as T;
   if (storedValue === value) {
@@ -106,20 +118,20 @@ const set = <
     }
     trackModification(object, context.name);
     if (value == undefined) {
-      object._yjsModel?.delete(context.name);
+      object._yjsFields?.delete(context.name);
     } else {
-      object._yjsModel?.set(context.name, maybeReference(value, object._doc!));
+      object._yjsFields?.set(context.name, maybeReference(value, object._doc!));
     }
   });
 };
 const setChild = <
   Model extends PlexusModel,
   T extends AllowedYJSValue,
-  Context extends ClassAccessorDecoratorContext<Model, T> & { name: string }
+  Context extends ClassAccessorDecoratorContext<Model, T> & { name: string },
 >(
   context: Context,
   object: Model,
-  value: T
+  value: T,
 ) => {
   const storedValue = object[backingStorageSymbol].get(context.name) as T;
   if (storedValue === value) {
@@ -141,9 +153,9 @@ const setChild = <
     // old: orphan, removed, new: removed from old location, only inside backing storage, has new parent
     trackModification(object, context.name);
     if (value == undefined) {
-      object._yjsModel?.delete(context.name);
+      object._yjsFields?.delete(context.name);
     } else {
-      object._yjsModel?.set(context.name, maybeReference(value, object._doc!));
+      object._yjsFields?.set(context.name, maybeReference(value, object._doc!));
     }
   });
 };
@@ -179,7 +191,7 @@ const createBackingStructuresMap = new DefaultedMap((key: string) => ({
   record: new DefaultedWeakMap((owner: PlexusModel) => buildRecordProxy({ owner, key, isChildField: false })),
   "child-record": new DefaultedWeakMap((owner: PlexusModel) => buildRecordProxy({ owner, key, isChildField: true })),
   list: new DefaultedWeakMap((owner: PlexusModel) => buildArrayProxy({ owner, key, isChildField: false })),
-  "child-list": new DefaultedWeakMap((owner: PlexusModel) => buildArrayProxy({ owner, key, isChildField: true }))
+  "child-list": new DefaultedWeakMap((owner: PlexusModel) => buildArrayProxy({ owner, key, isChildField: true })),
 }));
 
 // this madman grade stuff is needed as we may have inheriting decorators overriding type,
@@ -191,9 +203,9 @@ const createHandlers = <
   Context extends ClassAccessorDecoratorContext<Model, T> & { name: string } = ClassAccessorDecoratorContext<
     Model,
     T
-  > & { name: string }
+  > & { name: string },
 >(
-  context: Context
+  context: Context,
 ) => {
   // we need those backing structures to be spawned individually to make them isolated per-key
   const backingStructures = createBackingStructuresMap.get(context.name);
@@ -360,18 +372,18 @@ const createHandlers = <
           }
         }
       });
-    }
+    },
   };
 };
 
 const buildDecorator = <
-  T extends AllowedYJSValue | Set<AllowedYJSValue> | AllowedYJSValue[] | Record<string, AllowedYJSValue>
+  T extends AllowedYJSValue | Set<AllowedYJSValue> | AllowedYJSValue[] | Record<string, AllowedYJSValue>,
 >(
-  kind: GenericRecordSchema[string]
+  kind: GenericRecordSchema[string],
 ) =>
   function plexusDynamicDecorator<Model extends PlexusModel, Type extends T>(
     target: ClassAccessorDecoratorTarget<Model, Type>,
-    context: ClassAccessorDecoratorContext<Model, Type> & { name: string }
+    context: ClassAccessorDecoratorContext<Model, Type> & { name: string },
   ) {
     if (!Object.hasOwn(context.metadata, "schema")) {
       /**
@@ -386,7 +398,7 @@ const buildDecorator = <
        * we use parent schema as prototype, not simply clone it.
        */
       context.metadata.schema = {
-        __proto__: context.metadata.schema ?? {}
+        __proto__: context.metadata.schema ?? {},
       };
     }
     (context.metadata.schema as GenericRecordSchema)[context.name] = kind;
@@ -397,9 +409,9 @@ export const syncing = Object.assign(syncingDecorator, {
   child: Object.assign(buildDecorator<AllowedYJSValue>("child-val"), {
     map: buildDecorator<Record<string, AllowedYJSValue>>("child-record"),
     set: buildDecorator<Set<AllowedYJSValue>>("child-set"),
-    list: buildDecorator<Array<AllowedYJSValue>>("child-list")
+    list: buildDecorator<Array<AllowedYJSValue>>("child-list"),
   }),
   map: buildDecorator<Record<string, AllowedYJSValue>>("record"),
   set: buildDecorator<Set<AllowedYJSValue>>("set"),
-  list: buildDecorator<Array<AllowedYJSValue>>("list")
+  list: buildDecorator<Array<AllowedYJSValue>>("list"),
 });

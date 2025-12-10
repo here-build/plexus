@@ -3,7 +3,7 @@ import { PlexusModel } from "../PlexusModel";
 import { syncing } from "../decorators";
 import { initTestPlexus, TestPlexus } from "./test-plexus";
 import type { DependencyId, DependencyVersion } from "../Plexus";
-import { YJS_GLOBALS } from "../YJS_GLOBALS";
+import * as YJS_GLOBALS from "../YJS_GLOBALS";
 
 // Dependency entity
 @syncing
@@ -70,8 +70,8 @@ describe("Plexus Dependency Management", () => {
       const { doc } = await initTestPlexus<DepEntity>(depEntity);
       // Set the documentId to the dependency ID for cross-document references
       doc
-        .getMap(YJS_GLOBALS.metadataMap)
-        .set(YJS_GLOBALS.metadataMapFields.documentId, "depA");
+        .getMap(YJS_GLOBALS.metadata.key)
+        .set(YJS_GLOBALS.metadata.wellKnown.documentId, "depA");
       return doc;
     });
 
@@ -80,8 +80,8 @@ describe("Plexus Dependency Management", () => {
       const { doc } = await initTestPlexus<DepEntity>(depEntity);
       // Set the documentId to the dependency ID for cross-document references
       doc
-        .getMap(YJS_GLOBALS.metadataMap)
-        .set(YJS_GLOBALS.metadataMapFields.documentId, "depB");
+        .getMap(YJS_GLOBALS.metadata.key)
+        .set(YJS_GLOBALS.metadata.wellKnown.documentId, "depB");
       return doc;
     });
   });

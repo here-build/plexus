@@ -2,13 +2,13 @@ import type * as Y from "yjs";
 
 import { deref } from "../deref";
 import { undoManagerNotifications } from "../Plexus";
-import type { PlexusModel } from "../PlexusModel";
+import { PlexusConstructor, PlexusModel } from "../PlexusModel";
 import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types";
 import {
   informOrphanizationSymbol,
   materializationSymbol,
   requestAdoptionSymbol,
-  requestOrphanizationSymbol
+  requestOrphanizationSymbol,
 } from "../proxy-runtime-types";
 import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking";
 import { maybeReference, maybeTransacting } from "../utils";
@@ -22,9 +22,9 @@ export type MaterializedRecordProxyInitTarget = {
 export const buildRecordProxy = <T extends AllowedYJSValue>({
   owner,
   key,
-  isChildField
+  isChildField,
 }: MaterializedRecordProxyInitTarget) => {
-  const getYjsMap = () => owner._yjsModel?.get(key) as Y.Map<AllowedYValue> | null;
+  const getYjsMap = () => owner._yjsFields?.get(key) as Y.Map<AllowedYValue> | null;
   const backingStorage: Record<string, T> = {};
   const observer = (event: Y.YMapEvent<AllowedYValue>) => {
     const map = getYjsMap();
@@ -99,7 +99,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
               // Record object
               for (const [k, v] of Symbol.iterator in newEntries ? newEntries : Object.entries(newEntries)) {
                 if (isChildField) {
-                  v?.[requestAdoptionSymbol]?.(owner, key, k);
+                  v?.[requestAdoptionSymbol]?.(owner as (PlexusModel & { constructor: PlexusConstructor }), key, k);
                 }
                 map?.set(k, maybeReference(v, owner._doc!));
               }
@@ -110,7 +110,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
             const map = getYjsMap()!;
             Object.assign(
               backingStorage,
-              Object.fromEntries(Object.entries(map.toJSON()).map(([key, value]) => [key, deref(map.doc!, value)]))
+              Object.fromEntries(Object.entries(map.toJSON()).map(([key, value]) => [key, deref(map.doc!, value)])),
             );
             map.observe(observer);
             // Register for undo notifications during materialization
@@ -220,7 +220,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
       trackAccess(owner, key);
       trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
       return Reflect.ownKeys(proxyTarget);
-    }
+    },
   });
   return self as Record<string, T> & ReadonlyField<Record<string, T>>;
 };

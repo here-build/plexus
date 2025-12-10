@@ -1,17 +1,12 @@
-import * as Y from "yjs";
-import {
-  AllowedYJSValue,
-  AllowedYValue,
-  informOrphanizationSymbol,
-  materializationSymbol,
-  ReadonlyField,
-  requestAdoptionSymbol
-} from "../proxy-runtime-types";
-import { maybeReference, maybeTransacting } from "../utils";
-import { ACCESS_ALL_SYMBOL, trackAccess, trackModification } from "../tracking";
+import type * as Y from "yjs";
+
 import { deref } from "../deref";
-import { PlexusModel } from "../PlexusModel";
 import { undoManagerNotifications } from "../Plexus";
+import type { PlexusModel } from "../PlexusModel";
+import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types";
+import { informOrphanizationSymbol, materializationSymbol, requestAdoptionSymbol } from "../proxy-runtime-types";
+import { ACCESS_ALL_SYMBOL, trackAccess, trackModification } from "../tracking";
+import { maybeReference, maybeTransacting } from "../utils";
 
 export type MaterializedSetProxyInitTarget = {
   owner: PlexusModel;
@@ -22,7 +17,7 @@ export type MaterializedSetProxyInitTarget = {
 export const buildSetProxy = <T extends AllowedYJSValue>({
   owner,
   key,
-  isChildField
+  isChildField,
 }: MaterializedSetProxyInitTarget) => {
   let backingSet = new Set<T>();
   let needsRegeneration = false;
@@ -32,12 +27,12 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
       backingSet = new Set(
         getYjsSet()!
           .toArray()
-          .map((item) => deref(owner._doc!, item) as T)
+          .map((item) => deref(owner._doc!, item) as T),
       );
     }
     return backingSet;
   };
-  const getYjsSet = () => owner._yjsModel?.get(key) as Y.Array<AllowedYValue> | null;
+  const getYjsSet = () => owner._yjsFields?.get(key) as Y.Array<AllowedYValue> | null;
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
     if (event.target !== getYjsSet()) {
       return;
@@ -138,7 +133,7 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
               value?.[informOrphanizationSymbol]?.();
             }
 
-            if (yjsArray){
+            if (yjsArray) {
               maybeTransacting(owner._doc, () => {
                 // Clear parent tracking for removed item
                 const index = yjsArray
@@ -177,6 +172,7 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
           return (callbackfn: (value: T, value2: T, set: Set<T>) => void, thisArg?: any) => {
             trackAccess(owner, key);
             trackAccess(self, ACCESS_ALL_SYMBOL);
+            // eslint-disable-next-line unicorn/no-array-method-this-argument,unicorn/no-array-for-each
             return getBackgingSet().forEach(callbackfn, thisArg);
           };
         case "has":
@@ -217,7 +213,7 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
         default:
           return false;
       }
-    }
+    },
   });
   return self as Set<T> & ReadonlyField<Set<T>>;
 };

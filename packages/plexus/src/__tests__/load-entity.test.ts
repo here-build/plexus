@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { PlexusModel } from "../PlexusModel";
 import { syncing } from "../decorators";
-import { YJS_GLOBALS } from "../YJS_GLOBALS";
+import * as YJS_GLOBALS from "../YJS_GLOBALS";
 import { createTestPlexus, initTestPlexus } from "./test-plexus";
 
 // Test models
@@ -285,7 +285,7 @@ describe("Plexus Entity Loading", () => {
       expect(user.name).toBe("John Doe");
 
       // Delete the entity from the document
-      doc.getMap(YJS_GLOBALS.models).delete(user.uuid);
+      doc.getMap(YJS_GLOBALS.models.key).delete(user.uuid);
 
       // Create a new Plexus instance (allowed with new behavior)
       const { plexus: newPlexus } = await createTestPlexus<TestRoot>(doc);
@@ -295,7 +295,7 @@ describe("Plexus Entity Loading", () => {
       expect(newRoot).toBe(root); // Same instance due to caching
 
       // But the deleted entity should no longer be in the doc's models
-      expect(doc.getMap(YJS_GLOBALS.models).has(user.uuid)).toBe(false);
+      expect(doc.getMap(YJS_GLOBALS.models.key).has(user.uuid)).toBe(false);
 
       // The entity still exists in memory due to caching
       expect(user.name).toBe("John Doe");

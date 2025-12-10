@@ -9,6 +9,7 @@ import { syncing } from "../decorators";
 import { referenceSymbol } from "../proxy-runtime-types";
 import { primeDoc } from "./test-helpers";
 import { initTestPlexus } from "./test-plexus";
+import * as YJS_GLOBALS from "../YJS_GLOBALS";
 
 // Test model schemas
 @syncing
@@ -131,8 +132,8 @@ describe("Tuple Reference Format", () => {
     const models = doc.getMap<Y.Map<any>>("models");
     const userId = (user as any).uuid as string;
     const postId = (post as any).uuid as string;
-    const userFields = models.get(userId)!;
-    const postFields = models.get(postId)!;
+    const userFields = models.get(userId)!.get(YJS_GLOBALS.models.recordFields.fields);
+    const postFields = models.get(postId)!.get(YJS_GLOBALS.models.recordFields.fields);
 
     const userPosts = userFields.get("posts") as Y.Array<any>;
     const postAuthor = postFields.get("author");

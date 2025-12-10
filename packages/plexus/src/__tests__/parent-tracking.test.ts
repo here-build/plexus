@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PlexusModel } from "../PlexusModel";
 import { syncing } from "../decorators";
 import { referenceSymbol } from "../proxy-runtime-types";
-import { YJS_GLOBALS } from "../YJS_GLOBALS";
+import * as YJS_GLOBALS from "../YJS_GLOBALS";
 import { initTestPlexus, TestPlexus } from "./test-plexus";
 import * as Y from "yjs";
 
@@ -75,20 +75,16 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
       materializedParent.child = child;
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
       const childFields = models.get(child.uuid);
       console.log("Child UUID:", child.uuid);
       console.log("Parent UUID:", materializedParent.uuid);
       console.log("Child fields:", childFields);
-      console.log(
-        "Child fields entries:",
-        childFields ? Array.from(childFields.entries()) : "none",
-      );
-      const parentRef = childFields?.get(YJS_GLOBALS.modelMetadataParent);
+      console.log("Child fields entries:", childFields ? Array.from(childFields.entries()) : "none");
+      const parentRef = childFields?.get(YJS_GLOBALS.models.recordFields.parent);
       console.log("Parent ref:", parentRef);
 
       expect(parentRef).toEqual([materializedParent.uuid, `child`]);
@@ -104,17 +100,13 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
       materializedParent.children.push(child);
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
 
       expect(models.get(child.uuid)!.toJSON()).toMatchObject({
-        [YJS_GLOBALS.modelMetadataParent]: [
-          materializedParent.uuid,
-          "children",
-        ],
+        [YJS_GLOBALS.models.recordFields.parent]: [materializedParent.uuid, "children"],
       });
     });
 
@@ -128,13 +120,12 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
       materializedParent.childSet.add(child);
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
       const childFields = models.get(child.uuid);
-      const parentRef = childFields?.get(YJS_GLOBALS.modelMetadataParent);
+      const parentRef = childFields?.get(YJS_GLOBALS.models.recordFields.parent);
 
       expect(parentRef).toEqual([materializedParent.uuid, "childSet"]);
     });
@@ -149,14 +140,13 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
       materializedParent.childMap["key1"] = child;
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
       const childFields = models.get(child.uuid);
 
-      expect(childFields?.get(YJS_GLOBALS.modelMetadataParent)).toEqual([
+      expect(childFields?.get(YJS_GLOBALS.models.recordFields.parent)).toEqual([
         materializedParent.uuid,
         "childMap",
         "key1",
@@ -201,9 +191,9 @@ describe("Parent Tracking", () => {
       expect(materializedParent1.children).not.toContain(child);
       expect(materializedParent2.child).toBe(child);
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
       const childFields = models.get(child.uuid);
-      const parentRef = childFields?.get(YJS_GLOBALS.modelMetadataParent);
+      const parentRef = childFields?.get(YJS_GLOBALS.models.recordFields.parent);
 
       expect(parentRef).toEqual([materializedParent2.uuid, `child`]);
     });
@@ -218,8 +208,7 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       // list → set
       materializedParent.children.push(child);
@@ -253,8 +242,7 @@ describe("Parent Tracking", () => {
       const other1 = new Child({ name: "other1" });
       const other2 = new Child({ name: "other2" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(other1, child, other2);
       expect(materializedParent.children.indexOf(child)).toBe(1);
@@ -262,9 +250,7 @@ describe("Parent Tracking", () => {
       // Move to end by pushing again
       materializedParent.children.push(child);
       expect(materializedParent.children.indexOf(child)).toBe(2); // Should be at end now
-      expect(
-        materializedParent.children.filter((c) => c === child).length,
-      ).toBe(1); // Only one instance
+      expect(materializedParent.children.filter((c) => c === child).length).toBe(1); // Only one instance
     });
 
     it("handles moving between record keys", async () => {
@@ -277,8 +263,7 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       materializedParent.childMap["key1"] = child;
       expect(materializedParent.childMap["key1"]).toBe(child);
@@ -301,17 +286,16 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
       materializedParent.child = child;
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
       let childFields = models.get(child.uuid);
-      expect(childFields?.get(YJS_GLOBALS.modelMetadataParent)).toBeDefined();
+      expect(childFields?.get(YJS_GLOBALS.models.recordFields.parent)).toBeDefined();
 
       materializedParent.child = null;
       childFields = models.get(child.uuid);
-      expect(childFields?.get(YJS_GLOBALS.modelMetadataParent)).toBeUndefined();
+      expect(childFields?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
     });
 
     it("clears parent refs when list cleared", async () => {
@@ -325,26 +309,17 @@ describe("Parent Tracking", () => {
       const child1 = new Child({ name: "child1" });
       const child2 = new Child({ name: "child2" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
       materializedParent.children.push(child1, child2);
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
-      expect(
-        models.get(child1.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toBeDefined();
-      expect(
-        models.get(child2.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toBeDefined();
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
+      expect(models.get(child1.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeDefined();
+      expect(models.get(child2.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeDefined();
 
       materializedParent.children = [];
 
-      expect(
-        models.get(child1.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toBeUndefined();
-      expect(
-        models.get(child2.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toBeUndefined();
+      expect(models.get(child1.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
+      expect(models.get(child2.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
     });
 
     it("clears parent refs when record reassigned", async () => {
@@ -358,27 +333,18 @@ describe("Parent Tracking", () => {
       const child1 = new Child({ name: "child1" });
       const child2 = new Child({ name: "child2" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
       materializedParent.childMap["a"] = child1;
       materializedParent.childMap["b"] = child2;
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
-      expect(
-        models.get(child1.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toBeDefined();
-      expect(
-        models.get(child2.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toBeDefined();
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
+      expect(models.get(child1.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeDefined();
+      expect(models.get(child2.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeDefined();
 
       materializedParent.childMap = {};
 
-      expect(
-        models.get(child1.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toBeUndefined();
-      expect(
-        models.get(child2.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toBeUndefined();
+      expect(models.get(child1.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
+      expect(models.get(child2.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
     });
   });
 
@@ -418,13 +384,9 @@ describe("Parent Tracking", () => {
       materializedA.child = materializedB;
       materializedB.child = materializedA;
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
-      const aParentRef = models
-        .get(materializedA.uuid)
-        ?.get(YJS_GLOBALS.modelMetadataParent);
-      const bParentRef = models
-        .get(materializedB.uuid)
-        ?.get(YJS_GLOBALS.modelMetadataParent);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
+      const aParentRef = models.get(materializedA.uuid)?.get(YJS_GLOBALS.models.recordFields.parent);
+      const bParentRef = models.get(materializedB.uuid)?.get(YJS_GLOBALS.models.recordFields.parent);
 
       expect(aParentRef).toEqual([materializedB.uuid, `child`]);
       expect(bParentRef).toEqual([materializedA.uuid, `child`]);
@@ -439,14 +401,11 @@ describe("Parent Tracking", () => {
         childMap: {},
       });
 
-      const { doc, root: materializedSelf } =
-        await initTestPlexus<Parent>(self);
+      const { doc, root: materializedSelf } = await initTestPlexus<Parent>(self);
       materializedSelf.child = materializedSelf;
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
-      const parentRef = models
-        .get(materializedSelf.uuid)
-        ?.get(YJS_GLOBALS.modelMetadataParent);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
+      const parentRef = models.get(materializedSelf.uuid)?.get(YJS_GLOBALS.models.recordFields.parent);
 
       expect(parentRef).toEqual([materializedSelf.uuid, `child`]);
     });
@@ -486,13 +445,9 @@ describe("Parent Tracking", () => {
       materializedA.children.push(materializedB);
       materializedB.childSet.add(materializedA);
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
-      const aParentRef = models
-        .get(materializedA.uuid)
-        ?.get(YJS_GLOBALS.modelMetadataParent);
-      const bParentRef = models
-        .get(materializedB.uuid)
-        ?.get(YJS_GLOBALS.modelMetadataParent);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
+      const aParentRef = models.get(materializedA.uuid)?.get(YJS_GLOBALS.models.recordFields.parent);
+      const bParentRef = models.get(materializedB.uuid)?.get(YJS_GLOBALS.models.recordFields.parent);
 
       expect(aParentRef).toEqual([materializedB.uuid, `childSet`]);
       expect(bParentRef).toEqual([materializedA.uuid, `children`]);
@@ -514,13 +469,12 @@ describe("Parent Tracking", () => {
       const parent = new WeirdParent({ "field.with.dots": null });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<WeirdParent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<WeirdParent>(parent);
       materializedParent["field.with.dots"] = child;
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
       const childFields = models.get(child.uuid);
-      const parentRef = childFields?.get(YJS_GLOBALS.modelMetadataParent);
+      const parentRef = childFields?.get(YJS_GLOBALS.models.recordFields.parent);
 
       // Parent ref should preserve dots in field name
       expect(parentRef).toEqual([materializedParent.uuid, `field.with.dots`]);
@@ -542,12 +496,10 @@ describe("Parent Tracking", () => {
       parent.child = child;
 
       // Materialize parent (child materializes via contagion)
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
-      const childFields = models.get(child.uuid);
-      const parentRef = childFields?.get(YJS_GLOBALS.modelMetadataParent);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
+      const parentRef = models.get(child.uuid)?.get(YJS_GLOBALS.models.recordFields.parent);
 
       expect(parentRef).toEqual([materializedParent.uuid, `child`]);
     });
@@ -561,15 +513,14 @@ describe("Parent Tracking", () => {
         childMap: {},
       });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent); // Materialize parent first
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent); // Materialize parent first
 
       const child = new Child({ name: "child" }); // Ephemeral child
       materializedParent.children.push(child); // Should trigger contagion
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
       const childFields = models.get(child.uuid);
-      const parentRef = childFields?.get(YJS_GLOBALS.modelMetadataParent);
+      const parentRef = childFields?.get(YJS_GLOBALS.models.recordFields.parent);
 
       expect(parentRef).toEqual([materializedParent.uuid, `children`]);
     });
@@ -580,52 +531,41 @@ describe("Parent Tracking", () => {
       const original = new Parent({
         name: "original",
         child: new Child({ name: "originalChild" }),
-        children: [
-          new Child({ name: "child1" }),
-          new Child({ name: "child2" }),
-        ],
+        children: [new Child({ name: "child1" }), new Child({ name: "child2" })],
         childSet: new Set([new Child({ name: "setChild" })]),
         childMap: { key: new Child({ name: "mapChild" }) },
       });
 
-      const {
-        doc,
-        root: materializedOriginal,
-        plexus,
-      } = await initTestPlexus<Parent>(original);
+      const { doc, root: materializedOriginal, plexus } = await initTestPlexus<Parent>(original);
 
       const cloned = materializedOriginal.clone();
       // Materialize the cloned entity in the same document
-      const [clonedId] = (cloned as any)[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](doc);
       const materializedCloned = plexus.loadEntity<Parent>(clonedId)!;
 
       // Cloned should have different children instances
       expect(materializedCloned.child).not.toBe(materializedOriginal.child);
-      expect(materializedCloned.children[0]).not.toBe(
-        materializedOriginal.children[0],
-      );
+      expect(materializedCloned.children[0]).not.toBe(materializedOriginal.children[0]);
       materializedCloned.name = "cloned";
       materializedCloned.child!.name = "cloned child";
       materializedCloned.children[0].name = "cloned child1";
       materializedCloned.children[1].name = "cloned child2";
 
       // Check parent refs point to cloned parent
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
 
-      const clonedChildRef = models
-        .get(materializedCloned.child!.uuid)
-        ?.get(YJS_GLOBALS.modelMetadataParent);
+      const clonedChildRef = models.get(materializedCloned.child!.uuid)?.get(YJS_GLOBALS.models.recordFields.parent);
       expect(clonedChildRef).toEqual([materializedCloned.uuid, `child`]);
 
       const clonedListChildRef = models
         .get(materializedCloned.children[0].uuid)
-        ?.get(YJS_GLOBALS.modelMetadataParent);
+        ?.get(YJS_GLOBALS.models.recordFields.parent);
       expect(clonedListChildRef).toEqual([materializedCloned.uuid, `children`]);
 
       // Original children should still point to original parent
       const originalChildRef = models
         .get(materializedOriginal.child!.uuid)
-        ?.get(YJS_GLOBALS.modelMetadataParent);
+        ?.get(YJS_GLOBALS.models.recordFields.parent);
       expect(originalChildRef).toEqual([materializedOriginal.uuid, `child`]);
     });
   });
@@ -643,29 +583,28 @@ describe("Parent Tracking", () => {
       const child2 = new Child({ name: "child2" });
       const child3 = new Child({ name: "child3" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
       materializedParent.children.push(child1, child2);
 
       // Splice in child3, removing child1
       materializedParent.children.splice(0, 1, child3);
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
 
       // child1 should have no parent
-      expect(
-        models.get(child1.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toBeUndefined();
+      expect(models.get(child1.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
 
       // child3 should have parent ref
-      expect(
-        models.get(child3.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toEqual([materializedParent.uuid, `children`]);
+      expect(models.get(child3.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toEqual([
+        materializedParent.uuid,
+        `children`,
+      ]);
 
       // child2 should still have parent ref
-      expect(
-        models.get(child2.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toEqual([materializedParent.uuid, `children`]);
+      expect(models.get(child2.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toEqual([
+        materializedParent.uuid,
+        `children`,
+      ]);
     });
 
     it("clears parent ref on pop/shift", async () => {
@@ -679,26 +618,22 @@ describe("Parent Tracking", () => {
       const child1 = new Child({ name: "child1" });
       const child2 = new Child({ name: "child2" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
       materializedParent.children.push(child1, child2);
 
       const popped = materializedParent.children.pop();
       expect(popped).toBe(child2);
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
-      expect(
-        models.get(child2.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toBeUndefined();
-      expect(
-        models.get(child1.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toEqual([materializedParent.uuid, `children`]);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
+      expect(models.get(child2.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
+      expect(models.get(child1.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toEqual([
+        materializedParent.uuid,
+        `children`,
+      ]);
 
       const shifted = materializedParent.children.shift();
       expect(shifted).toBe(child1);
-      expect(
-        models.get(child1.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toBeUndefined();
+      expect(models.get(child1.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
     });
 
     it("updates parent refs on set delete", async () => {
@@ -711,19 +646,17 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
       materializedParent.childSet.add(child);
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
-      expect(
-        models.get(child.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toEqual([materializedParent.uuid, `childSet`]);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
+      expect(models.get(child.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toEqual([
+        materializedParent.uuid,
+        `childSet`,
+      ]);
 
       materializedParent.childSet.delete(child);
-      expect(
-        models.get(child.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toBeUndefined();
+      expect(models.get(child.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
     });
 
     it("updates parent refs on record delete", async () => {
@@ -736,19 +669,18 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
       materializedParent.childMap["key"] = child;
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
-      expect(
-        models.get(child.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toEqual([materializedParent.uuid, `childMap`, `key`]);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
+      expect(models.get(child.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toEqual([
+        materializedParent.uuid,
+        `childMap`,
+        `key`,
+      ]);
 
       delete materializedParent.childMap["key"];
-      expect(
-        models.get(child.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toBeUndefined();
+      expect(models.get(child.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
     });
   });
 
@@ -761,21 +693,22 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<MultiParent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<MultiParent>(parent);
 
       materializedParent.leftChildren.push(child);
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
-      expect(
-        models.get(child.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toEqual([materializedParent.uuid, `leftChildren`]);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
+      expect(models.get(child.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toEqual([
+        materializedParent.uuid,
+        `leftChildren`,
+      ]);
 
       materializedParent.rightChildren.push(child);
       expect(materializedParent.leftChildren).not.toContain(child);
       expect(materializedParent.rightChildren).toContain(child);
-      expect(
-        models.get(child.uuid)?.get(YJS_GLOBALS.modelMetadataParent),
-      ).toEqual([materializedParent.uuid, `rightChildren`]);
+      expect(models.get(child.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toEqual([
+        materializedParent.uuid,
+        `rightChildren`,
+      ]);
     });
   });
 
@@ -793,8 +726,7 @@ describe("Parent Tracking", () => {
         childSet: new Set(),
         childMap: {},
       });
-      const { plexus, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { plexus, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       // Set up dependency factory
       plexus.registerDependencyFactory("dep", async () => depDoc);
@@ -830,9 +762,7 @@ describe("Parent Tracking", () => {
 
       // Materialize parent2 in the same document
       const [parent2Id] = (parent2 as any)[referenceSymbol](doc);
-      const materializedParent2 = plexus.loadEntity<Parent>(
-        parent2Id,
-      ) as Parent;
+      const materializedParent2 = plexus.loadEntity<Parent>(parent2Id) as Parent;
 
       doc.transact(() => {
         materializedParent1.children.push(child); // First parent assignment
@@ -845,10 +775,8 @@ describe("Parent Tracking", () => {
       expect(materializedParent1.children).not.toContain(child);
       expect(materializedParent2.childSet.has(child)).toBe(false);
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
-      const parentRef = models
-        .get(child.uuid)
-        ?.get(YJS_GLOBALS.modelMetadataParent);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
+      const parentRef = models.get(child.uuid)?.get(YJS_GLOBALS.models.recordFields.parent);
       expect(parentRef).toEqual([materializedParent1.uuid, `child`]);
     });
   });
@@ -868,14 +796,11 @@ describe("Parent Tracking", () => {
       const parent = new Mixed({ mixed: [] });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Mixed>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Mixed>(parent);
       materializedParent.mixed.push("string", child, "another");
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
-      const parentRef = models
-        .get(child.uuid)
-        ?.get(YJS_GLOBALS.modelMetadataParent);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
+      const parentRef = models.get(child.uuid)?.get(YJS_GLOBALS.models.recordFields.parent);
 
       // Only the Child entity should have parent ref
       expect(parentRef).toEqual([materializedParent.uuid, `mixed`]);
@@ -893,8 +818,7 @@ describe("Parent Tracking", () => {
         childMap: {},
       });
 
-      const { doc, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       // Add many children
       const children: Child[] = [];
@@ -910,14 +834,10 @@ describe("Parent Tracking", () => {
 
       // Should be removed from beginning and added to end
       expect(materializedParent.children.indexOf(first)).toBe(999);
-      expect(
-        materializedParent.children.filter((c) => c === first).length,
-      ).toBe(1);
+      expect(materializedParent.children.filter((c) => c === first).length).toBe(1);
 
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models);
-      const parentRef = models
-        .get(first.uuid)
-        ?.get(YJS_GLOBALS.modelMetadataParent);
+      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
+      const parentRef = models.get(first.uuid)?.get(YJS_GLOBALS.models.recordFields.parent);
       expect(parentRef).toEqual([materializedParent.uuid, `children`]);
     });
 
@@ -933,8 +853,7 @@ describe("Parent Tracking", () => {
       const second = new Child({ name: "second" });
       const third = new Child({ name: "third" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       // Initial: [first, second, third]
       materializedParent.children.push(first, second, third);
@@ -953,9 +872,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children[2]).toBe(first);
 
       // Should only appear once
-      expect(
-        materializedParent.children.filter((c) => c === first).length,
-      ).toBe(1);
+      expect(materializedParent.children.filter((c) => c === first).length).toBe(1);
 
       // Verify YJS sync
       const doc2 = new Y.Doc();
@@ -964,9 +881,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((c) => c.uuid)).toEqual(
-        syncedParent.children.map((c) => c.uuid),
-      );
+      expect(materializedParent.children.map((c) => c.uuid)).toEqual(syncedParent.children.map((c) => c.uuid));
     });
 
     it("should handle splice with item from left of splice zone", async () => {
@@ -982,8 +897,7 @@ describe("Parent Tracking", () => {
       const c = new Child({ name: "c" });
       const d = new Child({ name: "d" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       // Initial: [a, b, c, d]
       materializedParent.children.push(a, b, c, d);
@@ -1011,9 +925,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((c) => c.uuid)).toEqual(
-        syncedParent.children.map((c) => c.uuid),
-      );
+      expect(materializedParent.children.map((c) => c.uuid)).toEqual(syncedParent.children.map((c) => c.uuid));
     });
 
     it("should handle splice with item from right of splice zone", async () => {
@@ -1029,8 +941,7 @@ describe("Parent Tracking", () => {
       const c = new Child({ name: "c" });
       const d = new Child({ name: "d" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       // Initial: [a, b, c, d]
       materializedParent.children.push(a, b, c, d);
@@ -1055,9 +966,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((c) => c.uuid)).toEqual(
-        syncedParent.children.map((c) => c.uuid),
-      );
+      expect(materializedParent.children.map((c) => c.uuid)).toEqual(syncedParent.children.map((c) => c.uuid));
     });
 
     it("should handle splice(1, 0, a) where 'a' exists at index 0 (move operation, not error)", async () => {
@@ -1082,8 +991,7 @@ describe("Parent Tracking", () => {
       const a = new Child({ name: "a" });
       const b = new Child({ name: "b" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       // Initial: [a, b]
       materializedParent.children.push(a, b);
@@ -1107,9 +1015,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((c) => c.uuid)).toEqual(
-        syncedParent.children.map((c) => c.uuid),
-      );
+      expect(materializedParent.children.map((c) => c.uuid)).toEqual(syncedParent.children.map((c) => c.uuid));
     });
 
     it("should handle splice with mixed items: left, right, inside, and new", async () => {
@@ -1126,8 +1032,7 @@ describe("Parent Tracking", () => {
       const d = new Child({ name: "d" });
       const e = new Child({ name: "e" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       // Initial: [a, b, c, d]
       materializedParent.children.push(a, b, c, d);
@@ -1147,15 +1052,9 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children[3]).toBe(d);
 
       // Each item should appear exactly once
-      expect(materializedParent.children.filter((ch) => ch === a).length).toBe(
-        1,
-      );
-      expect(materializedParent.children.filter((ch) => ch === b).length).toBe(
-        1,
-      );
-      expect(materializedParent.children.filter((ch) => ch === e).length).toBe(
-        1,
-      );
+      expect(materializedParent.children.filter((ch) => ch === a).length).toBe(1);
+      expect(materializedParent.children.filter((ch) => ch === b).length).toBe(1);
+      expect(materializedParent.children.filter((ch) => ch === e).length).toBe(1);
 
       // c should be orphaned (removed)
       expect(materializedParent.children.includes(c)).toBe(false);
@@ -1168,9 +1067,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(
-        syncedParent.children.map((ch) => ch.uuid),
-      );
+      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
     it("should handle splice reversing a section", async () => {
@@ -1186,8 +1083,7 @@ describe("Parent Tracking", () => {
       const c = new Child({ name: "c" });
       const d = new Child({ name: "d" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       // Initial: [a, b, c, d]
       materializedParent.children.push(a, b, c, d);
@@ -1203,12 +1099,8 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children[3]).toBe(d);
 
       // Each item should appear exactly once
-      expect(materializedParent.children.filter((ch) => ch === b).length).toBe(
-        1,
-      );
-      expect(materializedParent.children.filter((ch) => ch === c).length).toBe(
-        1,
-      );
+      expect(materializedParent.children.filter((ch) => ch === b).length).toBe(1);
+      expect(materializedParent.children.filter((ch) => ch === c).length).toBe(1);
 
       // Verify YJS sync
       const doc2 = new Y.Doc();
@@ -1217,9 +1109,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(
-        syncedParent.children.map((ch) => ch.uuid),
-      );
+      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
     it("should handle splice with overlapping from both sides", async () => {
@@ -1236,8 +1126,7 @@ describe("Parent Tracking", () => {
       const d = new Child({ name: "d" });
       const e = new Child({ name: "e" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       // Initial: [a, b, c, d, e]
       materializedParent.children.push(a, b, c, d, e);
@@ -1257,15 +1146,9 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children[4]).toBe(d);
 
       // Each item should appear exactly once
-      expect(materializedParent.children.filter((ch) => ch === a).length).toBe(
-        1,
-      );
-      expect(materializedParent.children.filter((ch) => ch === c).length).toBe(
-        1,
-      );
-      expect(materializedParent.children.filter((ch) => ch === e).length).toBe(
-        1,
-      );
+      expect(materializedParent.children.filter((ch) => ch === a).length).toBe(1);
+      expect(materializedParent.children.filter((ch) => ch === c).length).toBe(1);
+      expect(materializedParent.children.filter((ch) => ch === e).length).toBe(1);
 
       // Verify YJS sync
       const doc2 = new Y.Doc();
@@ -1274,9 +1157,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(
-        syncedParent.children.map((ch) => ch.uuid),
-      );
+      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
     it("should handle complete array reversal", async () => {
@@ -1292,8 +1173,7 @@ describe("Parent Tracking", () => {
       const c = new Child({ name: "c" });
       const d = new Child({ name: "d" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       // Initial: [a, b, c, d]
       materializedParent.children.push(a, b, c, d);
@@ -1316,18 +1196,10 @@ describe("Parent Tracking", () => {
       expect(d.parent).toBe(materializedParent);
 
       // Each item should appear exactly once
-      expect(materializedParent.children.filter((ch) => ch === a).length).toBe(
-        1,
-      );
-      expect(materializedParent.children.filter((ch) => ch === b).length).toBe(
-        1,
-      );
-      expect(materializedParent.children.filter((ch) => ch === c).length).toBe(
-        1,
-      );
-      expect(materializedParent.children.filter((ch) => ch === d).length).toBe(
-        1,
-      );
+      expect(materializedParent.children.filter((ch) => ch === a).length).toBe(1);
+      expect(materializedParent.children.filter((ch) => ch === b).length).toBe(1);
+      expect(materializedParent.children.filter((ch) => ch === c).length).toBe(1);
+      expect(materializedParent.children.filter((ch) => ch === d).length).toBe(1);
 
       // Verify YJS sync
       const doc2 = new Y.Doc();
@@ -1336,9 +1208,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(
-        syncedParent.children.map((ch) => ch.uuid),
-      );
+      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
     it("should handle pop", async () => {
@@ -1353,8 +1223,7 @@ describe("Parent Tracking", () => {
       const b = new Child({ name: "b" });
       const c = new Child({ name: "c" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c);
       const popped = materializedParent.children.pop();
@@ -1372,9 +1241,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(
-        syncedParent.children.map((ch) => ch.uuid),
-      );
+      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
     it("should handle shift", async () => {
@@ -1389,8 +1256,7 @@ describe("Parent Tracking", () => {
       const b = new Child({ name: "b" });
       const c = new Child({ name: "c" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c);
       const shifted = materializedParent.children.shift();
@@ -1408,9 +1274,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(
-        syncedParent.children.map((ch) => ch.uuid),
-      );
+      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
     it("should handle reverse", async () => {
@@ -1425,8 +1289,7 @@ describe("Parent Tracking", () => {
       const b = new Child({ name: "b" });
       const c = new Child({ name: "c" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c);
       materializedParent.children.reverse();
@@ -1443,9 +1306,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(
-        syncedParent.children.map((ch) => ch.uuid),
-      );
+      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
     it("should handle sort", async () => {
@@ -1460,8 +1321,7 @@ describe("Parent Tracking", () => {
       const b = new Child({ name: "alice" });
       const c = new Child({ name: "bob" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c);
       materializedParent.children.sort((x, y) => x.name.localeCompare(y.name));
@@ -1478,9 +1338,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(
-        syncedParent.children.map((ch) => ch.uuid),
-      );
+      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
     it("should throw error when copyWithin would create duplicate child references", async () => {
@@ -1525,8 +1383,7 @@ describe("Parent Tracking", () => {
       const e = new Child({ name: "e" });
       const f = new Child({ name: "f" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c, d, e, f);
       // Copy elements from index 0-2 to index 3
@@ -1553,9 +1410,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(
-        syncedParent.children.map((ch) => ch.uuid),
-      );
+      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
     it("should handle index setter with reuse detection (moving item within array)", async () => {
@@ -1571,8 +1426,7 @@ describe("Parent Tracking", () => {
       const c = new Child({ name: "c" });
       const d = new Child({ name: "d" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c, d);
 
@@ -1588,9 +1442,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children[2]).toBe(d);
 
       // 'a' should appear exactly once
-      expect(materializedParent.children.filter((ch) => ch === a).length).toBe(
-        1,
-      );
+      expect(materializedParent.children.filter((ch) => ch === a).length).toBe(1);
 
       // 'c' should be orphanized (it was replaced)
       expect(c.parent).toBe(null);
@@ -1607,9 +1459,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(
-        syncedParent.children.map((ch) => ch.uuid),
-      );
+      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
     it("should throw error when push tries to insert duplicate children", async () => {
@@ -1702,9 +1552,7 @@ describe("Parent Tracking", () => {
       // Try to assign [a, a, b] - 'a' appears twice
       expect(() => {
         materializedParent.children = [a, a, b];
-      }).toThrow(
-        "assign cannot accept an array with duplicate child references",
-      );
+      }).toThrow("assign cannot accept an array with duplicate child references");
 
       // Array should remain unchanged
       expect(materializedParent.children).toEqual([b]);
@@ -1744,8 +1592,7 @@ describe("Parent Tracking", () => {
       const b = new Child({ name: "b" });
       const c = new Child({ name: "c" });
 
-      const { doc: doc1, root: materializedParent } =
-        await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c);
 
@@ -1767,9 +1614,7 @@ describe("Parent Tracking", () => {
       await plexus2.rootPromise;
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
-      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(
-        syncedParent.children.map((ch) => ch.uuid),
-      );
+      expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
   });
 });

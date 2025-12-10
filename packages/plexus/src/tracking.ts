@@ -29,7 +29,7 @@ export const ACCESS_INDICES_SET_SYMBOL = Symbol("ACCESS_INDICES_SET");
 
 // Helper class for defaulted maps
 class DefaultedMap<K, V> extends Map<K, V> {
-  constructor(private defaultFn: () => V) {
+  constructor(private readonly defaultFn: () => V) {
     super();
   }
 
@@ -125,7 +125,7 @@ export function trackModification(entity: any, field: string | symbol): void {
  */
 export function createTrackedFunction<Args extends readonly unknown[], Return>(
   notifyChanges: () => void,
-  fn: (...args: Args) => Return
+  fn: (...args: Args) => Return,
 ): (...args: Args) => Return {
   return (...args: Args): Return => {
     const myTrackingMap = new DefaultedMap<any, Set<string | symbol>>(() => new Set());
@@ -142,7 +142,7 @@ export function createTrackedFunction<Args extends readonly unknown[], Return>(
           triggered = true;
         }
       },
-      fieldset: myTrackingMap
+      fieldset: myTrackingMap,
     });
 
     try {

@@ -1,6 +1,8 @@
-import * as Y from "yjs";
-import { AllowedYJSValue, AllowedYValue, referenceSymbol, ReferenceTuple } from "../proxy-runtime-types";
+import type * as Y from "yjs";
+
 import { PlexusModel } from "../PlexusModel"; // Re-export from defaulted-collections for backward compatibility
+import type { AllowedYJSValue, AllowedYValue, ReferenceTuple } from "../proxy-runtime-types";
+import { referenceSymbol } from "../proxy-runtime-types";
 
 // Re-export from defaulted-collections for backward compatibility
 export { DefaultedMap, DefaultedWeakMap } from "./defaulted-collections";
@@ -12,7 +14,7 @@ export function never(value: never): never {
 
 // Tuple reference helpers
 export const isTupleReference = (val: any): val is ReferenceTuple =>
-  Array.isArray(val) && val.length >= 1 && val.length <= 2 && typeof val[0] === "string";
+  Array.isArray(val) && val.length > 0 && val.length <= 2 && typeof val[0] === "string";
 
 export const maybeReference = (val: AllowedYJSValue, doc: Y.Doc): AllowedYValue =>
   (val instanceof PlexusModel ? val?.[referenceSymbol]?.(doc) : val) ?? null;
@@ -38,12 +40,11 @@ export const flushNotifications = () => {
   for (const notify of toNotify) {
     try {
       notify();
-    } catch (e) {
+    } catch (error) {
       // Log but don't propagate notification errors
-      console.error("Error in notification callback:", e);
+      console.error("Error in notification callback:", error);
     }
   }
-  return toNotify.size > 0;
 };
 
 export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T): T => {
@@ -56,11 +57,11 @@ export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T):
         return fn();
       } finally {
         isTransacting = false;
-        while (flushNotifications()) {}
+        flushNotifications();
       }
     }
   }
-  const isNestedTransaction = !doc || docInTransactionMotion.has(doc);
+  const isNestedTransaction = docInTransactionMotion.has(doc);
   const wasAlreadyTransacting = isTransacting;
 
   if (isNestedTransaction) {
@@ -76,14 +77,7 @@ export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T):
       isTransacting = true;
     }
 
-    let result: T;
-    if (doc) {
-      result = doc.transact(fn);
-    } else {
-      result = fn();
-    }
-
-    return result;
+    return doc.transact(fn);
   } catch (error) {
     if (!wasAlreadyTransacting) {
       pendingNotifications.clear();
@@ -95,7 +89,7 @@ export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T):
     // Reset flag only for outermost transaction
     if (!wasAlreadyTransacting) {
       isTransacting = false;
-      while (flushNotifications()) {}
+      flushNotifications();
     }
   }
 };

@@ -14,11 +14,11 @@ import type * as Y from "yjs";
 import { deref } from "./deref";
 import type { DependencyId, DependencyVersion, Plexus } from "./Plexus";
 import type { PlexusModel } from "./PlexusModel";
-import { YJS_GLOBALS } from "./YJS_GLOBALS";
+import * as YJS_GLOBALS from "./YJS_GLOBALS";
 
 export class SubPlexus<
   Root extends PlexusModel,
-  ParentPlexus extends Plexus<any, any, any, any> = Plexus<any, any, any, any>
+  ParentPlexus extends Plexus<any, any, any, any> = Plexus<any, any, any, any>,
 > {
   private readonly subDependencies = new Map<DependencyId, SubPlexus<any, ParentPlexus>>();
   private readonly dependencyVersions = new Map<DependencyId, DependencyVersion>();
@@ -31,7 +31,7 @@ export class SubPlexus<
     public readonly dependencyId: DependencyId,
     public readonly requestedVersion: DependencyVersion,
     public readonly parentPlexus: ParentPlexus,
-    public readonly rootPlexus: Plexus<any, any, any, any>
+    public readonly rootPlexus: Plexus<any, any, any, any>,
   ) {
     // Get the actual resolved version from the doc
     this.resolvedVersion = this.getResolvedVersion();
@@ -49,7 +49,7 @@ export class SubPlexus<
     // Register this SubPlexus with its resolved version
     rootPlexus.globalDependencyRegistry.set(registryKey, {
       doc,
-      plexus: this as any
+      plexus: this as any,
     });
 
     // Load root entity and sub-dependencies
@@ -59,8 +59,8 @@ export class SubPlexus<
 
   private getResolvedVersion(): DependencyVersion {
     // Get the actual version from doc metadata (this is what was actually loaded)
-    const metadata = this.doc.getMap(YJS_GLOBALS.metadataMap);
-    return (metadata.get(YJS_GLOBALS.metadataMapFields.version) as DependencyVersion) || this.requestedVersion;
+    const metadata = this.doc.getMap(YJS_GLOBALS.metadata.key);
+    return (metadata.get(YJS_GLOBALS.metadata.wellKnown.version) as DependencyVersion) || this.requestedVersion;
   }
 
   private getRegistryKey(): string {
@@ -69,7 +69,7 @@ export class SubPlexus<
   }
 
   private async loadRoot(): Promise<Root> {
-    const rootModel = this.doc.getMap<Y.Map<any>>(YJS_GLOBALS.models).get(YJS_GLOBALS.rootUUID);
+    const rootModel = this.doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key).get(YJS_GLOBALS.models.wellKnown.root);
     invariant(rootModel, `SubPlexus: missing root model for dependency ${this.dependencyId}`);
 
     // Load sub-dependencies if they exist (no observation - dependencies are immutable)
@@ -79,7 +79,7 @@ export class SubPlexus<
     }
 
     // Return the root entity (will be materialized by parent's resolver)
-    const root = deref(this.doc, [YJS_GLOBALS.rootUUID]) as Root;
+    const root = deref(this.doc, [YJS_GLOBALS.models.wellKnown.root]) as Root;
     this.isRootLoaded = true;
     return root;
   }
@@ -98,9 +98,9 @@ export class SubPlexus<
         const depDoc = await this.rootPlexus.fetchDependency(depId, requestedVersion);
 
         // Check the actual resolved version from the loaded doc
-        const depMetadata = depDoc.getMap(YJS_GLOBALS.metadataMap);
+        const depMetadata = depDoc.getMap(YJS_GLOBALS.metadata.key);
         const resolvedVersion =
-          (depMetadata.get(YJS_GLOBALS.metadataMapFields.version) as DependencyVersion) || requestedVersion;
+          (depMetadata.get(YJS_GLOBALS.metadata.wellKnown.version) as DependencyVersion) || requestedVersion;
 
         // Check if this exact version is already loaded globally
         const registryKey = `${depId}@${resolvedVersion}`;
@@ -120,7 +120,7 @@ export class SubPlexus<
           // Wait for it to load its own dependencies
           await subPlexus.rootPromise;
         }
-      })
+      }),
     );
   }
 
@@ -147,7 +147,7 @@ export class SubPlexus<
   } {
     return {
       requested: this.requestedVersion,
-      resolved: this.resolvedVersion
+      resolved: this.resolvedVersion,
     };
   }
 }

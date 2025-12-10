@@ -10,6 +10,6 @@ export const mutableArrayMethods = new Set<symbol | string>([
   "shift",
   "sort",
   "splice",
-  "unshift"
+  "unshift",
 ]);
 export const mutableArrayMethodsPreservingLength = new Set<symbol | string>(["copyWithin", "fill", "reverse", "sort"]);

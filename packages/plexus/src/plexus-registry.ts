@@ -17,7 +17,7 @@ export const docPlexus = new WeakMap<Y.Doc, any>();
 // This ensures all Plexuses for the same doc share dependency resolution
 export const sharedDependencyDocs = new DefaultedWeakMap<Y.Doc, Map<DependencyId, Y.Doc>>(() => new Map());
 export const sharedDependencyVersions = new DefaultedWeakMap<Y.Doc, Map<DependencyId, DependencyVersion>>(
-  () => new Map()
+  () => new Map(),
 );
 
 /**

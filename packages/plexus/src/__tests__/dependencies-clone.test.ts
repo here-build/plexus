@@ -121,7 +121,7 @@ describe("Clone from dependency node", () => {
     const models = rootDoc.getMap<Y.Map<any>>("models");
     const cId = (root.containers["c1"] as any).uuid as string;
     const cFields = models.get(cId)!;
-    const children = cFields.get("children") as Y.Array<any>;
+    const children = cFields.get("fields").get("children") as Y.Array<any>;
     expect(Array.isArray(children.get(0))).toBe(true);
     expect(children.get(0)).toHaveLength(1);
   });

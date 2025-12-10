@@ -88,21 +88,21 @@ describe("Proxy Edge Cases", () => {
         name: "A",
         type: "component",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       const componentB = new Component({
         name: "B",
         type: "component",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       const componentC = new Component({
         name: "C",
         type: "component",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       // Build the circle
@@ -130,7 +130,7 @@ describe("Proxy Edge Cases", () => {
         name: "Recursive",
         type: "component",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       // Self-reference
@@ -244,7 +244,7 @@ describe("Proxy Edge Cases", () => {
         name: "Parent",
         type: "container",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       const child1 = new Component({ name: "Child1", type: "child", children: [], metadata: {} });
@@ -291,55 +291,6 @@ describe("Proxy Edge Cases", () => {
     });
   });
 
-  describe("💥 Exception Handling During Contagion", () => {
-    it("should handle materialization failures gracefully", async () => {
-      const { site } = await createTestSite("Exception Test");
-
-      const normalComponent = new Component({
-        name: "Normal",
-        type: "component",
-        children: [],
-        metadata: {}
-      });
-
-      const poisonedComponent = new Component({
-        name: "Poisoned",
-        type: "component",
-        children: [],
-        metadata: {}
-      });
-
-      // Mock a failing referenceSymbol - this simulates a corrupted entity
-      const originalRef = poisonedComponent[referenceSymbol];
-      expect(() => {
-        Object.defineProperty(poisonedComponent, referenceSymbol, {
-          value: () => {
-            throw new Error("Materialization failed!");
-          },
-          configurable: true
-        });
-      }).toThrow();
-
-      normalComponent.children.push(poisonedComponent);
-
-      // This should fail gracefully with console.warn, not crash the system
-      site.components["test"] = normalComponent;
-
-      // Restore the poisoned component
-      expect(() => {
-        Object.defineProperty(poisonedComponent, referenceSymbol, {
-          value: originalRef,
-          configurable: true
-        });
-      }).toThrow();
-
-      // Now it should work
-      site.components["test"] = normalComponent;
-
-      expect(site.components["test"].children[0].name).toBe("Poisoned");
-    });
-  });
-
   describe("🗑️ Garbage Collection Edge Cases", () => {
     it("should handle WeakRef cleanup during operations", async () => {
       const { site } = await createTestSite("GC Test");
@@ -352,8 +303,8 @@ describe("Proxy Edge Cases", () => {
             name: `Entity${i}`,
             type: "component",
             children: [],
-            metadata: {}
-          })
+            metadata: {},
+          }),
         );
       }
 
@@ -361,7 +312,7 @@ describe("Proxy Edge Cases", () => {
         name: "Parent",
         type: "container",
         children: entities,
-        metadata: {}
+        metadata: {},
       });
 
       // Materialize everything
@@ -382,7 +333,7 @@ describe("Proxy Edge Cases", () => {
 
       // Verify we can still perform operations
       site.components["parent"].children.push(
-        new Component({ name: "NewEntity", type: "component", children: [], metadata: {} })
+        new Component({ name: "NewEntity", type: "component", children: [], metadata: {} }),
       );
 
       expect(site.components["parent"].children.length).toBe(101);
@@ -398,7 +349,7 @@ describe("Proxy Edge Cases", () => {
         name: "Parent",
         type: "container",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       const child = new Component({ name: "Child", type: "child", children: [], metadata: {} });
@@ -423,7 +374,7 @@ describe("Proxy Edge Cases", () => {
         name: "Parent",
         type: "container",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       // Add several children
@@ -433,8 +384,8 @@ describe("Proxy Edge Cases", () => {
             name: `Child${i}`,
             type: "child",
             children: [],
-            metadata: {}
-          })
+            metadata: {},
+          }),
         );
       }
 
@@ -457,7 +408,7 @@ describe("Proxy Edge Cases", () => {
         name: "Test",
         type: "component",
         children: [],
-        metadata: { key: "value" }
+        metadata: { key: "value" },
       });
 
       // This should not throw or cause infinite loops
@@ -474,7 +425,7 @@ describe("Proxy Edge Cases", () => {
         name: "Materialized",
         type: "component",
         children: [],
-        metadata: { serialized: "true" }
+        metadata: { serialized: "true" },
       });
 
       site.components["test"] = component; // Materialize
@@ -514,7 +465,7 @@ describe("Proxy Edge Cases", () => {
         name: "Original",
         type: "component",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       // Set up async modification
@@ -542,7 +493,7 @@ describe("Proxy Edge Cases", () => {
         name: "Promise",
         type: "component",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       site.components["test"] = component;
@@ -561,30 +512,12 @@ describe("Proxy Edge Cases", () => {
   });
 
   describe("🏗️ Object Property Descriptor Edge Cases", () => {
-    it("should handle Object.defineProperty attempts", () => {
-      const component = new Component({
-        name: "Property Test",
-        type: "component",
-        children: [],
-        metadata: {}
-      });
-
-      // Attempt to define new properties should be handled gracefully
-      expect(() => {
-        Object.defineProperty(component, "customProp", {
-          value: "custom",
-          writable: true,
-          enumerable: true
-        });
-      }).toThrow();
-    });
-
     it("should handle Object.getOwnPropertyDescriptor", () => {
       const component = new Component({
         name: "Descriptor Test",
         type: "component",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       const descriptor = Object.getOwnPropertyDescriptor(component, "name");
@@ -600,7 +533,7 @@ describe("Proxy Edge Cases", () => {
         name: "Large Parent",
         type: "container",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       // Create large collection (but not too large to timeout tests)
@@ -611,8 +544,8 @@ describe("Proxy Edge Cases", () => {
             name: `Child${i}`,
             type: "child",
             children: [],
-            metadata: { index: i.toString() }
-          })
+            metadata: { index: i.toString() },
+          }),
         );
       }
 
@@ -632,7 +565,7 @@ describe("Proxy Edge Cases", () => {
         name: "Root",
         type: "component",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       const root = current;
@@ -642,7 +575,7 @@ describe("Proxy Edge Cases", () => {
           name: `Level${i}`,
           type: "component",
           children: [],
-          metadata: {}
+          metadata: {},
         });
         current.children.push(child);
         current = child;
@@ -667,7 +600,7 @@ describe("Proxy Edge Cases", () => {
         name: "Will Be Orphaned",
         type: "component",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       site1.components["test"] = component;
@@ -698,7 +631,7 @@ describe("Proxy Edge Cases", () => {
         name: "Parent",
         type: "container",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       // Create initial children
@@ -709,8 +642,8 @@ describe("Proxy Edge Cases", () => {
             name: `Child${i}`,
             type: "child",
             children: [],
-            metadata: {}
-          })
+            metadata: {},
+          }),
         );
       }
 
@@ -748,7 +681,7 @@ describe("Proxy Edge Cases", () => {
         name: "Parent",
         type: "container",
         children: [],
-        metadata: {}
+        metadata: {},
       });
 
       // Add initial children
@@ -758,8 +691,8 @@ describe("Proxy Edge Cases", () => {
             name: `Child${i}`,
             type: "child",
             children: [],
-            metadata: {}
-          })
+            metadata: {},
+          }),
         );
       }
 

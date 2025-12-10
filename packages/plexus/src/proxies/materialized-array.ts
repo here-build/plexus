@@ -1,18 +1,17 @@
-import * as Y from "yjs";
-import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking";
+import type * as Y from "yjs";
+
+import { mutableArrayMethods } from "../globals";
+import { undoManagerNotifications } from "../Plexus";
+import type { PlexusModel } from "../PlexusModel";
+import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types";
 import {
-  AllowedYJSValue,
-  AllowedYValue,
   informAdoptionSymbol,
   informOrphanizationSymbol,
   materializationSymbol,
-  ReadonlyField,
   requestAdoptionSymbol,
 } from "../proxy-runtime-types";
+import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking";
 import { maybeReference, maybeTransacting } from "../utils";
-import { mutableArrayMethods } from "../globals";
-import { PlexusModel } from "../PlexusModel";
-import { undoManagerNotifications } from "../Plexus";
 
 /**
  * Important implementation nuances
@@ -102,10 +101,10 @@ export type MaterializedArrayProxyInitTarget = {
 export const buildArrayProxy = <T extends AllowedYJSValue>({
   owner,
   key,
-  isChildField
+  isChildField,
 }: MaterializedArrayProxyInitTarget) => {
-  let backingArray: Array<T | null> = [];
-  const getYjsArray = () => owner._yjsModel?.get(key) as Y.Array<AllowedYValue> | null;
+  const backingArray: Array<T | null> = [];
+  const getYjsArray = () => owner._yjsFields?.get(key) as Y.Array<AllowedYValue> | null;
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
     const yjsArray = getYjsArray();
     if (event.target !== yjsArray) {
@@ -128,7 +127,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
   }
 
   const self = new Proxy(backingArray, {
-    // eslint-disable-next-line sonarjs/cognitive-complexity
     get(_, elementKey) {
       // MUTATING ARRAY METHODS: Convert entities to references, sync to YJS
       switch (elementKey) {
@@ -151,12 +149,12 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           //    - informAdoptionSymbol: Called AFTER push for reused items
           //    This ordering ensures parent refs are updated correctly for CRDT synchronization
           //
-          // eslint-disable-next-line sonarjs/no-nested-functions
+
           return (...elements: Array<T>) =>
             maybeTransacting(owner._doc, () => {
               trackModification(self, ACCESS_ALL_SYMBOL);
               // Update parent tracking for child fields
-              let reusedElements = new Set<T>();
+              const reusedElements = new Set<T>();
               if (isChildField) {
                 // DUPLICATE VALIDATION: Prevent same child appearing multiple times in input
                 const seen = new Set<T>();
@@ -164,7 +162,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   if (element !== null && seen.has(element)) {
                     throw new Error(
                       "push cannot insert the same child multiple times, which would violate parent tracking semantics. " +
-                      "A child can only appear once in a parent's child array."
+                        "A child can only appear once in a parent's child array.",
                     );
                   }
                   if (element !== null) {
@@ -188,12 +186,11 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               return backingArray.length;
             });
         case "unshift": // arr.unshift(entity) → yArray.unshift(entity.reference())
-          // eslint-disable-next-line sonarjs/no-nested-functions
           return (...elements: Array<T>) =>
             maybeTransacting(owner._doc, () => {
               trackModification(self, ACCESS_ALL_SYMBOL);
               // Update parent tracking for child fields
-              let reusedElements = new Set<T>();
+              const reusedElements = new Set<T>();
               if (isChildField) {
                 // Validate that elements to unshift don't contain duplicates
                 const seen = new Set<T>();
@@ -201,7 +198,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   if (element !== null && seen.has(element)) {
                     throw new Error(
                       "unshift cannot insert the same child multiple times, which would violate parent tracking semantics. " +
-                      "A child can only appear once in a parent's child array."
+                        "A child can only appear once in a parent's child array.",
                     );
                   }
                   if (element !== null) {
@@ -224,13 +221,16 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               return backingArray.length;
             });
         case "splice": // arr.splice(index, deleteCount, ...items)
-          // eslint-disable-next-line sonarjs/no-nested-functions
           return (start: number, deleteCount?: number, ...items: Array<T>) => {
             return maybeTransacting(owner._doc, () => {
               trackModification(self, ACCESS_ALL_SYMBOL);
 
-              const actualStart = start < 0 ? Math.max(backingArray.length + start, 0) : Math.min(start, backingArray.length);
-              const actualDeleteCount = deleteCount === undefined ? backingArray.length - actualStart : Math.max(0, Math.min(deleteCount, backingArray.length - actualStart));
+              const actualStart =
+                start < 0 ? Math.max(backingArray.length + start, 0) : Math.min(start, backingArray.length);
+              const actualDeleteCount =
+                deleteCount === undefined
+                  ? backingArray.length - actualStart
+                  : Math.max(0, Math.min(deleteCount, backingArray.length - actualStart));
 
               // Track which items are being removed from the splice zone
               const removedItems = backingArray.slice(actualStart, actualStart + actualDeleteCount);
@@ -246,7 +246,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   if (item !== null && seen.has(item)) {
                     throw new Error(
                       "splice cannot insert the same child multiple times, which would violate parent tracking semantics. " +
-                      "A child can only appear once in a parent's child array."
+                        "A child can only appear once in a parent's child array.",
                     );
                   }
                   if (item !== null) {
@@ -260,7 +260,10 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
 
               for (const item of itemsToInsert) {
                 const existingIndex = backingArray.indexOf(item);
-                if (existingIndex !== -1 && (existingIndex < actualStart || existingIndex >= actualStart + actualDeleteCount)) {
+                if (
+                  existingIndex !== -1 &&
+                  (existingIndex < actualStart || existingIndex >= actualStart + actualDeleteCount)
+                ) {
                   // Item exists elsewhere in array - needs to be removed from old position first
                   itemsToRemoveFirst.push({ item, index: existingIndex });
                 } else if (!removedItems.includes(item)) {
@@ -333,7 +336,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 if (itemsToInsert.length > 0) {
                   yjsArray.insert(
                     adjustedYjsStart,
-                    itemsToInsert.map((element) => maybeReference(element, owner._doc!))
+                    itemsToInsert.map((element) => maybeReference(element, owner._doc!)),
                   );
                 }
               }
@@ -342,10 +345,9 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             });
           };
         case "pop": // arr.pop() → remove last element
-          // eslint-disable-next-line sonarjs/no-nested-functions
           return () => {
             if (backingArray.length === 0) {
-              return undefined;
+              return;
             }
 
             return maybeTransacting(owner._doc, () => {
@@ -373,10 +375,9 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             });
           };
         case "shift": // arr.shift() → remove first element
-          // eslint-disable-next-line sonarjs/no-nested-functions
           return () => {
             if (backingArray.length === 0) {
-              return undefined;
+              return;
             }
 
             return maybeTransacting(owner._doc, () => {
@@ -403,7 +404,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             });
           };
         case "reverse": // arr.reverse() → reverse in place
-          // eslint-disable-next-line sonarjs/no-nested-functions
           return () => {
             return maybeTransacting(owner._doc, () => {
               trackModification(self, ACCESS_ALL_SYMBOL);
@@ -420,7 +420,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             });
           };
         case "sort": // arr.sort(compareFn) → sort in place
-          // eslint-disable-next-line sonarjs/no-nested-functions
           return (compareFn?: (a: T, b: T) => number) => {
             return maybeTransacting(owner._doc, () => {
               trackModification(self, ACCESS_ALL_SYMBOL);
@@ -437,7 +436,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             });
           };
         case "copyWithin": // arr.copyWithin(target, start, end) → copy elements within array
-          // eslint-disable-next-line sonarjs/no-nested-functions
           return (target: number, start: number, end?: number) => {
             return maybeTransacting(owner._doc, () => {
               trackModification(self, ACCESS_ALL_SYMBOL);
@@ -454,7 +452,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   if (element !== null && seen.has(element)) {
                     throw new Error(
                       "copyWithin would create duplicate child references, which violates parent tracking semantics. " +
-                      "A child can only appear once in a parent's child array."
+                        "A child can only appear once in a parent's child array.",
                     );
                   }
                   if (element !== null) {
@@ -476,7 +474,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             });
           };
         case "clear": // arr.assign(newElements) → replace entire array contents
-          // eslint-disable-next-line sonarjs/no-nested-functions
           return () => {
             const yjsArray = getYjsArray();
             // Clear parent tracking for all items
@@ -491,7 +488,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             trackModification(self, ACCESS_ALL_SYMBOL);
           };
         case "assign": // arr.assign(newElements) → replace entire array contents
-          // eslint-disable-next-line sonarjs/no-nested-functions
           return (newElements: Array<T>) => {
             if (newElements.length === backingArray.length && newElements.every((val, i) => val === backingArray[i])) {
               return;
@@ -505,7 +501,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   if (element !== null && seen.has(element)) {
                     throw new Error(
                       "assign cannot accept an array with duplicate child references, which would violate parent tracking semantics. " +
-                      "A child can only appear once in a parent's child array."
+                        "A child can only appear once in a parent's child array.",
                     );
                   }
                   if (element !== null) {
@@ -547,8 +543,8 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 if (item !== null && seen.has(item)) {
                   throw new Error(
                     `Materialization failed: YJS array contains duplicate child references for ${owner.constructor.name}.${key}. ` +
-                    `This violates parent tracking semantics. A child can only appear once in a parent's child array. ` +
-                    `This indicates corrupted data or a bug in array mutation handling.`
+                      `This violates parent tracking semantics. A child can only appear once in a parent's child array. ` +
+                      `This indicates corrupted data or a bug in array mutation handling.`,
                   );
                 }
                 if (item !== null) {
@@ -578,8 +574,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
       if (elementKey in Array.prototype) {
         if (typeof Array.prototype[elementKey] === "function") {
           return mutableArrayMethods.has(elementKey)
-            ? // eslint-disable-next-line sonarjs/no-nested-functions
-              (...args) => {
+            ? (...args) => {
                 const array = backingArray;
                 const resultingArray = [...array];
                 const result = resultingArray[elementKey](...args);
@@ -597,7 +592,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                       if (item !== null && seen.has(item)) {
                         throw new Error(
                           `Array method '${String(elementKey)}' would create duplicate child references in ${owner.constructor.name}.${key}. ` +
-                          `This violates parent tracking semantics. A child can only appear once in a parent's child array.`
+                            `This violates parent tracking semantics. A child can only appear once in a parent's child array.`,
                         );
                       }
                       if (item !== null) {
@@ -625,8 +620,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   return result;
                 });
               }
-            : // eslint-disable-next-line sonarjs/no-nested-functions
-              (...args) => {
+            : (...args) => {
                 // Non-mutating array methods that iterate over all elements
                 trackAccess(owner, key);
                 trackAccess(self, ACCESS_ALL_SYMBOL);
@@ -651,7 +645,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
         }
       }
     },
-    // eslint-disable-next-line sonarjs/cognitive-complexity
+
     set(_, elementKey, value) {
       return maybeTransacting(owner._doc, () => {
         trackModification(self, elementKey);
@@ -661,7 +655,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           const yjsArray = getYjsArray();
           if (Number.isSafeInteger(newLength) && newLength >= 0) {
             if (newLength < backingArray.length) {
-              // eslint-disable-next-line sonarjs/no-nested-functions
               // Clear parent tracking for truncated items
               if (isChildField) {
                 for (const item of backingArray.slice(newLength)) {
@@ -802,7 +795,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
       trackAccess(owner, key);
       trackAccess(self, ACCESS_ALL_SYMBOL);
       return Reflect.ownKeys(target);
-    }
+    },
   });
   return self as T[] & ReadonlyField<T[]>;
 };

@@ -1,6 +1,7 @@
-import { type ConcretePlexusConstructor, PlexusModel } from "./PlexusModel";
-import { isPlexusEntity } from "./proxy-runtime-types";
+import { PlexusModel } from "./PlexusModel";
+import { isPlexusEntity, synthetic } from "./proxy-runtime-types";
 import { __untracked__, ACCESS_ALL_SYMBOL, trackAccess } from "./tracking";
+import invariant from "tiny-invariant";
 
 // Global clone transaction mapping for handling cycles and deduplication
 let cloneTransactionMapping: WeakMap<any, any> | null = null;
@@ -43,10 +44,11 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
     trackAccess(source, ACCESS_ALL_SYMBOL);
     // this is vital to not pass anything at all during that phase. we need to first register cloned entity
     // in cloneTransactionMapping, then assign values to solve circular dependencies
-    const clonedModel = new (source.constructor as ConcretePlexusConstructor)();
+    const clonedModel = source.constructor[synthetic]();
     // alternative concept to consider:
     // const clonedModel = new PlexusModel();
     // Reflect.setPrototypeOf(clonedModel, source.constructor) - may work better or solve some problems on weird cases
+    invariant(!cloneTransactionMapping.has(source), "???")
     cloneTransactionMapping.set(source, clonedModel);
     // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
     for (const [fieldKey, type] of Object.entries(source._schema)) {
@@ -67,20 +69,20 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
             break;
           case "child-list":
             clonedModel[fieldKey] = (fieldValue as any as any[]).map((item) =>
-              item instanceof PlexusModel ? item.clone() : item
+              item instanceof PlexusModel ? item.clone() : item,
             );
             break;
           case "child-set":
             clonedModel[fieldKey] = new Set(
-              [...(fieldValue as any as Set<any>)].map((item) => (item instanceof PlexusModel ? item.clone() : item))
+              [...(fieldValue as any as Set<any>)].map((item) => (item instanceof PlexusModel ? item.clone() : item)),
             );
             break;
           case "child-record":
             clonedModel[fieldKey] = Object.fromEntries(
               Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
                 key,
-                item instanceof PlexusModel ? item.clone() : item
-              ])
+                item instanceof PlexusModel ? item.clone() : item,
+              ]),
             );
             break;
         }
@@ -102,13 +104,13 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
               clonedModel[fieldKey] = Object.fromEntries(
                 Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
                   key,
-                  cloneTransactionMapping!.get(item) ?? item
-                ])
+                  cloneTransactionMapping!.get(item) ?? item,
+                ]),
               );
               break;
             case "set":
               clonedModel[fieldKey] = new Set(
-                [...(fieldValue as any as Set<any>)].map((item) => cloneTransactionMapping!.get(item) ?? item)
+                [...(fieldValue as any as Set<any>)].map((item) => cloneTransactionMapping!.get(item) ?? item),
               );
               break;
           }

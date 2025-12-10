@@ -2,7 +2,7 @@
 // This file has NO dependencies to avoid circular imports
 
 export class DefaultedMap<K, V> extends Map<K, V> {
-  constructor(private factory: (key: K) => V) {
+  constructor(private readonly factory: (key: K) => V) {
     super();
   }
 
@@ -15,7 +15,7 @@ export class DefaultedMap<K, V> extends Map<K, V> {
 }
 
 export class DefaultedWeakMap<K extends object, V> extends WeakMap<K, V> {
-  constructor(private factory: (key: K) => V) {
+  constructor(private readonly factory: (key: K) => V) {
     super();
   }
 

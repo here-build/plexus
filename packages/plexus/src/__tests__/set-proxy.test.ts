@@ -8,6 +8,7 @@ import { syncing } from "../decorators";
 import { Storageable } from "../proxy-runtime-types";
 import * as Y from "yjs";
 import { initTestPlexus } from "./test-plexus";
+import * as YJS_GLOBALS from "../YJS_GLOBALS";
 
 // Test model with a set field
 @syncing
@@ -201,7 +202,7 @@ describe("Set Proxy Implementation", () => {
       // Check that YJS arrays were created
       const yprojectFields = plexusDoc.getMap<Y.Map<Storageable>>("models");
       const entityId = root.uuid;
-      const tagsArray = yprojectFields.get(entityId)?.get("tags") as Y.Array<any>;
+      const tagsArray = yprojectFields.get(entityId)?.get(YJS_GLOBALS.models.recordFields.fields)?.get("tags") as Y.Array<any>;
 
       expect(tagsArray).toBeInstanceOf(Y.Array);
       expect(tagsArray.length).toBe(2);
@@ -230,7 +231,7 @@ describe("Set Proxy Implementation", () => {
       // Check YJS backing
       const yprojectFields = plexusDoc.getMap<Y.Map<Storageable>>("models");
       const entityId = root.uuid;
-      const tagsArray = yprojectFields.get(entityId)?.get("tags") as Y.Array<any>;
+      const tagsArray = yprojectFields.get(entityId)?.get("fields")?.get("tags") as Y.Array<any>;
       expect(tagsArray.length).toBe(2);
       expect(tagsArray.toArray()).toEqual(expect.arrayContaining(["tag1", "tag2"]));
     });

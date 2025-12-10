@@ -17,7 +17,7 @@ export { syncing } from "./decorators";
 
 // Built-in tracking system
 export * from "./tracking";
-export * from "./YJS_GLOBALS";
+export * as YJS_GLOBALS from "./YJS_GLOBALS";
 
 // Plexus document orchestration
 export * from "./Plexus";

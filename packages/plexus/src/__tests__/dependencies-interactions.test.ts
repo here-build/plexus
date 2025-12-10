@@ -137,12 +137,12 @@ describe("Dependencies Interactions with Plexus", () => {
     const models = rootDoc.getMap<Y.Map<any>>("models");
     const rootFields = models.get((root as any).uuid)!;
 
-    expect(rootFields.get("ref")).toEqual([depAEntityId, "depA"]);
-    expect(rootFields.get("depsRecord").get("a")).toEqual([
+    expect(rootFields.get("fields").get("ref")).toEqual([depAEntityId, "depA"]);
+    expect(rootFields.get("fields").get("depsRecord").get("a")).toEqual([
       depAEntityId,
       "depA",
     ]);
-    expect(rootFields.get("depsList").get(0)).toEqual([depBEntityId, "depB"]);
+    expect(rootFields.get("fields").get("depsList").get(0)).toEqual([depBEntityId, "depB"]);
   });
 
   it("supports multiple dependencies in the same root", () => {
@@ -155,7 +155,7 @@ describe("Dependencies Interactions with Plexus", () => {
 
     const models = rootDoc.getMap<Y.Map<any>>("models");
     const rootFields = models.get((root as any).uuid)!;
-    const arr = rootFields.get("depsList") as Y.Array<any>;
+    const arr = rootFields.get("fields").get("depsList") as Y.Array<any>;
 
     expect(arr.get(0)).toEqual([depAEntityId, "depA"]);
     expect(arr.get(1)).toEqual([depBEntityId, "depB"]);

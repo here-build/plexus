@@ -7,9 +7,9 @@ import { documentEntityCaches } from "./entity-cache";
 import { entityClasses } from "./globals";
 import { getDependencyDoc } from "./plexus-registry";
 import type { ConcretePlexusConstructor } from "./PlexusModel";
-import type { AllowedYJSValue, AllowedYValue } from "./proxy-runtime-types";
+import { AllowedYJSValue, AllowedYValue, synthetic } from "./proxy-runtime-types";
 import { isTupleReference } from "./utils";
-import { YJS_GLOBALS } from "./YJS_GLOBALS";
+import * as YJS_GLOBALS from "./YJS_GLOBALS";
 
 export const deref = (doc: Y.Doc, pointer: AllowedYValue | undefined): AllowedYJSValue => {
   if (pointer == null) {
@@ -38,13 +38,13 @@ export const deref = (doc: Y.Doc, pointer: AllowedYValue | undefined): AllowedYJ
   // Default to current project
 
   const targetType = doc
-    .getMap<Y.Map<AllowedYJSValue>>(YJS_GLOBALS.models)
+    .getMap<Y.Map<AllowedYJSValue>>(YJS_GLOBALS.models.key)
     ?.get(targetEntityId)
-    ?.get(YJS_GLOBALS.modelMetadataType) as string;
+    ?.get(YJS_GLOBALS.models.recordFields.type) as string;
   invariant(targetType, `missing type for ${targetEntityId}`);
 
   const constructor = entityClasses.get(targetType) as ConcretePlexusConstructor;
   invariant(constructor, `missing constructor ${targetType} for ${targetEntityId}`);
 
-  return documentEntityCaches.get(doc).get(targetEntityId)?.deref() ?? new constructor([targetEntityId, doc]);
+  return documentEntityCaches.get(doc).get(targetEntityId)?.deref() ?? constructor[synthetic](targetEntityId, doc);
 };

@@ -1,7 +1,7 @@
 import * as Y from "yjs";
 import { DependencyId, DependencyVersion, Plexus } from "../Plexus";
 import { referenceSymbol } from "../proxy-runtime-types";
-import { YJS_GLOBALS } from "../YJS_GLOBALS";
+import * as YJS_GLOBALS from "../YJS_GLOBALS";
 import { PlexusModel } from "../PlexusModel";
 import { nanoid } from "nanoid";
 
@@ -19,9 +19,6 @@ export class TestPlexus<
         }
     )
 > extends Plexus<Root> {
-  protected createDefaultRoot(): Root {
-    return null as any;
-  }
   private availableDependencies: Map<string, () => Promise<Y.Doc>> = new Map(); // For dynamic dependency creation
 
   constructor(
@@ -54,8 +51,8 @@ export class TestPlexus<
 
     // Always ensure the dependency doc has the correct documentId for cross-doc references
     // This overrides whatever default was set during initialization
-    const metadata = depDoc.getMap(YJS_GLOBALS.metadataMap);
-    metadata.set(YJS_GLOBALS.metadataMapFields.documentId, dependencyId);
+    const metadata = depDoc.getMap(YJS_GLOBALS.metadata.key);
+    metadata.set(YJS_GLOBALS.metadata.wellKnown.documentId, dependencyId);
 
     return depDoc;
   }
@@ -100,9 +97,9 @@ export async function initTestPlexus<
   rootEntity[referenceSymbol](doc);
 
   // Set up metadata
-  const metadata = doc.getMap(YJS_GLOBALS.metadataMap);
+  const metadata = doc.getMap(YJS_GLOBALS.metadata.key);
   metadata.set(
-    YJS_GLOBALS.metadataMapFields.documentId,
+    YJS_GLOBALS.metadata.wellKnown.documentId,
     documentId ?? nanoid(),
   );
 

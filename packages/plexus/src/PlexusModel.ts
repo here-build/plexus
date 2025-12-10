@@ -46,25 +46,35 @@ export type ConcretePlexusConstructor<T extends PlexusModel = PlexusModel> = (ne
 };
 type Initializer<T extends PlexusModel> = [entityId: string, doc: Y.Doc];
 
-let currentlyEmancipating = new WeakSet<PlexusModel>();
+const currentlyEmancipating = new WeakSet<PlexusModel>();
+
+// Helper type to detect if a property is readonly (getter)
+type IfEquals<X, Y, A, B> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B;
+type WritableKeys<T> = {
+  [P in keyof T]: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P, never>;
+}[keyof T];
 
 export type PlexusInit<T extends PlexusModel> = {
   [key in keyof T as key extends keyof PlexusModel
     ? never
-    : T[key] extends AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList
-      ? key
-      : T[key] extends AllowedYJSValue
-        ? null extends T[key]
-          ? key
+    : key extends WritableKeys<T>
+      ? T[key] extends AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList
+        ? key
+        : T[key] extends AllowedYJSValue
+          ? null extends T[key]
+            ? key
+            : never
           : never
-        : never]?: T[key];
+      : never]?: T[key];
 } & {
   [key in keyof T as key extends keyof PlexusModel
     ? never
-    : T[key] extends AllowedYJSValue
-      ? null extends T[key]
-        ? never
-        : key
+    : key extends WritableKeys<T>
+      ? T[key] extends AllowedYJSValue
+        ? null extends T[key]
+          ? never
+          : key
+        : never
       : never]: T[key];
 };
 
@@ -176,7 +186,10 @@ export abstract class PlexusModel {
     field: string,
     extraFieldMetadata?: string
   ) {
-    invariant(this._uuid !== "root" || (newParent as PlexusModel) === this, "Root entity cannot have a parent");
+    invariant(
+      this._uuid !== YJS_GLOBALS.rootUUID || (newParent as PlexusModel) === this,
+      "Root entity cannot have a parent"
+    );
 
     if (
       this.#runtimeParent === newParent &&
@@ -312,10 +325,7 @@ export abstract class PlexusModel {
   }
 
   [referenceSymbol](doc: Y.Doc): ReferenceTuple {
-    invariant(
-      docPlexus.has(doc),
-      "passed doc is not registered as legitimate Plexus root",
-    );
+    invariant(docPlexus.has(doc), "passed doc is not registered as legitimate Plexus root");
     // this is needed explicitly in that manner for cyclic dependencies.
     // It will never cause cross-doc issues as we only materialize root doc entities.
     // Lucky for us, Plexus is doing not structural but reference equivalence - so we can safely assume that returning pointer will do nothing wrong.
@@ -323,9 +333,7 @@ export abstract class PlexusModel {
       if (doc !== this._yjsModel.doc) {
         const documentId = this._yjsModel.doc
           .getMap(YJS_GLOBALS.metadataMap)
-          ?.get(YJS_GLOBALS.metadataMapFields.documentId) as
-          | DependencyId
-          | undefined;
+          ?.get(YJS_GLOBALS.metadataMapFields.documentId) as DependencyId | undefined;
         invariant(documentId, "cannot cross-reference between docs");
         return [this.uuid, documentId];
       }
@@ -334,9 +342,7 @@ export abstract class PlexusModel {
     const boundMaybeReference = curryMaybeReference(doc);
     // eslint-disable-next-line sonarjs/no-nested-functions
     return maybeTransacting(doc, () => {
-      const yprojectObjectInstances = doc.getMap<Y.Map<Storageable>>(
-        YJS_GLOBALS.models,
-      );
+      const yprojectObjectInstances = doc.getMap<Y.Map<Storageable>>(YJS_GLOBALS.models);
       // technically, it should not happen at all (as _yjsModel presence is basically equivalent to representation
       // in YJS_GLOBALS.models - but there may be weird edge cases like class rehydration, so better to handle
       // explicitly
@@ -345,29 +351,18 @@ export abstract class PlexusModel {
       if (!yprojectObjectInstanceFields) {
         yprojectObjectInstanceFields = new Y.Map<Storageable>();
         yprojectObjectInstances.set(this.uuid, yprojectObjectInstanceFields);
-        yprojectObjectInstanceFields.set(
-          YJS_GLOBALS.modelMetadataType,
-          this.#type,
-        );
+        yprojectObjectInstanceFields.set(YJS_GLOBALS.modelMetadataType, this.#type);
         if (this.#runtimeParent) {
           const parentReference = this.#runtimeParent[referenceSymbol](doc);
-          (
-            yprojectObjectInstanceFields as Y.Map<any> as Y.Map<ParentReference>
-          ).set(
+          (yprojectObjectInstanceFields as Y.Map<any> as Y.Map<ParentReference>).set(
             YJS_GLOBALS.modelMetadataParent,
             this.#runtimeParentMetadata
-              ? [
-                  parentReference[0],
-                  this.#runtimeParentKey!,
-                  this.#runtimeParentMetadata,
-                ]
-              : [parentReference[0], this.#runtimeParentKey!],
+              ? [parentReference[0], this.#runtimeParentKey!, this.#runtimeParentMetadata]
+              : [parentReference[0], this.#runtimeParentKey!]
           );
         }
         if (this._uuid) {
-          documentEntityCaches
-            .get(doc)
-            .set(this._uuid, new WeakRef<PlexusModel>(this));
+          documentEntityCaches.get(doc).set(this._uuid, new WeakRef<PlexusModel>(this));
         }
         // it should be placed before schema iteration to avoid circular self-reference issues
         this._yjsModel = yprojectObjectInstanceFields;
@@ -378,9 +373,7 @@ export abstract class PlexusModel {
           case "child-val":
             yprojectObjectInstanceFields.set(
               schemaKey,
-              boundMaybeReference(
-                this[backingStorageSymbol].get(schemaKey) as AllowedYJSValue,
-              ),
+              boundMaybeReference(this[backingStorageSymbol].get(schemaKey) as AllowedYJSValue)
             );
             break;
           case "list":
@@ -391,11 +384,8 @@ export abstract class PlexusModel {
               Y.Array.from(
                 // @ts-expect-error todo (maybe report to yjs?) - type issue: yjs Array.from not supporting boolean
                 // Convert sparse arrays to dense arrays (holes become null)
-                Array.from<AllowedYJSValue, AllowedYValue>(
-                  this[schemaKey],
-                  boundMaybeReference,
-                ),
-              ),
+                Array.from<AllowedYJSValue, AllowedYValue>(this[schemaKey], boundMaybeReference)
+              )
             );
             break;
           case "record":
@@ -403,13 +393,11 @@ export abstract class PlexusModel {
             yprojectObjectInstanceFields.set(
               schemaKey,
               new Y.Map<AllowedYValue | null>(
-                Object.entries(
-                  this[schemaKey] as Record<string, AllowedYJSValue>,
-                ).map(([recordKey, val]) => [
+                Object.entries(this[schemaKey] as Record<string, AllowedYJSValue>).map(([recordKey, val]) => [
                   recordKey,
-                  boundMaybeReference(val),
-                ]),
-              ),
+                  boundMaybeReference(val)
+                ])
+              )
             );
             break;
           case "set":
@@ -420,8 +408,8 @@ export abstract class PlexusModel {
               Y.Array.from(
                 // Convert Set to array while mapping references
                 // @ts-expect-error todo (maybe report to yjs?) - type issue: yjs Array.from not supporting boolean
-                Array.from(this[schemaKey], boundMaybeReference),
-              ),
+                Array.from(this[schemaKey], boundMaybeReference)
+              )
             );
             break;
           default:
@@ -429,9 +417,7 @@ export abstract class PlexusModel {
         }
       }
       this.#bootstrapYjsObservation();
-      documentEntityCaches
-        .get(doc)
-        .set(this.uuid, new WeakRef<PlexusModel>(this));
+      documentEntityCaches.get(doc).set(this.uuid, new WeakRef<PlexusModel>(this));
       this._isWithinYjsModelSeed = false;
       return this.#reference;
     });

@@ -8,23 +8,21 @@
  * - Manages nested dependency loading
  */
 
-import * as Y from "yjs";
-import { PlexusModel } from "./PlexusModel";
-import { Plexus, DependencyId, DependencyVersion } from "./Plexus";
-import { YJS_GLOBALS } from "./YJS_GLOBALS";
-import { deref } from "./deref";
 import invariant from "tiny-invariant";
+import type * as Y from "yjs";
+
+import { deref } from "./deref";
+import type { DependencyId, DependencyVersion, Plexus } from "./Plexus";
+import type { PlexusModel } from "./PlexusModel";
+import { YJS_GLOBALS } from "./YJS_GLOBALS";
 
 export class SubPlexus<
   Root extends PlexusModel,
-  ParentPlexus extends Plexus<any, any, any, any> = Plexus<any, any, any, any>,
+  ParentPlexus extends Plexus<any, any, any, any> = Plexus<any, any, any, any>
 > {
-  private subDependencies = new Map<
-    DependencyId,
-    SubPlexus<any, ParentPlexus>
-  >();
-  private dependencyVersions = new Map<DependencyId, DependencyVersion>();
-  private resolvedVersion: DependencyVersion;
+  private readonly subDependencies = new Map<DependencyId, SubPlexus<any, ParentPlexus>>();
+  private readonly dependencyVersions = new Map<DependencyId, DependencyVersion>();
+  private readonly resolvedVersion: DependencyVersion;
   private isRootLoaded = false;
   public readonly rootPromise: Promise<Root>;
 
@@ -33,7 +31,7 @@ export class SubPlexus<
     public readonly dependencyId: DependencyId,
     public readonly requestedVersion: DependencyVersion,
     public readonly parentPlexus: ParentPlexus,
-    public readonly rootPlexus: Plexus<any, any, any, any>,
+    public readonly rootPlexus: Plexus<any, any, any, any>
   ) {
     // Get the actual resolved version from the doc
     this.resolvedVersion = this.getResolvedVersion();
@@ -51,21 +49,18 @@ export class SubPlexus<
     // Register this SubPlexus with its resolved version
     rootPlexus.globalDependencyRegistry.set(registryKey, {
       doc,
-      plexus: this as any,
+      plexus: this as any
     });
 
     // Load root entity and sub-dependencies
+    // eslint-disable-next-line sonarjs/no-async-constructor
     this.rootPromise = Promise.resolve().then(() => this.loadRoot());
   }
 
   private getResolvedVersion(): DependencyVersion {
     // Get the actual version from doc metadata (this is what was actually loaded)
     const metadata = this.doc.getMap(YJS_GLOBALS.metadataMap);
-    return (
-      (metadata.get(
-        YJS_GLOBALS.metadataMapFields.version,
-      ) as DependencyVersion) || this.requestedVersion
-    );
+    return (metadata.get(YJS_GLOBALS.metadataMapFields.version) as DependencyVersion) || this.requestedVersion;
   }
 
   private getRegistryKey(): string {
@@ -74,35 +69,23 @@ export class SubPlexus<
   }
 
   private async loadRoot(): Promise<Root> {
-    const rootModel = this.doc
-      .getMap<Y.Map<any>>(YJS_GLOBALS.models)
-      .get("root");
-    invariant(
-      rootModel,
-      `SubPlexus: missing root model for dependency ${this.dependencyId}`,
-    );
+    const rootModel = this.doc.getMap<Y.Map<any>>(YJS_GLOBALS.models).get(YJS_GLOBALS.rootUUID);
+    invariant(rootModel, `SubPlexus: missing root model for dependency ${this.dependencyId}`);
 
     // Load sub-dependencies if they exist (no observation - dependencies are immutable)
-    const depVersions = rootModel.get("dependencyVersion") as
-      | Record<DependencyId, DependencyVersion>
-      | undefined;
+    const depVersions = rootModel.get("dependencyVersion") as Record<DependencyId, DependencyVersion> | undefined;
     if (depVersions) {
       await this.loadSubDependencies(depVersions);
     }
 
     // Return the root entity (will be materialized by parent's resolver)
-    const root = deref(this.doc, ["root"]) as Root;
+    const root = deref(this.doc, [YJS_GLOBALS.rootUUID]) as Root;
     this.isRootLoaded = true;
     return root;
   }
 
-  private async loadSubDependencies(
-    depVersions: Record<DependencyId, DependencyVersion>,
-  ) {
-    const deps = Object.entries(depVersions) as [
-      DependencyId,
-      DependencyVersion,
-    ][];
+  private async loadSubDependencies(depVersions: Record<DependencyId, DependencyVersion>) {
+    const deps = Object.entries(depVersions) as [DependencyId, DependencyVersion][];
 
     // Load all sub-dependencies in parallel
     await Promise.all(
@@ -112,39 +95,24 @@ export class SubPlexus<
 
         // First, ask root to fetch the dependency doc
         // The fetchDependency might resolve version (e.g. "latest" -> "1.2.3")
-        const depDoc = await this.rootPlexus.fetchDependency(
-          depId,
-          requestedVersion,
-        );
+        const depDoc = await this.rootPlexus.fetchDependency(depId, requestedVersion);
 
         // Check the actual resolved version from the loaded doc
         const depMetadata = depDoc.getMap(YJS_GLOBALS.metadataMap);
         const resolvedVersion =
-          (depMetadata.get(
-            YJS_GLOBALS.metadataMapFields.version,
-          ) as DependencyVersion) || requestedVersion;
+          (depMetadata.get(YJS_GLOBALS.metadataMapFields.version) as DependencyVersion) || requestedVersion;
 
         // Check if this exact version is already loaded globally
         const registryKey = `${depId}@${resolvedVersion}`;
-        const existing =
-          this.rootPlexus.globalDependencyRegistry.get(registryKey);
+        const existing = this.rootPlexus.globalDependencyRegistry.get(registryKey);
 
         if (existing) {
           // Reuse existing SubPlexus
-          this.subDependencies.set(
-            depId,
-            existing.plexus as SubPlexus<any, ParentPlexus>,
-          );
+          this.subDependencies.set(depId, existing.plexus as SubPlexus<any, ParentPlexus>);
           this.dependencyVersions.set(depId, resolvedVersion);
         } else {
           // Create new SubPlexus for this dependency
-          const subPlexus = new SubPlexus(
-            depDoc,
-            depId,
-            requestedVersion,
-            this.parentPlexus,
-            this.rootPlexus,
-          );
+          const subPlexus = new SubPlexus(depDoc, depId, requestedVersion, this.parentPlexus, this.rootPlexus);
 
           this.subDependencies.set(depId, subPlexus);
           this.dependencyVersions.set(depId, resolvedVersion);
@@ -152,16 +120,14 @@ export class SubPlexus<
           // Wait for it to load its own dependencies
           await subPlexus.rootPromise;
         }
-      }),
+      })
     );
   }
 
   /**
    * Get a sub-dependency's SubPlexus
    */
-  getSubDependency(
-    dependencyId: DependencyId,
-  ): SubPlexus<any, ParentPlexus> | undefined {
+  getSubDependency(dependencyId: DependencyId): SubPlexus<any, ParentPlexus> | undefined {
     return this.subDependencies.get(dependencyId);
   }
 
@@ -181,7 +147,7 @@ export class SubPlexus<
   } {
     return {
       requested: this.requestedVersion,
-      resolved: this.resolvedVersion,
+      resolved: this.resolvedVersion
     };
   }
 }

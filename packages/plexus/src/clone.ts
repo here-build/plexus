@@ -1,6 +1,6 @@
+import { type ConcretePlexusConstructor, PlexusModel } from "./PlexusModel";
 import { isPlexusEntity } from "./proxy-runtime-types";
 import { __untracked__, ACCESS_ALL_SYMBOL, trackAccess } from "./tracking";
-import { type ConcretePlexusConstructor, PlexusModel } from "./PlexusModel";
 
 // Global clone transaction mapping for handling cycles and deduplication
 let cloneTransactionMapping: WeakMap<any, any> | null = null;
@@ -50,46 +50,37 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
     cloneTransactionMapping.set(source, clonedModel);
     // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
     for (const [fieldKey, type] of Object.entries(source._schema)) {
-      const fieldValue =
-        fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
+      const fieldValue = fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
       if (fieldValue?.[isPlexusEntity]) {
         trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
       }
     }
     // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
     for (const [fieldKey, type] of Object.entries(source._schema)) {
-      const fieldValue =
-        fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
+      const fieldValue = fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
       __untracked__(() => {
         // we need to spawn children first to fill the tracking cache
         switch (type) {
           case "child-val":
-            const clonedValue =
-              fieldValue instanceof PlexusModel
-                ? fieldValue.clone()
-                : fieldValue;
+            const clonedValue = fieldValue instanceof PlexusModel ? fieldValue.clone() : fieldValue;
             clonedModel[fieldKey] = clonedValue;
             break;
           case "child-list":
             clonedModel[fieldKey] = (fieldValue as any as any[]).map((item) =>
-              item instanceof PlexusModel ? item.clone() : item,
+              item instanceof PlexusModel ? item.clone() : item
             );
             break;
           case "child-set":
             clonedModel[fieldKey] = new Set(
-              [...(fieldValue as any as Set<any>)].map((item) =>
-                item instanceof PlexusModel ? item.clone() : item,
-              ),
+              [...(fieldValue as any as Set<any>)].map((item) => (item instanceof PlexusModel ? item.clone() : item))
             );
             break;
           case "child-record":
             clonedModel[fieldKey] = Object.fromEntries(
-              Object.entries(fieldValue as Record<string, any>).map(
-                ([key, item]) => [
-                  key,
-                  item instanceof PlexusModel ? item.clone() : item,
-                ],
-              ),
+              Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
+                key,
+                item instanceof PlexusModel ? item.clone() : item
+              ])
             );
             break;
         }
@@ -98,34 +89,26 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
     postMappingFill.add(() => {
       // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
       for (const [fieldKey, type] of Object.entries(source._schema)) {
-        const fieldValue =
-          fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
+        const fieldValue = fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
         __untracked__(() => {
           switch (type) {
             case "val":
-              clonedModel[fieldKey] =
-                cloneTransactionMapping!.get(fieldValue) ?? fieldValue;
+              clonedModel[fieldKey] = cloneTransactionMapping!.get(fieldValue) ?? fieldValue;
               break;
             case "list":
-              clonedModel[fieldKey] = (fieldValue as any[]).map(
-                (item) => cloneTransactionMapping!.get(item) ?? item,
-              );
+              clonedModel[fieldKey] = (fieldValue as any[]).map((item) => cloneTransactionMapping!.get(item) ?? item);
               break;
             case "record":
               clonedModel[fieldKey] = Object.fromEntries(
-                Object.entries(fieldValue as Record<string, any>).map(
-                  ([key, item]) => [
-                    key,
-                    cloneTransactionMapping!.get(item) ?? item,
-                  ],
-                ),
+                Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
+                  key,
+                  cloneTransactionMapping!.get(item) ?? item
+                ])
               );
               break;
             case "set":
               clonedModel[fieldKey] = new Set(
-                [...(fieldValue as any as Set<any>)].map(
-                  (item) => cloneTransactionMapping!.get(item) ?? item,
-                ),
+                [...(fieldValue as any as Set<any>)].map((item) => cloneTransactionMapping!.get(item) ?? item)
               );
               break;
           }

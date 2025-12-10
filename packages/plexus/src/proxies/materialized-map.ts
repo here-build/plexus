@@ -1,19 +1,17 @@
-import * as Y from "yjs";
+import type * as Y from "yjs";
+
+import { deref } from "../deref";
+import { undoManagerNotifications } from "../Plexus";
+import type { PlexusModel } from "../PlexusModel";
+import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types";
 import {
-  AllowedYJSValue,
-  AllowedYValue,
   informOrphanizationSymbol,
   materializationSymbol,
-  ReadonlyField,
   requestAdoptionSymbol,
   requestOrphanizationSymbol
 } from "../proxy-runtime-types";
-import { maybeReference, maybeTransacting } from "../utils";
 import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking";
-import { YJS_GLOBALS } from "../YJS_GLOBALS";
-import { PlexusModel } from "../PlexusModel";
-import { deref } from "../deref";
-import { undoManagerNotifications } from "../Plexus";
+import { maybeReference, maybeTransacting } from "../utils";
 
 export type MaterializedRecordProxyInitTarget = {
   owner: PlexusModel;
@@ -27,40 +25,32 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
   isChildField
 }: MaterializedRecordProxyInitTarget) => {
   const getYjsMap = () => owner._yjsModel?.get(key) as Y.Map<AllowedYValue> | null;
-  let backingStorage: Record<string, T> = {};
+  const backingStorage: Record<string, T> = {};
   const observer = (event: Y.YMapEvent<AllowedYValue>) => {
     const map = getYjsMap();
     if (event.target !== map) {
       return;
     }
     for (const key of event.keysChanged) {
-      if (!map.has(key)) {
-        delete backingStorage[key];
-      } else {
+      if (map.has(key)) {
         backingStorage[key] = owner._deref(map.get(key)!) as T;
+      } else {
+        delete backingStorage[key];
       }
       trackModification(self, key);
     }
     trackModification(self, ACCESS_INDICES_SET_SYMBOL);
   };
-  const map = getYjsMap();
+  {
+    const map = getYjsMap();
 
-  map?.observe(observer);
-
-  // Register for undo notifications
-  if (map) {
-    undoManagerNotifications.set(map, observer);
+    // Register for undo notifications
+    if (map) {
+      map.observe(observer);
+      undoManagerNotifications.set(map, observer);
+      Object.assign(backingStorage, map.toJSON());
+    }
   }
-
-  if (map) {
-    const {
-      [YJS_GLOBALS.modelMetadataType]: _type,
-      [YJS_GLOBALS.modelMetadataParent]: _parent,
-      ...model
-    } = map.toJSON();
-    Object.assign(backingStorage, model);
-  }
-
   // We still need to track proxy target state even when we're materialized as it's important for property descriptors.
   // We cannot do dynamic proxy for them so we have to control it directly. Some decisions will look weird without that fact.
   const self = new Proxy(backingStorage, {
@@ -107,9 +97,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
                 return;
               }
               // Record object
-              for (const [k, v] of Symbol.iterator in Object(newEntries)
-                ? (newEntries as Iterable<[string, T]>)
-                : Object.entries(newEntries as Record<string, T>)) {
+              for (const [k, v] of Symbol.iterator in newEntries ? newEntries : Object.entries(newEntries)) {
                 if (isChildField) {
                   v?.[requestAdoptionSymbol]?.(owner, key, k);
                 }
@@ -130,8 +118,9 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
           };
       }
 
-      // Well-known Symbol support for record/map
+      // Well-known Symbol support for record/map - intentionally preserved as switch to represent flat routing
       if (typeof elementKey === "symbol") {
+        // eslint-disable-next-line sonarjs/no-small-switch
         switch (elementKey) {
           case Symbol.toStringTag:
             return "Object";
@@ -173,19 +162,19 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
             // Handle parent tracking for child fields. Clear parent tracking for old value if it exists
             proxyTarget[elementKey]?.[requestOrphanizationSymbol]?.();
           }
-          if (value != null) {
-            proxyTarget[elementKey] = value;
-          } else {
+          if (value == null) {
             delete proxyTarget[elementKey];
+          } else {
+            proxyTarget[elementKey] = value;
           }
           if (isChildField) {
             // Update parent tracking for new value
             value?.[requestAdoptionSymbol]?.(owner, key, elementKey);
           }
-          if (value != null) {
-            getYjsMap()?.set(elementKey, maybeReference(value, owner._doc!));
-          } else {
+          if (value == null) {
             getYjsMap()?.delete(elementKey);
+          } else {
+            getYjsMap()?.set(elementKey, maybeReference(value, owner._doc!));
           }
         });
         return true;

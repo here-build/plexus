@@ -1,19 +1,19 @@
-import { PlexusConstructor, PlexusModel } from "./PlexusModel";
+import invariant from "tiny-invariant";
+
+import { entityClasses } from "./globals";
+import type { PlexusConstructor, PlexusModel } from "./PlexusModel";
+import { buildArrayProxy } from "./proxies/materialized-array";
+import { buildRecordProxy } from "./proxies/materialized-map";
+import { buildSetProxy } from "./proxies/materialized-set";
+import type { AllowedYJSValue, GenericRecordSchema } from "./proxy-runtime-types";
 import {
-  AllowedYJSValue,
   backingStorageSymbol,
-  GenericRecordSchema,
   informAdoptionSymbol,
   requestEmancipationSymbol,
   requestOrphanizationSymbol
 } from "./proxy-runtime-types";
-import invariant from "tiny-invariant";
-import { entityClasses } from "./globals";
 import { __untracked__, trackAccess, trackModification } from "./tracking";
 import { DefaultedMap, DefaultedWeakMap, maybeReference, maybeTransacting } from "./utils";
-import { buildRecordProxy } from "./proxies/materialized-map";
-import { buildSetProxy } from "./proxies/materialized-set";
-import { buildArrayProxy } from "./proxies/materialized-array";
 
 const argsAreClassDecoratorArgs = <Model extends PlexusModel, T extends AllowedYJSValue>(
   args:
@@ -65,10 +65,7 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
       for (const key in context.metadata.schema) {
         target.schema[key] = context.metadata.schema[key];
       }
-    invariant(
-      !entityClasses.has(target.modelName),
-      `Plexus class name ${target.modelName} is non-unique`,
-    );
+      invariant(!entityClasses.has(target.modelName), `Plexus class name ${target.modelName} is non-unique`);
       entityClasses.set(target.modelName, target);
     });
     return target;
@@ -334,22 +331,18 @@ const createHandlers = <
              */
             if (this._yjsModel && !this._isWithinYjsModelSeed) {
               const reflectedValue =
-                this._initializationState[context.name] !== undefined
-                  ? this._initializationState[context.name]
-                  : this[context.name];
+                this._initializationState[context.name] === undefined
+                  ? this[context.name]
+                  : this._initializationState[context.name];
               setter(context, this, reflectedValue);
               return reflectedValue;
             }
             const actualValue =
-              this._initializationState[context.name] !== undefined ? this._initializationState[context.name] : value;
-            setter(
-              context as any,
-              this,
-              actualValue as Extract<T, AllowedYJSValue>,
-            );
+              this._initializationState[context.name] === undefined ? value : this._initializationState[context.name];
+            setter(context as any, this, actualValue as Extract<T, AllowedYJSValue>);
             return actualValue;
           }
-          default:
+          default: {
             /**
              * we must return something, so to avoid code duplication we just redirect init() to get() who does actual logic.
              */
@@ -364,9 +357,10 @@ const createHandlers = <
             }
             // this technically goes to accessor private backing field - but we actually do not care a lot about that
             return actualValue;
+          }
         }
       });
-    },
+    }
   };
 };
 

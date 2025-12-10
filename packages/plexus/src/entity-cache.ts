@@ -1,9 +1,10 @@
-import * as Y from "yjs";
+import type * as Y from "yjs";
+
 import type { PlexusModel } from "./PlexusModel";
 
 // we have to duplicate that class because of bundling bugs producing effectively circular imports
 export class DefaultedWeakMap<K extends object, V> extends WeakMap<K, V> {
-  constructor(private factory: (key: K) => V) {
+  constructor(private readonly factory: (key: K) => V) {
     super();
   }
 

@@ -1,4 +1,4 @@
-import { PlexusConstructor } from "./PlexusModel";
+import type { PlexusConstructor } from "./PlexusModel";
 
 export const entityClasses = new Map<string, PlexusConstructor>();
 export const mutableArrayMethods = new Set<symbol | string>([

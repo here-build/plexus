@@ -2,12 +2,12 @@
  * Test to verify that Y.UndoManager operations trigger plexus tracking system
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { createTrackedFunction } from "../tracking";
-import { Plexus } from "../Plexus";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
+import { createTrackedFunction } from "../tracking.js";
+import { Plexus } from "../Plexus.js";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
 
 @syncing
 class TestModel extends PlexusModel {
@@ -45,7 +45,7 @@ describe("Y.UndoManager tracking", () => {
       () => {
         // Access the field to register interest
         return root.name;
-      }
+      },
     );
 
     // Initial run
@@ -74,7 +74,7 @@ describe("Y.UndoManager tracking", () => {
       () => {
         // Access the field to register interest
         return root.name;
-      }
+      },
     );
 
     // Initial run to establish tracking
@@ -122,7 +122,7 @@ describe("Y.UndoManager tracking", () => {
       },
       () => {
         return root.name;
-      }
+      },
     );
 
     // Initial run
@@ -173,14 +173,14 @@ describe("Y.UndoManager tracking", () => {
       () => {
         nameNotifications++;
       },
-      () => root.name
+      () => root.name,
     );
 
     const trackedCountFn = createTrackedFunction(
       () => {
         countNotifications++;
       },
-      () => root.count
+      () => root.count,
     );
 
     // Initial runs

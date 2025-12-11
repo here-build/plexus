@@ -47,7 +47,7 @@ export class MemoryProfiler {
       endTime: 0,
       peakHeapUsed: startSnapshot.heapUsed,
       heapGrowth: 0,
-      averageHeapUsed: 0
+      averageHeapUsed: 0,
     };
 
     // Take periodic snapshots
@@ -105,7 +105,7 @@ export class MemoryProfiler {
       heapTotal: memUsage.heapTotal,
       external: memUsage.external,
       rss: memUsage.rss,
-      arrayBuffers: memUsage.arrayBuffers
+      arrayBuffers: memUsage.arrayBuffers,
     };
   }
 
@@ -245,7 +245,7 @@ export class MemoryTester {
       samplingInterval?: number;
       forceGCBefore?: boolean;
       forceGCAfter?: boolean;
-    } = {}
+    } = {},
   ): Promise<{ result: T; profile: MemoryProfile }> {
     const { warmupRuns = 3, samplingInterval = 10, forceGCBefore = true, forceGCAfter = true } = options;
 
@@ -282,7 +282,7 @@ export class MemoryTester {
     options: {
       runs?: number;
       samplingInterval?: number;
-    } = {}
+    } = {},
   ): Promise<{
     test1Results: Array<{ result: T1; profile: MemoryProfile }>;
     test2Results: Array<{ result: T2; profile: MemoryProfile }>;
@@ -312,11 +312,11 @@ export class MemoryTester {
     // Calculate average profiles
     const avgProfile1 = this.calculateAverageProfile(
       test1Name,
-      test1Results.map((r) => r.profile)
+      test1Results.map((r) => r.profile),
     );
     const avgProfile2 = this.calculateAverageProfile(
       test2Name,
-      test2Results.map((r) => r.profile)
+      test2Results.map((r) => r.profile),
     );
 
     const comparison = this.profiler.compareProfiles(avgProfile1, avgProfile2);
@@ -324,7 +324,7 @@ export class MemoryTester {
     return {
       test1Results,
       test2Results,
-      comparison
+      comparison,
     };
   }
 
@@ -340,7 +340,7 @@ export class MemoryTester {
       endTime: 0,
       peakHeapUsed: avgPeakHeap,
       heapGrowth: avgHeapGrowth,
-      averageHeapUsed: avgAverageHeap
+      averageHeapUsed: avgAverageHeap,
     };
   }
 }

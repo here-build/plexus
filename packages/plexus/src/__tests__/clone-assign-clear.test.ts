@@ -3,9 +3,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { createTrackedFunction } from "../tracking";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { createTrackedFunction } from "../tracking.js";
 import * as Y from "yjs";
 
 // Test models for comprehensive testing
@@ -16,10 +16,6 @@ class TestComponent extends PlexusModel {
 
   @syncing
   accessor version!: number;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -44,10 +40,6 @@ class TestModel extends PlexusModel {
 
   @syncing.set
   accessor references!: Set<TestComponent>;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -80,7 +72,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: [],
         tags: new Set(),
         metadata: {},
-        references: new Set()
+        references: new Set(),
       });
 
       const cloned = original.clone();
@@ -94,7 +86,7 @@ describe("clone(), assign(), clear() methods", () => {
         value: 42,
         component: null,
         items: [],
-        metadata: {}
+        metadata: {},
       });
       expect([...cloned.tags]).toEqual([]);
       expect([...cloned.references]).toEqual([]);
@@ -111,7 +103,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: ["a", "b", "c"],
         tags: new Set(["tag1", "tag2"]),
         metadata: { key1: "value1", key2: "value2" },
-        references: new Set([comp1, comp2])
+        references: new Set([comp1, comp2]),
       });
 
       const cloned = original.clone();
@@ -125,7 +117,7 @@ describe("clone(), assign(), clear() methods", () => {
       // But contain same elements
       expect(cloned).toMatchObject({
         items: ["a", "b", "c"],
-        metadata: { key1: "value1", key2: "value2" }
+        metadata: { key1: "value1", key2: "value2" },
       });
       expect([...cloned.tags]).toEqual(expect.arrayContaining(["tag1", "tag2"]));
       expect([...cloned.references]).toEqual(expect.arrayContaining([comp1, comp2]));
@@ -141,7 +133,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: [],
         tags: new Set(),
         metadata: {},
-        references: new Set([comp])
+        references: new Set([comp]),
       });
 
       const cloned = original.clone();
@@ -164,7 +156,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: ["a", "b"],
         tags: new Set(["tag1"]),
         metadata: { key: "value" },
-        references: new Set()
+        references: new Set(),
       });
 
       const notifyChanges = vi.fn();
@@ -185,13 +177,13 @@ describe("clone(), assign(), clear() methods", () => {
       const field = new TestComponent({});
       const parent = new EdgeCaseParent({
         value: new EdgeCaseChild({
-          field
+          field,
         }),
-        field
+        field,
       }).clone();
       expect(parent.field).not.toBe(field);
       expect(parent.field).toBe(parent.value.field);
-    })
+    });
   });
 
   describe("array.assign() method", () => {
@@ -203,7 +195,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: ["old1", "old2", "old3"],
         tags: new Set(),
         metadata: {},
-        references: new Set()
+        references: new Set(),
       });
 
       const newItems = ["new1", "new2"];
@@ -223,7 +215,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: ["item1", "item2"],
         tags: new Set(),
         metadata: {},
-        references: new Set()
+        references: new Set(),
       });
 
       model.items = [];
@@ -239,7 +231,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: ["old"],
         tags: new Set(),
         metadata: {},
-        references: new Set()
+        references: new Set(),
       });
 
       const notifyChanges = vi.fn();
@@ -264,7 +256,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: [],
         tags: new Set(["old1", "old2"]),
         metadata: {},
-        references: new Set()
+        references: new Set(),
       });
 
       model.tags = new Set(["new1", "new2", "new3"]);
@@ -280,7 +272,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: [],
         tags: new Set(["old"]),
         metadata: {},
-        references: new Set()
+        references: new Set(),
       });
 
       model.tags = new Set(["new1", "new2", "new1", "new2"]);
@@ -300,7 +292,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: [],
         tags: new Set(),
         metadata: {},
-        references: new Set([comp1])
+        references: new Set([comp1]),
       });
 
       model.references = new Set([comp2, comp3]);
@@ -320,7 +312,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: [],
         tags: new Set(),
         metadata: { old1: "value1", old2: "value2" },
-        references: new Set()
+        references: new Set(),
       });
 
       model.metadata = { new1: "newValue1", new2: "newValue2" };
@@ -337,7 +329,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: [],
         tags: new Set(),
         metadata: { existing: "value" },
-        references: new Set()
+        references: new Set(),
       });
 
       model.metadata = {};
@@ -355,7 +347,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: [],
         tags: new Set(["tag1", "tag2", "tag3"]),
         metadata: {},
-        references: new Set()
+        references: new Set(),
       });
 
       const result = model.tags.clear();
@@ -372,7 +364,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: [],
         tags: new Set(),
         metadata: { key1: "value1", key2: "value2" },
-        references: new Set()
+        references: new Set(),
       });
 
       model.metadata = {};
@@ -388,7 +380,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: [],
         tags: new Set(),
         metadata: {},
-        references: new Set()
+        references: new Set(),
       });
 
       expect(model.tags.clear()).toBe(undefined); // Native Set.clear() returns undefined
@@ -407,7 +399,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: ["item1", "item2"],
         tags: new Set(["tag1"]),
         metadata: { key: "value" },
-        references: new Set()
+        references: new Set(),
       });
 
       const cloned = original.clone();
@@ -436,7 +428,7 @@ describe("clone(), assign(), clear() methods", () => {
         items: ["old1", "old2"],
         tags: new Set(["oldTag1", "oldTag2"]),
         metadata: { oldKey1: "oldValue1", oldKey2: "oldValue2" },
-        references: new Set()
+        references: new Set(),
       });
 
       // Clear everything

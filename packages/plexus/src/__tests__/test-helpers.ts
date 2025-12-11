@@ -1,6 +1,5 @@
 import * as Y from "yjs";
-import * as YJS_GLOBALS from "../YJS_GLOBALS";
-
+import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
 
 export function primeDoc(doc: Y.Doc) {
   // Ensure base maps exist

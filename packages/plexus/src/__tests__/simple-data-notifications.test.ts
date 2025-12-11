@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { createTrackedFunction } from "../tracking";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { createTrackedFunction } from "../tracking.js";
 
 @syncing
 class TestModel extends PlexusModel {
@@ -10,10 +10,6 @@ class TestModel extends PlexusModel {
 
   @syncing
   accessor count!: number;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 describe("Simple Data Change Notifications", () => {
@@ -22,7 +18,7 @@ describe("Simple Data Change Notifications", () => {
   beforeEach(() => {
     obj = new TestModel({
       name: "test",
-      count: 5
+      count: 5,
     });
   });
 

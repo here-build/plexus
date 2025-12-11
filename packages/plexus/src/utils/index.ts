@@ -1,11 +1,11 @@
 import type * as Y from "yjs";
 
-import { PlexusModel } from "../PlexusModel"; // Re-export from defaulted-collections for backward compatibility
-import type { AllowedYJSValue, AllowedYValue, ReferenceTuple } from "../proxy-runtime-types";
-import { referenceSymbol } from "../proxy-runtime-types";
+import { PlexusModel } from "../PlexusModel.js"; // Re-export from defaulted-collections for backward compatibility
+import type { AllowedYJSValue, AllowedYValue, ReferenceTuple } from "../proxy-runtime-types.js";
+import { referenceSymbol } from "../proxy-runtime-types.js";
 
 // Re-export from defaulted-collections for backward compatibility
-export { DefaultedMap, DefaultedWeakMap } from "./defaulted-collections";
+export { DefaultedMap, DefaultedWeakMap } from "./defaulted-collections.js";
 
 export function never(value: never): never {
   debugger;

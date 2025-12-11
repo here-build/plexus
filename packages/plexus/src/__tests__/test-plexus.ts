@@ -1,8 +1,8 @@
 import * as Y from "yjs";
-import { DependencyId, DependencyVersion, Plexus } from "../Plexus";
-import { referenceSymbol } from "../proxy-runtime-types";
-import * as YJS_GLOBALS from "../YJS_GLOBALS";
-import { PlexusModel } from "../PlexusModel";
+import { DependencyId, DependencyVersion, Plexus } from "../Plexus.js";
+import { referenceSymbol } from "../proxy-runtime-types.js";
+import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
+import { PlexusModel } from "../PlexusModel.js";
 import { nanoid } from "nanoid";
 
 /**
@@ -17,13 +17,13 @@ export class TestPlexus<
           readonly dependencies: Set<PlexusModel>;
           readonly dependencyVersion: Record<DependencyId, DependencyVersion>;
         }
-    )
+    ),
 > extends Plexus<Root> {
   private availableDependencies: Map<string, () => Promise<Y.Doc>> = new Map(); // For dynamic dependency creation
 
   constructor(
     doc: Y.Doc,
-    private readonly dependencies: Record<string, Y.Doc> = {}
+    private readonly dependencies: Record<string, Y.Doc> = {},
   ) {
     super(doc);
   }
@@ -81,11 +81,11 @@ export async function initTestPlexus<
           readonly dependencies: Set<PlexusModel>;
           readonly dependencyVersion: Record<DependencyId, DependencyVersion>;
         }
-    )
+    ),
 >(
   rootEntity: Root,
   dependencies: Record<string, Y.Doc> = {},
-  documentId?: string
+  documentId?: string,
 ): Promise<{ doc: Y.Doc; plexus: TestPlexus<Root>; root: Root }> {
   const doc = new Y.Doc();
 
@@ -93,15 +93,12 @@ export async function initTestPlexus<
   const plexus = new TestPlexus<Root>(doc, dependencies);
 
   // Force root UUID and materialize
-  rootEntity._uuid = "root";
+  rootEntity.__internals__.uuid = "root";
   rootEntity[referenceSymbol](doc);
 
   // Set up metadata
   const metadata = doc.getMap(YJS_GLOBALS.metadata.key);
-  metadata.set(
-    YJS_GLOBALS.metadata.wellKnown.documentId,
-    documentId ?? nanoid(),
-  );
+  metadata.set(YJS_GLOBALS.metadata.wellKnown.documentId, documentId ?? nanoid());
 
   // Load the root through Plexus
   const root = await plexus.rootPromise;

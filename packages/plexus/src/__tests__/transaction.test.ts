@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
-import { Plexus } from "../Plexus";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { createTrackedFunction } from "../tracking";
-import { isTransacting, pendingNotifications } from "../utils";
-import { entityClasses } from "../globals";
+import { Plexus } from "../Plexus.js";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { createTrackedFunction } from "../tracking.js";
+import { isTransacting, pendingNotifications } from "../utils/index.js";
+import { entityClasses } from "../globals.js";
 
 // Test entity class
 @syncing

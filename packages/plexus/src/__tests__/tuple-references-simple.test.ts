@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { isTupleReference } from "../utils";
+import { isTupleReference } from "../utils/index.js";
 
 describe("Tuple Reference Format - Core Functionality", () => {
   it("should identify tuple references correctly", () => {
@@ -61,7 +61,7 @@ describe("Tuple Reference Format - Core Functionality", () => {
       tupleLocal: tupleLocalSize,
       tupleCross: tupleCrossSize,
       localSavings: `${Math.round((1 - tupleLocalSize / legacyLocalSize) * 100)}%`,
-      crossSavings: `${Math.round((1 - tupleCrossSize / legacyCrossSize) * 100)}%`
+      crossSavings: `${Math.round((1 - tupleCrossSize / legacyCrossSize) * 100)}%`,
     });
 
     // Tuple format should be more compact

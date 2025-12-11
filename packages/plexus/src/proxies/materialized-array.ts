@@ -1,17 +1,19 @@
 import type * as Y from "yjs";
 
-import { mutableArrayMethods } from "../globals";
-import { undoManagerNotifications } from "../Plexus";
-import type { PlexusModel } from "../PlexusModel";
-import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types";
+import { mutableArrayMethods } from "../globals.js";
+import { undoManagerNotifications } from "../Plexus.js";
+import { PlexusModel } from "../PlexusModel.js";
+import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import {
   informAdoptionSymbol,
   informOrphanizationSymbol,
   materializationSymbol,
   requestAdoptionSymbol,
-} from "../proxy-runtime-types";
-import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking";
-import { maybeReference, maybeTransacting } from "../utils";
+} from "../proxy-runtime-types.js";
+import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking.js";
+import { maybeReference, maybeTransacting } from "../utils/index.js";
+import invariant from "tiny-invariant";
+import { deref } from "../deref.js";
 
 /**
  * Important implementation nuances
@@ -104,7 +106,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
   isChildField,
 }: MaterializedArrayProxyInitTarget) => {
   const backingArray: Array<T | null> = [];
-  const getYjsArray = () => owner._yjsFields?.get(key) as Y.Array<AllowedYValue> | null;
+  const getYjsArray = () => owner.__yjsFieldsMap__?.get(key) as Y.Array<AllowedYValue> | null;
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
     const yjsArray = getYjsArray();
     if (event.target !== yjsArray) {
@@ -113,8 +115,9 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
     // todo narrowed observer event triggers
     // Update target array to maintain target-proxy parity for property descriptors
     if (yjsArray) {
+      invariant(yjsArray.doc, "terribly wrong state: observer triggered for Y.Array without doc");
       // we specifically need splice to keep pointer and thus make proxy working
-      backingArray.splice(0, backingArray.length, ...yjsArray.toArray().map((item) => owner._deref(item) as T));
+      backingArray.splice(0, backingArray.length, ...yjsArray.toArray().map((item) => deref<T>(yjsArray.doc!, item)));
     }
     trackModification(self, ACCESS_ALL_SYMBOL);
   };
@@ -151,29 +154,26 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           //
 
           return (...elements: Array<T>) =>
-            maybeTransacting(owner._doc, () => {
-              trackModification(self, ACCESS_ALL_SYMBOL);
+            maybeTransacting(owner.__doc__, () => {
               // Update parent tracking for child fields
               const reusedElements = new Set<T>();
               if (isChildField) {
                 // DUPLICATE VALIDATION: Prevent same child appearing multiple times in input
                 const seen = new Set<T>();
                 for (const element of elements) {
-                  if (element !== null && seen.has(element)) {
-                    throw new Error(
-                      "push cannot insert the same child multiple times, which would violate parent tracking semantics. " +
-                        "A child can only appear once in a parent's child array.",
+                  if (element instanceof PlexusModel) {
+                    invariant(
+                      !seen.has(element),
+                      `push cannot insert the same child multiple times, which would violate parent tracking semantics. A child can only appear once in a parent's child array.`,
                     );
-                  }
-                  if (element !== null) {
                     seen.add(element);
-                  }
 
-                  // REUSE DETECTION: Check if element already exists in array
-                  if (backingArray.includes(element)) {
-                    reusedElements.add(element);
+                    // REUSE DETECTION: Check if element already exists in array
+                    if (backingArray.includes(element)) {
+                      reusedElements.add(element);
+                    }
+                    element?.[requestAdoptionSymbol]?.(owner, key);
                   }
-                  element?.[requestAdoptionSymbol]?.(owner, key);
                 }
               }
 
@@ -182,13 +182,13 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 element?.[informAdoptionSymbol](owner, key);
               }
               const yjsArray = getYjsArray();
-              yjsArray?.push(elements.map((element) => maybeReference(element, owner._doc!)));
+              yjsArray?.push(elements.map((element) => maybeReference(element, owner.__doc__!)));
+              trackModification(self, ACCESS_ALL_SYMBOL);
               return backingArray.length;
             });
         case "unshift": // arr.unshift(entity) → yArray.unshift(entity.reference())
           return (...elements: Array<T>) =>
-            maybeTransacting(owner._doc, () => {
-              trackModification(self, ACCESS_ALL_SYMBOL);
+            maybeTransacting(owner.__doc__, () => {
               // Update parent tracking for child fields
               const reusedElements = new Set<T>();
               if (isChildField) {
@@ -217,14 +217,13 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 element?.[informAdoptionSymbol](owner, key);
               }
               const yjsArray = getYjsArray();
-              yjsArray?.unshift(elements.map((element) => maybeReference(element, owner._doc!)));
+              yjsArray?.unshift(elements.map((element) => maybeReference(element, owner.__doc__!)));
+              trackModification(self, ACCESS_ALL_SYMBOL);
               return backingArray.length;
             });
         case "splice": // arr.splice(index, deleteCount, ...items)
           return (start: number, deleteCount?: number, ...items: Array<T>) => {
-            return maybeTransacting(owner._doc, () => {
-              trackModification(self, ACCESS_ALL_SYMBOL);
-
+            return maybeTransacting(owner.__doc__, () => {
               const actualStart =
                 start < 0 ? Math.max(backingArray.length + start, 0) : Math.min(start, backingArray.length);
               const actualDeleteCount =
@@ -336,11 +335,12 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 if (itemsToInsert.length > 0) {
                   yjsArray.insert(
                     adjustedYjsStart,
-                    itemsToInsert.map((element) => maybeReference(element, owner._doc!)),
+                    itemsToInsert.map((element) => maybeReference(element, owner.__doc__!)),
                   );
                 }
               }
 
+              trackModification(self, ACCESS_ALL_SYMBOL);
               return result;
             });
           };
@@ -350,8 +350,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               return;
             }
 
-            return maybeTransacting(owner._doc, () => {
-              trackModification(self, ACCESS_ALL_SYMBOL);
+            return maybeTransacting(owner.__doc__, () => {
               const lastIndex = backingArray.length - 1;
               const removedItem = backingArray[lastIndex];
 
@@ -371,6 +370,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 yjsArray.delete(yjsArray.length - 1, 1);
               }
 
+              trackModification(self, ACCESS_ALL_SYMBOL);
               return removedItem;
             });
           };
@@ -380,8 +380,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               return;
             }
 
-            return maybeTransacting(owner._doc, () => {
-              trackModification(self, ACCESS_ALL_SYMBOL);
+            return maybeTransacting(owner.__doc__, () => {
               const removedItem = backingArray[0];
 
               backingArray.shift();
@@ -400,46 +399,45 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 yjsArray.delete(0, 1);
               }
 
+              trackModification(self, ACCESS_ALL_SYMBOL);
               return removedItem;
             });
           };
         case "reverse": // arr.reverse() → reverse in place
           return () => {
-            return maybeTransacting(owner._doc, () => {
-              trackModification(self, ACCESS_ALL_SYMBOL);
+            return maybeTransacting(owner.__doc__, () => {
               backingArray.reverse();
 
               // Sync to Y.js - replace entire array
               const yjsArray = getYjsArray();
               if (yjsArray) {
                 yjsArray.delete(0, yjsArray.length);
-                yjsArray.push(backingArray.map((element) => maybeReference(element, owner._doc!)));
+                yjsArray.push(backingArray.map((element) => maybeReference(element, owner.__doc__!)));
               }
 
+              trackModification(self, ACCESS_ALL_SYMBOL);
               return self;
             });
           };
         case "sort": // arr.sort(compareFn) → sort in place
           return (compareFn?: (a: T, b: T) => number) => {
-            return maybeTransacting(owner._doc, () => {
-              trackModification(self, ACCESS_ALL_SYMBOL);
+            return maybeTransacting(owner.__doc__, () => {
               backingArray.sort(compareFn as ((a: T | null, b: T | null) => number) | undefined);
 
               // Sync to Y.js - replace entire array
               const yjsArray = getYjsArray();
               if (yjsArray) {
                 yjsArray.delete(0, yjsArray.length);
-                yjsArray.push(backingArray.map((element) => maybeReference(element, owner._doc!)));
+                yjsArray.push(backingArray.map((element) => maybeReference(element, owner.__doc__!)));
               }
 
+              trackModification(self, ACCESS_ALL_SYMBOL);
               return self;
             });
           };
         case "copyWithin": // arr.copyWithin(target, start, end) → copy elements within array
           return (target: number, start: number, end?: number) => {
-            return maybeTransacting(owner._doc, () => {
-              trackModification(self, ACCESS_ALL_SYMBOL);
-
+            return maybeTransacting(owner.__doc__, () => {
               // For child fields, check if copyWithin would create duplicates
               if (isChildField) {
                 // Simulate the copyWithin operation to check for duplicates
@@ -467,9 +465,10 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               const yjsArray = getYjsArray();
               if (yjsArray) {
                 yjsArray.delete(0, yjsArray.length);
-                yjsArray.push(backingArray.map((element) => maybeReference(element, owner._doc!)));
+                yjsArray.push(backingArray.map((element) => maybeReference(element, owner.__doc__!)));
               }
 
+              trackModification(self, ACCESS_ALL_SYMBOL);
               return self;
             });
           };
@@ -492,8 +491,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             if (newElements.length === backingArray.length && newElements.every((val, i) => val === backingArray[i])) {
               return;
             }
-            maybeTransacting(owner._doc, () => {
-              trackModification(self, ACCESS_ALL_SYMBOL);
+            maybeTransacting(owner.__doc__, () => {
               if (isChildField) {
                 // Validate that newElements doesn't contain duplicates
                 const seen = new Set<T>();
@@ -523,7 +521,8 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
 
               backingArray.splice(0, backingArray.length, ...newElements);
               yjsArray?.delete(0, yjsArray.length);
-              yjsArray?.push(newElements.map((element) => maybeReference(element, owner._doc!)));
+              yjsArray?.push(newElements.map((element) => maybeReference(element, owner.__doc__!)));
+              trackModification(self, ACCESS_ALL_SYMBOL);
             });
           };
         case "length": // Report length access to this array
@@ -533,7 +532,8 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
         case materializationSymbol:
           return () => {
             const yjsArray = getYjsArray()!;
-            const materializedItems = yjsArray.toArray().map((item) => owner._deref(item) as T);
+            invariant(yjsArray.doc, "terribly wrong state: materialization triggered for Y.Array without doc");
+            const materializedItems = yjsArray.toArray().map((item) => deref(yjsArray.doc!, item) as T);
 
             // DUPLICATE VALIDATION: Verify YJS data doesn't contain duplicates
             // This should never happen, but corrupted data or bugs could create this state
@@ -612,11 +612,11 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   }
                   // backing array update should happen AFTER removed/added items calculation as it uses previous version of backing array
                   backingArray.splice(0, backingArray.length, ...resultingArray);
-                  trackModification(self, ACCESS_ALL_SYMBOL);
 
                   // todo optimized update strategy
                   yjsArray?.delete(0, yjsArray.length);
-                  yjsArray?.push(resultingArray.map((element) => maybeReference(element, owner._doc!)));
+                  yjsArray?.push(resultingArray.map((element) => maybeReference(element, owner.__doc__!)));
+                  trackModification(self, ACCESS_ALL_SYMBOL);
                   return result;
                 });
               }
@@ -647,8 +647,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
     },
 
     set(_, elementKey, value) {
-      return maybeTransacting(owner._doc, () => {
-        trackModification(self, elementKey);
+      return maybeTransacting(owner.__doc__, () => {
         if (elementKey === "length") {
           // Handle array length truncation
           const newLength = Number(value);
@@ -672,6 +671,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               backingArray.push(...gap);
               yjsArray?.push(gap);
             }
+            trackModification(self, ACCESS_INDICES_SET_SYMBOL);
             return true;
           }
           return false;
@@ -688,6 +688,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               }
               // Fill holes with null to match YJS behavior
               while (backingArray.length < parsedElementKey) {
+                trackModification(self, `${backingArray.length}`);
                 backingArray.push(null as any);
               }
 
@@ -707,6 +708,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 // This prevents duplicates and maintains "child can only appear once" invariant
                 if (isReuse) {
                   reuseFromIndex = existingIndex; // Store for YJS sync
+                  trackModification(self, ACCESS_ALL_SYMBOL);
                   backingArray.splice(existingIndex, 1);
                   // Adjust target index if we removed an item before it
                   if (existingIndex < parsedElementKey) {
@@ -728,41 +730,40 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               backingArray[targetIndex] = value;
 
               const yjsArray = getYjsArray();
-              if (!yjsArray) {
-                return true;
-              }
-
               // Handle YJS sync
-              if (isReuse && reuseFromIndex !== -1) {
-                // For reused items, we removed from reuseFromIndex and set at targetIndex
-                // Replicate the same operations in YJS:
-                // 1. Delete from original position
-                yjsArray.delete(reuseFromIndex, 1);
-                // 2. Delete the item being replaced (at adjusted position after first delete)
-                let adjustedTargetForDelete = targetIndex;
-                if (reuseFromIndex < parsedElementKey) {
-                  adjustedTargetForDelete = parsedElementKey - 1;
+              if (yjsArray) {
+                if (isReuse && reuseFromIndex !== -1) {
+                  // For reused items, we removed from reuseFromIndex and set at targetIndex
+                  // Replicate the same operations in YJS:
+                  // 1. Delete from original position
+                  yjsArray.delete(reuseFromIndex, 1);
+                  // 2. Delete the item being replaced (at adjusted position after first delete)
+                  let adjustedTargetForDelete = targetIndex;
+                  if (reuseFromIndex < parsedElementKey) {
+                    adjustedTargetForDelete = parsedElementKey - 1;
+                  }
+                  yjsArray.delete(adjustedTargetForDelete, 1);
+                  // 3. Insert new value at target
+                  yjsArray.insert(adjustedTargetForDelete, [maybeReference(value, owner.__doc__!)]);
+                } else if (parsedElementKey >= yjsArray.length) {
+                  // Extending array
+                  const postfix: null[] = [];
+                  while (postfix.length + yjsArray.length < parsedElementKey - 1) {
+                    postfix.push(null);
+                  }
+                  yjsArray.push([...postfix, maybeReference(value, owner.__doc__!)]);
+                } else {
+                  // Replacing existing element
+                  yjsArray.delete(targetIndex, 1);
+                  yjsArray.insert(targetIndex, [maybeReference(value, owner.__doc__!)]);
                 }
-                yjsArray.delete(adjustedTargetForDelete, 1);
-                // 3. Insert new value at target
-                yjsArray.insert(adjustedTargetForDelete, [maybeReference(value, owner._doc!)]);
-              } else if (parsedElementKey >= yjsArray.length) {
-                // Extending array
-                const postfix: null[] = [];
-                while (postfix.length + yjsArray.length < parsedElementKey - 1) {
-                  postfix.push(null);
-                }
-                yjsArray.push([...postfix, maybeReference(value, owner._doc!)]);
-              } else {
-                // Replacing existing element
-                yjsArray.delete(targetIndex, 1);
-                yjsArray.insert(targetIndex, [maybeReference(value, owner._doc!)]);
               }
 
               // For reused items, call informAdoptionSymbol after the move
               if (isChildField && isReuse) {
                 value?.[informAdoptionSymbol]?.(owner, key);
               }
+              trackModification(self, `${targetIndex}`);
             }
             return true;
           }

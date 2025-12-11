@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { initTestPlexus, TestPlexus } from "./test-plexus";
-import type { DependencyId, DependencyVersion } from "../Plexus";
-import * as YJS_GLOBALS from "../YJS_GLOBALS";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { initTestPlexus, TestPlexus } from "./test-plexus.js";
+import type { DependencyId, DependencyVersion } from "../Plexus.js";
+import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
 
 // Dependency entity
 @syncing
@@ -13,10 +13,6 @@ class DepEntity extends PlexusModel {
 
   @syncing
   accessor version!: number;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 // Root entity with dependency support
@@ -39,10 +35,6 @@ class RootEntity extends PlexusModel {
 
   @syncing.map
   accessor dependencyVersion!: Record<DependencyId, DependencyVersion>;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 describe("Plexus Dependency Management", () => {
@@ -69,9 +61,7 @@ describe("Plexus Dependency Management", () => {
       const depEntity = new DepEntity({ name: "Alpha", version: 1 });
       const { doc } = await initTestPlexus<DepEntity>(depEntity);
       // Set the documentId to the dependency ID for cross-document references
-      doc
-        .getMap(YJS_GLOBALS.metadata.key)
-        .set(YJS_GLOBALS.metadata.wellKnown.documentId, "depA");
+      doc.getMap(YJS_GLOBALS.metadata.key).set(YJS_GLOBALS.metadata.wellKnown.documentId, "depA");
       return doc;
     });
 
@@ -79,9 +69,7 @@ describe("Plexus Dependency Management", () => {
       const depEntity = new DepEntity({ name: "Beta", version: 2 });
       const { doc } = await initTestPlexus<DepEntity>(depEntity);
       // Set the documentId to the dependency ID for cross-document references
-      doc
-        .getMap(YJS_GLOBALS.metadata.key)
-        .set(YJS_GLOBALS.metadata.wellKnown.documentId, "depB");
+      doc.getMap(YJS_GLOBALS.metadata.key).set(YJS_GLOBALS.metadata.wellKnown.documentId, "depB");
       return doc;
     });
   });
@@ -90,10 +78,7 @@ describe("Plexus Dependency Management", () => {
     it("should add a dependency and return the dependency root", async () => {
       expect(root.dependencies.size).toBe(0);
 
-      const depA = await plexus.addDependency<DepEntity>(
-        "depA" as DependencyId,
-        "1.0.0" as DependencyVersion,
-      );
+      const depA = await plexus.addDependency<DepEntity>("depA" as DependencyId, "1.0.0" as DependencyVersion);
 
       // Verify dependency was added
       expect(root.dependencies.size).toBe(1);
@@ -106,14 +91,8 @@ describe("Plexus Dependency Management", () => {
     });
 
     it("should add multiple dependencies", async () => {
-      const depA = await plexus.addDependency<DepEntity>(
-        "depA" as DependencyId,
-        "1.0.0" as DependencyVersion,
-      );
-      const depB = await plexus.addDependency<DepEntity>(
-        "depB" as DependencyId,
-        "2.0.0" as DependencyVersion,
-      );
+      const depA = await plexus.addDependency<DepEntity>("depA" as DependencyId, "1.0.0" as DependencyVersion);
+      const depB = await plexus.addDependency<DepEntity>("depB" as DependencyId, "2.0.0" as DependencyVersion);
 
       expect(root.dependencies.size).toBe(2);
       expect(root.dependencies.has(depA)).toBe(true);
@@ -127,10 +106,7 @@ describe("Plexus Dependency Management", () => {
     });
 
     it("should allow using dependency in root entity relationships", async () => {
-      const depA = await plexus.addDependency<DepEntity>(
-        "depA" as DependencyId,
-        "1.0.0" as DependencyVersion,
-      );
+      const depA = await plexus.addDependency<DepEntity>("depA" as DependencyId, "1.0.0" as DependencyVersion);
 
       // Use dependency in root relationships
       root.ref = depA;
@@ -145,22 +121,16 @@ describe("Plexus Dependency Management", () => {
     });
 
     it("should handle dependency not found", async () => {
-      await expect(
-        plexus.addDependency(
-          "unknownDep" as DependencyId,
-          "1.0.0" as DependencyVersion,
-        ),
-      ).rejects.toThrow('Dependency "unknownDep" not found');
+      await expect(plexus.addDependency("unknownDep" as DependencyId, "1.0.0" as DependencyVersion)).rejects.toThrow(
+        'Dependency "unknownDep" not found',
+      );
     });
   });
 
   describe("updateDependency", () => {
     it("should update a dependency to a new version", async () => {
       // Add initial dependency
-      const depA = await plexus.addDependency<DepEntity>(
-        "depA" as DependencyId,
-        "1.0.0" as DependencyVersion,
-      );
+      const depA = await plexus.addDependency<DepEntity>("depA" as DependencyId, "1.0.0" as DependencyVersion);
       expect(root.dependencyVersion["depA" as DependencyId]).toBe("1.0.0");
 
       // Update to new version
@@ -174,10 +144,7 @@ describe("Plexus Dependency Management", () => {
 
   describe("dependency isolation", () => {
     it("should allow mutations to dependency entities (they affect the dependency doc)", async () => {
-      const depA = await plexus.addDependency<DepEntity>(
-        "depA" as DependencyId,
-        "1.0.0" as DependencyVersion,
-      );
+      const depA = await plexus.addDependency<DepEntity>("depA" as DependencyId, "1.0.0" as DependencyVersion);
 
       // With the new architecture, dependency entities are mutable PlexusModel instances
       // Mutations affect the dependency document, not the root document
@@ -196,15 +163,11 @@ describe("Plexus Dependency Management", () => {
     it("should error for root without dependency support", async () => {
       // Create root without dependency fields
       const simpleRoot = new DepEntity({ name: "Simple", version: 1 });
-      const { plexus: simplePlexus } =
-        await initTestPlexus<DepEntity>(simpleRoot);
+      const { plexus: simplePlexus } = await initTestPlexus<DepEntity>(simpleRoot);
 
-      await expect(
-        simplePlexus.addDependency(
-          "depA" as DependencyId,
-          "1.0.0" as DependencyVersion,
-        ),
-      ).rejects.toThrow("Root entity does not support dependencies");
+      await expect(simplePlexus.addDependency("depA" as DependencyId, "1.0.0" as DependencyVersion)).rejects.toThrow(
+        "Root entity does not support dependencies",
+      );
     });
   });
 });

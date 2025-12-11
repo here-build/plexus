@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createTrackedFunction } from "../index";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
+import { createTrackedFunction } from "../index.js";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
 
 @syncing
 class TestModel extends PlexusModel {
@@ -14,7 +14,7 @@ describe("Cross Package Import Test", () => {
 
   beforeEach(() => {
     obj = new TestModel({
-      name: "test"
+      name: "test",
     });
   });
 

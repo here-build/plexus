@@ -3,12 +3,12 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { Storageable } from "../proxy-runtime-types";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { Storageable } from "../proxy-runtime-types.js";
 import * as Y from "yjs";
-import { initTestPlexus } from "./test-plexus";
-import * as YJS_GLOBALS from "../YJS_GLOBALS";
+import { initTestPlexus } from "./test-plexus.js";
+import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
 
 // Test model with a set field
 @syncing
@@ -18,10 +18,6 @@ class TestComponent extends PlexusModel {
 
   @syncing
   accessor version!: number;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -34,10 +30,6 @@ class TestModelWithSet extends PlexusModel {
 
   @syncing.set
   accessor components!: Set<TestComponent>;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 describe("Set Proxy Implementation", () => {
@@ -53,7 +45,7 @@ describe("Set Proxy Implementation", () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(),
-        components: new Set()
+        components: new Set(),
       });
 
       expect(model.tags).toBeInstanceOf(Set);
@@ -66,7 +58,7 @@ describe("Set Proxy Implementation", () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(["tag1", "tag2"]),
-        components: new Set()
+        components: new Set(),
       });
 
       // Basic set operations
@@ -92,7 +84,7 @@ describe("Set Proxy Implementation", () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(["tag1", "tag2", "tag3"]),
-        components: new Set()
+        components: new Set(),
       });
 
       // Test values()
@@ -110,8 +102,8 @@ describe("Set Proxy Implementation", () => {
         expect.arrayContaining([
           ["tag1", "tag1"],
           ["tag2", "tag2"],
-          ["tag3", "tag3"]
-        ])
+          ["tag3", "tag3"],
+        ]),
       );
     });
 
@@ -124,7 +116,7 @@ describe("Set Proxy Implementation", () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(["tag1", "tag2"]),
-        components: new Set()
+        components: new Set(),
       });
 
       const otherSet = new Set(["tag2", "tag3"]);
@@ -146,7 +138,7 @@ describe("Set Proxy Implementation", () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(["tag1", "tag2", "tag3"]),
-        components: new Set()
+        components: new Set(),
       });
 
       expect(model.tags.size).toBe(3);
@@ -162,7 +154,7 @@ describe("Set Proxy Implementation", () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(),
-        components: new Set([comp1, comp2])
+        components: new Set([comp1, comp2]),
       });
 
       expect(model.components.size).toBe(2);
@@ -187,7 +179,7 @@ describe("Set Proxy Implementation", () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(["tag1", "tag2"]),
-        components: new Set()
+        components: new Set(),
       });
 
       // Materialize via Plexus
@@ -202,7 +194,9 @@ describe("Set Proxy Implementation", () => {
       // Check that YJS arrays were created
       const yprojectFields = plexusDoc.getMap<Y.Map<Storageable>>("models");
       const entityId = root.uuid;
-      const tagsArray = yprojectFields.get(entityId)?.get(YJS_GLOBALS.models.recordFields.fields)?.get("tags") as Y.Array<any>;
+      const tagsArray = (
+        yprojectFields.get(entityId)?.get(YJS_GLOBALS.models.recordFields.fields) as undefined | Y.Map<Y.Array<any>>
+      )?.get("tags") as Y.Array<any>;
 
       expect(tagsArray).toBeInstanceOf(Y.Array);
       expect(tagsArray.length).toBe(2);
@@ -213,7 +207,7 @@ describe("Set Proxy Implementation", () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(["tag1"]),
-        components: new Set()
+        components: new Set(),
       });
 
       // Materialize via Plexus
@@ -231,9 +225,9 @@ describe("Set Proxy Implementation", () => {
       // Check YJS backing
       const yprojectFields = plexusDoc.getMap<Y.Map<Storageable>>("models");
       const entityId = root.uuid;
-      const tagsArray = yprojectFields.get(entityId)?.get("fields")?.get("tags") as Y.Array<any>;
-      expect(tagsArray.length).toBe(2);
-      expect(tagsArray.toArray()).toEqual(expect.arrayContaining(["tag1", "tag2"]));
+      const tagsArray = (yprojectFields.get(entityId)?.get("fields") as undefined | Y.Map<Y.Array<any>>)?.get("tags");
+      expect(tagsArray?.length).toBe(2);
+      expect(tagsArray?.toArray()).toEqual(expect.arrayContaining(["tag1", "tag2"]));
     });
 
     it("should handle entity sets in materialized state", async () => {
@@ -272,7 +266,7 @@ describe("Set Proxy Implementation", () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(),
-        components: new Set()
+        components: new Set(),
       });
 
       expect(model.tags.size).toBe(0);
@@ -293,7 +287,7 @@ describe("Set Proxy Implementation", () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(["tag1"]),
-        components: new Set()
+        components: new Set(),
       });
 
       // Adding duplicate should not increase size

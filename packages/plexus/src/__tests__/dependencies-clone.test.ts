@@ -1,19 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { initTestPlexus } from "./test-plexus";
-import { DependencyId, Plexus } from "../Plexus";
-import { deref } from "../deref";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { initTestPlexus } from "./test-plexus.js";
+import { Plexus } from "../Plexus.js";
+import { deref } from "../deref.js";
 
 @syncing
 class Item extends PlexusModel {
   @syncing
   accessor name!: string;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -29,10 +25,6 @@ class Container extends PlexusModel {
 
   @syncing.map
   accessor meta!: Record<string, string>;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -48,10 +40,6 @@ class Root extends PlexusModel {
 
   @syncing.map
   accessor dependencyVersion!: Record<string, string>;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 describe("Clone from dependency node", () => {
@@ -69,8 +57,7 @@ describe("Clone from dependency node", () => {
       meta: { source: "dep" },
     });
 
-    const { doc: createdDepDoc, root: materializedDepContainer } =
-      await initTestPlexus<Container>(depContainer);
+    const { doc: createdDepDoc, root: materializedDepContainer } = await initTestPlexus<Container>(depContainer);
     depDoc = createdDepDoc;
     depContainerId = materializedDepContainer.uuid;
 
@@ -81,8 +68,7 @@ describe("Clone from dependency node", () => {
       dependencies: new Set(),
       dependencyVersion: {},
     });
-    const { doc: createdRootDoc, plexus } =
-      await initTestPlexus<Root>(ephemeralRoot);
+    const { doc: createdRootDoc, plexus } = await initTestPlexus<Root>(ephemeralRoot);
     rootDoc = createdRootDoc;
 
     // Set up dependency factory for the root Plexus
@@ -132,7 +118,6 @@ describe("Clone from dependency node", () => {
     // Add the dependency and access the entity
     await plexus.addDependency<Container>("dep", "latest");
     const depC = deref(await plexus.fetchDependency("dep", "latest"), [depContainerId]) as Container;
-
 
     const cloned = depC.clone();
     cloned.title = "mutated-clone";

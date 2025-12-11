@@ -1,6 +1,5 @@
-import { PlexusModel } from "./PlexusModel";
-import { isPlexusEntity, synthetic } from "./proxy-runtime-types";
-import { __untracked__, ACCESS_ALL_SYMBOL, trackAccess } from "./tracking";
+import { ConcretePlexusConstructor, PlexusModel } from "./PlexusModel.js";
+import { __untracked__, ACCESS_ALL_SYMBOL, trackAccess } from "./tracking.js";
 import invariant from "tiny-invariant";
 
 // Global clone transaction mapping for handling cycles and deduplication
@@ -44,21 +43,20 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
     trackAccess(source, ACCESS_ALL_SYMBOL);
     // this is vital to not pass anything at all during that phase. we need to first register cloned entity
     // in cloneTransactionMapping, then assign values to solve circular dependencies
-    const clonedModel = source.constructor[synthetic]();
-    // alternative concept to consider:
-    // const clonedModel = new PlexusModel();
-    // Reflect.setPrototypeOf(clonedModel, source.constructor) - may work better or solve some problems on weird cases
-    invariant(!cloneTransactionMapping.has(source), "???")
+    const clonedModel = PlexusModel.__materializeRaw__(source.constructor as ConcretePlexusConstructor<Model>);
+    invariant(!cloneTransactionMapping.has(source), "something is terribly wrong within cloning");
     cloneTransactionMapping.set(source, clonedModel);
     // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
-    for (const [fieldKey, type] of Object.entries(source._schema)) {
+    for (const [fieldKey, type] of Object.entries(source.__schema__)) {
       const fieldValue = fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
-      if (fieldValue?.[isPlexusEntity]) {
+      // this is a shortcut - "hey, entity, we're going to clone you in full".
+      // this is needed as we will be doing __untracked__ access next
+      if (fieldValue && fieldValue instanceof PlexusModel) {
         trackAccess(fieldValue, ACCESS_ALL_SYMBOL);
       }
     }
     // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
-    for (const [fieldKey, type] of Object.entries(source._schema)) {
+    for (const [fieldKey, type] of Object.entries(source.__schema__)) {
       const fieldValue = fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
       __untracked__(() => {
         // we need to spawn children first to fill the tracking cache
@@ -90,7 +88,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
     }
     postMappingFill.add(() => {
       // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
-      for (const [fieldKey, type] of Object.entries(source._schema)) {
+      for (const [fieldKey, type] of Object.entries(source.__schema__)) {
         const fieldValue = fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
         __untracked__(() => {
           switch (type) {

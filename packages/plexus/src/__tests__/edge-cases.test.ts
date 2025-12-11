@@ -7,15 +7,30 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { referenceSymbol } from "../proxy-runtime-types";
-import { createTestPlexus, initTestPlexus } from "./test-plexus";
-import { primeDoc } from "./test-helpers";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { createTestPlexus, initTestPlexus } from "./test-plexus.js";
+import { primeDoc } from "./test-helpers.js";
 
 // Extended Y.Doc type for testing
 type TestYDoc = Y.Doc;
 
+
+@syncing
+class Parent extends PlexusModel {
+  @syncing
+  accessor stringish = "stringish";
+  accessor stringishWithDefault = "stringishWithDefault";
+}
+
+@syncing
+class Child extends Parent {
+  @syncing
+  // @ts-expect-error
+  accessor stringish!: "stringish" | "updatedStringish";
+  @syncing
+  accessor stringishWithDefault = "stringishWithDefaultOverride";
+}
 // Test schema definitions
 @syncing
 class Component extends PlexusModel {
@@ -30,10 +45,6 @@ class Component extends PlexusModel {
 
   @syncing.map
   accessor metadata: Record<string, string> = {};
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -44,10 +55,14 @@ class Site extends PlexusModel {
   @syncing.map
   accessor components!: Record<string, Component>;
 
-  constructor(props) {
-    super(props);
-  }
+  @syncing
+  accessor inherited: Child = new Child();
+
+  @syncing
+  accessor defined!: Child | null;
 }
+
+
 
 // Sync helper function
 function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
@@ -77,6 +92,38 @@ describe("Proxy Edge Cases", () => {
   afterEach(() => {
     doc1.destroy();
     doc2.destroy();
+  });
+  it("should maintain stability even with bad overwrites", async () => {
+    const { site: site1, doc: doc1 } = await createTestSite("stability");
+
+    site1.defined = new Child({
+      stringish: "stringishPassed",
+      stringishWithDefault: "stringishWithDefaultPassed",
+    });
+    expect(site1.defined).toMatchObject({
+      stringish: "stringishPassed",
+      stringishWithDefault: "stringishWithDefaultPassed",
+    });
+    expect(site1.inherited).toMatchObject({
+      stringish: "stringish",
+      stringishWithDefault: "stringishWithDefaultOverride",
+    });
+    site1.inherited.stringish = "updatedStringish";
+    site1.inherited.stringishWithDefault = "updatedStringishWithDefault";
+
+    syncDocs(doc1, doc2);
+
+    // Access from doc2
+    const { root: site2 } = await createTestPlexus<Site>(doc2);
+
+    expect(site2.defined).toMatchObject({
+      stringish: "stringishPassed",
+      stringishWithDefault: "stringishWithDefaultPassed",
+    });
+    expect(site2.inherited).toMatchObject({
+      stringish: "updatedStringish",
+      stringishWithDefault: "updatedStringishWithDefault",
+    });
   });
 
   describe("🔥 Circular References", () => {

@@ -4,10 +4,9 @@
 
 import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { isPlexusEntity } from "../index";
-import { initTestPlexus } from "./test-plexus";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { initTestPlexus } from "./test-plexus.js";
 
 // Extended Y.Doc type for testing
 type TestYDoc = Y.Doc;
@@ -17,10 +16,6 @@ type TestYDoc = Y.Doc;
 class Component extends PlexusModel {
   @syncing
   accessor name!: string;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -30,10 +25,6 @@ class Site extends PlexusModel {
 
   @syncing.map
   accessor components!: Record<string, Component>;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 describe("Simple Contagion Test", () => {

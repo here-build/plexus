@@ -1,12 +1,11 @@
 import { describe, expect, it, Mock, vi } from "vitest";
 import * as Y from "yjs";
-import { Plexus } from "../Plexus";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { createTrackedFunction } from "../tracking";
-import { entityClasses } from "../globals";
-import * as YJS_GLOBALS from "../YJS_GLOBALS";
-import { nanoid } from "nanoid";
+import { Plexus } from "../Plexus.js";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { createTrackedFunction } from "../tracking.js";
+import { entityClasses } from "../globals.js";
+import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
 
 // Define a more complex model for integration testing
 @syncing
@@ -19,10 +18,6 @@ class TodoItem extends PlexusModel {
 
   @syncing
   accessor priority!: number;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -35,10 +30,6 @@ class TodoList extends PlexusModel {
 
   @syncing.set
   accessor tags!: Set<string>;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 class TodoPlexus extends Plexus<TodoList> {

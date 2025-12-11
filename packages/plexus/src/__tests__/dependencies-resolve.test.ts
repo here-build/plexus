@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { initTestPlexus, TestPlexus } from "./test-plexus";
-import type { DependencyId, DependencyVersion } from "../Plexus";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { initTestPlexus, TestPlexus } from "./test-plexus.js";
+import type { DependencyId, DependencyVersion } from "../Plexus.js";
 
 @syncing
 class DepEntity extends PlexusModel {
@@ -11,10 +11,6 @@ class DepEntity extends PlexusModel {
 
   @syncing
   accessor version!: number;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -27,10 +23,6 @@ class RootEntity extends PlexusModel {
 
   @syncing.map
   accessor dependencyVersion!: Record<DependencyId, DependencyVersion>;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 const waitTick = () => new Promise((r) => setTimeout(r, 0));
@@ -60,18 +52,12 @@ describe("Plexus dependency resolution paths", () => {
       return doc;
     });
 
-    const depA1 = await plexus.addDependency<DepEntity>(
-      "depA" as DependencyId,
-      "1.0.0" as DependencyVersion,
-    );
+    const depA1 = await plexus.addDependency<DepEntity>("depA" as DependencyId, "1.0.0" as DependencyVersion);
     expect(root.dependencies.has(depA1)).toBe(true);
     expect(depAFetches).toBe(1);
 
     // Second add with same id should reuse cached doc
-    const depA2 = await plexus.addDependency<DepEntity>(
-      "depA" as DependencyId,
-      "1.0.0" as DependencyVersion,
-    );
+    const depA2 = await plexus.addDependency<DepEntity>("depA" as DependencyId, "1.0.0" as DependencyVersion);
     expect(root.dependencies.has(depA2)).toBe(true);
     expect(depAFetches).toBe(1);
   });
@@ -86,10 +72,7 @@ describe("Plexus dependency resolution paths", () => {
       return doc;
     });
 
-    const dep = await plexus.addDependency<DepEntity>(
-      "depA" as DependencyId,
-      "1.0.0" as DependencyVersion,
-    );
+    const dep = await plexus.addDependency<DepEntity>("depA" as DependencyId, "1.0.0" as DependencyVersion);
     expect(root.dependencies.has(dep)).toBe(true);
     expect(depAFetches).toBe(1);
 

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { initTestPlexus, TestPlexus } from "./test-plexus";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { initTestPlexus, TestPlexus } from "./test-plexus.js";
 
 // Test classes
 @syncing
@@ -12,10 +12,6 @@ class Item extends PlexusModel {
 
   @syncing
   accessor value!: number;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -25,10 +21,6 @@ class Container extends PlexusModel {
 
   @syncing.child.list
   accessor items!: Item[];
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 describe("Plexus Entity Loading", () => {
@@ -70,8 +62,9 @@ describe("Plexus Entity Loading", () => {
       const { plexus } = await initTestPlexus(container);
       await plexus.rootPromise;
 
-      const loaded = plexus.loadEntity("non-existent-id");
-      expect(loaded).toBeNull();
+      expect(() => {
+        plexus.loadEntity("non-existent-id");
+      }).toThrow();
     });
 
     it("throws when called before root is loaded", async () => {
@@ -231,8 +224,7 @@ describe("Plexus Entity Loading", () => {
         items: [],
       });
 
-      const { plexus, root: materializedContainer } =
-        await initTestPlexus(container);
+      const { plexus, root: materializedContainer } = await initTestPlexus(container);
       await plexus.rootPromise;
 
       // Add new item after materialization
@@ -288,10 +280,6 @@ describe("Plexus Entity Loading", () => {
 
         @syncing.child.list
         accessor containers!: Container[];
-
-        constructor(props) {
-          super(props);
-        }
       }
 
       const root = new NestedContainer({
@@ -325,8 +313,7 @@ describe("Plexus Entity Loading", () => {
         items: [item],
       });
 
-      const { plexus, root: materializedContainer } =
-        await initTestPlexus(container);
+      const { plexus, root: materializedContainer } = await initTestPlexus(container);
       await plexus.rootPromise;
 
       // Clone an item

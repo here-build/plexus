@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { referenceSymbol } from "../proxy-runtime-types";
-import * as YJS_GLOBALS from "../YJS_GLOBALS";
-import { initTestPlexus, TestPlexus } from "./test-plexus";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { referenceSymbol } from "../proxy-runtime-types.js";
+import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
+import { initTestPlexus, TestPlexus } from "./test-plexus.js";
 import * as Y from "yjs";
 
 // Helper to sync two YJS docs bidirectionally
@@ -19,10 +19,6 @@ function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
 class Child extends PlexusModel {
   @syncing
   accessor name!: string;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -41,10 +37,6 @@ class Parent extends PlexusModel {
 
   @syncing.child.map
   accessor childMap!: Record<string, Child>;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -57,10 +49,6 @@ class MultiParent extends PlexusModel {
 
   @syncing.child.list
   accessor rightChildren!: Child[];
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 describe("Parent Tracking", () => {
@@ -460,10 +448,6 @@ describe("Parent Tracking", () => {
       class WeirdParent extends PlexusModel {
         @syncing.child
         accessor "field.with.dots"!: Child | null;
-
-        constructor(props) {
-          super(props);
-        }
       }
 
       const parent = new WeirdParent({ "field.with.dots": null });
@@ -787,10 +771,6 @@ describe("Parent Tracking", () => {
       class Mixed extends PlexusModel {
         @syncing.child.list
         accessor mixed!: (Child | string)[];
-
-        constructor(props) {
-          super(props);
-        }
       }
 
       const parent = new Mixed({ mixed: [] });

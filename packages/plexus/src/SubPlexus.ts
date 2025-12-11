@@ -11,10 +11,10 @@
 import invariant from "tiny-invariant";
 import type * as Y from "yjs";
 
-import { deref } from "./deref";
-import type { DependencyId, DependencyVersion, Plexus } from "./Plexus";
-import type { PlexusModel } from "./PlexusModel";
-import * as YJS_GLOBALS from "./YJS_GLOBALS";
+import { deref } from "./deref.js";
+import type { DependencyId, DependencyVersion, Plexus } from "./Plexus.js";
+import type { PlexusModel } from "./PlexusModel.js";
+import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 
 export class SubPlexus<
   Root extends PlexusModel,

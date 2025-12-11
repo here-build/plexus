@@ -1,16 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { TestPlexus, initTestPlexus } from "./test-plexus";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
+import { initTestPlexus, TestPlexus } from "./test-plexus.js";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
 
 @syncing
 class Root extends PlexusModel {
   @syncing
   accessor name!: string;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 describe("Plexus singleton per Y.Doc", () => {

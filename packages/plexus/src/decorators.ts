@@ -1,18 +1,20 @@
 import invariant from "tiny-invariant";
-import { entityClasses } from "./globals";
-import { PlexusConstructor, PlexusModel } from "./PlexusModel";
-import { buildArrayProxy } from "./proxies/materialized-array";
-import { buildRecordProxy } from "./proxies/materialized-map";
-import { buildSetProxy } from "./proxies/materialized-set";
-import { AllowedYJSValue, GenericRecordSchema } from "./proxy-runtime-types";
+import { entityClasses } from "./globals.js";
+import { PlexusConstructor, PlexusModel } from "./PlexusModel.js";
+import { buildArrayProxy } from "./proxies/materialized-array.js";
+import { buildRecordProxy } from "./proxies/materialized-map.js";
+import { buildSetProxy } from "./proxies/materialized-set.js";
 import {
-  backingStorageSymbol,
+  AllowedPrimitive,
+  AllowedYJSValue,
+  GenericRecordSchema,
   informAdoptionSymbol,
+  PlexusTagContainer,
   requestEmancipationSymbol,
   requestOrphanizationSymbol,
-} from "./proxy-runtime-types";
-import { __untracked__, trackAccess, trackModification } from "./tracking";
-import { DefaultedMap, DefaultedWeakMap, maybeReference, maybeTransacting } from "./utils";
+} from "./proxy-runtime-types.js";
+import { __untracked__, trackAccess, trackModification } from "./tracking.js";
+import { DefaultedMap, DefaultedWeakMap, maybeReference, maybeTransacting } from "./utils/index.js";
 
 const argsAreClassDecoratorArgs = <Model extends PlexusModel, T extends AllowedYJSValue>(
   args:
@@ -28,11 +30,15 @@ try {
 } finally {
 }
 
+const decoratedTracker = new WeakSet<PlexusConstructor>();
+
 function syncingDecorator<
   Model extends PlexusModel,
   T extends AllowedYJSValue,
   TargetConstructor extends PlexusConstructor<Model>,
->(...args: [TargetConstructor, ClassDecoratorContext<PlexusConstructor<Model>>]): TargetConstructor;
+>(
+  ...args: [TargetConstructor, ClassDecoratorContext<PlexusConstructor<Model>>]
+): TargetConstructor & PlexusTagContainer<"decorated">;
 function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
   ...args: [ClassAccessorDecoratorTarget<Model, T>, ClassAccessorDecoratorContext<Model, T> & { name: string }]
 ): ClassAccessorDecoratorResult<Model, T>;
@@ -43,6 +49,17 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
 ) {
   if (argsAreClassDecoratorArgs(args)) {
     const [target, context] = args as [PlexusConstructor<Model>, ClassDecoratorContext<PlexusConstructor<Model>>];
+    const proto = Reflect.getPrototypeOf(target)! as PlexusConstructor;
+    if (proto !== PlexusModel) {
+      invariant(
+        proto.prototype instanceof PlexusModel,
+        `Plexus model class ${target.name} attempted to inherit from the ${proto.name} class that is not Plexus model class`,
+      );
+      invariant(
+        decoratedTracker.has(proto as PlexusConstructor),
+        `Plexus model class ${target.name} attempted to inherit from the ${proto.name} class that also has to be declared as @syncing - every class in inheritance chain should use that decorator`,
+      );
+    }
     /**
      * Sometimes, user-defined classes may adjust constructor logic; e.g.:
      * class Code extends PlexusModel {
@@ -58,6 +75,10 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
      * is not working for private fields, so this is only option here.
      */
     context.addInitializer(() => {
+      // special edge case for intermediate classes that should not be syncing
+      if (!context.metadata.schema) {
+        return;
+      }
       /**
        * problem here is, decorators are executed BEFORE static declarations.
        * this mean it's impossible to directly do something like
@@ -80,7 +101,8 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
       invariant(!entityClasses.has(target.modelName), `Plexus class name ${target.modelName} is non-unique`);
       entityClasses.set(target.modelName, target);
     });
-    return target;
+    decoratedTracker.add(target);
+    return target as PlexusConstructor<Model> & PlexusTagContainer<"decorated">;
   } else {
     const [target, context] = args as [
       ClassAccessorDecoratorTarget<Model, T>,
@@ -106,22 +128,22 @@ const set = <
   object: Model,
   value: T,
 ) => {
-  const storedValue = object[backingStorageSymbol].get(context.name) as T;
+  const storedValue = object.__internals__.backingStorage.get(context.name) as T;
   if (storedValue === value) {
     return;
   }
-  maybeTransacting(object._doc, () => {
+  maybeTransacting(object.__doc__, () => {
     if (value == undefined) {
-      object[backingStorageSymbol].delete(context.name);
+      object.__internals__.backingStorage.delete(context.name);
     } else {
-      object[backingStorageSymbol].set(context.name, value);
+      object.__internals__.backingStorage.set(context.name, value);
+    }
+    if (value == undefined) {
+      object.__yjsFieldsMap__?.delete(context.name);
+    } else {
+      object.__yjsFieldsMap__?.set(context.name, maybeReference(value, object.__doc__!));
     }
     trackModification(object, context.name);
-    if (value == undefined) {
-      object._yjsFields?.delete(context.name);
-    } else {
-      object._yjsFields?.set(context.name, maybeReference(value, object._doc!));
-    }
   });
 };
 const setChild = <
@@ -133,17 +155,17 @@ const setChild = <
   object: Model,
   value: T,
 ) => {
-  const storedValue = object[backingStorageSymbol].get(context.name) as T;
+  const storedValue = object.__internals__.backingStorage.get(context.name) as T;
   if (storedValue === value) {
     return;
   }
-  maybeTransacting(object._doc, () => {
+  maybeTransacting(object.__doc__, () => {
     storedValue?.[requestOrphanizationSymbol]?.();
     // old: orphan inside storage, new: attached to old parent
     if (value == undefined) {
-      object[backingStorageSymbol].delete(context.name);
+      object.__internals__.backingStorage.delete(context.name);
     } else {
-      object[backingStorageSymbol].set(context.name, value);
+      object.__internals__.backingStorage.set(context.name, value);
     }
     // for that flow, we could've used [requestAdoptionSymbol], but it has some extra checks we just skip
     // old: orphan, removed, new: placed both inside backing storage and old location, has old parent
@@ -151,12 +173,12 @@ const setChild = <
     // old: orphan, removed, new: removed from old location, only inside backing storage, has old parent
     value?.[informAdoptionSymbol]?.(object, context.name);
     // old: orphan, removed, new: removed from old location, only inside backing storage, has new parent
-    trackModification(object, context.name);
     if (value == undefined) {
-      object._yjsFields?.delete(context.name);
+      object.__yjsFieldsMap__?.delete(context.name);
     } else {
-      object._yjsFields?.set(context.name, maybeReference(value, object._doc!));
+      object.__yjsFieldsMap__?.set(context.name, maybeReference(value, object.__doc__!));
     }
+    trackModification(object, context.name);
   });
 };
 
@@ -212,28 +234,28 @@ const createHandlers = <
   return {
     get(this: Model): T {
       trackAccess(this, context.name);
-      switch (this._schema[context.name]) {
+      switch (this.__schema__[context.name]) {
         case "val":
         case "child-val":
-          return this[backingStorageSymbol].get(context.name) ?? null;
+          return this.__internals__.backingStorage.get(context.name) ?? null;
         default:
           /** see "We are doing dynamic schema retrieval..." comment below in init()*/
-          return backingStructures[this._schema[context.name]].get(this);
+          return backingStructures[this.__schema__[context.name]].get(this);
       }
     },
     set(this: Model, value: T) {
-      if (this._schema[context.name] === "val") {
+      if (this.__schema__[context.name] === "val") {
         set(context as any, this, value as Extract<T, AllowedYJSValue>);
         return;
       }
 
-      if (this._schema[context.name] === "child-val") {
+      if (this.__schema__[context.name] === "child-val") {
         setChild(context as any, this, value as Extract<T, AllowedYJSValue>);
         return;
       }
 
       /** see "We are doing dynamic schema retrieval..." comment below in init()*/
-      backingStructures[this._schema[context.name]].get(this).assign(value);
+      backingStructures[this.__schema__[context.name]].get(this).assign(value);
     },
     /**
      * We're doing this overkill-looking init sequence to basically hack the JavaScript.
@@ -311,7 +333,11 @@ const createHandlers = <
      * (but if ?? would fallback only on undefined, not null)
      * */
     init(this: Model, value: T): T {
-      const setter = this._schema[context.name] === "val" ? set : setChild;
+      // we're intentionally skipping
+      if (PlexusModel.__isMaterializingRaw__) {
+        return undefined as any;
+      }
+      const setter = this.__schema__[context.name] === "val" ? set : setChild;
       /**
        * ephemeral models may be constructed at mutation-tracking contexts (see createTrackedFunction),
        * read events are always tracked (we need to know what was accessed to make decisions),
@@ -328,7 +354,7 @@ const createHandlers = <
          * So, instead of relying on decorator spawn input, we take actual field type from schema to
          * be sure that we alter the behavior accordingly to actual definition intended.
          */
-        switch (this._schema[context.name]) {
+        switch (this.__schema__[context.name]) {
           case "val":
           case "child-val": {
             /**
@@ -341,16 +367,22 @@ const createHandlers = <
              * assignment during the post-constructor phase. This will clearly mean that we're initializing
              * as a definition, not synced state, and should represent that value.
              */
-            if (this._yjsModel && !this._isWithinYjsModelSeed) {
+            if (this.__internals__.yjsModel && !this.__internals__.isWithinYjsModelSeed) {
               const reflectedValue =
-                this._initializationState[context.name] === undefined
+                this.__internals__.initializationState[context.name] === undefined
                   ? this[context.name]
-                  : this._initializationState[context.name];
+                  : this.__internals__.initializationState[context.name];
               setter(context, this, reflectedValue);
               return reflectedValue;
             }
             const actualValue =
-              this._initializationState[context.name] === undefined ? value : this._initializationState[context.name];
+              // remember, null is valid
+              this.__internals__.initializationState[context.name] === undefined
+                ? // this fixes "override cases" when fields are re-declared without default value - in that case we take already known value instead of undefined
+                  value === undefined
+                  ? this[context.name]
+                  : value
+                : this.__internals__.initializationState[context.name];
             setter(context as any, this, actualValue as Extract<T, AllowedYJSValue>);
             return actualValue;
           }
@@ -358,14 +390,14 @@ const createHandlers = <
             /**
              * we must return something, so to avoid code duplication we just redirect init() to get() who does actual logic.
              */
-            if (this._yjsModel && !this._isWithinYjsModelSeed) {
+            if (this.__internals__.yjsModel && !this.__internals__.isWithinYjsModelSeed) {
               return this[context.name];
             }
             // we do not care about undefined vs null here, as syncing structs have null as banned type too,
             // so it's just simpler and more readable to write like that
-            const actualValue = this._initializationState[context.name] ?? value;
+            const actualValue = this.__internals__.initializationState[context.name] ?? value;
             if (actualValue != undefined) {
-              backingStructures[this._schema[context.name]].get(this).assign(actualValue);
+              backingStructures[this.__schema__[context.name]].get(this).assign(actualValue);
             }
             // this technically goes to accessor private backing field - but we actually do not care a lot about that
             return actualValue;
@@ -376,14 +408,29 @@ const createHandlers = <
   };
 };
 
-const buildDecorator = <
-  T extends AllowedYJSValue | Set<AllowedYJSValue> | AllowedYJSValue[] | Record<string, AllowedYJSValue>,
->(
+const buildDecorator = <MappingType extends keyof Mapping<any>, Discriminating extends boolean = false>(
   kind: GenericRecordSchema[string],
 ) =>
-  function plexusDynamicDecorator<Model extends PlexusModel, Type extends T>(
-    target: ClassAccessorDecoratorTarget<Model, Type>,
-    context: ClassAccessorDecoratorContext<Model, Type> & { name: string },
+  function plexusDynamicDecorator<
+    Model extends PlexusModel,
+    FieldValue extends AllowedPrimitive | PlexusModel,
+    /**
+     * The problem we're solving here is that PlexusModel<A | B> is not matching PlexusModel<B>;
+     * yet we cannot just generalize types. So, we infer two types - FieldValue, that is produced from usage,
+     * and discriminator, that defines what FieldValue is allowed to be. Since we have 2 args, we can make first one
+     * produce FieldValue, and second one to act as discriminator. (decorators are weird; maybe there's more efficient
+     * way to solve it, but it's very hard to debug decorator types)
+     */
+    DiscriminatedFieldValue extends Discriminating extends true
+      ? FieldValue extends PlexusModel<infer ParentType extends Model>
+        ? ParentType extends Model
+          ? AllowedPrimitive | PlexusModel
+          : never
+        : never
+      : any,
+  >(
+    target: ClassAccessorDecoratorTarget<Model, Mapping<FieldValue>[MappingType]>,
+    context: ClassAccessorDecoratorContext<Model, Mapping<DiscriminatedFieldValue>[MappingType]> & { name: string },
   ) {
     if (!Object.hasOwn(context.metadata, "schema")) {
       /**
@@ -402,16 +449,23 @@ const buildDecorator = <
       };
     }
     (context.metadata.schema as GenericRecordSchema)[context.name] = kind;
-    return createHandlers<Model, Type>(context);
+    return createHandlers<Model, Mapping<DiscriminatedFieldValue>[MappingType]>(context);
   };
 
+interface Mapping<T> {
+  identity: T;
+  map: Record<string, T>;
+  set: Set<T>;
+  list: T[];
+}
+
 export const syncing = Object.assign(syncingDecorator, {
-  child: Object.assign(buildDecorator<AllowedYJSValue>("child-val"), {
-    map: buildDecorator<Record<string, AllowedYJSValue>>("child-record"),
-    set: buildDecorator<Set<AllowedYJSValue>>("child-set"),
-    list: buildDecorator<Array<AllowedYJSValue>>("child-list"),
+  child: Object.assign(buildDecorator<"identity", true>("child-val"), {
+    map: buildDecorator<"map", true>("child-record"),
+    set: buildDecorator<"set", true>("child-set"),
+    list: buildDecorator<"list", true>("child-list"),
   }),
-  map: buildDecorator<Record<string, AllowedYJSValue>>("record"),
-  set: buildDecorator<Set<AllowedYJSValue>>("set"),
-  list: buildDecorator<Array<AllowedYJSValue>>("list"),
+  map: buildDecorator<"map">("record"),
+  set: buildDecorator<"set">("set"),
+  list: buildDecorator<"list">("list"),
 });

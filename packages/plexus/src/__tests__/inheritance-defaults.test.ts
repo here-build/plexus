@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { createTestPlexus, initTestPlexus } from "./test-plexus";
-import { backingStorageSymbol } from "../proxy-runtime-types";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { createTestPlexus, initTestPlexus } from "./test-plexus.js";
 
 // Create a proper inheritance hierarchy to test
 @syncing
@@ -28,10 +27,6 @@ abstract class MiddleEntity extends BaseEntity {
 
   @syncing.map
   accessor middleMap: Record<string, number> = { defaultKey: 100 }; // Default object
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -44,10 +39,6 @@ class ConcreteEntity extends MiddleEntity {
 
   @syncing.child.list
   accessor children: ChildEntity[] = []; // Default empty array for child list
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -57,10 +48,6 @@ class ChildEntity extends PlexusModel {
 
   @syncing
   accessor value: number = 999; // Default value
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 // Another concrete entity for testing
@@ -68,10 +55,6 @@ class ChildEntity extends PlexusModel {
 class AnotherConcreteEntity extends MiddleEntity {
   @syncing
   accessor specificField: string = "specific-default";
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 describe("Plexus Inheritance and Default Values", () => {
@@ -90,7 +73,6 @@ describe("Plexus Inheritance and Default Values", () => {
       expect(root.middleField).toBe("middle-value");
       expect(root.concreteField).toBe("concrete-value");
 
-      console.log(backingStorageSymbol);
       // Modify inherited fields and verify sync
       root.baseField = "updated-base";
       root.middleField = "updated-middle";
@@ -399,27 +381,18 @@ describe("Plexus Inheritance and Default Values", () => {
         @syncing accessor name!: string;
         @syncing accessor price: number = 0;
         @syncing.list accessor tags: string[] = ["product"];
-        constructor(props) {
-          super(props);
-        }
       }
 
       @syncing
       class Book extends AbstractProduct {
         @syncing accessor isbn!: string;
         @syncing accessor pages: number = 0;
-        constructor(props) {
-          super(props);
-        }
       }
 
       @syncing
       class Movie extends AbstractProduct {
         @syncing accessor duration!: number;
         @syncing accessor rating: string = "PG";
-        constructor(props) {
-          super(props);
-        }
       }
 
       const book = new Book({
@@ -456,28 +429,18 @@ describe("Plexus Inheritance and Default Values", () => {
       class SharedArg extends PlexusModel {
         @syncing accessor name!: string;
         @syncing accessor value: number = 0;
-
-        constructor(props) {
-          super(props);
-        }
       }
 
       @syncing
       class WeakRefParent extends PlexusModel {
         @syncing accessor id!: string;
         @syncing accessor arg!: SharedArg; // Weak reference
-        constructor(props) {
-          super(props);
-        }
       }
 
       @syncing
       class OwnedChildVersion extends WeakRefParent {
         // @ts-expect-error
         @syncing.child accessor arg!: SharedArg; // Override as owned child
-        constructor(props) {
-          super(props);
-        }
       }
 
       // Create a shared arg
@@ -521,25 +484,16 @@ describe("Plexus Inheritance and Default Values", () => {
       @syncing
       class Item extends PlexusModel {
         @syncing accessor name!: string;
-        constructor(props) {
-          super(props);
-        }
       }
 
       @syncing
       class ListParent extends PlexusModel {
         @syncing.list accessor items: Item[] = [];
-        constructor(props) {
-          super(props);
-        }
       }
 
       @syncing
       class ChildListVersion extends ListParent {
         @syncing.child.list accessor items: Item[] = []; // Override as child list
-        constructor(props) {
-          super(props);
-        }
       }
 
       const item1 = new Item({ name: "item1" });
@@ -568,25 +522,16 @@ describe("Plexus Inheritance and Default Values", () => {
       class Config extends PlexusModel {
         @syncing accessor key!: string;
         @syncing accessor value!: string;
-        constructor(props) {
-          super(props);
-        }
       }
 
       @syncing
       class MapParent extends PlexusModel {
         @syncing.map accessor configs: Record<string, Config> = {};
-        constructor(props) {
-          super(props);
-        }
       }
 
       @syncing
       class ChildMapVersion extends MapParent {
         @syncing.child.map accessor configs: Record<string, Config> = {}; // Override as child map
-        constructor(props) {
-          super(props);
-        }
       }
 
       const config1 = new Config({ key: "k1", value: "v1" });
@@ -615,37 +560,23 @@ describe("Plexus Inheritance and Default Values", () => {
       class Node extends PlexusModel {
         @syncing accessor id!: string;
         @syncing accessor label: string = "node";
-        constructor(props) {
-          super(props);
-        }
       }
 
       @syncing
       abstract class BaseGraph extends PlexusModel {
         @syncing accessor root!: Node; // Reference
         @syncing.list accessor nodes: Node[] = []; // Reference list
-        constructor(props) {
-          super(props);
-        }
       }
 
       @syncing
       abstract class OwnedRootGraph extends BaseGraph {
         // @ts-expect-error
         @syncing.child override accessor root!: Node;
-        // nodes remains reference list
-        constructor(props) {
-          super(props);
-        }
       }
 
       @syncing
       class FullyOwnedGraph extends OwnedRootGraph {
         @syncing.child.list accessor nodes: Node[] = []; // Override: nodes are now owned too
-        // root remains owned from OwnedRootGraph
-        constructor(props) {
-          super(props);
-        }
       }
 
       // Create nodes
@@ -670,8 +601,7 @@ describe("Plexus Inheritance and Default Values", () => {
       const doc2 = new Y.Doc();
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc));
 
-      const { root: graphRoot2 } =
-        await createTestPlexus<FullyOwnedGraph>(doc2);
+      const { root: graphRoot2 } = await createTestPlexus<FullyOwnedGraph>(doc2);
       expect(graphRoot2.root.parent).toBe(graphRoot2);
       expect(graphRoot2.nodes[0].parent).toBe(graphRoot2);
       expect(graphRoot2.nodes[1].parent).toBe(graphRoot2);
@@ -681,17 +611,11 @@ describe("Plexus Inheritance and Default Values", () => {
       @syncing
       class Value extends PlexusModel {
         @syncing accessor data: string = "default";
-        constructor(props) {
-          super(props);
-        }
       }
 
       @syncing
       class WeakParent extends PlexusModel {
         @syncing accessor value: Value | null = null; // Nullable reference with null default
-        constructor(props) {
-          super(props);
-        }
       }
 
       @syncing
@@ -699,9 +623,6 @@ describe("Plexus Inheritance and Default Values", () => {
         @syncing.child override accessor value: Value = new Value({
           data: "child-default",
         }); // Non-null owned with instance default
-        constructor(props?: Partial<OwnedChild>) {
-          super(props);
-        }
       }
 
       // Parent uses null default

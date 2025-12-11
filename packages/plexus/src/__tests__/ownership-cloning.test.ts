@@ -3,8 +3,8 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
 import * as Y from "yjs";
 
 // Test models for ownership semantics
@@ -15,10 +15,6 @@ class ChildComponent extends PlexusModel {
 
   @syncing
   accessor value!: number;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -34,10 +30,6 @@ class ParentWithChildVal extends PlexusModel {
 
   @syncing
   accessor reference!: ChildComponent | null; // No ownership: preserve reference
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -50,10 +42,6 @@ class ParentWithChildList extends PlexusModel {
 
   @syncing.list
   accessor references!: Array<ChildComponent>; // No ownership: preserve references
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -66,10 +54,6 @@ class ParentWithChildSet extends PlexusModel {
 
   @syncing.set
   accessor refSet!: Set<ChildComponent>; // No ownership: preserve references
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -82,10 +66,6 @@ class ParentWithChildRecord extends PlexusModel {
 
   @syncing.map
   accessor refMap!: Record<string, ChildComponent>; // No ownership: preserve references
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 describe("Ownership-aware cloning", () => {
@@ -104,7 +84,7 @@ describe("Ownership-aware cloning", () => {
         name: "parent",
         child: child, // Will be cloned
         participatingReference: child, // Will be updated as new entity of that was spawned
-        reference: child2 // Will be preserved as reference
+        reference: child2, // Will be preserved as reference
       });
 
       const cloned = parent.clone();
@@ -130,7 +110,7 @@ describe("Ownership-aware cloning", () => {
       const parent = new ParentWithChildVal({
         name: "parent",
         child: null,
-        reference: null
+        reference: null,
       });
 
       const cloned = parent.clone();
@@ -149,7 +129,7 @@ describe("Ownership-aware cloning", () => {
       const parent = new ParentWithChildList({
         name: "parent",
         children: [child1, child2], // Will be cloned
-        references: [child1, child2, child3] // child1 and child2 will be remapped to clones, child3 preserved
+        references: [child1, child2, child3], // child1 and child2 will be remapped to clones, child3 preserved
       });
 
       const cloned = parent.clone();
@@ -180,7 +160,7 @@ describe("Ownership-aware cloning", () => {
       const parent = new ParentWithChildList({
         name: "parent",
         children: [child1],
-        references: [child1, child2] // child1 will be remapped, child2 preserved
+        references: [child1, child2], // child1 will be remapped, child2 preserved
       });
 
       const cloned = parent.clone();
@@ -214,7 +194,7 @@ describe("Ownership-aware cloning", () => {
       const parent = new ParentWithChildSet({
         name: "parent",
         childSet: new Set([child1, child2]), // Will be cloned
-        refSet: new Set([child1, child2, child3]) // child1 and child2 remapped, child3 preserved
+        refSet: new Set([child1, child2, child3]), // child1 and child2 remapped, child3 preserved
       });
 
       const cloned = parent.clone();
@@ -244,7 +224,7 @@ describe("Ownership-aware cloning", () => {
       const parent = new ParentWithChildRecord({
         name: "parent",
         childMap: { first: child1, second: child2 }, // Will be cloned
-        refMap: { first: child1, second: child2, third: child3 } // first and second remapped, third preserved
+        refMap: { first: child1, second: child2, third: child3 }, // first and second remapped, third preserved
       });
 
       const cloned = parent.clone();
@@ -274,10 +254,6 @@ describe("Ownership-aware cloning", () => {
 
       @syncing.child
       accessor nodeB!: NodeB | null; // Owns NodeB - will clone recursively
-
-      constructor(props) {
-        super(props);
-      }
     }
 
     @syncing
@@ -287,10 +263,6 @@ describe("Ownership-aware cloning", () => {
 
       @syncing.child
       accessor nodeA!: NodeA | null; // Owns NodeA - creates circular ownership
-
-      constructor(props) {
-        super(props);
-      }
     }
 
     it("should handle shared references without cycles", () => {
@@ -319,7 +291,7 @@ describe("Ownership-aware cloning", () => {
       const parent1 = new ParentWithChildList({
         name: "parent1",
         children: [sharedChild], // sharedChild's parent is now parent1
-        references: []
+        references: [],
       });
 
       // At this point, sharedChild belongs to parent1
@@ -329,7 +301,7 @@ describe("Ownership-aware cloning", () => {
       const parent2 = new ParentWithChildList({
         name: "parent2",
         children: [sharedChild, parent1], // sharedChild moves to parent2, removed from parent1
-        references: []
+        references: [],
       });
 
       // Parent tracking should have moved sharedChild from parent1 to parent2
@@ -359,7 +331,7 @@ describe("Ownership-aware cloning", () => {
       const level2a = new ParentWithChildList({
         name: "level2a",
         children: [leafChild], // leafChild's parent is now level2a
-        references: []
+        references: [],
       });
 
       // leafChild belongs to level2a
@@ -369,7 +341,7 @@ describe("Ownership-aware cloning", () => {
       const level2b = new ParentWithChildList({
         name: "level2b",
         children: [leafChild], // leafChild moves from level2a to level2b
-        references: []
+        references: [],
       });
 
       // Parent tracking should have moved leafChild from level2a to level2b
@@ -380,7 +352,7 @@ describe("Ownership-aware cloning", () => {
       const root = new ParentWithChildList({
         name: "root",
         children: [level2a, level2b], // level2a has no children, level2b has leafChild
-        references: []
+        references: [],
       });
 
       const clonedRoot = root.clone();
@@ -414,7 +386,7 @@ describe("Ownership-aware cloning", () => {
       const selfRef = new ParentWithChildList({
         name: "selfRef",
         children: [], // Start empty, will add self via push
-        references: []
+        references: [],
       });
 
       // Add itself to its own children list (circular reference)
@@ -445,7 +417,7 @@ describe("Ownership-aware cloning", () => {
       const left = new ParentWithChildList({
         name: "left",
         children: [shared], // shared's parent is now left
-        references: []
+        references: [],
       });
 
       // shared belongs to left
@@ -455,7 +427,7 @@ describe("Ownership-aware cloning", () => {
       const right = new ParentWithChildList({
         name: "right",
         children: [shared], // shared moves from left to right
-        references: []
+        references: [],
       });
 
       // Parent tracking should have moved shared from left to right
@@ -466,7 +438,7 @@ describe("Ownership-aware cloning", () => {
       const root = new ParentWithChildList({
         name: "root",
         children: [left, right], // left has no children, right has shared
-        references: []
+        references: [],
       });
 
       const clonedRoot = root.clone();
@@ -498,7 +470,7 @@ describe("Ownership-aware cloning", () => {
       const mixedParent = new ParentWithChildList({
         name: "mixed",
         children: [sharedChild], // child-list: will clone
-        references: [sharedChild, otherChild] // list: sharedChild remapped, otherChild preserved
+        references: [sharedChild, otherChild], // list: sharedChild remapped, otherChild preserved
       });
 
       const cloned = mixedParent.clone();
@@ -521,7 +493,7 @@ describe("Ownership-aware cloning", () => {
       const parent = new ParentWithChildList({
         name: "empty",
         children: [],
-        references: []
+        references: [],
       });
 
       const cloned = parent.clone();
@@ -540,7 +512,7 @@ describe("Ownership-aware cloning", () => {
       const parentWithNulls = new ParentWithChildVal({
         name: "nulls",
         child: null,
-        reference: null
+        reference: null,
       });
 
       const cloned = parentWithNulls.clone();
@@ -557,7 +529,7 @@ describe("Ownership-aware cloning", () => {
       const parent1 = new ParentWithChildList({
         name: "parent1",
         children: [child1],
-        references: []
+        references: [],
       });
 
       // First clone
@@ -569,7 +541,7 @@ describe("Ownership-aware cloning", () => {
       const parent2 = new ParentWithChildList({
         name: "parent2",
         children: [child2],
-        references: []
+        references: [],
       });
 
       const cloned2 = parent2.clone();
@@ -588,8 +560,8 @@ describe("Ownership-aware cloning", () => {
           new ParentWithChildList({
             name: `parent${i}`,
             children: [centralChild], // Each assignment moves centralChild to the new parent
-            references: []
-          })
+            references: [],
+          }),
         );
       }
 
@@ -604,7 +576,7 @@ describe("Ownership-aware cloning", () => {
       const megaRoot = new ParentWithChildList({
         name: "megaRoot",
         children: parents,
-        references: []
+        references: [],
       });
 
       // This should complete without hanging or crashing
@@ -642,9 +614,9 @@ describe("Ownership-aware cloning", () => {
           new ChildComponent({ name: "cloneable", value: 1 }),
           "string value" as any, // Non-cloneable
           42 as any, // Non-cloneable
-          null as any // Non-cloneable
+          null as any, // Non-cloneable
         ],
-        references: []
+        references: [],
       });
 
       const cloned = parent.clone();
@@ -663,13 +635,13 @@ describe("Ownership-aware cloning", () => {
         name: "broken",
         clone: () => {
           throw new Error("Clone failed!");
-        }
+        },
       };
 
       const parent = new ParentWithChildList({
         name: "parent",
         children: [brokenCloneable as any],
-        references: []
+        references: [],
       });
 
       // Should not throw - objects without isProxyEntity symbol are copied as-is
@@ -682,13 +654,13 @@ describe("Ownership-aware cloning", () => {
       // objects without isProxyEntity symbol are not cloned at all
       const invalidCloneable = {
         name: "invalid",
-        clone: () => "not an object" // This won't be called
+        clone: () => "not an object", // This won't be called
       };
 
       const parent = new ParentWithChildList({
         name: "parent",
         children: [invalidCloneable as any],
-        references: []
+        references: [],
       });
 
       // Object is copied as-is since it doesn't have isProxyEntity symbol
@@ -705,7 +677,7 @@ describe("Ownership-aware cloning", () => {
         current = new ParentWithChildList({
           name: `level${i}`,
           children: [current],
-          references: []
+          references: [],
         }) as any;
       }
 
@@ -735,8 +707,8 @@ describe("Ownership-aware cloning", () => {
           new ParentWithChildList({
             name: `parent${i}`,
             children: [sharedChild], // Each assignment moves sharedChild to the new parent
-            references: []
-          })
+            references: [],
+          }),
       );
 
       // Parent tracking should have moved sharedChild to the last parent
@@ -778,7 +750,7 @@ describe("Ownership-aware cloning", () => {
       const ephemeralParent = new ParentWithChildVal({
         name: "ephemeral",
         child: null,
-        reference: storedChild // Ephemeral entity referencing stored entity
+        reference: storedChild, // Ephemeral entity referencing stored entity
       });
 
       // The ephemeral entity should remain ephemeral despite referencing stored entity
@@ -801,7 +773,7 @@ describe("Ownership-aware cloning", () => {
       const parent = new ParentWithChildList({
         name: "mixed",
         children: [ephemeralChild, materializedChild1], // child-list: should clone both
-        references: [ephemeralChild, materializedChild2] // list: ephemeralChild remapped, materializedChild2 preserved
+        references: [ephemeralChild, materializedChild2], // list: ephemeralChild remapped, materializedChild2 preserved
       });
 
       const cloned = parent.clone();
@@ -830,13 +802,13 @@ describe("Ownership-aware cloning", () => {
         name: "mixed",
         childMap: {
           mat: materializedChild,
-          eph: ephemeralChild
+          eph: ephemeralChild,
         }, // child-record: should clone both
         refMap: {
           mat: materializedChild,
           eph: ephemeralChild,
-          other: otherChild
-        } // record: mat and eph remapped, other preserved
+          other: otherChild,
+        }, // record: mat and eph remapped, other preserved
       });
 
       const cloned = parent.clone();
@@ -866,7 +838,7 @@ describe("Ownership-aware cloning", () => {
       const parent = new ParentWithChildSet({
         name: "mixed",
         childSet: new Set([materializedChild, ephemeralChild]), // child-set: should clone both
-        refSet: new Set([materializedChild, ephemeralChild, otherChild]) // set: mat and eph remapped, other preserved
+        refSet: new Set([materializedChild, ephemeralChild, otherChild]), // set: mat and eph remapped, other preserved
       });
 
       const cloned = parent.clone();
@@ -875,7 +847,7 @@ describe("Ownership-aware cloning", () => {
       expect(cloned.childSet.size).toBe(2);
       const clonedChildren = Array.from(cloned.childSet);
       expect(
-        clonedChildren.every((child) => child.uuid !== materializedChild.uuid && child.uuid !== ephemeralChild.uuid)
+        clonedChildren.every((child) => child.uuid !== materializedChild.uuid && child.uuid !== ephemeralChild.uuid),
       ).toBe(true);
       expect(clonedChildren.some((child) => child.name === "materialized")).toBe(true);
       expect(clonedChildren.some((child) => child.name === "ephemeral")).toBe(true);

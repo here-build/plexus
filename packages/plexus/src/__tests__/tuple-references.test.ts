@@ -4,12 +4,12 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { referenceSymbol } from "../proxy-runtime-types";
-import { primeDoc } from "./test-helpers";
-import { initTestPlexus } from "./test-plexus";
-import * as YJS_GLOBALS from "../YJS_GLOBALS";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { referenceSymbol } from "../proxy-runtime-types.js";
+import { primeDoc } from "./test-helpers.js";
+import { initTestPlexus } from "./test-plexus.js";
+import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
 
 // Test model schemas
 @syncing
@@ -19,10 +19,6 @@ class TestUser extends PlexusModel {
 
   @syncing.list
   accessor posts!: any[];
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -35,10 +31,6 @@ class TestPost extends PlexusModel {
 
   @syncing.list
   accessor comments!: any[];
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -48,10 +40,6 @@ class TestComment extends PlexusModel {
 
   @syncing
   accessor author!: any;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 // Minimal model (no collections) to avoid resolver shape issues in this test
@@ -59,10 +47,6 @@ class TestComment extends PlexusModel {
 class Shallow extends PlexusModel {
   @syncing
   accessor name!: string;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 describe("Tuple Reference Format", () => {

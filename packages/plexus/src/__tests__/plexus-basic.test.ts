@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { initTestPlexus } from "./test-plexus";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { initTestPlexus } from "./test-plexus.js";
 
 // Simple test entities
 @syncing
@@ -15,10 +15,6 @@ class User extends PlexusModel {
 
   @syncing
   accessor age!: number;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -34,11 +30,6 @@ class Post extends PlexusModel {
 
   @syncing.list
   accessor tags!: string[];
-
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 describe("Plexus Basic Functionality", () => {
@@ -46,14 +37,14 @@ describe("Plexus Basic Functionality", () => {
     const user = new User({
       name: "John Doe",
       email: "john@example.com",
-      age: 30
+      age: 30,
     });
 
     const post = new Post({
       title: "Test Post",
       content: "Test content",
       author: user,
-      tags: ["test", "plexus"]
+      tags: ["test", "plexus"],
     });
 
     // Initialize Plexus with post as root
@@ -84,7 +75,7 @@ describe("Plexus Basic Functionality", () => {
     const user = new User({
       name: "Jane Doe",
       email: "jane@example.com",
-      age: 25
+      age: 25,
     });
 
     const { plexus, root } = await initTestPlexus<User>(user);
@@ -100,7 +91,7 @@ describe("Plexus Basic Functionality", () => {
     const user = new User({
       name: "Bob Smith",
       email: "bob@example.com",
-      age: 35
+      age: 35,
     });
 
     const { plexus, doc } = await initTestPlexus<User>(user);
@@ -113,14 +104,14 @@ describe("Plexus Basic Functionality", () => {
     const author = new User({
       name: "Author Name",
       email: "author@example.com",
-      age: 40
+      age: 40,
     });
 
     const post = new Post({
       title: "Related Post",
       content: "Content with relationships",
       author: author,
-      tags: ["relationship", "test"]
+      tags: ["relationship", "test"],
     });
 
     const { root } = await initTestPlexus<Post>(post);

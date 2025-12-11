@@ -1,12 +1,12 @@
 import type * as Y from "yjs";
 
-import { deref } from "../deref";
-import { undoManagerNotifications } from "../Plexus";
-import type { PlexusModel } from "../PlexusModel";
-import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types";
-import { informOrphanizationSymbol, materializationSymbol, requestAdoptionSymbol } from "../proxy-runtime-types";
-import { ACCESS_ALL_SYMBOL, trackAccess, trackModification } from "../tracking";
-import { maybeReference, maybeTransacting } from "../utils";
+import { deref } from "../deref.js";
+import { undoManagerNotifications } from "../Plexus.js";
+import type { PlexusModel } from "../PlexusModel.js";
+import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
+import { informOrphanizationSymbol, materializationSymbol, requestAdoptionSymbol } from "../proxy-runtime-types.js";
+import { ACCESS_ALL_SYMBOL, trackAccess, trackModification } from "../tracking.js";
+import { maybeReference, maybeTransacting } from "../utils/index.js";
 
 export type MaterializedSetProxyInitTarget = {
   owner: PlexusModel;
@@ -27,12 +27,12 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
       backingSet = new Set(
         getYjsSet()!
           .toArray()
-          .map((item) => deref(owner._doc!, item) as T),
+          .map((item) => deref(owner.__doc__!, item) as T),
       );
     }
     return backingSet;
   };
-  const getYjsSet = () => owner._yjsFields?.get(key) as Y.Array<AllowedYValue> | null;
+  const getYjsSet = () => owner.__yjsFieldsMap__?.get(key) as Y.Array<AllowedYValue> | null;
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
     if (event.target !== getYjsSet()) {
       return;
@@ -57,7 +57,7 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
         case "add":
           return (value: T) => {
             if (getBackgingSet().add(value)) {
-              maybeTransacting(owner._doc!, () => {
+              maybeTransacting(owner.__doc__!, () => {
                 trackModification(self, ACCESS_ALL_SYMBOL);
                 // Update parent tracking for child fields
                 if (isChildField) {
@@ -65,7 +65,7 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
                 }
 
                 // Y.Array.push expects an array of items
-                getYjsSet()?.push([maybeReference(value, owner._doc!)]);
+                getYjsSet()?.push([maybeReference(value, owner.__doc__!)]);
               });
               return true;
             }
@@ -78,7 +78,7 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
             if (outputLength === 0) {
               return;
             }
-            maybeTransacting(owner._doc!, () => {
+            maybeTransacting(owner.__doc__!, () => {
               getBackgingSet().clear();
               trackModification(self, ACCESS_ALL_SYMBOL);
               // Clear parent tracking for all items
@@ -97,7 +97,7 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
             const yjsArray = getYjsSet();
 
             const newValuesSet = new Set(newValues);
-            maybeTransacting(owner._doc, () => {
+            maybeTransacting(owner.__doc__, () => {
               trackModification(self, ACCESS_ALL_SYMBOL);
               // Clear parent tracking for old items
               if (isChildField) {
@@ -118,7 +118,7 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
                   }
                 }
               }
-              yjsArray?.push([...newValues].map((value) => maybeReference(value, owner._doc!)));
+              yjsArray?.push([...newValues].map((value) => maybeReference(value, owner.__doc__!)));
               backingSet = newValuesSet;
             });
           };
@@ -134,11 +134,11 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
             }
 
             if (yjsArray) {
-              maybeTransacting(owner._doc, () => {
+              maybeTransacting(owner.__doc__, () => {
                 // Clear parent tracking for removed item
                 const index = yjsArray
                   .toArray()
-                  .map((item) => deref(owner._doc!, item))
+                  .map((item) => deref(owner.__doc__!, item))
                   .indexOf(value);
 
                 yjsArray.delete(index, 1);

@@ -1,4 +1,4 @@
-import type { PlexusConstructor } from "./PlexusModel";
+import type { PlexusConstructor } from "./PlexusModel.js";
 
 export const entityClasses = new Map<string, PlexusConstructor>();
 export const mutableArrayMethods = new Set<symbol | string>([
@@ -12,4 +12,3 @@ export const mutableArrayMethods = new Set<symbol | string>([
   "splice",
   "unshift",
 ]);
-export const mutableArrayMethodsPreservingLength = new Set<symbol | string>(["copyWithin", "fill", "reverse", "sort"]);

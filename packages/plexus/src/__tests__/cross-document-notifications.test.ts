@@ -9,12 +9,12 @@
 
 import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { referenceSymbol } from "../proxy-runtime-types";
-import { createTrackedFunction } from "../tracking";
-import { primeDoc } from "./test-helpers";
-import { initTestPlexus, TestPlexus } from "./test-plexus";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { referenceSymbol } from "../proxy-runtime-types.js";
+import { createTrackedFunction } from "../tracking.js";
+import { primeDoc } from "./test-helpers.js";
+import { initTestPlexus, TestPlexus } from "./test-plexus.js";
 
 // Model classes
 @syncing
@@ -30,10 +30,6 @@ class User extends PlexusModel {
 
   @syncing.set
   accessor tags!: Set<string>;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -49,10 +45,6 @@ class Post extends PlexusModel {
 
   @syncing.list
   accessor comments!: Post[];
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 // Test utilities
@@ -68,7 +60,7 @@ async function createTestUser(name: string) {
     name,
     email: `${name.toLowerCase()}@test.com`,
     posts: {},
-    tags: new Set()
+    tags: new Set(),
   });
 
   const { doc, root: user, plexus } = await initTestPlexus<User>(ephemeralUser);
@@ -207,7 +199,7 @@ describe("Cross-Document Notifications", () => {
         title: "New Post",
         content: "Content here",
         author: null,
-        comments: []
+        comments: [],
       });
       user1.posts["post1"] = post;
       const postRef = post[referenceSymbol](doc1); // Materialize the post
@@ -234,7 +226,7 @@ describe("Cross-Document Notifications", () => {
         title: "Initial Post",
         content: "Content",
         author: null,
-        comments: []
+        comments: [],
       });
       initialPost[referenceSymbol](doc1); // Materialize the post
       user1.posts["initial"] = initialPost;
@@ -269,7 +261,7 @@ describe("Cross-Document Notifications", () => {
         title: "Original Title",
         content: "Content",
         author: null,
-        comments: []
+        comments: [],
       });
       initialPost[referenceSymbol](doc1); // Materialize the post
       user1.posts["tracked-post"] = initialPost;
@@ -304,7 +296,7 @@ describe("Cross-Document Notifications", () => {
         title: "Main Post",
         content: "Content",
         author: null,
-        comments: []
+        comments: [],
       });
 
       const { doc: doc1, root: post1, plexus } = await initTestPlexus<Post>(ephemeralPost);
@@ -327,7 +319,7 @@ describe("Cross-Document Notifications", () => {
         title: "Comment",
         content: "This is a comment",
         author: null,
-        comments: []
+        comments: [],
       });
       post1.comments.push(comment);
 
@@ -357,11 +349,7 @@ describe("Cross-Document Notifications", () => {
       });
       ephemeralPost.comments.push(initialComment);
 
-      const {
-        doc: doc1,
-        root: post1,
-        plexus,
-      } = await initTestPlexus<Post>(ephemeralPost);
+      const { doc: doc1, root: post1, plexus } = await initTestPlexus<Post>(ephemeralPost);
       const entityId = post1.uuid;
 
       // Sync to doc2
@@ -404,11 +392,7 @@ describe("Cross-Document Notifications", () => {
       });
       ephemeralPost.comments.push(initialComment);
 
-      const {
-        doc: doc1,
-        root: post1,
-        plexus,
-      } = await initTestPlexus<Post>(ephemeralPost);
+      const { doc: doc1, root: post1, plexus } = await initTestPlexus<Post>(ephemeralPost);
       const entityId = post1.uuid;
 
       // Sync to doc2
@@ -510,7 +494,7 @@ describe("Cross-Document Notifications", () => {
         title: "User's Post",
         content: "Content",
         author: user1,
-        comments: []
+        comments: [],
       });
       post[referenceSymbol](doc1); // Materialize the post
       user1.posts["main"] = post;

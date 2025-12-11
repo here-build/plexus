@@ -8,16 +8,16 @@
  */
 
 // this import should go first
-export * from "./utils/defaulted-collections";
-export * from "./proxy-runtime-types";
+export * from "./utils/defaulted-collections.js";
+export * from "./proxy-runtime-types.js";
 
 // New decorator-based API
-export { PlexusModel, PlexusInit } from "./PlexusModel";
-export { syncing } from "./decorators";
+export { PlexusModel, type PlexusInit } from "./PlexusModel.js";
+export { syncing } from "./decorators.js";
 
 // Built-in tracking system
-export * from "./tracking";
-export * as YJS_GLOBALS from "./YJS_GLOBALS";
+export * from "./tracking.js";
+export * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 
 // Plexus document orchestration
-export * from "./Plexus";
+export * from "./Plexus.js";

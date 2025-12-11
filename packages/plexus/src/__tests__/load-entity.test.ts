@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import * as YJS_GLOBALS from "../YJS_GLOBALS";
-import { createTestPlexus, initTestPlexus } from "./test-plexus";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
+import { createTestPlexus, initTestPlexus } from "./test-plexus.js";
 
 // Test models
 @syncing
@@ -16,10 +16,6 @@ class User extends PlexusModel {
 
   @syncing
   accessor age!: number;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -35,10 +31,6 @@ class Post extends PlexusModel {
 
   @syncing.list
   accessor tags!: string[];
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 @syncing
@@ -51,10 +43,6 @@ class Comment extends PlexusModel {
 
   @syncing
   accessor post!: Post | null;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 // Root type that contains all our test entities
@@ -74,10 +62,6 @@ class TestRoot extends PlexusModel {
 
   @syncing.list
   accessor posts!: Post[];
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 describe("Plexus Entity Loading", () => {
@@ -171,7 +155,7 @@ describe("Plexus Entity Loading", () => {
         title: "Orphan Post",
         content: "No author",
         author: null,
-        tags: []
+        tags: [],
       });
 
       // Update root to include orphan post
@@ -205,8 +189,7 @@ describe("Plexus Entity Loading", () => {
         users: [],
         posts: [],
       });
-      const { root: reloadedRoot } =
-        await initTestPlexus<TestRoot>(freshTestRoot);
+      const { root: reloadedRoot } = await initTestPlexus<TestRoot>(freshTestRoot);
       expect(reloadedRoot.user!.name).toBe("Jane Doe");
       expect(reloadedRoot.user!.age).toBe(31);
     });

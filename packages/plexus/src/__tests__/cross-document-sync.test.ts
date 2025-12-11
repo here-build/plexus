@@ -7,11 +7,10 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { isPlexusEntity } from "../index";
-import { primeDoc } from "./test-helpers";
-import { createTestPlexus, initTestPlexus } from "./test-plexus";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { primeDoc } from "./test-helpers.js";
+import { createTestPlexus, initTestPlexus } from "./test-plexus.js";
 
 // Test schema definitions
 @syncing
@@ -45,11 +44,6 @@ class Component extends PlexusModel {
 
   @syncing.map
   accessor metadata!: Record<string, string>;
-
-  constructor(props) {
-    super(props);
-  }
-
 }
 
 @syncing
@@ -59,10 +53,6 @@ class Site extends PlexusModel {
 
   @syncing.map
   accessor components!: Record<string, Component>;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 // Sync helper function
@@ -93,8 +83,7 @@ describe("Cross-Document Proxy Sync", () => {
   it("should sync ephemeral entity contagion across documents", async () => {
     // Doc1: Create materialized site as root using Plexus
     const ephemeralSite = new Site({ name: "Test Site", components: {} });
-    const { doc: doc1, root: site1 } =
-      await initTestPlexus<Site>(ephemeralSite);
+    const { doc: doc1, root: site1 } = await initTestPlexus<Site>(ephemeralSite);
 
     // Create ephemeral component
     const ephemeralComponent = new Component({
@@ -134,8 +123,7 @@ describe("Cross-Document Proxy Sync", () => {
       name: "Bidirectional Test Site",
       components: {},
     });
-    const { doc: doc1, root: site1 } =
-      await initTestPlexus<Site>(ephemeralSite);
+    const { doc: doc1, root: site1 } = await initTestPlexus<Site>(ephemeralSite);
     const component1 = new Component({
       name: "Original",
       type: "component",
@@ -187,8 +175,7 @@ describe("Cross-Document Proxy Sync", () => {
       name: "Nested Test Site",
       components: {},
     });
-    const { doc: doc1, root: site1 } =
-      await initTestPlexus<Site>(ephemeralSite2);
+    const { doc: doc1, root: site1 } = await initTestPlexus<Site>(ephemeralSite2);
 
     const parentComponent = new Component({
       name: "Parent",
@@ -221,9 +208,7 @@ describe("Cross-Document Proxy Sync", () => {
     // Verify nested references work in doc1
     expect(site1.components["parent"].tplTree?.tag).toBe("div");
     expect(site1.components["parent"].tplTree?.children[0].tag).toBe("span");
-    expect(site1.components["parent"].tplTree?.children[0].attrs["id"]).toBe(
-      "child-1",
-    );
+    expect(site1.components["parent"].tplTree?.children[0].attrs["id"]).toBe("child-1");
 
     // Sync to doc2
     syncDocs(doc1, doc2);
@@ -261,8 +246,7 @@ describe("Cross-Document Proxy Sync", () => {
       name: "Collections Test Site",
       components: {},
     });
-    const { doc: doc1, root: site1 } =
-      await initTestPlexus<Site>(ephemeralSite3);
+    const { doc: doc1, root: site1 } = await initTestPlexus<Site>(ephemeralSite3);
     const parent = new Component({
       name: "Parent",
       type: "container",
@@ -368,8 +352,7 @@ describe("Cross-Document Proxy Sync", () => {
       name: "Identity Test Site",
       components: {},
     });
-    const { doc: doc1, root: site1 } =
-      await initTestPlexus<Site>(ephemeralSite4);
+    const { doc: doc1, root: site1 } = await initTestPlexus<Site>(ephemeralSite4);
 
     const comp1 = new Component({
       name: "Component1",

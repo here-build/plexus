@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { PlexusModel } from "../PlexusModel";
-import { syncing } from "../decorators";
-import { initTestPlexus } from "./test-plexus";
-import type { DependencyId, DependencyVersion } from "../Plexus";
+import { PlexusModel } from "../PlexusModel.js";
+import { syncing } from "../decorators.js";
+import { initTestPlexus } from "./test-plexus.js";
+import type { DependencyId, DependencyVersion } from "../Plexus.js";
 
 // Dependency entity (no collections to avoid resolver shape issues)
 @syncing
@@ -13,10 +13,6 @@ class DepEntity extends PlexusModel {
 
   @syncing
   accessor version!: number;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 // Root entity holds references to dependency entities and manages dependency versions
@@ -39,10 +35,6 @@ class RootEntity extends PlexusModel {
 
   @syncing.map
   accessor dependencyVersion!: Record<DependencyId, DependencyVersion>;
-
-  constructor(props) {
-    super(props);
-  }
 }
 
 describe("Dependencies Interactions with Plexus", () => {
@@ -61,16 +53,8 @@ describe("Dependencies Interactions with Plexus", () => {
     const depAEntity_temp = new DepEntity({ name: "Alpha", version: 1 });
     const depBEntity_temp = new DepEntity({ name: "Beta", version: 2 });
 
-    const { doc: depADoc, root: depARoot } = await initTestPlexus<DepEntity>(
-      depAEntity_temp,
-      {},
-      "depA",
-    );
-    const { doc: depBDoc, root: depBRoot } = await initTestPlexus<DepEntity>(
-      depBEntity_temp,
-      {},
-      "depB",
-    );
+    const { doc: depADoc, root: depARoot } = await initTestPlexus<DepEntity>(depAEntity_temp, {}, "depA");
+    const { doc: depBDoc, root: depBRoot } = await initTestPlexus<DepEntity>(depBEntity_temp, {}, "depB");
 
     depA = depADoc;
     depB = depBDoc;
@@ -90,8 +74,7 @@ describe("Dependencies Interactions with Plexus", () => {
     });
 
     // Initialize main doc with root and dependencies
-    const { plexus, root: loadedRoot } =
-      await initTestPlexus<RootEntity>(testRoot);
+    const { plexus, root: loadedRoot } = await initTestPlexus<RootEntity>(testRoot);
     rootDoc = plexus.doc;
     root = loadedRoot;
 
@@ -100,14 +83,8 @@ describe("Dependencies Interactions with Plexus", () => {
     (plexus as any).registerDependencyFactory("depB", async () => depB);
 
     // Now explicitly add dependencies using the new API
-    await plexus.addDependency(
-      "depA" as DependencyId,
-      "1.0.0" as DependencyVersion,
-    );
-    await plexus.addDependency(
-      "depB" as DependencyId,
-      "2.0.0" as DependencyVersion,
-    );
+    await plexus.addDependency("depA" as DependencyId, "1.0.0" as DependencyVersion);
+    await plexus.addDependency("depB" as DependencyId, "2.0.0" as DependencyVersion);
   });
 
   it("should automatically resolve and track dependency entities", () => {
@@ -138,10 +115,7 @@ describe("Dependencies Interactions with Plexus", () => {
     const rootFields = models.get((root as any).uuid)!;
 
     expect(rootFields.get("fields").get("ref")).toEqual([depAEntityId, "depA"]);
-    expect(rootFields.get("fields").get("depsRecord").get("a")).toEqual([
-      depAEntityId,
-      "depA",
-    ]);
+    expect(rootFields.get("fields").get("depsRecord").get("a")).toEqual([depAEntityId, "depA"]);
     expect(rootFields.get("fields").get("depsList").get(0)).toEqual([depBEntityId, "depB"]);
   });
 
@@ -181,18 +155,12 @@ describe("Dependencies Interactions with Plexus", () => {
 
     // Should succeed for depA
     await expect(
-      freshPlexus.addDependency(
-        "depA" as DependencyId,
-        "1.0.0" as DependencyVersion,
-      ),
+      freshPlexus.addDependency("depA" as DependencyId, "1.0.0" as DependencyVersion),
     ).resolves.toBeDefined();
 
     // Should fail for missing depB
-    await expect(
-      freshPlexus.addDependency(
-        "depB" as DependencyId,
-        "2.0.0" as DependencyVersion,
-      ),
-    ).rejects.toThrow('Dependency "depB" not found');
+    await expect(freshPlexus.addDependency("depB" as DependencyId, "2.0.0" as DependencyVersion)).rejects.toThrow(
+      'Dependency "depB" not found',
+    );
   });
 });

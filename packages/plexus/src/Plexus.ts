@@ -6,19 +6,13 @@ import invariant from "tiny-invariant";
 import type * as Y from "yjs";
 import { UndoManager } from "yjs";
 
-import { deref } from "./deref";
-import { documentEntityCaches } from "./entity-cache";
-import { entityClasses } from "./globals";
-import { docPlexus, sharedDependencyDocs, sharedDependencyVersions } from "./plexus-registry";
-import { ConcretePlexusConstructor, PlexusModel } from "./PlexusModel";
-import {
-  ParentReference,
-  Storageable, synthetic,
-} from "./proxy-runtime-types";
-import { referenceSymbol } from "./proxy-runtime-types";
-import type { SubPlexus } from "./SubPlexus";
-import { maybeTransacting } from "./utils";
-import * as YJS_GLOBALS from "./YJS_GLOBALS";
+import { deref } from "./deref.js";
+import { docPlexus, sharedDependencyDocs, sharedDependencyVersions } from "./plexus-registry.js";
+import { PlexusModel } from "./PlexusModel.js";
+import { ParentReference, referenceSymbol, Storageable } from "./proxy-runtime-types.js";
+import type { SubPlexus } from "./SubPlexus.js";
+import { maybeTransacting } from "./utils/index.js";
+import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 
 // Global registry for undo notifications - Y entities are singletons anyway
 export const undoManagerNotifications = new WeakMap<Y.AbstractType<any>, (event: any) => void>();
@@ -27,7 +21,7 @@ export type DependencyId = string;
 export type DependencyVersion = string | number;
 
 // Re-export from registry for backward compatibility
-export { getDependencyDoc } from "./plexus-registry";
+export { getDependencyDoc } from "./plexus-registry.js";
 
 export abstract class Plexus<
   Root extends PlexusModel &
@@ -49,6 +43,7 @@ export abstract class Plexus<
   static get docPlexus() {
     return docPlexus as WeakMap<Y.Doc, Plexus<any, any, any, any>>;
   }
+
   // Defer loadRoot() to next tick to ensure child class is fully constructed
   public readonly rootPromise: Promise<Root> = Promise.resolve().then(() => this.loadRoot());
   private isRootLoaded = false;
@@ -161,6 +156,76 @@ export abstract class Plexus<
     // todo somehow notify everyone that entities have changed
   }
 
+  get #modelsMap() {
+    return this.doc.getMap<Y.Map<Y.Map<Storageable> | string | ParentReference>>(YJS_GLOBALS.models.key);
+  }
+
+  protected async resolveDependencies(dependencies: Record<DependencyIdType, DependencyVersionType>): Promise<void> {
+    const missingDependencies = (Object.entries(dependencies) as [DependencyIdType, DependencyVersionType][]).flatMap(
+      ([dependencyId, dependencyVersion]) =>
+        this.dependencyVersions.get(dependencyId) === dependencyVersion
+          ? []
+          : [[dependencyId, dependencyVersion] as [DependencyIdType, DependencyVersionType]],
+    );
+    if (missingDependencies.length > 0) {
+      // todo pause doc updates
+      await Promise.all(
+        missingDependencies.map(async ([dependencyId, dependencyVersion]) => {
+          const depDoc = await this.fetchDependency(dependencyId, dependencyVersion);
+          this.dependencyDocs.set(dependencyId, depDoc);
+          this.dependencyVersions.set(dependencyId, dependencyVersion);
+
+          // Create SubPlexus for this dependency to handle nested dependencies
+          const { SubPlexus } = await import("./SubPlexus.js");
+          const subPlexus = new SubPlexus(depDoc, dependencyId, dependencyVersion, this, this.rootPlexus || this);
+
+          this.subPlexuses.set(dependencyId, subPlexus);
+
+          // Wait for sub-dependencies to load
+          await subPlexus.rootPromise;
+        }),
+      );
+    }
+  }
+
+  /**
+   * Load an entity by ID from the main document.
+   * REQUIRES: rootPromise to be resolved first.
+   * Used for comments, copy-paste, direct navigation.
+   */
+  loadEntity<T extends PlexusModel>(entityId: string): T | null {
+    invariant(this.isRootLoaded, "Cannot load entities before root is loaded. Await plexus.rootPromise first.");
+    return deref(this.doc, [entityId]) as T | null;
+  }
+
+  /**
+   * Check if an entity exists in the document.
+   * REQUIRES: rootPromise to be resolved first.
+   */
+  hasEntity(entityId: string): boolean {
+    invariant(this.isRootLoaded, "Cannot check entities before root is loaded. Await plexus.rootPromise first.");
+    return this.#modelsMap.has(entityId);
+  }
+
+  /**
+   * Get all entity IDs of a specific type.
+   * REQUIRES: rootPromise to be resolved first.
+   */
+  getEntityIds(typeName?: string): string[] {
+    invariant(this.isRootLoaded, "Cannot list entities before root is loaded. Await plexus.rootPromise first.");
+
+    const models = this.#modelsMap;
+    const ids: string[] = [];
+
+    for (const [id, model] of models.entries()) {
+      if (!typeName || model.get(YJS_GLOBALS.models.recordFields.type) === typeName) {
+        ids.push(id);
+      }
+    }
+
+    return ids;
+  }
+
   protected async loadRoot(): Promise<Root> {
     const modelsMap = this.#modelsMap;
     let rootModel = modelsMap.get(YJS_GLOBALS.models.wellKnown.root);
@@ -169,7 +234,7 @@ export abstract class Plexus<
     if (!rootModel) {
       // Fresh document - create default root
       const root = this.createDefaultRoot();
-      root._uuid = YJS_GLOBALS.models.wellKnown.root;
+      root.__internals__.uuid = YJS_GLOBALS.models.wellKnown.root;
       root[referenceSymbol](this.doc);
       rootModel = modelsMap.get(YJS_GLOBALS.models.wellKnown.root);
       invariant(rootModel, "Failed to create root model");
@@ -225,92 +290,6 @@ export abstract class Plexus<
     });
 
     return root;
-  }
-
-  protected async resolveDependencies(dependencies: Record<DependencyIdType, DependencyVersionType>): Promise<void> {
-    const missingDependencies = (Object.entries(dependencies) as [DependencyIdType, DependencyVersionType][]).flatMap(
-      ([dependencyId, dependencyVersion]) =>
-        this.dependencyVersions.get(dependencyId) === dependencyVersion
-          ? []
-          : [[dependencyId, dependencyVersion] as [DependencyIdType, DependencyVersionType]],
-    );
-    if (missingDependencies.length > 0) {
-      // todo pause doc updates
-      await Promise.all(
-        missingDependencies.map(async ([dependencyId, dependencyVersion]) => {
-          const depDoc = await this.fetchDependency(dependencyId, dependencyVersion);
-          this.dependencyDocs.set(dependencyId, depDoc);
-          this.dependencyVersions.set(dependencyId, dependencyVersion);
-
-          // Create SubPlexus for this dependency to handle nested dependencies
-          const { SubPlexus } = await import("./SubPlexus");
-          const subPlexus = new SubPlexus(depDoc, dependencyId, dependencyVersion, this, this.rootPlexus || this);
-
-          this.subPlexuses.set(dependencyId, subPlexus);
-
-          // Wait for sub-dependencies to load
-          await subPlexus.rootPromise;
-        }),
-      );
-    }
-  }
-
-  /**
-   * Load an entity by ID from the main document.
-   * REQUIRES: rootPromise to be resolved first.
-   * Used for comments, copy-paste, direct navigation.
-   */
-  loadEntity<T extends PlexusModel>(entityId: string): T | null {
-    invariant(this.isRootLoaded, "Cannot load entities before root is loaded. Await plexus.rootPromise first.");
-
-    const entityCache = documentEntityCaches.get(this.doc);
-    // Check cache first
-    const cached = entityCache.get(entityId)?.deref();
-    if (cached) return cached as T;
-
-    // Get from Y.Doc
-    const modelData = this.#modelsMap.get(entityId);
-    if (!modelData) return null;
-
-    // Get constructor
-    const type = modelData.get(YJS_GLOBALS.models.recordFields.type) as string;
-    const ModelConstructor = entityClasses.get(type) as ConcretePlexusConstructor | undefined;
-    invariant(ModelConstructor, `Unknown entity type: ${type}`);
-
-    return ModelConstructor[synthetic](entityId, this.doc, modelData);
-  }
-
-  /**
-   * Check if an entity exists in the document.
-   * REQUIRES: rootPromise to be resolved first.
-   */
-  hasEntity(entityId: string): boolean {
-    invariant(this.isRootLoaded, "Cannot check entities before root is loaded. Await plexus.rootPromise first.");
-
-    return this.#modelsMap.has(entityId);
-  }
-
-  /**
-   * Get all entity IDs of a specific type.
-   * REQUIRES: rootPromise to be resolved first.
-   */
-  getEntityIds(typeName?: string): string[] {
-    invariant(this.isRootLoaded, "Cannot list entities before root is loaded. Await plexus.rootPromise first.");
-
-    const models = this.#modelsMap;
-    const ids: string[] = [];
-
-    for (const [id, model] of models.entries()) {
-      if (!typeName || model.get(YJS_GLOBALS.models.recordFields.type) === typeName) {
-        ids.push(id);
-      }
-    }
-
-    return ids;
-  }
-
-  get #modelsMap() {
-    return this.doc.getMap<Y.Map<Y.Map<Storageable> | string | ParentReference>>(YJS_GLOBALS.models.key)
   }
 
   /**

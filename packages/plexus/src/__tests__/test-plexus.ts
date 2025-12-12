@@ -1,32 +1,17 @@
-import * as Y from "yjs";
-import { DependencyId, DependencyVersion, Plexus } from "../Plexus.js";
-import { referenceSymbol } from "../proxy-runtime-types.js";
-import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
-import { PlexusModel } from "../PlexusModel.js";
 import { nanoid } from "nanoid";
+import * as Y from "yjs";
+import { Plexus } from "../Plexus.js";
+import type { PlexusModel } from "../PlexusModel.js";
+import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
 
 /**
  * Test implementation of Plexus for testing purposes.
  * Provides simple dependency resolution from provided dependency docs.
  */
-export class TestPlexus<
-  Root extends PlexusModel &
-    (
-      | {}
-      | {
-          readonly dependencies: Set<PlexusModel>;
-          readonly dependencyVersion: Record<DependencyId, DependencyVersion>;
-        }
-    ),
-> extends Plexus<Root> {
-  private availableDependencies: Map<string, () => Promise<Y.Doc>> = new Map(); // For dynamic dependency creation
-
-  constructor(
-    doc: Y.Doc,
-    private readonly dependencies: Record<string, Y.Doc> = {},
-  ) {
-    super(doc);
-  }
+// @ts-expect-error - TestPlexus uses simplified types for testing
+export class TestPlexus<Root extends PlexusModel> extends Plexus<Root> {
+  private readonly availableDependencies: Map<string, () => Promise<Y.Doc>> = new Map();
+  private cachedDependencies: Record<string, Y.Doc> = {};
 
   /**
    * Register a dependency factory for testing
@@ -37,12 +22,12 @@ export class TestPlexus<
 
   async fetchDependency(dependencyId: string, dependencyVersion?: string): Promise<Y.Doc> {
     // First check if we have a pre-created dependency doc
-    let depDoc = this.dependencies[dependencyId];
+    let depDoc = this.cachedDependencies[dependencyId];
 
     // If not, try the factory
     if (!depDoc && this.availableDependencies.has(dependencyId)) {
       depDoc = await this.availableDependencies.get(dependencyId)!();
-      this.dependencies[dependencyId] = depDoc; // Cache it
+      this.cachedDependencies[dependencyId] = depDoc; // Cache it
     }
 
     if (!depDoc) {
@@ -50,7 +35,6 @@ export class TestPlexus<
     }
 
     // Always ensure the dependency doc has the correct documentId for cross-doc references
-    // This overrides whatever default was set during initialization
     const metadata = depDoc.getMap(YJS_GLOBALS.metadata.key);
     metadata.set(YJS_GLOBALS.metadata.wellKnown.documentId, dependencyId);
 
@@ -59,49 +43,44 @@ export class TestPlexus<
 }
 
 /**
- * Create a TestPlexus instance and wait for root to load
+ * Initialize a TestPlexus with a new root entity.
+ * This is the primary helper for tests - creates doc, bootstraps root, returns everything.
  */
-export async function createTestPlexus<Root extends PlexusModel>(
-  doc: Y.Doc,
-  dependencies: Record<string, Y.Doc> = {},
-): Promise<{ plexus: TestPlexus<Root>; root: Root }> {
-  const plexus = new TestPlexus<Root>(doc, dependencies);
-  const root = await plexus.rootPromise;
-  return { plexus, root };
-}
-
-/**
- * Initialize a document with test data and return a Plexus instance
- */
-export async function initTestPlexus<
-  Root extends PlexusModel &
-    (
-      | {}
-      | {
-          readonly dependencies: Set<PlexusModel>;
-          readonly dependencyVersion: Record<DependencyId, DependencyVersion>;
-        }
-    ),
->(
+export function initTestPlexus<Root extends PlexusModel>(
   rootEntity: Root,
   dependencies: Record<string, Y.Doc> = {},
   documentId?: string,
-): Promise<{ doc: Y.Doc; plexus: TestPlexus<Root>; root: Root }> {
+): { doc: Y.Doc; plexus: TestPlexus<Root>; root: Root } {
   const doc = new Y.Doc();
-
-  // Create Plexus instance first - this registers the doc
-  const plexus = new TestPlexus<Root>(doc, dependencies);
-
-  // Force root UUID and materialize
-  rootEntity.__internals__.uuid = "root";
-  rootEntity[referenceSymbol](doc);
 
   // Set up metadata
   const metadata = doc.getMap(YJS_GLOBALS.metadata.key);
   metadata.set(YJS_GLOBALS.metadata.wellKnown.documentId, documentId ?? nanoid());
 
-  // Load the root through Plexus
-  const root = await plexus.rootPromise;
+  // Bootstrap plexus with root
+  const plexus = TestPlexus.bootstrap(rootEntity, doc, dependencies);
 
-  return { doc, plexus, root };
+  return { doc, plexus, root: plexus.root as Root };
+}
+
+/**
+ * Connect to an existing doc with TestPlexus.
+ * Use when you have a doc that's already been synced/populated.
+ */
+export function connectTestPlexus<Root extends PlexusModel>(
+  doc: Y.Doc,
+  dependencies: Record<string, Y.Doc> = {},
+): { plexus: TestPlexus<Root>; root: Root } {
+  const plexus = TestPlexus.connect<Root>(doc, dependencies);
+  return { plexus, root: plexus.root as Root };
+}
+
+/**
+ * @deprecated Use connectTestPlexus instead. Async wrapper for backwards compatibility.
+ */
+export async function createTestPlexus<Root extends PlexusModel>(
+  doc: Y.Doc,
+  dependencies: Record<string, Y.Doc> = {},
+): Promise<{ plexus: TestPlexus<Root>; root: Root }> {
+  return connectTestPlexus<Root>(doc, dependencies);
 }

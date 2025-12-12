@@ -1,7 +1,7 @@
 export const models = {
   key: "models",
   wellKnown: {
-    root: "root"
+    root: "root",
   },
   recordFields: {
     type: "type",
@@ -15,5 +15,5 @@ export const metadata = {
   wellKnown: {
     documentId: "id",
     version: "version",
-  }
+  },
 } as const;

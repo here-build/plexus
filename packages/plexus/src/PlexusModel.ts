@@ -1,42 +1,40 @@
 import "@here.build/arrival-env";
 import { nanoid } from "nanoid";
 import invariant from "tiny-invariant";
+import type { Constructor } from "type-fest";
 import * as Y from "yjs";
 
 import { clone } from "./clone.js";
 import { deref } from "./deref.js";
 import { documentEntityCaches } from "./entity-cache.js";
-import type { DependencyId } from "./Plexus.js";
-import { undoManagerNotifications } from "./Plexus.js";
 import { docPlexus } from "./plexus-registry.js";
 import {
-  AllowedYJSValue,
-  AllowedYJSValueList,
-  AllowedYJSValueMap,
-  AllowedYJSValueSet,
-  AllowedYValue,
-  GenericRecordSchema,
+  type AllowedYJSValue,
+  type AllowedYJSValueList,
+  type AllowedYJSValueMap,
+  type AllowedYJSValueSet,
+  type AllowedYValue,
+  type GenericRecordSchema,
   informAdoptionSymbol,
   informOrphanizationSymbol,
   materializationSymbol,
-  ParentReference,
-  PlexusUUID,
+  type ParentReference,
+  type PlexusTagContainer,
+  type PlexusUUID,
   referenceSymbol,
-  ReferenceTuple,
+  type ReferenceTuple,
   requestAdoptionSymbol,
   requestEmancipationSymbol,
   requestOrphanizationSymbol,
-  Storageable,
+  type Storageable,
 } from "./proxy-runtime-types.js";
 import { trackAccess, trackModification } from "./tracking.js";
-import { curryMaybeReference, maybeTransacting, never } from "./utils/index.js";
+import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
+import { curryMaybeReference, maybeTransacting, never } from "./utils/utils.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
-import { Constructor } from "type-fest";
+import { Plexus } from "./Plexus.js";
 
-export type PlexusConstructor<T extends PlexusModel = PlexusModel> = (
-  | ((abstract new (...args: any) => T) & {})
-  | ((new (...args: any) => T) & {})
-) & {
+export type PlexusConstructor<T extends PlexusModel = PlexusModel> = (abstract new (...args: any) => T) & {
   modelName: string;
   schema: GenericRecordSchema;
 };
@@ -77,11 +75,32 @@ export type PlexusInit<T extends PlexusModel> = {
       : never]: T[key];
 };
 
-export abstract class PlexusModel<Parent extends PlexusModel = any> {
+export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
+  // eslint-disable-next-line sonarjs/public-static-readonly
   static __isMaterializingRaw__ = false;
+  // eslint-disable-next-line sonarjs/public-static-readonly
+  static modelName: string;
+  // here and in other places we're using accessors only to remove elements from enumerable set
+  __internals__: {
+    parent: Parent | null;
+    parentKey: string | null;
+    parentMetadata: string | null;
+    initializationState: Record<
+      string,
+      AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList
+    >;
+    isWithinYjsModelSeed: boolean;
+    yjsModel?: Y.Map<Y.Map<Storageable> | string | ParentReference>;
+    yjsFieldsMap?: Y.Map<Storageable>;
+    uuid?: string;
+    localReference?: ReferenceTuple;
+    backingStorage: Map<string, any>;
+    presyncBackingStorage: Map<string, any>;
+  };
+  static readonly schema: GenericRecordSchema;
 
   constructor(init: unknown = {}) {
-    // we're hiding internals from enumeration and serialization aggressively
+    const backingStorage = new Map<string, any>();
     this.__internals__ = {
       parent: null,
       parentKey: null,
@@ -90,17 +109,19 @@ export abstract class PlexusModel<Parent extends PlexusModel = any> {
       isWithinYjsModelSeed: false,
       yjsModel: undefined,
       yjsFieldsMap: undefined,
-      backingStorage: new Map<string, any>(),
+      backingStorage,
+      // initially, those two objects are same; yet, when synced the old state is stored for undo/redo. it may be buggy due to non-updating child fields
+      presyncBackingStorage: backingStorage,
     };
+    // we're hiding internals from enumeration and serialization aggressively
     Object.defineProperty(this, "__internals__", {
       enumerable: false,
       configurable: false,
       writable: false,
       value: this.__internals__,
     });
-    // after we're bootstrapped, initializationState is not needed anymore
     setTimeout(() => {
-      // @ts-expect-error
+      // @ts-expect-error after we're bootstrapped, initializationState is not needed anymore
       this.__internals__.initializationState = null;
     });
     Object.defineProperties(
@@ -133,27 +154,8 @@ export abstract class PlexusModel<Parent extends PlexusModel = any> {
         }),
       ),
     );
+    return this as typeof this & PlexusTagContainer<this>;
   }
-
-  static modelName: string;
-  static readonly schema: GenericRecordSchema;
-
-  // here and in other places we're using accessors only to remove elements from enumerable set
-  __internals__: {
-    parent: Parent | null;
-    parentKey: string | null;
-    parentMetadata: string | null;
-    initializationState: Record<
-      string,
-      AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList
-    >;
-    isWithinYjsModelSeed: boolean;
-    yjsModel?: Y.Map<Y.Map<Storageable> | string | ParentReference>;
-    yjsFieldsMap?: Y.Map<Storageable>;
-    uuid?: string;
-    localReference?: ReferenceTuple;
-    backingStorage: Map<string, any>;
-  };
 
   static __materializeRaw__<T extends PlexusModel>(constructor: Constructor<T>) {
     PlexusModel.__isMaterializingRaw__ = true;
@@ -177,7 +179,7 @@ export abstract class PlexusModel<Parent extends PlexusModel = any> {
   }
 
   get __yjsFieldsMap__() {
-    return this.__internals__.yjsModel?.get(YJS_GLOBALS.models.recordFields.fields) as Y.Map<Storageable> | undefined;
+    return this.__internals__.yjsFieldsMap;
   }
 
   get parent(): Parent | null {
@@ -208,7 +210,7 @@ export abstract class PlexusModel<Parent extends PlexusModel = any> {
     return this.__type__;
   }
 
-  [informAdoptionSymbol]<T extends Parent>(newParent: T, field: string, extraFieldMetadata?: string) {
+  [informAdoptionSymbol]<T extends Exclude<Parent, null>>(newParent: T, field: string, extraFieldMetadata?: string) {
     invariant(
       this.__internals__.uuid !== YJS_GLOBALS.models.wellKnown.root || (newParent as PlexusModel) === this,
       "Root entity cannot have a parent",
@@ -252,11 +254,7 @@ export abstract class PlexusModel<Parent extends PlexusModel = any> {
     });
   }
 
-  [requestAdoptionSymbol](
-    newParent: Exclude<(typeof this)["parent"], null>,
-    field: string,
-    extraFieldMetadata?: string,
-  ) {
+  [requestAdoptionSymbol]<T extends Exclude<Parent, null>>(newParent: T, field: string, extraFieldMetadata?: string) {
     const parent = this.parent;
     const oldField = this.__internals__.parentKey;
     const oldExtraFieldMetadata = this.__internals__.parentMetadata;
@@ -294,31 +292,33 @@ export abstract class PlexusModel<Parent extends PlexusModel = any> {
     return clone(this, newProps);
   }
 
+  // since full PlexusModel always represents only root doc (not dependencies), it's always local reference.
   [referenceSymbol](doc: Y.Doc): ReferenceTuple {
     invariant(docPlexus.has(doc), "passed doc is not registered as legitimate Plexus root");
-    // this is needed explicitly in that manner for cyclic dependencies.
-    // It will never cause cross-doc issues as we only materialize root doc entities.
-    // Lucky for us, Plexus is doing not structural but reference equivalence - so we can safely assume that returning pointer will do nothing wrong.
+    const yModels = doc.getMap<Y.Map<Y.Map<Storageable> | string | ParentReference>>(YJS_GLOBALS.models.key);
+
     if (this.__internals__.yjsModel?.doc) {
-      if (doc !== this.__internals__.yjsModel.doc) {
-        const documentId = this.__internals__.yjsModel.doc
-          .getMap(YJS_GLOBALS.metadata.key)
-          ?.get(YJS_GLOBALS.metadata.wellKnown.documentId) as DependencyId | undefined;
-        invariant(documentId, "cannot cross-reference between docs");
-        return [this.uuid, documentId];
+      invariant(doc === this.__internals__.yjsModel.doc, "cannot cross-reference between docs");
+      if (yModels.has(this.uuid)) {
+        // you never know what kinds of interesting states you can get in with CRDT
+        invariant(
+          yModels.get(this.uuid) === this.__internals__.yjsModel,
+          `[Plexus: ${this.__type__}(${this.uuid})] conflict: ${this.uuid} is taken by some other model`,
+        );
+      } else {
+        // this MAY and is allowed to happen during the undo operations that are removing some class from model;
+        // this is weird situation where Y.Map technically belongs to doc, but exists in pre-GC limbo.
+        yModels.set(this.uuid, this.__internals__.yjsModel);
       }
       return this.#reference;
     }
     const boundMaybeReference = curryMaybeReference(doc);
 
     return maybeTransacting(doc, () => {
-      const yprojectObjectInstances = doc.getMap<Y.Map<Y.Map<Storageable> | string | ParentReference>>(
-        YJS_GLOBALS.models.key,
-      );
       // technically, it should not happen at all (as _yjsModel presence is basically equivalent to representation
       // in YJS_GLOBALS.models.key - but there may be weird edge cases like class rehydration, so better to handle
       // explicitly
-      let yprojectObjectInstance = yprojectObjectInstances.get(this.uuid);
+      let yprojectObjectInstance = yModels.get(this.uuid);
       // sadly, yjs do not support "struct" types - only flat maps; yet, we know that
       let yprojectObjectInstanceFields = yprojectObjectInstance?.get(
         YJS_GLOBALS.models.recordFields.fields,
@@ -326,11 +326,12 @@ export abstract class PlexusModel<Parent extends PlexusModel = any> {
       this.__internals__.isWithinYjsModelSeed = true;
       if (!yprojectObjectInstance) {
         yprojectObjectInstanceFields = new Y.Map();
+        // we're tracking only fields map
         yprojectObjectInstance = new Y.Map([
           [YJS_GLOBALS.models.recordFields.fields, yprojectObjectInstanceFields],
           [YJS_GLOBALS.models.recordFields.type, this.#type],
         ]);
-        yprojectObjectInstances.set(this.uuid, yprojectObjectInstance);
+        yModels.set(this.uuid, yprojectObjectInstance!);
         if (this.__internals__.parent) {
           const parentReference = this.__internals__.parent[referenceSymbol](doc);
           (yprojectObjectInstance as Y.Map<ParentReference>).set(
@@ -345,6 +346,9 @@ export abstract class PlexusModel<Parent extends PlexusModel = any> {
         }
         // it should be placed before schema iteration to avoid circular self-reference issues
         this.__internals__.yjsModel = yprojectObjectInstance;
+        this.__internals__.yjsFieldsMap = yprojectObjectInstanceFields;
+        this.__internals__.presyncBackingStorage = new Map(this.__internals__.backingStorage);
+        Plexus.__modelMapBinding__.get(doc).set(this.uuid, this);
       }
       for (const [schemaKey, type] of Object.entries(this.__schema__)) {
         switch (type) {
@@ -412,7 +416,10 @@ export abstract class PlexusModel<Parent extends PlexusModel = any> {
 
   __bootstrapObservation__() {
     invariant(this.__internals__.yjsModel, "cannot bootstrap observation without yjs model");
-
+    if (undoManagerNotifications.has(this.__yjsFieldsMap__!)) {
+      console.trace("(not-an-error) double-bootstrapping, may be reasonable to check whether optimization can be done");
+      return;
+    }
     // Initialize runtime parent from Y.js
     const parentReference = this.__internals__.yjsModel.get(YJS_GLOBALS.models.recordFields.parent) as
       | ParentReference
@@ -448,26 +455,20 @@ export abstract class PlexusModel<Parent extends PlexusModel = any> {
           const oldValue = this.__internals__.backingStorage.get(key);
           const yjsValue = this.__yjsFieldsMap__!.get(key) as AllowedYValue;
           const newValue = deref(this.__doc__!, yjsValue);
-          if (key === "primaryChild") {
-            console.log("[onChange] primaryChild change detected");
-            console.log("  Y.js value:", yjsValue);
-            console.log("  oldValue:", oldValue);
-            console.log("  newValue:", newValue);
-            console.log("  equal?:", oldValue === newValue);
-          }
           if (newValue !== oldValue) {
-            if (key === "primaryChild") {
-              console.log("  -> calling trackModification");
-            }
             this.__internals__.backingStorage.set(key, newValue);
             trackModification(this, key);
-          } else if (key === "primaryChild") {
-            console.log("  -> NOT calling trackModification (values equal)");
           }
         } else if (key in this.__schema__) {
-          console.warn("attempted to rewrite the value that should be preserved untouched", this, key);
+          console.warn(
+            `[Plexus: ${this.__type__}(${this.uuid}).${key}]`,
+            `the value that should be preserved untouched was rewritten`,
+            this,
+            key,
+          );
         } else if (key === YJS_GLOBALS.models.recordFields.parent) {
           // Update runtime parent when Y.js changes
+          // todo this may cause problems on batch undo (when both parent and child are removed from tree) - needs revision
           const parentReference = this.__internals__.yjsModel!.get(YJS_GLOBALS.models.recordFields.parent) as
             | ParentReference
             | undefined;

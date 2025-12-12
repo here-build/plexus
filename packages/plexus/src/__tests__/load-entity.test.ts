@@ -3,7 +3,7 @@ import * as Y from "yjs";
 import { PlexusModel } from "../PlexusModel.js";
 import { syncing } from "../decorators.js";
 import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
-import { createTestPlexus, initTestPlexus } from "./test-plexus.js";
+import { connectTestPlexus, initTestPlexus } from "./test-plexus.js";
 
 // Test models
 @syncing
@@ -71,7 +71,7 @@ describe("Plexus Entity Loading", () => {
   let post: Post;
   let comment: Comment;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     // Create test entities
     const testUser = new User({
       name: "John Doe",
@@ -102,7 +102,7 @@ describe("Plexus Entity Loading", () => {
     });
 
     // Initialize doc with Plexus
-    const result = await initTestPlexus<TestRoot>(testRoot);
+    const result = initTestPlexus<TestRoot>(testRoot);
     doc = result.doc;
     root = result.root;
     user = root.user!;
@@ -149,7 +149,7 @@ describe("Plexus Entity Loading", () => {
       expect(post.tags[1]).toBe("plexus");
     });
 
-    it("should handle null references correctly", async () => {
+    it("should handle null references correctly", () => {
       // Create a post without an author
       const orphanPost = new Post({
         title: "Orphan Post",
@@ -170,7 +170,7 @@ describe("Plexus Entity Loading", () => {
   });
 
   describe("entity mutations after loading", () => {
-    it("should reflect mutations made to loaded entity", async () => {
+    it("should reflect mutations made to loaded entity", () => {
       expect(user.name).toBe("John Doe");
 
       // Mutate the loaded entity
@@ -189,12 +189,12 @@ describe("Plexus Entity Loading", () => {
         users: [],
         posts: [],
       });
-      const { root: reloadedRoot } = await initTestPlexus<TestRoot>(freshTestRoot);
+      const { root: reloadedRoot } = initTestPlexus<TestRoot>(freshTestRoot);
       expect(reloadedRoot.user!.name).toBe("Jane Doe");
       expect(reloadedRoot.user!.age).toBe(31);
     });
 
-    it("should handle mutations to collection fields", async () => {
+    it("should handle mutations to collection fields", () => {
       expect(post.tags).toHaveLength(2);
 
       // Mutate the tags array
@@ -231,7 +231,7 @@ describe("Plexus Entity Loading", () => {
   });
 
   describe("edge cases", () => {
-    it("should handle loading the same root multiple times", async () => {
+    it("should handle loading the same root multiple times", () => {
       // Plexus enforces single instance per doc, so test different approach
       // Create two separate docs with the same data structure
       const testUser2 = new User({
@@ -248,7 +248,7 @@ describe("Plexus Entity Loading", () => {
         posts: [],
       });
 
-      const { root: secondLoad } = await initTestPlexus<TestRoot>(testRoot2);
+      const { root: secondLoad } = initTestPlexus<TestRoot>(testRoot2);
 
       // Should have same data structure
       expect(root.user!.name).toBe(secondLoad.user!.name);
@@ -256,14 +256,14 @@ describe("Plexus Entity Loading", () => {
       expect(root.user!.age).toBe(secondLoad.user!.age);
     });
 
-    it("should handle empty document", async () => {
+    it("should handle empty document", () => {
       const emptyDoc = new Y.Doc();
 
-      // Should throw when trying to create Plexus without root
-      await expect(createTestPlexus<TestRoot>(emptyDoc)).rejects.toThrow();
+      // Should throw when trying to connect Plexus without root
+      expect(() => connectTestPlexus<TestRoot>(emptyDoc)).toThrow();
     });
 
-    it("should handle loading after entity deletion", async () => {
+    it("should handle loading after entity deletion", () => {
       // First verify entity exists
       expect(user.name).toBe("John Doe");
 
@@ -271,10 +271,9 @@ describe("Plexus Entity Loading", () => {
       doc.getMap(YJS_GLOBALS.models.key).delete(user.uuid);
 
       // Create a new Plexus instance (allowed with new behavior)
-      const { plexus: newPlexus } = await createTestPlexus<TestRoot>(doc);
+      const { plexus: newPlexus, root: newRoot } = connectTestPlexus<TestRoot>(doc);
 
       // The root should still be loaded from cache
-      const newRoot = await newPlexus.rootPromise;
       expect(newRoot).toBe(root); // Same instance due to caching
 
       // But the deleted entity should no longer be in the doc's models

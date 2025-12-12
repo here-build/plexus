@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { isTupleReference } from "../utils/index.js";
+import { isTupleReference } from "../utils/utils.js";
 
 describe("Tuple Reference Format - Core Functionality", () => {
   it("should identify tuple references correctly", () => {

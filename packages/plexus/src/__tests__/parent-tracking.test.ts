@@ -3,7 +3,7 @@ import { PlexusModel } from "../PlexusModel.js";
 import { syncing } from "../decorators.js";
 import { referenceSymbol } from "../proxy-runtime-types.js";
 import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
-import { initTestPlexus, TestPlexus } from "./test-plexus.js";
+import { connectTestPlexus, initTestPlexus } from "./test-plexus.js";
 import * as Y from "yjs";
 
 // Helper to sync two YJS docs bidirectionally
@@ -53,7 +53,7 @@ class MultiParent extends PlexusModel {
 
 describe("Parent Tracking", () => {
   describe("Basic parent assignment", () => {
-    it("tracks parent when child assigned to child-val field", async () => {
+    it("tracks parent when child assigned to child-val field", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -63,7 +63,7 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
       materializedParent.child = child;
 
       const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
@@ -78,7 +78,7 @@ describe("Parent Tracking", () => {
       expect(parentRef).toEqual([materializedParent.uuid, `child`]);
     });
 
-    it("tracks parent when child added to child-list", async () => {
+    it("tracks parent when child added to child-list", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -88,7 +88,7 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
       materializedParent.children.push(child);
 
       const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
@@ -98,7 +98,7 @@ describe("Parent Tracking", () => {
       });
     });
 
-    it("tracks parent when child added to child-set", async () => {
+    it("tracks parent when child added to child-set", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -108,7 +108,7 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
       materializedParent.childSet.add(child);
 
       const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
@@ -118,7 +118,7 @@ describe("Parent Tracking", () => {
       expect(parentRef).toEqual([materializedParent.uuid, "childSet"]);
     });
 
-    it("tracks parent when child added to child-record", async () => {
+    it("tracks parent when child added to child-record", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -128,7 +128,7 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
       materializedParent.childMap["key1"] = child;
 
       const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
@@ -143,7 +143,7 @@ describe("Parent Tracking", () => {
   });
 
   describe("Reparenting", () => {
-    it("removes from old parent when assigned to new parent", async () => {
+    it("removes from old parent when assigned to new parent", () => {
       const parent1 = new Parent({
         name: "parent1",
         child: null,
@@ -161,8 +161,7 @@ describe("Parent Tracking", () => {
       const child = new Child({ name: "child" });
 
       // For cross-parent operations, we need to materialize both parents in the same document
-      const { doc, plexus } = await initTestPlexus<Parent>(parent1);
-      const materializedParent1 = await plexus.rootPromise;
+      const { doc, plexus, root: materializedParent1 } = initTestPlexus<Parent>(parent1);
 
       // Materialize the second parent in the same document
       const [parent2Id] = (parent2 as any)[referenceSymbol](doc);
@@ -186,7 +185,7 @@ describe("Parent Tracking", () => {
       expect(parentRef).toEqual([materializedParent2.uuid, `child`]);
     });
 
-    it("handles moving between different collection types", async () => {
+    it("handles moving between different collection types", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -196,7 +195,7 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       // list → set
       materializedParent.children.push(child);
@@ -218,7 +217,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.child).toBe(child);
     });
 
-    it("handles moving within same list", async () => {
+    it("handles moving within same list", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -230,7 +229,7 @@ describe("Parent Tracking", () => {
       const other1 = new Child({ name: "other1" });
       const other2 = new Child({ name: "other2" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(other1, child, other2);
       expect(materializedParent.children.indexOf(child)).toBe(1);
@@ -241,7 +240,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children.filter((c) => c === child).length).toBe(1); // Only one instance
     });
 
-    it("handles moving between record keys", async () => {
+    it("handles moving between record keys", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -251,7 +250,7 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       materializedParent.childMap["key1"] = child;
       expect(materializedParent.childMap["key1"]).toBe(child);
@@ -264,7 +263,7 @@ describe("Parent Tracking", () => {
   });
 
   describe("Null and clear operations", () => {
-    it("clears parent ref when child-val set to null", async () => {
+    it("clears parent ref when child-val set to null", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -274,7 +273,7 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
       materializedParent.child = child;
 
       const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
@@ -286,7 +285,7 @@ describe("Parent Tracking", () => {
       expect(childFields?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
     });
 
-    it("clears parent refs when list cleared", async () => {
+    it("clears parent refs when list cleared", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -297,7 +296,7 @@ describe("Parent Tracking", () => {
       const child1 = new Child({ name: "child1" });
       const child2 = new Child({ name: "child2" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
       materializedParent.children.push(child1, child2);
 
       const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
@@ -310,7 +309,7 @@ describe("Parent Tracking", () => {
       expect(models.get(child2.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
     });
 
-    it("clears parent refs when record reassigned", async () => {
+    it("clears parent refs when record reassigned", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -321,7 +320,7 @@ describe("Parent Tracking", () => {
       const child1 = new Child({ name: "child1" });
       const child2 = new Child({ name: "child2" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
       materializedParent.childMap["a"] = child1;
       materializedParent.childMap["b"] = child2;
 
@@ -337,7 +336,7 @@ describe("Parent Tracking", () => {
   });
 
   describe("Cycles", () => {
-    it("handles direct cycle (A.child = B, B.child = A)", async () => {
+    it("handles direct cycle (A.child = B, B.child = A)", () => {
       const root = new Parent({
         name: "root",
         child: null,
@@ -361,7 +360,7 @@ describe("Parent Tracking", () => {
       });
 
       // Create plexus with root
-      const { doc, plexus } = await initTestPlexus<Parent>(root);
+      const { doc, plexus } = initTestPlexus<Parent>(root);
 
       // Materialize A and B in the same document
       const [aId] = a[referenceSymbol](doc);
@@ -380,7 +379,7 @@ describe("Parent Tracking", () => {
       expect(bParentRef).toEqual([materializedA.uuid, `child`]);
     });
 
-    it("handles self-reference", async () => {
+    it("handles self-reference", () => {
       const self = new Parent({
         name: "self",
         child: null,
@@ -389,7 +388,7 @@ describe("Parent Tracking", () => {
         childMap: {},
       });
 
-      const { doc, root: materializedSelf } = await initTestPlexus<Parent>(self);
+      const { doc, root: materializedSelf } = initTestPlexus<Parent>(self);
       materializedSelf.child = materializedSelf;
 
       const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
@@ -398,7 +397,7 @@ describe("Parent Tracking", () => {
       expect(parentRef).toEqual([materializedSelf.uuid, `child`]);
     });
 
-    it("handles cycle through collections", async () => {
+    it("handles cycle through collections", () => {
       const root = new Parent({
         name: "root",
         child: null,
@@ -422,7 +421,7 @@ describe("Parent Tracking", () => {
       });
 
       // Create plexus with root
-      const { doc, plexus } = await initTestPlexus<Parent>(root);
+      const { doc, plexus } = initTestPlexus<Parent>(root);
 
       // Materialize A and B in the same document
       const [aId] = (a as any)[referenceSymbol](doc);
@@ -443,7 +442,7 @@ describe("Parent Tracking", () => {
   });
 
   describe("Field names with dots", () => {
-    it("handles field names containing dots correctly", async () => {
+    it("handles field names containing dots correctly", () => {
       @syncing
       class WeirdParent extends PlexusModel {
         @syncing.child
@@ -453,7 +452,7 @@ describe("Parent Tracking", () => {
       const parent = new WeirdParent({ "field.with.dots": null });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<WeirdParent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<WeirdParent>(parent);
       materializedParent["field.with.dots"] = child;
 
       const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
@@ -466,7 +465,7 @@ describe("Parent Tracking", () => {
   });
 
   describe("Ephemeral to materialized transitions", () => {
-    it("preserves parent tracking through materialization", async () => {
+    it("preserves parent tracking through materialization", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -480,7 +479,7 @@ describe("Parent Tracking", () => {
       parent.child = child;
 
       // Materialize parent (child materializes via contagion)
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
       const parentRef = models.get(child.uuid)?.get(YJS_GLOBALS.models.recordFields.parent);
@@ -488,7 +487,7 @@ describe("Parent Tracking", () => {
       expect(parentRef).toEqual([materializedParent.uuid, `child`]);
     });
 
-    it("handles ephemeral child added to materialized parent", async () => {
+    it("handles ephemeral child added to materialized parent", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -497,7 +496,7 @@ describe("Parent Tracking", () => {
         childMap: {},
       });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent); // Materialize parent first
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent); // Materialize parent first
 
       const child = new Child({ name: "child" }); // Ephemeral child
       materializedParent.children.push(child); // Should trigger contagion
@@ -511,7 +510,7 @@ describe("Parent Tracking", () => {
   });
 
   describe("Clone operations", () => {
-    it("cloned parent gets new children with correct parent refs", async () => {
+    it("cloned parent gets new children with correct parent refs", () => {
       const original = new Parent({
         name: "original",
         child: new Child({ name: "originalChild" }),
@@ -520,7 +519,7 @@ describe("Parent Tracking", () => {
         childMap: { key: new Child({ name: "mapChild" }) },
       });
 
-      const { doc, root: materializedOriginal, plexus } = await initTestPlexus<Parent>(original);
+      const { doc, root: materializedOriginal, plexus } = initTestPlexus<Parent>(original);
 
       const cloned = materializedOriginal.clone();
       // Materialize the cloned entity in the same document
@@ -555,7 +554,7 @@ describe("Parent Tracking", () => {
   });
 
   describe("Collection operations", () => {
-    it("updates parent refs on splice", async () => {
+    it("updates parent refs on splice", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -567,7 +566,7 @@ describe("Parent Tracking", () => {
       const child2 = new Child({ name: "child2" });
       const child3 = new Child({ name: "child3" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
       materializedParent.children.push(child1, child2);
 
       // Splice in child3, removing child1
@@ -591,7 +590,7 @@ describe("Parent Tracking", () => {
       ]);
     });
 
-    it("clears parent ref on pop/shift", async () => {
+    it("clears parent ref on pop/shift", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -602,7 +601,7 @@ describe("Parent Tracking", () => {
       const child1 = new Child({ name: "child1" });
       const child2 = new Child({ name: "child2" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
       materializedParent.children.push(child1, child2);
 
       const popped = materializedParent.children.pop();
@@ -620,7 +619,7 @@ describe("Parent Tracking", () => {
       expect(models.get(child1.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
     });
 
-    it("updates parent refs on set delete", async () => {
+    it("updates parent refs on set delete", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -630,7 +629,7 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
       materializedParent.childSet.add(child);
 
       const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
@@ -643,7 +642,7 @@ describe("Parent Tracking", () => {
       expect(models.get(child.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
     });
 
-    it("updates parent refs on record delete", async () => {
+    it("updates parent refs on record delete", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -653,7 +652,7 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
       materializedParent.childMap["key"] = child;
 
       const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
@@ -669,7 +668,7 @@ describe("Parent Tracking", () => {
   });
 
   describe("Multiple parent fields", () => {
-    it("correctly tracks when moving between fields of same parent", async () => {
+    it("correctly tracks when moving between fields of same parent", () => {
       const parent = new MultiParent({
         name: "parent",
         leftChildren: [],
@@ -677,7 +676,7 @@ describe("Parent Tracking", () => {
       });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<MultiParent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<MultiParent>(parent);
 
       materializedParent.leftChildren.push(child);
       const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
@@ -697,10 +696,10 @@ describe("Parent Tracking", () => {
   });
 
   describe("Dependency entities", () => {
-    it("can't directly assign entities from different docs", async () => {
+    it("can't directly assign entities from different docs", () => {
       // Create dependency doc with a child
       const depChild = new Child({ name: "depChild" });
-      const { doc: depDoc } = await initTestPlexus<Child>(depChild);
+      const { doc: depDoc } = initTestPlexus<Child>(depChild);
 
       // Create root doc with parent
       const parent = new Parent({
@@ -710,7 +709,7 @@ describe("Parent Tracking", () => {
         childSet: new Set(),
         childMap: {},
       });
-      const { plexus, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { plexus, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       // Set up dependency factory
       plexus.registerDependencyFactory("dep", async () => depDoc);
@@ -723,7 +722,7 @@ describe("Parent Tracking", () => {
   });
 
   describe("Transaction boundaries", () => {
-    it("handles multiple parent changes in single transaction correctly", async () => {
+    it("handles multiple parent changes in single transaction correctly", () => {
       const parent1 = new Parent({
         name: "parent1",
         child: null,
@@ -741,8 +740,7 @@ describe("Parent Tracking", () => {
       const child = new Child({ name: "child" });
 
       // For cross-parent operations, both entities need to be in the same document
-      const { doc, plexus } = await initTestPlexus<Parent>(parent1);
-      const materializedParent1 = await plexus.rootPromise;
+      const { doc, plexus, root: materializedParent1 } = initTestPlexus<Parent>(parent1);
 
       // Materialize parent2 in the same document
       const [parent2Id] = (parent2 as any)[referenceSymbol](doc);
@@ -766,7 +764,7 @@ describe("Parent Tracking", () => {
   });
 
   describe("Edge case: primitives in child collections", () => {
-    it("ignores primitive values when tracking parents", async () => {
+    it("ignores primitive values when tracking parents", () => {
       @syncing
       class Mixed extends PlexusModel {
         @syncing.child.list
@@ -776,7 +774,7 @@ describe("Parent Tracking", () => {
       const parent = new Mixed({ mixed: [] });
       const child = new Child({ name: "child" });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Mixed>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Mixed>(parent);
       materializedParent.mixed.push("string", child, "another");
 
       const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
@@ -789,7 +787,7 @@ describe("Parent Tracking", () => {
   });
 
   describe("Performance edge case", () => {
-    it("efficiently handles large collections", async () => {
+    it("efficiently handles large collections", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -798,7 +796,7 @@ describe("Parent Tracking", () => {
         childMap: {},
       });
 
-      const { doc, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       // Add many children
       const children: Child[] = [];
@@ -821,7 +819,7 @@ describe("Parent Tracking", () => {
       expect(parentRef).toEqual([materializedParent.uuid, `children`]);
     });
 
-    it("should handle splice to move element within same array", async () => {
+    it("should handle splice to move element within same array", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -833,7 +831,7 @@ describe("Parent Tracking", () => {
       const second = new Child({ name: "second" });
       const third = new Child({ name: "third" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       // Initial: [first, second, third]
       materializedParent.children.push(first, second, third);
@@ -857,14 +855,13 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((c) => c.uuid)).toEqual(syncedParent.children.map((c) => c.uuid));
     });
 
-    it("should handle splice with item from left of splice zone", async () => {
+    it("should handle splice with item from left of splice zone", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -877,7 +874,7 @@ describe("Parent Tracking", () => {
       const c = new Child({ name: "c" });
       const d = new Child({ name: "d" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       // Initial: [a, b, c, d]
       materializedParent.children.push(a, b, c, d);
@@ -901,14 +898,13 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((c) => c.uuid)).toEqual(syncedParent.children.map((c) => c.uuid));
     });
 
-    it("should handle splice with item from right of splice zone", async () => {
+    it("should handle splice with item from right of splice zone", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -921,7 +917,7 @@ describe("Parent Tracking", () => {
       const c = new Child({ name: "c" });
       const d = new Child({ name: "d" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       // Initial: [a, b, c, d]
       materializedParent.children.push(a, b, c, d);
@@ -942,14 +938,13 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((c) => c.uuid)).toEqual(syncedParent.children.map((c) => c.uuid));
     });
 
-    it("should handle splice(1, 0, a) where 'a' exists at index 0 (move operation, not error)", async () => {
+    it("should handle splice(1, 0, a) where 'a' exists at index 0 (move operation, not error)", () => {
       // This test verifies the documentation case that incorrectly states it throws.
       // arr = [a, b]; splice(1, 0, a) should work as a valid move operation.
       //
@@ -971,7 +966,7 @@ describe("Parent Tracking", () => {
       const a = new Child({ name: "a" });
       const b = new Child({ name: "b" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       // Initial: [a, b]
       materializedParent.children.push(a, b);
@@ -991,14 +986,13 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((c) => c.uuid)).toEqual(syncedParent.children.map((c) => c.uuid));
     });
 
-    it("should handle splice with mixed items: left, right, inside, and new", async () => {
+    it("should handle splice with mixed items: left, right, inside, and new", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1012,7 +1006,7 @@ describe("Parent Tracking", () => {
       const d = new Child({ name: "d" });
       const e = new Child({ name: "e" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       // Initial: [a, b, c, d]
       materializedParent.children.push(a, b, c, d);
@@ -1043,14 +1037,13 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
-    it("should handle splice reversing a section", async () => {
+    it("should handle splice reversing a section", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1063,7 +1056,7 @@ describe("Parent Tracking", () => {
       const c = new Child({ name: "c" });
       const d = new Child({ name: "d" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       // Initial: [a, b, c, d]
       materializedParent.children.push(a, b, c, d);
@@ -1085,14 +1078,13 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
-    it("should handle splice with overlapping from both sides", async () => {
+    it("should handle splice with overlapping from both sides", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1106,7 +1098,7 @@ describe("Parent Tracking", () => {
       const d = new Child({ name: "d" });
       const e = new Child({ name: "e" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       // Initial: [a, b, c, d, e]
       materializedParent.children.push(a, b, c, d, e);
@@ -1133,14 +1125,13 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
-    it("should handle complete array reversal", async () => {
+    it("should handle complete array reversal", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1153,7 +1144,7 @@ describe("Parent Tracking", () => {
       const c = new Child({ name: "c" });
       const d = new Child({ name: "d" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       // Initial: [a, b, c, d]
       materializedParent.children.push(a, b, c, d);
@@ -1184,14 +1175,13 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
-    it("should handle pop", async () => {
+    it("should handle pop", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1203,7 +1193,7 @@ describe("Parent Tracking", () => {
       const b = new Child({ name: "b" });
       const c = new Child({ name: "c" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c);
       const popped = materializedParent.children.pop();
@@ -1217,14 +1207,13 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
-    it("should handle shift", async () => {
+    it("should handle shift", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1236,7 +1225,7 @@ describe("Parent Tracking", () => {
       const b = new Child({ name: "b" });
       const c = new Child({ name: "c" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c);
       const shifted = materializedParent.children.shift();
@@ -1250,14 +1239,13 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
-    it("should handle reverse", async () => {
+    it("should handle reverse", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1269,7 +1257,7 @@ describe("Parent Tracking", () => {
       const b = new Child({ name: "b" });
       const c = new Child({ name: "c" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c);
       materializedParent.children.reverse();
@@ -1282,14 +1270,13 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
-    it("should handle sort", async () => {
+    it("should handle sort", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1301,7 +1288,7 @@ describe("Parent Tracking", () => {
       const b = new Child({ name: "alice" });
       const c = new Child({ name: "bob" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c);
       materializedParent.children.sort((x, y) => x.name.localeCompare(y.name));
@@ -1314,14 +1301,13 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
-    it("should throw error when copyWithin would create duplicate child references", async () => {
+    it("should throw error when copyWithin would create duplicate child references", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1334,7 +1320,7 @@ describe("Parent Tracking", () => {
       const c = new Child({ name: "c" });
       const d = new Child({ name: "d" });
 
-      const { root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { root: materializedParent } = initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c, d);
 
@@ -1348,7 +1334,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children).toEqual([a, b, c, d]);
     });
 
-    it("should handle copyWithin when no duplicates are created", async () => {
+    it("should handle copyWithin when no duplicates are created", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1363,7 +1349,7 @@ describe("Parent Tracking", () => {
       const e = new Child({ name: "e" });
       const f = new Child({ name: "f" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c, d, e, f);
       // Copy elements from index 0-2 to index 3
@@ -1386,14 +1372,13 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
-    it("should handle index setter with reuse detection (moving item within array)", async () => {
+    it("should handle index setter with reuse detection (moving item within array)", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1406,7 +1391,7 @@ describe("Parent Tracking", () => {
       const c = new Child({ name: "c" });
       const d = new Child({ name: "d" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c, d);
 
@@ -1435,14 +1420,13 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));
     });
 
-    it("should throw error when push tries to insert duplicate children", async () => {
+    it("should throw error when push tries to insert duplicate children", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1453,7 +1437,7 @@ describe("Parent Tracking", () => {
       const a = new Child({ name: "a" });
       const b = new Child({ name: "b" });
 
-      const { root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { root: materializedParent } = initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(b);
 
@@ -1466,7 +1450,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children).toEqual([b]);
     });
 
-    it("should throw error when unshift tries to insert duplicate children", async () => {
+    it("should throw error when unshift tries to insert duplicate children", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1477,7 +1461,7 @@ describe("Parent Tracking", () => {
       const a = new Child({ name: "a" });
       const b = new Child({ name: "b" });
 
-      const { root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { root: materializedParent } = initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(b);
 
@@ -1490,7 +1474,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children).toEqual([b]);
     });
 
-    it("should throw error when splice tries to insert duplicate children", async () => {
+    it("should throw error when splice tries to insert duplicate children", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1501,7 +1485,7 @@ describe("Parent Tracking", () => {
       const a = new Child({ name: "a" });
       const b = new Child({ name: "b" });
 
-      const { root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { root: materializedParent } = initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(b);
 
@@ -1514,7 +1498,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children).toEqual([b]);
     });
 
-    it("should throw error when assign tries to set duplicate children", async () => {
+    it("should throw error when assign tries to set duplicate children", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1525,7 +1509,7 @@ describe("Parent Tracking", () => {
       const a = new Child({ name: "a" });
       const b = new Child({ name: "b" });
 
-      const { root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { root: materializedParent } = initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(b);
 
@@ -1538,7 +1522,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children).toEqual([b]);
     });
 
-    it("should return new length from unshift", async () => {
+    it("should return new length from unshift", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1549,7 +1533,7 @@ describe("Parent Tracking", () => {
       const a = new Child({ name: "a" });
       const b = new Child({ name: "b" });
 
-      const { root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { root: materializedParent } = initTestPlexus<Parent>(parent);
 
       const len1 = materializedParent.children.unshift(a);
       expect(len1).toBe(1);
@@ -1560,7 +1544,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children).toEqual([b, a]);
     });
 
-    it("should orphanize elements when length is decreased", async () => {
+    it("should orphanize elements when length is decreased", () => {
       const parent = new Parent({
         name: "parent",
         child: null,
@@ -1572,7 +1556,7 @@ describe("Parent Tracking", () => {
       const b = new Child({ name: "b" });
       const c = new Child({ name: "c" });
 
-      const { doc: doc1, root: materializedParent } = await initTestPlexus<Parent>(parent);
+      const { doc: doc1, root: materializedParent } = initTestPlexus<Parent>(parent);
 
       materializedParent.children.push(a, b, c);
 
@@ -1590,8 +1574,7 @@ describe("Parent Tracking", () => {
       // Verify YJS sync
       const doc2 = new Y.Doc();
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
 
       expect(materializedParent.children.map((ch) => ch.uuid)).toEqual(syncedParent.children.map((ch) => ch.uuid));

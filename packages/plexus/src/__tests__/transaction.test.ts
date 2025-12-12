@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
-import { Plexus } from "../Plexus.js";
 import { PlexusModel } from "../PlexusModel.js";
 import { syncing } from "../decorators.js";
 import { createTrackedFunction } from "../tracking.js";
-import { isTransacting, pendingNotifications } from "../utils/index.js";
+import { isTransacting, pendingNotifications } from "../utils/utils.js";
 import { entityClasses } from "../globals.js";
+import { initTestPlexus, TestPlexus } from "./test-plexus.js";
 
 // Test entity class
 @syncing
@@ -20,25 +20,19 @@ class TestEntity extends PlexusModel {
   accessor child!: TestEntity | null;
 }
 
-// Test Plexus implementation
-class TestPlexus extends Plexus<TestEntity> {
-  protected createDefaultRoot(): TestEntity {
-    return new TestEntity({ value: "initial", count: 0, child: null });
-  }
-}
-
 describe("Plexus Transactions", () => {
   let doc: Y.Doc;
-  let plexus: TestPlexus;
+  let plexus: TestPlexus<TestEntity>;
   let root: TestEntity;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     // Register test entity
     entityClasses.set("TestEntity", TestEntity);
 
-    doc = new Y.Doc();
-    plexus = new TestPlexus(doc);
-    root = await plexus.rootPromise;
+    const result = initTestPlexus(new TestEntity({ value: "initial", count: 0, child: null }));
+    doc = result.doc;
+    plexus = result.plexus;
+    root = result.root;
   });
 
   afterEach(() => {

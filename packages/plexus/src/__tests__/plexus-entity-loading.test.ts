@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import * as Y from "yjs";
 import { PlexusModel } from "../PlexusModel.js";
 import { syncing } from "../decorators.js";
-import { initTestPlexus, TestPlexus } from "./test-plexus.js";
+import { initTestPlexus } from "./test-plexus.js";
 
 // Test classes
 @syncing
@@ -25,7 +24,7 @@ class Container extends PlexusModel {
 
 describe("Plexus Entity Loading", () => {
   describe("loadEntity", () => {
-    it("loads entity by ID after root is ready", async () => {
+    it("loads entity by ID after root is ready", () => {
       const item1 = new Item({ name: "item1", value: 100 });
       const item2 = new Item({ name: "item2", value: 200 });
       const container = new Container({
@@ -33,8 +32,7 @@ describe("Plexus Entity Loading", () => {
         items: [item1, item2],
       });
 
-      const { plexus } = await initTestPlexus(container);
-      await plexus.rootPromise;
+      const { plexus } = initTestPlexus(container);
 
       // Load entities by their IDs
       const loadedItem1 = plexus.loadEntity<Item>(item1.uuid);
@@ -53,43 +51,26 @@ describe("Plexus Entity Loading", () => {
       expect(loadedAgain).toBe(loadedItem1);
     });
 
-    it("returns null for non-existent entity", async () => {
+    it("returns null for non-existent entity", () => {
       const container = new Container({
         title: "test",
         items: [],
       });
 
-      const { plexus } = await initTestPlexus(container);
-      await plexus.rootPromise;
+      const { plexus } = initTestPlexus(container);
 
       expect(() => {
         plexus.loadEntity("non-existent-id");
       }).toThrow();
     });
 
-    it("throws when called before root is loaded", async () => {
-      const doc = new Y.Doc();
-      const plexus = new TestPlexus<Container>(doc);
-
-      // Don't await rootPromise - try to use immediately
-      expect(() => plexus.loadEntity("some-id")).toThrow(
-        "Cannot load entities before root is loaded. Await plexus.rootPromise first.",
-      );
-
-      // Clean up: catch the rootPromise rejection to avoid unhandled rejection
-      await plexus.rootPromise.catch(() => {
-        // Expected to fail - no root metadata
-      });
-    });
-
-    it("loads root entity itself", async () => {
+    it("loads root entity itself", () => {
       const container = new Container({
         title: "root-container",
         items: [],
       });
 
-      const { plexus, root } = await initTestPlexus(container);
-      await plexus.rootPromise;
+      const { plexus, root } = initTestPlexus(container);
 
       const loadedRoot = plexus.loadEntity<Container>(root.uuid);
       expect(loadedRoot).toBe(root);
@@ -98,38 +79,23 @@ describe("Plexus Entity Loading", () => {
   });
 
   describe("hasEntity", () => {
-    it("checks entity existence", async () => {
+    it("checks entity existence", () => {
       const item = new Item({ name: "test", value: 42 });
       const container = new Container({
         title: "test",
         items: [item],
       });
 
-      const { plexus } = await initTestPlexus(container);
-      await plexus.rootPromise;
+      const { plexus } = initTestPlexus(container);
 
       expect(plexus.hasEntity(item.uuid)).toBe(true);
       expect(plexus.hasEntity(container.uuid)).toBe(true);
       expect(plexus.hasEntity("non-existent")).toBe(false);
     });
-
-    it("throws when called before root is loaded", async () => {
-      const doc = new Y.Doc();
-      const plexus = new TestPlexus<Container>(doc);
-
-      expect(() => plexus.hasEntity("some-id")).toThrow(
-        "Cannot check entities before root is loaded. Await plexus.rootPromise first.",
-      );
-
-      // Clean up: catch the rootPromise rejection to avoid unhandled rejection
-      await plexus.rootPromise.catch(() => {
-        // Expected to fail - no root metadata
-      });
-    });
   });
 
   describe("getEntityIds", () => {
-    it("returns all entity IDs", async () => {
+    it("returns all entity IDs", () => {
       const item1 = new Item({ name: "item1", value: 1 });
       const item2 = new Item({ name: "item2", value: 2 });
       const container = new Container({
@@ -137,8 +103,7 @@ describe("Plexus Entity Loading", () => {
         items: [item1, item2],
       });
 
-      const { plexus } = await initTestPlexus(container);
-      await plexus.rootPromise;
+      const { plexus } = initTestPlexus(container);
 
       const allIds = plexus.getEntityIds();
       expect(allIds).toHaveLength(3); // container + 2 items
@@ -147,7 +112,7 @@ describe("Plexus Entity Loading", () => {
       expect(allIds).toContain(item2.uuid);
     });
 
-    it("filters by type name", async () => {
+    it("filters by type name", () => {
       const item1 = new Item({ name: "item1", value: 1 });
       const item2 = new Item({ name: "item2", value: 2 });
       const container = new Container({
@@ -155,8 +120,7 @@ describe("Plexus Entity Loading", () => {
         items: [item1, item2],
       });
 
-      const { plexus } = await initTestPlexus(container);
-      await plexus.rootPromise;
+      const { plexus } = initTestPlexus(container);
 
       const itemIds = plexus.getEntityIds("Item");
       expect(itemIds).toHaveLength(2);
@@ -170,62 +134,32 @@ describe("Plexus Entity Loading", () => {
       const noneIds = plexus.getEntityIds("NonExistentType");
       expect(noneIds).toHaveLength(0);
     });
-
-    it("throws when called before root is loaded", async () => {
-      const doc = new Y.Doc();
-      const plexus = new TestPlexus<Container>(doc);
-
-      expect(() => plexus.getEntityIds()).toThrow(
-        "Cannot list entities before root is loaded. Await plexus.rootPromise first.",
-      );
-
-      // Clean up: catch the rootPromise rejection to avoid unhandled rejection
-      await plexus.rootPromise.catch(() => {
-        // Expected to fail - no root metadata
-      });
-    });
   });
 
   describe("getEntityType", () => {
-    it("returns entity type name", async () => {
+    it("returns entity type name", () => {
       const item = new Item({ name: "test", value: 42 });
       const container = new Container({
         title: "test",
         items: [item],
       });
 
-      const { plexus } = await initTestPlexus(container);
-      await plexus.rootPromise;
+      const { plexus } = initTestPlexus(container);
 
       expect(plexus.getEntityType(item.uuid)).toBe("Item");
       expect(plexus.getEntityType(container.uuid)).toBe("Container");
       expect(plexus.getEntityType("non-existent")).toBeNull();
     });
-
-    it("throws when called before root is loaded", async () => {
-      const doc = new Y.Doc();
-      const plexus = new TestPlexus<Container>(doc);
-
-      expect(() => plexus.getEntityType("some-id")).toThrow(
-        "Cannot get entity type before root is loaded. Await plexus.rootPromise first.",
-      );
-
-      // Clean up: catch the rootPromise rejection to avoid unhandled rejection
-      await plexus.rootPromise.catch(() => {
-        // Expected to fail - no root metadata
-      });
-    });
   });
 
   describe("Entity loading with modifications", () => {
-    it("loads entities that were added after initial load", async () => {
+    it("loads entities that were added after initial load", () => {
       const container = new Container({
         title: "test",
         items: [],
       });
 
-      const { plexus, root: materializedContainer } = await initTestPlexus(container);
-      await plexus.rootPromise;
+      const { plexus, root: materializedContainer } = initTestPlexus(container);
 
       // Add new item after materialization
       const newItem = new Item({ name: "added-later", value: 999 });
@@ -239,15 +173,14 @@ describe("Plexus Entity Loading", () => {
       expect(plexus.hasEntity(newItem.uuid)).toBe(true);
     });
 
-    it("reflects changes to loaded entities", async () => {
+    it("reflects changes to loaded entities", () => {
       const item = new Item({ name: "original", value: 100 });
       const container = new Container({
         title: "test",
         items: [item],
       });
 
-      const { plexus } = await initTestPlexus(container);
-      await plexus.rootPromise;
+      const { plexus } = initTestPlexus(container);
 
       const loaded = plexus.loadEntity<Item>(item.uuid);
       expect(loaded?.name).toBe("original");
@@ -265,7 +198,7 @@ describe("Plexus Entity Loading", () => {
   });
 
   describe("Complex entity hierarchies", () => {
-    it("loads nested entities correctly", async () => {
+    it("loads nested entities correctly", () => {
       // Create nested structure
       const deepItem = new Item({ name: "deep", value: 1 });
       const midContainer = new Container({
@@ -287,8 +220,7 @@ describe("Plexus Entity Loading", () => {
         containers: [midContainer],
       });
 
-      const { plexus } = await initTestPlexus(root);
-      await plexus.rootPromise;
+      const { plexus } = initTestPlexus(root);
 
       // Should be able to load at any level
       const loadedMid = plexus.loadEntity<Container>(midContainer.uuid);
@@ -306,15 +238,14 @@ describe("Plexus Entity Loading", () => {
   });
 
   describe("Clone and entity loading", () => {
-    it("can load cloned entities", async () => {
+    it("can load cloned entities", () => {
       const item = new Item({ name: "original", value: 100 });
       const container = new Container({
         title: "test",
         items: [item],
       });
 
-      const { plexus, root: materializedContainer } = await initTestPlexus(container);
-      await plexus.rootPromise;
+      const { plexus, root: materializedContainer } = initTestPlexus(container);
 
       // Clone an item
       const clonedItem = item.clone();

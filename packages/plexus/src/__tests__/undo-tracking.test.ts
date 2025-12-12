@@ -3,11 +3,13 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import * as Y from "yjs";
-import { createTrackedFunction } from "../tracking.js";
-import { Plexus } from "../Plexus.js";
-import { PlexusModel } from "../PlexusModel.js";
+import type * as Y from "yjs";
+
 import { syncing } from "../decorators.js";
+import { PlexusModel } from "../PlexusModel.js";
+import { createTrackedFunction } from "../tracking.js";
+import type { TestPlexus } from "./test-plexus.js";
+import { initTestPlexus } from "./test-plexus.js";
 
 @syncing
 class TestModel extends PlexusModel {
@@ -15,26 +17,40 @@ class TestModel extends PlexusModel {
   accessor name: string = "";
   @syncing
   accessor count: number = 0;
-}
-
-class TestPlexus extends Plexus<TestModel> {
-  protected createDefaultRoot(): TestModel {
-    return new TestModel({ name: "initial", count: 0 });
-  }
+  @syncing
+  accessor ref: TestModel | null = null;
 }
 
 describe("Y.UndoManager tracking", () => {
   let doc: Y.Doc;
-  let testPlexus: TestPlexus;
+  let testPlexus: TestPlexus<TestModel>;
   let root: TestModel;
 
-  beforeEach(async () => {
-    doc = new Y.Doc();
-    testPlexus = new TestPlexus(doc);
-    root = await testPlexus.rootPromise;
+  beforeEach(() => {
+    const result = initTestPlexus(new TestModel({ name: "initial", count: 0 }));
+    doc = result.doc;
+    testPlexus = result.plexus;
+    root = result.root;
   });
 
-  it("should track modifications from normal operations", async () => {
+  // we have a problem here: when we're undoing thing, if model disappears, it should stop working;
+  // yet, since we're operating with ephemeral entities, that may be fine.
+  // what we actually need to do is to backup
+  it("should keep working with model that was removed from main tree during undo", () => {
+    const ref = new TestModel({ name: "first" });
+    testPlexus.transact(() => {
+      root.ref = ref;
+      ref.name = "second";
+    });
+    testPlexus.undo();
+    expect(root.ref).toBe(null);
+    expect(ref.name).toBe("first");
+    testPlexus.redo();
+    expect(root.ref).toBe(ref);
+    expect(ref.name).toBe("second");
+  });
+
+  it("should track modifications from normal operations", () => {
     let notificationCount = 0;
 
     const trackedFn = createTrackedFunction(
@@ -83,9 +99,7 @@ describe("Y.UndoManager tracking", () => {
     expect(notificationCount).toBe(0);
 
     // Make a change (this creates an undo stack item)
-    testPlexus.transact(() => {
-      root.name = "modified";
-    });
+    root.name = "modified";
     expect(notificationCount).toBe(1);
 
     // Re-run tracked function to reset tracking on new value
@@ -94,7 +108,7 @@ describe("Y.UndoManager tracking", () => {
 
     // Now undo - this should trigger tracking notification
     console.log("About to undo...");
-    testPlexus.undoManager.undo();
+    testPlexus.undo();
 
     // The critical assertion: did undo trigger tracking?
     if (notificationCount === 1) {
@@ -112,7 +126,7 @@ describe("Y.UndoManager tracking", () => {
     expect(result3).toBe("initial");
   });
 
-  it("should track modifications from UndoManager.redo()", async () => {
+  it("should track modifications from UndoManager.redo()", () => {
     let notificationCount = 0;
 
     const trackedFn = createTrackedFunction(
@@ -139,7 +153,7 @@ describe("Y.UndoManager tracking", () => {
     trackedFn();
 
     // Undo
-    testPlexus.undoManager.undo();
+    testPlexus.undo();
     expect(notificationCount).toBe(2);
 
     // Re-run to reset tracking
@@ -147,7 +161,7 @@ describe("Y.UndoManager tracking", () => {
 
     // Now redo - this should also trigger tracking
     console.log("About to redo...");
-    testPlexus.undoManager.redo();
+    testPlexus.redo();
 
     // The critical assertion
     if (notificationCount === 2) {
@@ -165,7 +179,7 @@ describe("Y.UndoManager tracking", () => {
     expect(result).toBe("modified");
   });
 
-  it("should track modifications from UndoManager for multiple fields", async () => {
+  it("should track modifications from UndoManager for multiple fields", () => {
     let nameNotifications = 0;
     let countNotifications = 0;
 
@@ -201,7 +215,7 @@ describe("Y.UndoManager tracking", () => {
     trackedCountFn();
 
     // Undo should trigger both
-    testPlexus.undoManager.undo();
+    testPlexus.undo();
 
     console.log("Name notifications:", nameNotifications);
     console.log("Count notifications:", countNotifications);

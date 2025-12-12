@@ -1,14 +1,16 @@
 // Dereference both tuple and legacy object references
 
 import invariant from "tiny-invariant";
-import type * as Y from "yjs";
+import * as Y from "yjs";
 
 import { documentEntityCaches } from "./entity-cache.js";
 import { entityClasses } from "./globals.js";
 import { getDependencyDoc } from "./plexus-registry.js";
-import { ConcretePlexusConstructor, PlexusModel } from "./PlexusModel.js";
-import { AllowedYJSValue, AllowedYValue, ParentReference, Storageable } from "./proxy-runtime-types.js";
-import { isTupleReference } from "./utils/index.js";
+import { Plexus } from "./Plexus.js";
+import type { ConcretePlexusConstructor } from "./PlexusModel.js";
+import { PlexusModel } from "./PlexusModel.js";
+import type { AllowedYJSValue, AllowedYValue, ParentReference, Storageable } from "./proxy-runtime-types.js";
+import { isTupleReference } from "./utils/utils.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 
 export function deref<T extends AllowedYJSValue>(doc: Y.Doc, pointer: AllowedYValue | undefined): T {
@@ -37,9 +39,9 @@ export function deref<T extends AllowedYJSValue>(doc: Y.Doc, pointer: AllowedYVa
   const entityId = pointer[0];
   // Default to current project
 
-  const entityModel = doc
-    .getMap<Y.Map<Y.Map<Storageable> | string | ParentReference>>(YJS_GLOBALS.models.key)
-    ?.get(entityId);
+  const yModels = doc.getMap<Y.Map<Y.Map<Storageable> | string | ParentReference>>(YJS_GLOBALS.models.key);
+
+  const entityModel = yModels?.get(entityId);
   invariant(entityModel, `model #${entityId} do not exist`);
 
   const targetType = entityModel?.get(YJS_GLOBALS.models.recordFields.type);
@@ -47,6 +49,10 @@ export function deref<T extends AllowedYJSValue>(doc: Y.Doc, pointer: AllowedYVa
 
   const ModelConstructor = entityClasses.get(targetType) as ConcretePlexusConstructor;
   invariant(ModelConstructor, `missing constructor ${targetType} for ${entityId}`);
+
+  const fieldsMap = entityModel.get(YJS_GLOBALS.models.recordFields.fields);
+  invariant(fieldsMap, `missing model fields map`);
+  invariant(fieldsMap instanceof Y.Map, `model fields map has wrong type ${fieldsMap.constructor.name}`);
 
   const entityCache = documentEntityCaches.get(doc);
   const knownEntity = entityCache.get(entityId)?.deref();
@@ -56,7 +62,10 @@ export function deref<T extends AllowedYJSValue>(doc: Y.Doc, pointer: AllowedYVa
   const model = PlexusModel.__materializeRaw__(ModelConstructor);
   model.__internals__.uuid = entityId;
   model.__internals__.yjsModel = entityModel;
+  model.__internals__.yjsFieldsMap = fieldsMap;
+  model.__internals__.presyncBackingStorage = new Map(model.__internals__.backingStorage);
   entityCache.set(entityId, new WeakRef(model));
+  Plexus.__modelMapBinding__.get(doc).set(model.uuid, model);
   model.__bootstrapObservation__();
   return model as T;
 }

@@ -14,7 +14,8 @@ import {
   requestOrphanizationSymbol,
 } from "./proxy-runtime-types.js";
 import { __untracked__, trackAccess, trackModification } from "./tracking.js";
-import { DefaultedMap, DefaultedWeakMap, maybeReference, maybeTransacting } from "./utils/index.js";
+import { DefaultedMap, DefaultedWeakMap } from "./utils/defaulted-collections.js";
+import { maybeReference, maybeTransacting } from "./utils/utils.js";
 
 const argsAreClassDecoratorArgs = <Model extends PlexusModel, T extends AllowedYJSValue>(
   args:
@@ -23,11 +24,14 @@ const argsAreClassDecoratorArgs = <Model extends PlexusModel, T extends AllowedY
 ): args is [PlexusConstructor<Model>, ClassDecoratorContext<PlexusConstructor<Model>>] => args[1].kind === "class";
 
 try {
-  // this is letting compiled stage-3 decorators work in wrangler environment
-  // @ts-expect-error
+  // @ts-expect-error this is letting compiled stage-3 decorators work in wrangler dev environment
+  // for some unclear reason, flag that needs enabling Symbol.metadata do not work or work weirdly in miniflare
+  // since we're relying on its presence, it's better to introduce it anyway - it should not have any
+  // negative consequences
   // noinspection JSConstantReassignment
   Symbol.metadata ??= Symbol.for("metadata");
 } finally {
+  /* empty */
 }
 
 const decoratedTracker = new WeakSet<PlexusConstructor>();
@@ -62,6 +66,7 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
     }
     decoratedTracker.add(target);
     /**
+     * NOTE: this is not valid anymore; yet, the problem remains. We're solving it differently now
      * Sometimes, user-defined classes may adjust constructor logic; e.g.:
      * class Code extends PlexusModel {
      *   constructor(code: string = "void 0") {
@@ -76,7 +81,7 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
      * is not working for private fields, so this is only option here.
      */
     context.addInitializer(() => {
-      // special edge case for intermediate classes that should not be syncing
+      // special edge case for intermediate classes that should not be syncing (they do not have schema - but their parents do)
       if (!context.metadata.schema) {
         return;
       }

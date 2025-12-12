@@ -12,7 +12,7 @@ export * from "./utils/defaulted-collections.js";
 export * from "./proxy-runtime-types.js";
 
 // New decorator-based API
-export { PlexusModel, type PlexusInit } from "./PlexusModel.js";
+export { PlexusModel, type PlexusInit, type PlexusConstructor } from "./PlexusModel.js";
 export { syncing } from "./decorators.js";
 
 // Built-in tracking system
@@ -21,3 +21,8 @@ export * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 
 // Plexus document orchestration
 export * from "./Plexus.js";
+export { docPlexus } from "./plexus-registry.js";
+
+// Utilities
+export { deref } from "./deref.js";
+export { undoManagerNotifications } from "./utils/undoManagerNotifications.js";

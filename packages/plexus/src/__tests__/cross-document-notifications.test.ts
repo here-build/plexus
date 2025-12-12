@@ -55,7 +55,7 @@ function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
   Y.applyUpdate(doc1, update2);
 }
 
-async function createTestUser(name: string) {
+function createTestUser(name: string) {
   const ephemeralUser = new User({
     name,
     email: `${name.toLowerCase()}@test.com`,
@@ -63,25 +63,20 @@ async function createTestUser(name: string) {
     tags: new Set(),
   });
 
-  const { doc, root: user, plexus } = await initTestPlexus<User>(ephemeralUser);
+  const { doc, root: user, plexus } = initTestPlexus<User>(ephemeralUser);
   return { user, entityId: user.uuid, doc, plexus };
 }
 
 // Helper to sync docs and create plexus2 with the synced root
-async function syncDocsAndCreatePlexus(doc1: Y.Doc, doc2: Y.Doc): Promise<TestPlexus<any>> {
+function syncDocsAndCreatePlexus(doc1: Y.Doc, doc2: Y.Doc): TestPlexus<any> {
   syncDocs(doc1, doc2);
   // Create plexus2 after syncing so it has the root
-  const plexus2 = new TestPlexus(doc2);
-  // Ensure plexus2 loads its root
-  await plexus2.rootPromise;
-  return plexus2;
+  return TestPlexus.connect(doc2);
 }
 
 // Helper to sync docs when plexus2 already exists
-async function syncDocsWithPlexus(doc1: Y.Doc, doc2: Y.Doc, plexus2: TestPlexus<any>): Promise<void> {
+function syncDocsWithPlexus(doc1: Y.Doc, doc2: Y.Doc, _plexus2: TestPlexus<any>): void {
   syncDocs(doc1, doc2);
-  // Ensure plexus2's root is loaded after sync
-  await plexus2.rootPromise;
 }
 
 describe("Cross-Document Notifications", () => {
@@ -103,10 +98,9 @@ describe("Cross-Document Notifications", () => {
   describe("Basic Field Tracking", () => {
     it("should notify when primitive field changes across documents", async () => {
       // Doc1: Create user and set up tracking
-      const { user: user1, entityId, doc: doc1 } = await createTestUser("Alice");
+      const { user: user1, entityId, doc: doc1 } = createTestUser("Alice");
       syncDocs(doc1, doc2);
-      const plexus2 = new TestPlexus(doc2);
-      await plexus2.rootPromise;
+      const plexus2 = TestPlexus.connect(doc2);
       const user2 = plexus2.loadEntity<User>(entityId)!;
       expect(user2.name).toBe("Alice");
       const notifyCallback = vi.fn();
@@ -121,11 +115,11 @@ describe("Cross-Document Notifications", () => {
     });
 
     it("should notify when multiple fields change in same transaction", async () => {
-      const { user: user1, entityId, doc: doc1 } = await createTestUser("Bob");
+      const { user: user1, entityId, doc: doc1 } = createTestUser("Bob");
 
       // Sync to doc2
-      const plexus2 = new TestPlexus(doc2);
-      await syncDocsWithPlexus(doc1, doc2, plexus2);
+      syncDocs(doc1, doc2);
+      const plexus2 = TestPlexus.connect(doc2);
       const user2 = plexus2.loadEntity<User>(entityId)!;
 
       const notifyCallback = vi.fn();
@@ -152,11 +146,11 @@ describe("Cross-Document Notifications", () => {
     });
 
     it("should not notify when untracked fields change", async () => {
-      const { user: user1, entityId, doc: doc1 } = await createTestUser("Carol");
+      const { user: user1, entityId, doc: doc1 } = createTestUser("Carol");
 
       // Sync to doc2
-      const plexus2 = new TestPlexus(doc2);
-      await syncDocsWithPlexus(doc1, doc2, plexus2);
+      syncDocs(doc1, doc2);
+      const plexus2 = TestPlexus.connect(doc2);
       const user2 = plexus2.loadEntity<User>(entityId)!;
 
       const notifyCallback = vi.fn();
@@ -180,11 +174,11 @@ describe("Cross-Document Notifications", () => {
 
   describe("Record/Map Tracking", () => {
     it("should notify when record property is added", async () => {
-      const { user: user1, entityId, doc: doc1, plexus } = await createTestUser("David");
+      const { user: user1, entityId, doc: doc1, plexus } = createTestUser("David");
 
       // Sync to doc2
-      const plexus2 = new TestPlexus(doc2);
-      await syncDocsWithPlexus(doc1, doc2, plexus2);
+      syncDocs(doc1, doc2);
+      const plexus2 = TestPlexus.connect(doc2);
       const user2 = plexus2.loadEntity<User>(entityId)!;
 
       const notifyCallback = vi.fn();
@@ -219,7 +213,7 @@ describe("Cross-Document Notifications", () => {
     });
 
     it("should notify when record property is removed", async () => {
-      const { user: user1, entityId, doc: doc1 } = await createTestUser("Eve");
+      const { user: user1, entityId, doc: doc1 } = createTestUser("Eve");
 
       // Add initial post
       const initialPost = new Post({
@@ -232,8 +226,8 @@ describe("Cross-Document Notifications", () => {
       user1.posts["initial"] = initialPost;
 
       // Sync to doc2
-      const plexus2 = new TestPlexus(doc2);
-      await syncDocsWithPlexus(doc1, doc2, plexus2);
+      syncDocs(doc1, doc2);
+      const plexus2 = TestPlexus.connect(doc2);
       const user2 = plexus2.loadEntity<User>(entityId)!;
 
       const notifyCallback = vi.fn();
@@ -254,7 +248,7 @@ describe("Cross-Document Notifications", () => {
     });
 
     it("should notify when specific record property is accessed", async () => {
-      const { user: user1, entityId, doc: doc1 } = await createTestUser("Frank");
+      const { user: user1, entityId, doc: doc1 } = createTestUser("Frank");
 
       // Add initial post
       const initialPost = new Post({
@@ -267,8 +261,8 @@ describe("Cross-Document Notifications", () => {
       user1.posts["tracked-post"] = initialPost;
 
       // Sync to doc2
-      const plexus2 = new TestPlexus(doc2);
-      await syncDocsWithPlexus(doc1, doc2, plexus2);
+      syncDocs(doc1, doc2);
+      const plexus2 = TestPlexus.connect(doc2);
       const user2 = plexus2.loadEntity<User>(entityId)!;
 
       const notifyCallback = vi.fn();
@@ -299,7 +293,7 @@ describe("Cross-Document Notifications", () => {
         comments: [],
       });
 
-      const { doc: doc1, root: post1, plexus } = await initTestPlexus<Post>(ephemeralPost);
+      const { doc: doc1, root: post1, plexus } = initTestPlexus<Post>(ephemeralPost);
       const entityId = post1.uuid;
 
       // Sync to doc2
@@ -349,7 +343,7 @@ describe("Cross-Document Notifications", () => {
       });
       ephemeralPost.comments.push(initialComment);
 
-      const { doc: doc1, root: post1, plexus } = await initTestPlexus<Post>(ephemeralPost);
+      const { doc: doc1, root: post1, plexus } = initTestPlexus<Post>(ephemeralPost);
       const entityId = post1.uuid;
 
       // Sync to doc2
@@ -392,7 +386,7 @@ describe("Cross-Document Notifications", () => {
       });
       ephemeralPost.comments.push(initialComment);
 
-      const { doc: doc1, root: post1, plexus } = await initTestPlexus<Post>(ephemeralPost);
+      const { doc: doc1, root: post1, plexus } = initTestPlexus<Post>(ephemeralPost);
       const entityId = post1.uuid;
 
       // Sync to doc2
@@ -420,11 +414,11 @@ describe("Cross-Document Notifications", () => {
 
   describe("Set Tracking", () => {
     it("should notify when set items are added or removed", async () => {
-      const { user: user1, entityId, doc: doc1, plexus } = await createTestUser("Grace");
+      const { user: user1, entityId, doc: doc1, plexus } = createTestUser("Grace");
 
       // Sync to doc2
-      const plexus2 = new TestPlexus(doc2);
-      await syncDocsWithPlexus(doc1, doc2, plexus2);
+      syncDocs(doc1, doc2);
+      const plexus2 = TestPlexus.connect(doc2);
       const user2 = plexus2.loadEntity<User>(entityId)!;
 
       const notifyCallback = vi.fn();
@@ -448,11 +442,11 @@ describe("Cross-Document Notifications", () => {
 
   describe("Multiple Subscribers", () => {
     it("should notify all subscribers when tracked data changes", async () => {
-      const { user: user1, entityId, doc: doc1 } = await createTestUser("Henry");
+      const { user: user1, entityId, doc: doc1 } = createTestUser("Henry");
 
       // Sync to doc2
-      const plexus2 = new TestPlexus(doc2);
-      await syncDocsWithPlexus(doc1, doc2, plexus2);
+      syncDocs(doc1, doc2);
+      const plexus2 = TestPlexus.connect(doc2);
       const user2 = plexus2.loadEntity<User>(entityId)!;
 
       const callback1 = vi.fn();
@@ -487,7 +481,7 @@ describe("Cross-Document Notifications", () => {
 
   describe("Nested Entity Tracking", () => {
     it("should notify when nested entity properties change", async () => {
-      const { user: user1, entityId: userId, doc: doc1 } = await createTestUser("Iris");
+      const { user: user1, entityId: userId, doc: doc1 } = createTestUser("Iris");
 
       // Add a post with the user as author
       const post = new Post({
@@ -500,8 +494,8 @@ describe("Cross-Document Notifications", () => {
       user1.posts["main"] = post;
 
       // Sync to doc2
-      const plexus2 = new TestPlexus(doc2);
-      await syncDocsWithPlexus(doc1, doc2, plexus2);
+      syncDocs(doc1, doc2);
+      const plexus2 = TestPlexus.connect(doc2);
       const user2 = plexus2.loadEntity<User>(userId)!;
 
       const notifyCallback = vi.fn();
@@ -524,11 +518,11 @@ describe("Cross-Document Notifications", () => {
 
   describe("Performance and Cleanup", () => {
     it("should not accumulate subscribers after function executions", async () => {
-      const { user: user1, entityId, doc: doc1 } = await createTestUser("Jack");
+      const { user: user1, entityId, doc: doc1 } = createTestUser("Jack");
 
       // Sync to doc2
-      const plexus2 = new TestPlexus(doc2);
-      await syncDocsWithPlexus(doc1, doc2, plexus2);
+      syncDocs(doc1, doc2);
+      const plexus2 = TestPlexus.connect(doc2);
       const user2 = plexus2.loadEntity<User>(entityId)!;
 
       const callback = vi.fn();
@@ -552,11 +546,11 @@ describe("Cross-Document Notifications", () => {
     });
 
     it("should handle rapid successive changes efficiently", async () => {
-      const { user: user1, entityId, doc: doc1 } = await createTestUser("Kate");
+      const { user: user1, entityId, doc: doc1 } = createTestUser("Kate");
 
       // Sync to doc2
-      const plexus2 = new TestPlexus(doc2);
-      await syncDocsWithPlexus(doc1, doc2, plexus2);
+      syncDocs(doc1, doc2);
+      const plexus2 = TestPlexus.connect(doc2);
       const user2 = plexus2.loadEntity<User>(entityId)!;
 
       const callback = vi.fn();

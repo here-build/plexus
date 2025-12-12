@@ -1,14 +1,11 @@
 import type * as Y from "yjs";
 
-import { PlexusModel } from "../PlexusModel.js"; // Re-export from defaulted-collections for backward compatibility
+import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReferenceTuple } from "../proxy-runtime-types.js";
 import { referenceSymbol } from "../proxy-runtime-types.js";
-
-// Re-export from defaulted-collections for backward compatibility
-export { DefaultedMap, DefaultedWeakMap } from "./defaulted-collections.js";
+import { Plexus } from "../Plexus.js";
 
 export function never(value: never): never {
-  debugger;
   throw new Error(`Unexpected value: ${value}`);
 }
 
@@ -17,7 +14,7 @@ export const isTupleReference = (val: any): val is ReferenceTuple =>
   Array.isArray(val) && val.length > 0 && val.length <= 2 && typeof val[0] === "string";
 
 export const maybeReference = (val: AllowedYJSValue, doc: Y.Doc): AllowedYValue =>
-  (val instanceof PlexusModel ? val?.[referenceSymbol]?.(doc) : val) ?? null;
+  (val instanceof PlexusModel ? val[referenceSymbol](doc) : val) ?? null;
 
 export const curryMaybeReference =
   (doc: Y.Doc) =>
@@ -77,7 +74,7 @@ export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T):
       isTransacting = true;
     }
 
-    return doc.transact(fn);
+    return doc.transact(fn, Plexus);
   } catch (error) {
     if (!wasAlreadyTransacting) {
       pendingNotifications.clear();

@@ -1,12 +1,12 @@
 import type * as Y from "yjs";
 
 import { deref } from "../deref.js";
-import { undoManagerNotifications } from "../Plexus.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import { informOrphanizationSymbol, materializationSymbol, requestAdoptionSymbol } from "../proxy-runtime-types.js";
 import { ACCESS_ALL_SYMBOL, trackAccess, trackModification } from "../tracking.js";
-import { maybeReference, maybeTransacting } from "../utils/index.js";
+import { maybeReference, maybeTransacting } from "../utils/utils.js";
+import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 
 export type MaterializedSetProxyInitTarget = {
   owner: PlexusModel;

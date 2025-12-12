@@ -1,4 +1,3 @@
-// Simple default implementations for Maps and WeakMaps
 // This file has NO dependencies to avoid circular imports
 
 export class DefaultedMap<K, V> extends Map<K, V> {
@@ -19,6 +18,7 @@ export class DefaultedWeakMap<K extends object, V> extends WeakMap<K, V> {
     super();
   }
 
+  // eslint-disable-next-line sonarjs/no-identical-functions
   get(key: K): V {
     if (!super.has(key)) {
       super.set(key, this.factory(key));

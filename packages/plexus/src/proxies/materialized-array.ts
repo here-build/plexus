@@ -1,7 +1,6 @@
 import type * as Y from "yjs";
 
 import { mutableArrayMethods } from "../globals.js";
-import { undoManagerNotifications } from "../Plexus.js";
 import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import {
@@ -11,9 +10,10 @@ import {
   requestAdoptionSymbol,
 } from "../proxy-runtime-types.js";
 import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking.js";
-import { maybeReference, maybeTransacting } from "../utils/index.js";
+import { maybeReference, maybeTransacting } from "../utils/utils.js";
 import invariant from "tiny-invariant";
 import { deref } from "../deref.js";
+import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 
 /**
  * Important implementation nuances

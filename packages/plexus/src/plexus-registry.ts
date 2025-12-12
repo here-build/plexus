@@ -5,20 +5,18 @@
 
 import type * as Y from "yjs";
 
-import type { DependencyId, DependencyVersion } from "./Plexus.js";
+import type { DependencyId, DependencyVersion, Plexus } from "./Plexus.js";
 // noinspection ES6PreferShortImport - circular imports issue
 import { DefaultedWeakMap } from "./utils/defaulted-collections.js";
 
-// Track which docs have Plexus instances.
-// Any is only used because we have some issues with cyclic imports here
-export const docPlexus = new WeakMap<Y.Doc, any>();
+// Track which docs have Plexus instances, keyed by (doc, class).
+// This allows different Plexus subclasses to coexist for the same doc.
+export const docPlexus = new WeakMap<Y.Doc, Plexus<any>>();
 
 // Shared dependency doc mappings per main doc
 // This ensures all Plexuses for the same doc share dependency resolution
-export const sharedDependencyDocs = new DefaultedWeakMap<Y.Doc, Map<DependencyId, Y.Doc>>(() => new Map());
-export const sharedDependencyVersions = new DefaultedWeakMap<Y.Doc, Map<DependencyId, DependencyVersion>>(
-  () => new Map(),
-);
+export const sharedDependencyDocs = new DefaultedWeakMap<Y.Doc, Map<string, Y.Doc>>(() => new Map());
+export const sharedDependencyVersions = new DefaultedWeakMap<Y.Doc, Map<string, DependencyVersion>>(() => new Map());
 
 /**
  * Get a dependency doc for cross-reference resolution.

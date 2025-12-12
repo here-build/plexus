@@ -1,11 +1,9 @@
 import { describe, expect, it, Mock, vi } from "vitest";
-import * as Y from "yjs";
-import { Plexus } from "../Plexus.js";
 import { PlexusModel } from "../PlexusModel.js";
 import { syncing } from "../decorators.js";
 import { createTrackedFunction } from "../tracking.js";
 import { entityClasses } from "../globals.js";
-import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
+import { initTestPlexus } from "./test-plexus.js";
 
 // Define a more complex model for integration testing
 @syncing
@@ -32,45 +30,13 @@ class TodoList extends PlexusModel {
   accessor tags!: Set<string>;
 }
 
-class TodoPlexus extends Plexus<TodoList> {
-  constructor(doc: Y.Doc) {
-    // Set up root data before calling super to avoid loadRoot errors
-    const models = doc.getMap(YJS_GLOBALS.models.key);
-
-    // Create root TodoList
-    const listModel = new Y.Map();
-    listModel.set(YJS_GLOBALS.models.recordFields.type, "TodoList");
-    listModel.set(
-      YJS_GLOBALS.models.recordFields.fields,
-      new Y.Map([
-        ["name", "My Tasks"],
-        ["items", new Y.Array()],
-        ["tags", new Y.Array()],
-      ]),
-    );
-    models.set("root", listModel);
-
-    super(doc);
-  }
-
-  protected createDefaultRoot(): TodoList {
-    return new TodoList({ name: "Default List", items: [], tags: [] });
-  }
-
-  async fetchDependency(): Promise<Y.Doc> {
-    throw new Error("Not implemented");
-  }
-}
-
 // Register entity classes globally before tests
 entityClasses.set("TodoItem", TodoItem);
 entityClasses.set("TodoList", TodoList);
 
 describe("Transaction Integration Tests", () => {
-  it("should batch multiple operations in a single transaction", async () => {
-    const doc = new Y.Doc();
-    const plexus = new TodoPlexus(doc);
-    const todoList = await plexus.rootPromise;
+  it("should batch multiple operations in a single transaction", () => {
+    const { plexus, root: todoList } = initTestPlexus(new TodoList({ name: "My Tasks", items: [], tags: new Set() }));
 
     // Track changes
     const changeLog: string[] = [];
@@ -133,10 +99,8 @@ describe("Transaction Integration Tests", () => {
     expect(Array.from(todoList.tags)).toContain("work");
   });
 
-  it("should handle nested transactions with complex operations", async () => {
-    const doc = new Y.Doc();
-    const plexus = new TodoPlexus(doc);
-    const todoList = await plexus.rootPromise;
+  it("should handle nested transactions with complex operations", () => {
+    const { plexus, root: todoList } = initTestPlexus(new TodoList({ name: "My Tasks", items: [], tags: new Set() }));
 
     const notifications: string[] = [];
     const callback = vi.fn(() => {
@@ -179,10 +143,8 @@ describe("Transaction Integration Tests", () => {
     expect(todoList.items.length).toBe(2);
   });
 
-  it("should rollback on error and not notify", async () => {
-    const doc = new Y.Doc();
-    const plexus = new TodoPlexus(doc);
-    const todoList = await plexus.rootPromise;
+  it("should rollback on error and not notify", () => {
+    const { plexus, root: todoList } = initTestPlexus(new TodoList({ name: "My Tasks", items: [], tags: new Set() }));
 
     const callback = vi.fn();
     const tracked = createTrackedFunction(callback, () => todoList.name);
@@ -209,10 +171,8 @@ describe("Transaction Integration Tests", () => {
     expect(todoList.name).toBe("Modified name"); // YJS doesn't rollback
   });
 
-  it("should handle concurrent tracked functions efficiently", async () => {
-    const doc = new Y.Doc();
-    const plexus = new TodoPlexus(doc);
-    const todoList = await plexus.rootPromise;
+  it("should handle concurrent tracked functions efficiently", () => {
+    const { plexus, root: todoList } = initTestPlexus(new TodoList({ name: "My Tasks", items: [], tags: new Set() }));
 
     // Create three groups of callbacks tracking different things
     const nameCallbacks: Mock[] = [];

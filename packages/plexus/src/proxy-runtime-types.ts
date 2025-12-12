@@ -1,8 +1,7 @@
 import type * as Y from "yjs";
 
-import type { DependencyId } from "./Plexus.js";
 import type { PlexusModel } from "./PlexusModel.js";
-import type { curryMaybeReference } from "./utils/index.js";
+import type { curryMaybeReference } from "./utils/utils.js";
 
 export const referenceSymbol = Symbol("reference");
 export const materializationSymbol = Symbol("materialize proxy structure");
@@ -11,12 +10,11 @@ export const informAdoptionSymbol = Symbol("report parentship change");
 export const informOrphanizationSymbol = Symbol("report orphanage");
 export const requestAdoptionSymbol = Symbol("report parentship change");
 export const requestOrphanizationSymbol = Symbol("report orphanage");
-export const decoratedField = Symbol("decorated field"); // not actually used - just unique symbol
 
 export type ParentReference = [entityId: string, fieldName: string, metadata?: string];
 // New tuple-based references (memory optimized)
 type LocalReferenceeTuple = [entityId: string];
-export type CrossProjectReferenceTuple = [entityId: string, dependencyId: DependencyId];
+export type CrossProjectReferenceTuple = [entityId: string, dependencyId: string];
 export type ReferenceTuple = LocalReferenceeTuple | CrossProjectReferenceTuple;
 
 export type AllowedPrimitive = string | number | boolean | null;
@@ -54,9 +52,11 @@ export type FieldTag<Value> = {
   readonly [fieldTag]?: Value;
 };
 
-export type PlexusTagContainer<Token> = {
-  readonly [tag]: Token;
-};
+export interface PlexusTagContainer<Token> {
+  readonly [tag]?: Token;
+}
+
+export type PlexusTagValue<T extends PlexusTagContainer<any>> = T extends PlexusTagContainer<infer R> ? R : never;
 
 export type PlexusUUID<Type, Model extends PlexusModel> = Type & PlexusTagContainer<{ model: Model }>;
 

@@ -33,7 +33,7 @@ class Post extends PlexusModel {
 }
 
 describe("Plexus Basic Functionality", () => {
-  it("should create and manage Plexus document with simple entities", async () => {
+  it("should create and manage Plexus document with simple entities", () => {
     const user = new User({
       name: "John Doe",
       email: "john@example.com",
@@ -48,7 +48,7 @@ describe("Plexus Basic Functionality", () => {
     });
 
     // Initialize Plexus with post as root
-    const { plexus, root, doc } = await initTestPlexus<Post>(post);
+    const { plexus, root, doc } = initTestPlexus<Post>(post);
 
     // Verify Plexus is properly initialized
     expect(plexus).toBeDefined();
@@ -71,36 +71,35 @@ describe("Plexus Basic Functionality", () => {
     expect(root.tags[2]).toBe("updated");
   });
 
-  it("should handle async root promise resolution", async () => {
+  it("should have root available immediately after construction", () => {
     const user = new User({
       name: "Jane Doe",
       email: "jane@example.com",
       age: 25,
     });
 
-    const { plexus, root } = await initTestPlexus<User>(user);
+    const { plexus, root } = initTestPlexus<User>(user);
 
-    // Verify the root promise resolved correctly
-    const resolvedRoot = await plexus.rootPromise;
-    expect(resolvedRoot).toBe(root);
-    expect(resolvedRoot.name).toBe("Jane Doe");
-    expect(resolvedRoot.age).toBe(25);
+    // Root is immediately available (no async)
+    expect(plexus.root).toBe(root);
+    expect(plexus.root.name).toBe("Jane Doe");
+    expect(plexus.root.age).toBe(25);
   });
 
-  it("should maintain document-plexus relationship", async () => {
+  it("should maintain document-plexus relationship", () => {
     const user = new User({
       name: "Bob Smith",
       email: "bob@example.com",
       age: 35,
     });
 
-    const { plexus, doc } = await initTestPlexus<User>(user);
+    const { plexus, doc } = initTestPlexus<User>(user);
 
     // Verify Plexus is associated with document
     expect(plexus.doc).toBe(doc);
   });
 
-  it("should handle entity relationships correctly", async () => {
+  it("should handle entity relationships correctly", () => {
     const author = new User({
       name: "Author Name",
       email: "author@example.com",
@@ -114,7 +113,7 @@ describe("Plexus Basic Functionality", () => {
       tags: ["relationship", "test"],
     });
 
-    const { root } = await initTestPlexus<Post>(post);
+    const { root } = initTestPlexus<Post>(post);
 
     // Verify relationship integrity
     expect(root.author).not.toBeNull();

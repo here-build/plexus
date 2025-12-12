@@ -60,6 +60,7 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
         `Plexus model class ${target.name} attempted to inherit from the ${proto.name} class that also has to be declared as @syncing - every class in inheritance chain should use that decorator`,
       );
     }
+    decoratedTracker.add(target);
     /**
      * Sometimes, user-defined classes may adjust constructor logic; e.g.:
      * class Code extends PlexusModel {
@@ -101,7 +102,6 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
       invariant(!entityClasses.has(target.modelName), `Plexus class name ${target.modelName} is non-unique`);
       entityClasses.set(target.modelName, target);
     });
-    decoratedTracker.add(target);
     return target as PlexusConstructor<Model> & PlexusTagContainer<"decorated">;
   } else {
     const [target, context] = args as [

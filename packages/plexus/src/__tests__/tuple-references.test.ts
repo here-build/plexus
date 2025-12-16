@@ -82,9 +82,6 @@ describe("Tuple Reference Format", () => {
     const root = new Shallow({ name: "Root" });
     const { plexus: rootPlexus } = await initTestPlexus(root);
 
-    // Register dependency for testing cross-project references
-    rootPlexus.registerDependencyFactory("dep", async () => depDoc);
-
     // For this test, we'll create a manual cross-project reference tuple
     // since the test is about the tuple format, not the resolver mechanism
     const crossRef = [depEntityId, "dep"];

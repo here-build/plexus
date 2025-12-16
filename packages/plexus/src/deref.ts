@@ -10,8 +10,13 @@ import { PlexusModel } from "./PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ParentReference, Storageable } from "./proxy-runtime-types.js";
 import { isTupleReference } from "./utils/utils.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
+import { docPlexus } from "./plexus-registry.js";
 
-export function deref<T extends AllowedYJSValue>(doc: Y.Doc, pointer: AllowedYValue | undefined): T {
+export function deref<T extends AllowedYJSValue>(
+  doc: Y.Doc,
+  pointer: AllowedYValue | undefined,
+  contextualDocumentId?: string, // only used for dependency docs internals
+): T {
   if (pointer == null) {
     return null as T;
   }
@@ -26,8 +31,10 @@ export function deref<T extends AllowedYJSValue>(doc: Y.Doc, pointer: AllowedYVa
 
   const entityId = pointer[0];
 
-  // Cross-dependency references should use DependencyResolver, not deref
-  invariant(!pointer[1], `Plexus<ref#${entityId}>: cross-dependency refs must use DependencyResolver`);
+  const alteredDocumentId = pointer[1] ?? contextualDocumentId;
+  if (alteredDocumentId) {
+    return docPlexus.get(doc)!.__getDependencyNode__(alteredDocumentId, entityId) as T;
+  }
 
   const yModels = doc.getMap<Y.Map<Y.Map<Storageable> | string | ParentReference>>(YJS_GLOBALS.models.key);
 
@@ -53,6 +60,10 @@ export function deref<T extends AllowedYJSValue>(doc: Y.Doc, pointer: AllowedYVa
     return knownEntity as T;
   }
   const model = PlexusModel.__materializeRaw__(ModelConstructor);
+  invariant(
+    !model.__internals__.isDependency,
+    `Plexus<${targetType}#${entityId}>: somehow, raw materialization spawned dependency. This should never happen and is bug in Plexus itself`,
+  );
   model.__internals__.uuid = entityId;
   model.__internals__.yjsModel = entityModel;
   model.__internals__.yjsFieldsMap = fieldsMap;

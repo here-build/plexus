@@ -711,9 +711,6 @@ describe("Parent Tracking", () => {
       });
       const { plexus, root: materializedParent } = initTestPlexus<Parent>(parent);
 
-      // Set up dependency factory
-      plexus.registerDependencyFactory("dep", async () => depDoc);
-
       // This should fail - can't assign entity from different doc directly
       expect(() => {
         materializedParent.child = depChild; // Trying to set dependency entity as child

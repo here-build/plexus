@@ -17,3 +17,7 @@ export const metadata = {
     version: "version",
   },
 } as const;
+
+export const dependencies = {
+  key: "dependencies",
+};

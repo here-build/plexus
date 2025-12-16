@@ -78,49 +78,65 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   // eslint-disable-next-line sonarjs/public-static-readonly
   static __isMaterializingRaw__ = false;
   // eslint-disable-next-line sonarjs/public-static-readonly
+  static __forcedInternals__: PlexusModel["__internals__"] | null = null;
+  // eslint-disable-next-line sonarjs/public-static-readonly
   static modelName: string;
   // here and in other places we're using accessors only to remove elements from enumerable set
-  __internals__: {
-    parent: Parent | null;
-    parentKey: string | null;
-    parentMetadata: string | null;
-    initializationState: Record<
-      string,
-      AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList
-    >;
-    isWithinYjsModelSeed: boolean;
-    yjsModel?: Y.Map<Y.Map<Storageable> | string | ParentReference>;
-    yjsFieldsMap?: Y.Map<Storageable>;
-    uuid?: string;
-    localReference?: ReferenceTuple;
-    backingStorage: Map<string, any>;
-    isDematerialized?: boolean;
-    unobserve?: () => void;
-  };
+  __internals__:
+    | {
+        isDependency?: false;
+        parent: Parent | null;
+        parentKey: string | null;
+        parentMetadata: string | null;
+        initializationState: Record<
+          string,
+          AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList | undefined
+        >;
+        isWithinYjsModelSeed: boolean;
+        yjsModel?: Y.Map<Y.Map<Storageable> | string | ParentReference>;
+        yjsFieldsMap?: Y.Map<Storageable>;
+        uuid?: string;
+        reference?: ReferenceTuple;
+        backingStorage: Map<string, any>;
+        isDematerialized?: boolean;
+        unobserve?: () => void;
+      }
+    | {
+        isDematerialized?: false;
+        isDependency: true;
+        documentId: string;
+        uuid: string;
+        parent: Parent;
+        reference: [string, string];
+      };
   static readonly schema: GenericRecordSchema;
 
   constructor(init: unknown = {}) {
-    const backingStorage = new Map<string, any>();
-    this.__internals__ = {
-      parent: null,
-      parentKey: null,
-      parentMetadata: null,
-      initializationState: init as any,
-      isWithinYjsModelSeed: false,
-      yjsModel: undefined,
-      yjsFieldsMap: undefined,
-      backingStorage,
-    };
+    // Use forced internals if provided (for dependency models), otherwise default
+    if (PlexusModel.__forcedInternals__) {
+      this.__internals__ = PlexusModel.__forcedInternals__;
+    } else {
+      this.__internals__ = {
+        parent: null,
+        parentKey: null,
+        parentMetadata: null,
+        initializationState: init as any,
+        isWithinYjsModelSeed: false,
+        yjsModel: undefined,
+        yjsFieldsMap: undefined,
+        backingStorage: new Map<string, any>(),
+      };
+      setTimeout(() => {
+        // @ts-expect-error after we're bootstrapped, initializationState is not needed anymore
+        this.__internals__.initializationState = null;
+      });
+    }
     // we're hiding internals from enumeration and serialization aggressively
     Object.defineProperty(this, "__internals__", {
       enumerable: false,
       configurable: false,
       writable: false,
       value: this.__internals__,
-    });
-    setTimeout(() => {
-      // @ts-expect-error after we're bootstrapped, initializationState is not needed anymore
-      this.__internals__.initializationState = null;
     });
     Object.defineProperties(
       this,
@@ -164,6 +180,14 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     }
   }
 
+  get __doc__(): Y.Doc | null {
+    invariant(
+      !this.__internals__.isDependency,
+      `Plexus<${this.__type__}#${this.uuid}>: dependency do not have __doc__`,
+    );
+    return this.__internals__.yjsModel?.doc ?? null;
+  }
+
   get __schema__(): ReadonlyDeep<GenericRecordSchema> {
     return (this.constructor as PlexusConstructor).schema;
   }
@@ -172,12 +196,25 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     return (this.constructor as PlexusConstructor).modelName;
   }
 
-  get __doc__(): Y.Doc | null {
-    return this.__internals__.yjsModel?.doc ?? null;
+  get __yjsFieldsMap__() {
+    invariant(
+      !this.__internals__.isDependency,
+      `Plexus<${this.__type__}#${this.uuid}>: dependency do not have __yjsFieldsMap__`,
+    );
+    return this.__internals__.yjsFieldsMap;
   }
 
-  get __yjsFieldsMap__() {
-    return this.__internals__.yjsFieldsMap;
+  get uuid(): PlexusUUID<string, this> {
+    if (this.__internals__.uuid) {
+      return this.__internals__.uuid as PlexusUUID<string, this>;
+    }
+    if (this.__internals__.isDependency) {
+      return this.__internals__.uuid;
+    }
+    this.__internals__.uuid = nanoid() as PlexusUUID<string, this>;
+    this.__internals__.reference = [this.__internals__.uuid];
+    Object.freeze(this.__internals__.reference);
+    return this.__internals__.uuid as PlexusUUID<string, this>;
   }
 
   get parent(): Parent | null {
@@ -185,14 +222,24 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     return this.__internals__.parent;
   }
 
-  get uuid(): PlexusUUID<string, this> {
-    if (this.__internals__.uuid) {
-      return this.__internals__.uuid as PlexusUUID<string, this>;
+  get documentId(): string | undefined {
+    return this.__doc__?.getMap(YJS_GLOBALS.metadata.key).get(YJS_GLOBALS.metadata.wellKnown.documentId) as
+      | string
+      | undefined;
+  }
+
+  static __materializePredefined__<T extends PlexusModel>(
+    constructor: Constructor<T>,
+    internals: PlexusModel["__internals__"],
+  ) {
+    PlexusModel.__isMaterializingRaw__ = true;
+    PlexusModel.__forcedInternals__ = internals;
+    try {
+      return new constructor();
+    } finally {
+      PlexusModel.__isMaterializingRaw__ = false;
+      PlexusModel.__forcedInternals__ = null;
     }
-    this.__internals__.uuid = nanoid() as PlexusUUID<string, this>;
-    this.__internals__.localReference = [this.__internals__.uuid];
-    Object.freeze(this.__internals__.localReference);
-    return this.__internals__.uuid as PlexusUUID<string, this>;
   }
 
   [requestEmancipationSymbol]() {
@@ -209,19 +256,21 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   }
 
   [informAdoptionSymbol]<T extends Exclude<Parent, null>>(newParent: T, field: string, extraFieldMetadata?: string) {
+    const internals = this.__internals__;
+    invariant(!internals.isDependency, `Plexus<${this.__type__}#${this.uuid}>: dependency cannot be adopted`);
     invariant(
-      this.__internals__.uuid !== YJS_GLOBALS.models.wellKnown.root || (newParent as PlexusModel) === this,
+      internals.uuid !== YJS_GLOBALS.models.wellKnown.root || (newParent as PlexusModel) === this,
       `Plexus<${this.__type__}#root>: root entity cannot have a parent`,
     );
 
     if (
-      this.__internals__.parent === newParent &&
-      this.__internals__.parentKey === field &&
-      this.__internals__.parentMetadata === extraFieldMetadata
+      internals.parent === newParent &&
+      internals.parentKey === field &&
+      internals.parentMetadata === extraFieldMetadata
     ) {
       return;
     }
-    if (!this.__internals__.yjsModel && newParent.__doc__) {
+    if (!internals.yjsModel && newParent.__doc__) {
       this[referenceSymbol](newParent.__doc__);
     } else {
       if (newParent.__doc__ && this.__doc__) {
@@ -232,16 +281,16 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       }
     }
 
-    const oldParent = this.__internals__.parent;
-    this.__internals__.parent = newParent;
-    this.__internals__.parentKey = field;
-    this.__internals__.parentMetadata = extraFieldMetadata ?? null;
+    const oldParent = internals.parent;
+    internals.parent = newParent;
+    internals.parentKey = field;
+    internals.parentMetadata = extraFieldMetadata ?? null;
 
     maybeTransacting(this.__doc__, () => {
       if (this.__doc__) {
         const reference = newParent[referenceSymbol](this.__doc__!);
 
-        this.__internals__.yjsModel!.set(
+        internals.yjsModel!.set(
           YJS_GLOBALS.models.recordFields.parent,
           extraFieldMetadata ? [reference[0], field, extraFieldMetadata] : [reference[0], field],
         );
@@ -253,9 +302,11 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   }
 
   [requestAdoptionSymbol]<T extends Exclude<Parent, null>>(newParent: T, field: string, extraFieldMetadata?: string) {
+    const internals = this.__internals__;
+    invariant(!internals.isDependency, `Plexus<${this.__type__}#${this.uuid}>: dependency cannot be adopted`);
     const parent = this.parent;
-    const oldField = this.__internals__.parentKey;
-    const oldExtraFieldMetadata = this.__internals__.parentMetadata;
+    const oldField = internals.parentKey;
+    const oldExtraFieldMetadata = internals.parentMetadata;
     this.#emancipate();
     if (parent === newParent && oldField === field && oldExtraFieldMetadata === extraFieldMetadata) {
       return;
@@ -269,17 +320,19 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   }
 
   [informOrphanizationSymbol]() {
-    this.__internals__.parent = null;
-    this.__internals__.parentKey = null;
-    this.__internals__.parentMetadata = null;
-    if (this.__internals__.yjsModel) {
-      const currentParent = this.__internals__.yjsModel.get(YJS_GLOBALS.models.recordFields.parent) as
+    const internals = this.__internals__;
+    invariant(!internals.isDependency, `Plexus<${this.__type__}#${this.uuid}>: dependency cannot be orphaned`);
+    internals.parent = null;
+    internals.parentKey = null;
+    internals.parentMetadata = null;
+    if (internals.yjsModel) {
+      const currentParent = internals.yjsModel.get(YJS_GLOBALS.models.recordFields.parent) as
         | ParentReference
         | undefined;
       if (currentParent) {
         maybeTransacting(this.__doc__, () => {
           // it is VERY important to alter fieldMap first to avoid cyclic processing
-          this.__internals__.yjsModel!.delete(YJS_GLOBALS.models.recordFields.parent);
+          internals.yjsModel!.delete(YJS_GLOBALS.models.recordFields.parent);
           trackModification(this, "parent");
         });
       }
@@ -292,25 +345,29 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
 
   // since full PlexusModel always represents only root doc (not dependencies), it's always local reference.
   [referenceSymbol](doc: Y.Doc): ReferenceTuple {
+    const internals = this.__internals__;
+    if (internals.isDependency) {
+      return internals.reference;
+    }
     invariant(docPlexus.has(doc), `Plexus<document#${doc.clientID}>: not registered as Plexus root`);
     const yModels = doc.getMap<Y.Map<Y.Map<Storageable> | string | ParentReference>>(YJS_GLOBALS.models.key);
 
-    if (this.__internals__.yjsModel?.doc) {
+    if (internals.yjsModel?.doc) {
       invariant(
-        doc === this.__internals__.yjsModel.doc,
+        doc === internals.yjsModel.doc,
         `Plexus<${this.__type__}#${this.uuid}>: cannot cross-reference between docs`,
       );
       if (yModels.has(this.uuid)) {
         // you never know what kinds of interesting states you can get in with CRDT
         invariant(
-          yModels.get(this.uuid) === this.__internals__.yjsModel,
+          yModels.get(this.uuid) === internals.yjsModel,
           `Plexus<${this.__type__}#${this.uuid}>: uuid conflict, already taken by different model`,
         );
       } else {
         // this MAY and is allowed to happen during the undo operations that are removing some class from model;
         // this is weird situation where Y.Map technically belongs to doc, but exists in pre-GC limbo.
-        yModels.set(this.uuid, this.__internals__.yjsModel);
-        this.__internals__.isDematerialized = false;
+        yModels.set(this.uuid, internals.yjsModel);
+        internals.isDematerialized = false;
       }
       return this.#reference;
     }
@@ -325,7 +382,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       let yprojectObjectInstanceFields = yprojectObjectInstance?.get(
         YJS_GLOBALS.models.recordFields.fields,
       ) as Y.Map<Storageable>;
-      this.__internals__.isWithinYjsModelSeed = true;
+      internals.isWithinYjsModelSeed = true;
       if (!yprojectObjectInstance) {
         yprojectObjectInstanceFields = new Y.Map();
         // we're tracking only fields map
@@ -334,25 +391,25 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
           [YJS_GLOBALS.models.recordFields.type, this.#type],
         ]);
         yModels.set(this.uuid, yprojectObjectInstance!);
-        if (this.__internals__.parent) {
-          const parentReference = this.__internals__.parent[referenceSymbol](doc);
+        if (internals.parent) {
+          const parentReference = internals.parent[referenceSymbol](doc);
           (yprojectObjectInstance as Y.Map<ParentReference>).set(
             YJS_GLOBALS.models.recordFields.parent,
-            this.__internals__.parentMetadata
-              ? [parentReference[0], this.__internals__.parentKey!, this.__internals__.parentMetadata]
-              : [parentReference[0], this.__internals__.parentKey!],
+            internals.parentMetadata
+              ? [parentReference[0], internals.parentKey!, internals.parentMetadata]
+              : [parentReference[0], internals.parentKey!],
           );
         }
         // it should be placed before schema iteration to avoid circular self-reference issues
-        this.__internals__.yjsModel = yprojectObjectInstance;
-        this.__internals__.yjsFieldsMap = yprojectObjectInstanceFields;
-        this.__internals__.isDematerialized = false; // Clear if re-materializing after undo
+        internals.yjsModel = yprojectObjectInstance;
+        internals.yjsFieldsMap = yprojectObjectInstanceFields;
+        internals.isDematerialized = false; // Clear if re-materializing after undo
         documentEntityCaches.get(doc).set(this.uuid, new WeakRef(this));
-      } else if (this.__internals__.isDematerialized) {
+      } else if (internals.isDematerialized) {
         // Re-materialization of a dematerialized model (Y.Map exists but yjsModel was cleared)
-        this.__internals__.yjsModel = yprojectObjectInstance;
-        this.__internals__.yjsFieldsMap = yprojectObjectInstanceFields;
-        this.__internals__.isDematerialized = false;
+        internals.yjsModel = yprojectObjectInstance;
+        internals.yjsFieldsMap = yprojectObjectInstanceFields;
+        internals.isDematerialized = false;
       }
       for (const [schemaKey, type] of Object.entries(this.__schema__)) {
         switch (type) {
@@ -360,7 +417,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
           case "child-val":
             yprojectObjectInstanceFields.set(
               schemaKey,
-              boundMaybeReference(this.__internals__.backingStorage.get(schemaKey) as AllowedYJSValue),
+              boundMaybeReference(internals.backingStorage.get(schemaKey) as AllowedYJSValue),
             );
             break;
           case "list":
@@ -405,7 +462,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       }
       this.__bootstrapObservation__();
       documentEntityCaches.get(doc).set(this.uuid, new WeakRef<PlexusModel>(this));
-      this.__internals__.isWithinYjsModelSeed = false;
+      internals.isWithinYjsModelSeed = false;
       return this.#reference;
     });
   }
@@ -419,8 +476,12 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   }
 
   __bootstrapObservation__() {
+    const internals = this.__internals__;
+    if (internals.isDependency) {
+      return;
+    }
     invariant(
-      this.__internals__.yjsModel,
+      internals.yjsModel,
       `Plexus<${this.__type__}#${this.uuid}>: cannot bootstrap observation without yjs model`,
     );
     if (undoManagerNotifications.has(this.__yjsFieldsMap__!)) {
@@ -428,23 +489,20 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       return;
     }
     // Initialize runtime parent from Y.js
-    const parentReference = this.__internals__.yjsModel.get(YJS_GLOBALS.models.recordFields.parent) as
+    const parentReference = internals.yjsModel.get(YJS_GLOBALS.models.recordFields.parent) as
       | ParentReference
       | undefined;
     if (parentReference) {
-      this.__internals__.parent = deref(this.__doc__!, [parentReference[0]]) as Parent;
-      this.__internals__.parentKey = parentReference[1];
-      this.__internals__.parentMetadata = parentReference[2] ?? null;
+      internals.parent = deref(this.__doc__!, [parentReference[0]]) as Parent;
+      internals.parentKey = parentReference[1];
+      internals.parentMetadata = parentReference[2] ?? null;
     }
 
     for (const [key, type] of Object.entries(this.__schema__)) {
       switch (type) {
         case "val":
         case "child-val":
-          this.__internals__.backingStorage.set(
-            key,
-            deref(this.__doc__!, this.__yjsFieldsMap__!.get(key) as AllowedYValue),
-          );
+          internals.backingStorage.set(key, deref(this.__doc__!, this.__yjsFieldsMap__!.get(key) as AllowedYValue));
           break;
         case "record":
         case "child-record":
@@ -459,11 +517,11 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     const onChange = (event: Y.YMapEvent<any>) => {
       for (const key of event.keysChanged) {
         if (this.__schema__[key] === "val" || this.__schema__[key] === "child-val") {
-          const oldValue = this.__internals__.backingStorage.get(key);
+          const oldValue = internals.backingStorage.get(key);
           const yjsValue = this.__yjsFieldsMap__!.get(key) as AllowedYValue;
           const newValue = deref(this.__doc__!, yjsValue);
           if (newValue !== oldValue) {
-            this.__internals__.backingStorage.set(key, newValue);
+            internals.backingStorage.set(key, newValue);
             trackModification(this, key);
           }
         } else if (key in this.__schema__) {
@@ -476,21 +534,21 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
         } else if (key === YJS_GLOBALS.models.recordFields.parent) {
           // Update runtime parent when Y.js changes
           // todo this may cause problems on batch undo (when both parent and child are removed from tree) - needs revision
-          const parentReference = this.__internals__.yjsModel!.get(YJS_GLOBALS.models.recordFields.parent) as
+          const parentReference = internals.yjsModel!.get(YJS_GLOBALS.models.recordFields.parent) as
             | ParentReference
             | undefined;
           const previousParent = this.parent;
           if (parentReference) {
-            this.__internals__.parent = deref(this.__doc__!, [parentReference[0]]) as Parent;
-            this.__internals__.parentKey = parentReference[1];
-            this.__internals__.parentMetadata = parentReference[2] ?? null;
+            internals.parent = deref(this.__doc__!, [parentReference[0]]) as Parent;
+            internals.parentKey = parentReference[1];
+            internals.parentMetadata = parentReference[2] ?? null;
           } else {
-            this.__internals__.parent = null;
-            this.__internals__.parentKey = null;
-            this.__internals__.parentMetadata = null;
+            internals.parent = null;
+            internals.parentKey = null;
+            internals.parentMetadata = null;
           }
           // this may be needed e.g. when item moved from one field to another in same parent
-          if (this.__internals__.parent !== previousParent) {
+          if (internals.parent !== previousParent) {
             trackModification(this, "parent");
           }
         } else {
@@ -501,14 +559,16 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     const fieldsMap = this.__yjsFieldsMap__!;
     undoManagerNotifications.set(fieldsMap, onChange);
     fieldsMap.observe(onChange);
-    this.__internals__.unobserve = () => {
-      this.__internals__.unobserve = undefined;
+    internals.unobserve = () => {
+      internals.unobserve = undefined;
       undoManagerNotifications.delete(fieldsMap);
       fieldsMap.unobserve(onChange);
     };
   }
 
   #emancipate() {
+    const internals = this.__internals__;
+    invariant(!internals.isDependency, `Plexus<${this.__type__}#${this.uuid}>: dependency cannot be emancipated`);
     if (!this.parent) {
       return;
     }
@@ -519,13 +579,13 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     currentlyEmancipating.add(this);
 
     const parent = this.parent;
-    const [_, parentKey, extraParentMetadata] = this.__internals__.yjsModel
-      ? (this.__internals__.yjsModel.get(YJS_GLOBALS.models.recordFields.parent) as ParentReference)
-      : [null, this.__internals__.parentKey!, this.__internals__.parentMetadata];
+    const [_, parentKey, extraParentMetadata] = internals.yjsModel
+      ? (internals.yjsModel.get(YJS_GLOBALS.models.recordFields.parent) as ParentReference)
+      : [null, internals.parentKey!, internals.parentMetadata];
     // avoiding circular dependencies
 
-    this.__internals__.yjsModel?.delete(YJS_GLOBALS.models.recordFields.parent);
-    this.__internals__.parent = null;
+    internals.yjsModel?.delete(YJS_GLOBALS.models.recordFields.parent);
+    internals.parent = null;
 
     // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
     switch ((parent.constructor as PlexusConstructor).schema[parentKey]) {

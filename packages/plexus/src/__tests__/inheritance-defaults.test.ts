@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { PlexusModel } from "../PlexusModel.js";
 import { syncing } from "../decorators.js";
-import { createTestPlexus, initTestPlexus } from "./test-plexus.js";
+import { connectTestPlexus, initTestPlexus } from "./test-plexus.js";
 
 // Create a proper inheritance hierarchy to test
 @syncing
@@ -84,7 +84,7 @@ describe("Plexus Inheritance and Default Values", () => {
       const doc2 = new Y.Doc();
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc));
 
-      const { root: root2 } = await createTestPlexus<ConcreteEntity>(doc2);
+      const { root: root2 } = await connectTestPlexus<ConcreteEntity>(doc2);
 
       // Verify inherited fields synced to second doc
       expect(root2.baseField).toBe("updated-base");
@@ -239,7 +239,7 @@ describe("Plexus Inheritance and Default Values", () => {
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
 
       // Create plexus on second doc - this should NOT reset to defaults
-      const { root: root2 } = await createTestPlexus<ConcreteEntity>(doc2);
+      const { root: root2 } = await connectTestPlexus<ConcreteEntity>(doc2);
 
       // Values should be from doc1, NOT defaults
       expect(root2.baseNumber).toBe(123); // NOT default 42
@@ -273,7 +273,7 @@ describe("Plexus Inheritance and Default Values", () => {
       const doc2 = new Y.Doc();
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
 
-      const { root: root2 } = await createTestPlexus<ConcreteEntity>(doc2);
+      const { root: root2 } = await connectTestPlexus<ConcreteEntity>(doc2);
 
       // Check children are preserved with their custom values
       expect(root2.children).toHaveLength(2);
@@ -307,7 +307,7 @@ describe("Plexus Inheritance and Default Values", () => {
         Y.applyUpdate(doc1, update);
       });
 
-      const { root: root2 } = await createTestPlexus<ConcreteEntity>(doc2);
+      const { root: root2 } = await connectTestPlexus<ConcreteEntity>(doc2);
 
       // Verify initial sync
       expect(root2.baseNumber).toBe(100);
@@ -601,7 +601,7 @@ describe("Plexus Inheritance and Default Values", () => {
       const doc2 = new Y.Doc();
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc));
 
-      const { root: graphRoot2 } = await createTestPlexus<FullyOwnedGraph>(doc2);
+      const { root: graphRoot2 } = await connectTestPlexus<FullyOwnedGraph>(doc2);
       expect(graphRoot2.root.parent).toBe(graphRoot2);
       expect(graphRoot2.nodes[0].parent).toBe(graphRoot2);
       expect(graphRoot2.nodes[1].parent).toBe(graphRoot2);

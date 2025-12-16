@@ -16,6 +16,7 @@ import {
 import { __untracked__, trackAccess, trackModification } from "./tracking.js";
 import { DefaultedMap, DefaultedWeakMap } from "./utils/defaulted-collections.js";
 import { maybeReference, maybeTransacting } from "./utils/utils.js";
+import { docPlexus } from "./plexus-registry.js";
 
 const argsAreClassDecoratorArgs = <Model extends PlexusModel, T extends AllowedYJSValue>(
   args:
@@ -81,10 +82,6 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
      * is not working for private fields, so this is only option here.
      */
     context.addInitializer(() => {
-      // special edge case for intermediate classes that should not be syncing (they do not have schema - but their parents do)
-      if (!context.metadata.schema) {
-        return;
-      }
       /**
        * problem here is, decorators are executed BEFORE static declarations.
        * this mean it's impossible to directly do something like
@@ -97,12 +94,14 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
        */
       const name = Object.hasOwn(target, "modelName") ? target.modelName : (context.name ?? target.modelName);
       invariant(name, `Plexus<${target.name}>: class requires a modelName`);
-      invariant(context.metadata.schema, `Plexus<${name}>: class has no schema fields to sync`);
       target.modelName = name;
       target.schema = {} as GenericRecordSchema;
-      // we specifically need for...in to traverse over the inherited fields too
-      for (const key in context.metadata.schema) {
-        target.schema[key] = context.metadata.schema[key];
+      // it may miss with "barrel" nodes
+      if (context.metadata.schema) {
+        // we specifically need for...in to traverse over the inherited fields too
+        for (const key in context.metadata.schema) {
+          target.schema[key] = context.metadata.schema[key];
+        }
       }
       invariant(
         !entityClasses.has(target.modelName),
@@ -136,15 +135,20 @@ const set = <
   object: Model,
   value: T,
 ) => {
-  const storedValue = object.__internals__.backingStorage.get(context.name) as T;
+  const internals = object.__internals__;
+  invariant(
+    !internals.isDependency,
+    `Plexus<${object.__type__}#${object.uuid}.${context.name}>: dependencies are readonly`,
+  );
+  const storedValue = internals.backingStorage.get(context.name) as T;
   if (storedValue === value) {
     return;
   }
   maybeTransacting(object.__doc__, () => {
     if (value == undefined) {
-      object.__internals__.backingStorage.delete(context.name);
+      internals.backingStorage.delete(context.name);
     } else {
-      object.__internals__.backingStorage.set(context.name, value);
+      internals.backingStorage.set(context.name, value);
     }
     if (value == undefined) {
       object.__yjsFieldsMap__?.delete(context.name);
@@ -163,7 +167,12 @@ const setChild = <
   object: Model,
   value: T,
 ) => {
-  const storedValue = object.__internals__.backingStorage.get(context.name) as T;
+  const internals = object.__internals__;
+  invariant(
+    !internals.isDependency,
+    `Plexus<${object.__type__}#${object.uuid}.${context.name}>: dependencies are readonly`,
+  );
+  const storedValue = internals.backingStorage.get(context.name) as T;
   if (storedValue === value) {
     return;
   }
@@ -171,9 +180,9 @@ const setChild = <
     storedValue?.[requestOrphanizationSymbol]?.();
     // old: orphan inside storage, new: attached to old parent
     if (value == undefined) {
-      object.__internals__.backingStorage.delete(context.name);
+      internals.backingStorage.delete(context.name);
     } else {
-      object.__internals__.backingStorage.set(context.name, value);
+      internals.backingStorage.set(context.name, value);
     }
     // for that flow, we could've used [requestAdoptionSymbol], but it has some extra checks we just skip
     // old: orphan, removed, new: placed both inside backing storage and old location, has old parent
@@ -224,6 +233,8 @@ const createBackingStructuresMap = new DefaultedMap((key: string) => ({
   "child-list": new DefaultedWeakMap((owner: PlexusModel) => buildArrayProxy({ owner, key, isChildField: true })),
 }));
 
+const emptyEphemeralDependency = new DefaultedWeakMap(() => Object.freeze({}));
+
 // this madman grade stuff is needed as we may have inheriting decorators overriding type,
 // yet decorator factories are using parent declaration, not child declaration.
 // by making that behavior dynamic we make overriding possible
@@ -242,6 +253,17 @@ const createHandlers = <
   return {
     get(this: Model): T {
       invariant(
+        !this.__internals__.isDependency,
+        `Plexus<${this.__type__}#${this.uuid}.${context.name}>: dependencies are handled via special flow overriding this getter. This error should not happen`,
+      );
+      if (context.name === "dependencies" && this.uuid === "root") {
+        if (this.__doc__) {
+          return docPlexus.get(this.__doc__)!.rootDependenciesRepresentation as T;
+        } else {
+          emptyEphemeralDependency.get(this);
+        }
+      }
+      invariant(
         !this.__internals__.isDematerialized,
         `Plexus<${this.__type__}#${this.uuid}.${context.name}>: model was dematerialized by undo; check whether you are using fresh models directly vs via path from root`,
       );
@@ -257,6 +279,10 @@ const createHandlers = <
       }
     },
     set(this: Model, value: T) {
+      invariant(
+        !this.__internals__.isDependency,
+        `Plexus<${this.__type__}#${this.uuid}.${context.name}>: dependencies are handled via special flow overriding this setter. This error should not happen`,
+      );
       invariant(
         !this.__internals__.isDematerialized,
         `Plexus<${this.__type__}#${this.uuid}.${context.name}>: model was dematerialized by undo; check whether you are using fresh models directly vs via path from root`,
@@ -354,6 +380,10 @@ const createHandlers = <
       if (PlexusModel.__isMaterializingRaw__) {
         return undefined as any;
       }
+      const internals = this.__internals__;
+      if (internals.isDependency) {
+        return null as any;
+      }
       const setter = this.__schema__[context.name] === "val" ? set : setChild;
       /**
        * ephemeral models may be constructed at mutation-tracking contexts (see createTrackedFunction),
@@ -384,22 +414,22 @@ const createHandlers = <
              * assignment during the post-constructor phase. This will clearly mean that we're initializing
              * as a definition, not synced state, and should represent that value.
              */
-            if (this.__internals__.yjsModel && !this.__internals__.isWithinYjsModelSeed) {
+            if (internals.yjsModel && !internals.isWithinYjsModelSeed) {
               const reflectedValue =
-                this.__internals__.initializationState[context.name] === undefined
+                internals.initializationState[context.name] === undefined
                   ? this[context.name]
-                  : this.__internals__.initializationState[context.name];
+                  : internals.initializationState[context.name];
               setter(context, this, reflectedValue);
               return reflectedValue;
             }
             const actualValue =
               // remember, null is valid
-              this.__internals__.initializationState[context.name] === undefined
+              internals.initializationState[context.name] === undefined
                 ? // this fixes "override cases" when fields are re-declared without default value - in that case we take already known value instead of undefined
                   value === undefined
                   ? this[context.name]
                   : value
-                : this.__internals__.initializationState[context.name];
+                : internals.initializationState[context.name];
             setter(context as any, this, actualValue as Extract<T, AllowedYJSValue>);
             return actualValue;
           }
@@ -407,12 +437,12 @@ const createHandlers = <
             /**
              * we must return something, so to avoid code duplication we just redirect init() to get() who does actual logic.
              */
-            if (this.__internals__.yjsModel && !this.__internals__.isWithinYjsModelSeed) {
+            if (internals.yjsModel && !internals.isWithinYjsModelSeed) {
               return this[context.name];
             }
             // we do not care about undefined vs null here, as syncing structs have null as banned type too,
             // so it's just simpler and more readable to write like that
-            const actualValue = this.__internals__.initializationState[context.name] ?? value;
+            const actualValue = internals.initializationState[context.name] ?? value;
             if (actualValue != undefined) {
               backingStructures[this.__schema__[context.name]].get(this).assign(actualValue);
             }

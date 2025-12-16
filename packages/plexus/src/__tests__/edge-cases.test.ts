@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { PlexusModel } from "../PlexusModel.js";
 import { syncing } from "../decorators.js";
-import { createTestPlexus, initTestPlexus } from "./test-plexus.js";
+import { connectTestPlexus, initTestPlexus } from "./test-plexus.js";
 import { primeDoc } from "./test-helpers.js";
 
 // Extended Y.Doc type for testing
@@ -114,7 +114,7 @@ describe("Proxy Edge Cases", () => {
     syncDocs(doc1, doc2);
 
     // Access from doc2
-    const { root: site2 } = await createTestPlexus<Site>(doc2);
+    const { root: site2 } = await connectTestPlexus<Site>(doc2);
 
     expect(site2.defined).toMatchObject({
       stringish: "stringishPassed",
@@ -208,7 +208,7 @@ describe("Proxy Edge Cases", () => {
       syncDocs(doc1, doc2);
 
       // Access from doc2
-      const { root: site2 } = await createTestPlexus<Site>(doc2);
+      const { root: site2 } = await connectTestPlexus<Site>(doc2);
       const compA2 = site2.components["a"];
 
       // Verify circular structure is preserved across documents
@@ -236,7 +236,7 @@ describe("Proxy Edge Cases", () => {
       syncDocs(doc1, doc2);
 
       // Set up doc2 properly using Plexus
-      const { root: site2 } = await createTestPlexus<Site>(doc2);
+      const { root: site2 } = await connectTestPlexus<Site>(doc2);
 
       const comp1_doc1 = site1.components["shared"];
       const comp1_doc2 = site2.components["shared"];
@@ -324,7 +324,7 @@ describe("Proxy Edge Cases", () => {
       // Sync to doc2
       syncDocs(doc1, doc2);
 
-      const { root: site2 } = await createTestPlexus<Site>(doc2);
+      const { root: site2 } = await connectTestPlexus<Site>(doc2);
       const parent2 = site2.components["parent"];
 
       // Verify sparse structure is preserved
@@ -654,7 +654,7 @@ describe("Proxy Edge Cases", () => {
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      const { root: site2 } = await createTestPlexus<Site>(doc2);
+      const { root: site2 } = await connectTestPlexus<Site>(doc2);
       const component2 = site2.components["test"];
 
       // Destroy doc1
@@ -748,7 +748,7 @@ describe("Proxy Edge Cases", () => {
       // Initial sync
       syncDocs(doc1, doc2);
 
-      const { root: site2 } = await createTestPlexus<Site>(doc2);
+      const { root: site2 } = await connectTestPlexus<Site>(doc2);
       const parent1 = site1.components["parent"];
       const parent2 = site2.components["parent"];
 

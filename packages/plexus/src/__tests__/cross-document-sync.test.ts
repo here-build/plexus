@@ -10,7 +10,7 @@ import * as Y from "yjs";
 import { PlexusModel } from "../PlexusModel.js";
 import { syncing } from "../decorators.js";
 import { primeDoc } from "./test-helpers.js";
-import { createTestPlexus, initTestPlexus } from "./test-plexus.js";
+import { connectTestPlexus, initTestPlexus } from "./test-plexus.js";
 
 // Test schema definitions
 @syncing
@@ -108,7 +108,7 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Access the same entities (after root was synced) using Plexus
-    const { root: site2 } = await createTestPlexus<Site>(doc2);
+    const { root: site2 } = await connectTestPlexus<Site>(doc2);
     const component2 = site2.components["header"];
 
     // Verify sync worked
@@ -141,7 +141,7 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Get reference to same entities using Plexus
-    const { root: site2 } = await createTestPlexus<Site>(doc2);
+    const { root: site2 } = await connectTestPlexus<Site>(doc2);
     const component2 = site2.components["comp1"];
 
     // Doc2: Modify the component
@@ -214,7 +214,7 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Access nested structure using Plexus
-    const { root: site2 } = await createTestPlexus<Site>(doc2);
+    const { root: site2 } = await connectTestPlexus<Site>(doc2);
     const parent2 = site2.components["parent"];
 
     // Verify nested structure synced completely
@@ -298,7 +298,7 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Access collections using Plexus
-    const { root: site2 } = await createTestPlexus<Site>(doc2);
+    const { root: site2 } = await connectTestPlexus<Site>(doc2);
     const parent2 = site2.components["parent"];
 
     // Verify array sync
@@ -379,7 +379,7 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Verify identity relationships using Plexus
-    const { root: site2 } = await createTestPlexus<Site>(doc2);
+    const { root: site2 } = await connectTestPlexus<Site>(doc2);
     const comp1_doc2 = site2.components["comp1"];
     const comp2_doc2 = site2.components["comp2"];
 

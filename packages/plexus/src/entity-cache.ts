@@ -9,6 +9,9 @@ export class DefaultedWeakMap<K extends object, V> extends WeakMap<K, V> {
   }
 
   get(key: K): V {
+    if (!key || typeof key !== "object") {
+      console.trace(`bad weakmap key ${key}`);
+    }
     if (!super.has(key)) {
       super.set(key, this.factory(key));
     }

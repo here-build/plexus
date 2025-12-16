@@ -499,6 +499,9 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     }
 
     for (const [key, type] of Object.entries(this.__schema__)) {
+      if (this.uuid === "root" && key === "dependencies") {
+        continue;
+      }
       switch (type) {
         case "val":
         case "child-val":

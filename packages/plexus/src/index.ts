@@ -26,3 +26,15 @@ export { docPlexus } from "./plexus-registry.js";
 // Utilities
 export { deref } from "./deref.js";
 export { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
+
+// Dependency resolver (embedded blob-based dependencies)
+export {
+  DependencyResolver,
+  createDependencyEntry,
+  encodeModel,
+  decodeModel,
+  refArray,
+  refMap,
+  refSet,
+  type DependencyEntry,
+} from "./dependency-resolver.js";

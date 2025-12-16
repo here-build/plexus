@@ -44,7 +44,10 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
     // this is vital to not pass anything at all during that phase. we need to first register cloned entity
     // in cloneTransactionMapping, then assign values to solve circular dependencies
     const clonedModel = PlexusModel.__materializeRaw__(source.constructor as ConcretePlexusConstructor<Model>);
-    invariant(!cloneTransactionMapping.has(source), "something is terribly wrong within cloning");
+    invariant(
+      !cloneTransactionMapping.has(source),
+      `Plexus<${source.__type__}#${source.uuid}.clone>: source already in clone mapping`,
+    );
     cloneTransactionMapping.set(source, clonedModel);
     // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
     for (const [fieldKey, type] of Object.entries(source.__schema__)) {

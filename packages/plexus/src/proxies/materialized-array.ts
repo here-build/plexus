@@ -115,7 +115,10 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
     // todo narrowed observer event triggers
     // Update target array to maintain target-proxy parity for property descriptors
     if (yjsArray) {
-      invariant(yjsArray.doc, "terribly wrong state: observer triggered for Y.Array without doc");
+      invariant(
+        yjsArray.doc,
+        `Plexus<${owner.__type__}#${owner.uuid}.${key}>: observer triggered for Y.Array without doc`,
+      );
       // we specifically need splice to keep pointer and thus make proxy working
       backingArray.splice(0, backingArray.length, ...yjsArray.toArray().map((item) => deref<T>(yjsArray.doc!, item)));
     }
@@ -164,7 +167,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   if (element instanceof PlexusModel) {
                     invariant(
                       !seen.has(element),
-                      `push cannot insert the same child multiple times, which would violate parent tracking semantics. A child can only appear once in a parent's child array.`,
+                      `Plexus<${owner.__type__}#${owner.uuid}.${key}>: push cannot insert the same child multiple times`,
                     );
                     seen.add(element);
 
@@ -532,7 +535,10 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
         case materializationSymbol:
           return () => {
             const yjsArray = getYjsArray()!;
-            invariant(yjsArray.doc, "terribly wrong state: materialization triggered for Y.Array without doc");
+            invariant(
+              yjsArray.doc,
+              `Plexus<${owner.__type__}#${owner.uuid}.${key}>: materialization triggered for Y.Array without doc`,
+            );
             const materializedItems = yjsArray.toArray().map((item) => deref(yjsArray.doc!, item) as T);
 
             // DUPLICATE VALIDATION: Verify YJS data doesn't contain duplicates

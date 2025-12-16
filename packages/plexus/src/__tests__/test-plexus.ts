@@ -4,30 +4,81 @@ import { Plexus } from "../Plexus.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
 
+// Per-instance storage for test dependencies (since we can't use constructor)
+const instanceDependencies = new WeakMap<
+  Plexus<any>,
+  {
+    cached: Record<string, Y.Doc>;
+    factories: Map<string, () => Promise<Y.Doc>>;
+  }
+>();
+
 /**
  * Test implementation of Plexus for testing purposes.
  * Provides simple dependency resolution from provided dependency docs.
  */
 // @ts-expect-error - TestPlexus uses simplified types for testing
 export class TestPlexus<Root extends PlexusModel> extends Plexus<Root> {
-  private readonly availableDependencies: Map<string, () => Promise<Y.Doc>> = new Map();
-  private cachedDependencies: Record<string, Y.Doc> = {};
+  /**
+   * Bootstrap a new TestPlexus with the provided root entity.
+   */
+  static override bootstrap<Root extends PlexusModel>(
+    root: Root,
+    doc: Y.Doc = new Y.Doc(),
+    dependencies: Record<string, Y.Doc> = {},
+  ): TestPlexus<Root> {
+    // Use Function.prototype.call with type assertion to bypass private constructor check
+    const plexus = (Plexus.bootstrap as Function).call(TestPlexus, root, doc) as TestPlexus<Root>;
+    instanceDependencies.set(plexus, {
+      cached: { ...dependencies },
+      factories: new Map(),
+    });
+    return plexus;
+  }
+
+  /**
+   * Connect to an existing Y.Doc.
+   */
+  static override connect<Root extends PlexusModel>(
+    doc: Y.Doc,
+    dependencies: Record<string, Y.Doc> = {},
+  ): TestPlexus<Root> {
+    // Use Function.prototype.call with type assertion to bypass private constructor check
+    const plexus = (Plexus.connect as Function).call(TestPlexus, doc) as TestPlexus<Root>;
+    // Only set up instance data if not already set (for singleton case)
+    if (!instanceDependencies.has(plexus)) {
+      instanceDependencies.set(plexus, {
+        cached: { ...dependencies },
+        factories: new Map(),
+      });
+    }
+    return plexus;
+  }
 
   /**
    * Register a dependency factory for testing
    */
   registerDependencyFactory(dependencyId: string, factory: () => Promise<Y.Doc>) {
-    this.availableDependencies.set(dependencyId, factory);
+    const data = instanceDependencies.get(this);
+    if (data) {
+      data.factories.set(dependencyId, factory);
+    }
   }
 
-  async fetchDependency(dependencyId: string, dependencyVersion?: string): Promise<Y.Doc> {
+  // @ts-expect-error - simplified types for testing
+  override async fetchDependency(dependencyId: string, _dependencyVersion?: string): Promise<Y.Doc> {
+    const data = instanceDependencies.get(this);
+    if (!data) {
+      throw new Error("TestPlexus instance not properly initialized");
+    }
+
     // First check if we have a pre-created dependency doc
-    let depDoc = this.cachedDependencies[dependencyId];
+    let depDoc = data.cached[dependencyId];
 
     // If not, try the factory
-    if (!depDoc && this.availableDependencies.has(dependencyId)) {
-      depDoc = await this.availableDependencies.get(dependencyId)!();
-      this.cachedDependencies[dependencyId] = depDoc; // Cache it
+    if (!depDoc && data.factories.has(dependencyId)) {
+      depDoc = await data.factories.get(dependencyId)!();
+      data.cached[dependencyId] = depDoc; // Cache it
     }
 
     if (!depDoc) {

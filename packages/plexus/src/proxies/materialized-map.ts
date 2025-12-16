@@ -34,7 +34,10 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
     }
     for (const key of event.keysChanged) {
       if (yjsMap.has(key)) {
-        invariant(yjsMap.doc, "terribly wrong state: observer event triggered for Y.Map without doc");
+        invariant(
+          yjsMap.doc,
+          `Plexus<${owner.__type__}#${owner.uuid}.${key}>: observer triggered for Y.Map without doc`,
+        );
         backingStorage[key] = deref(yjsMap.doc!, yjsMap.get(key)!) as T;
       } else {
         delete backingStorage[key];

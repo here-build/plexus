@@ -33,20 +33,26 @@ describe("Y.UndoManager tracking", () => {
     root = result.root;
   });
 
-  // we have a problem here: when we're undoing thing, if model disappears, it should stop working;
-  // yet, since we're operating with ephemeral entities, that may be fine.
-  // what we actually need to do is to backup
-  it("should keep working with model that was removed from main tree during undo", () => {
+  it("should dematerialize model removed by undo and rematerialize on redo", () => {
     const ref = new TestModel({ name: "first" });
     testPlexus.transact(() => {
       root.ref = ref;
       ref.name = "second";
     });
+
     testPlexus.undo();
+
+    // Model is dematerialized - root.ref is null
     expect(root.ref).toBe(null);
-    expect(ref.name).toBe("first");
+    // Accessing dematerialized model throws
+    expect(ref.__internals__.isDematerialized).toBe(true);
+    expect(() => ref.name).toThrow("dematerialized by undo");
+
     testPlexus.redo();
+
+    // Model is rematerialized
     expect(root.ref).toBe(ref);
+    expect(ref.__internals__.isDematerialized).toBeFalsy();
     expect(ref.name).toBe("second");
   });
 

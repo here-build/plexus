@@ -57,11 +57,11 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
     if (proto !== PlexusModel) {
       invariant(
         proto.prototype instanceof PlexusModel,
-        `Plexus model class ${target.name} attempted to inherit from the ${proto.name} class that is not Plexus model class`,
+        `Plexus<${target.name}>: parent class ${proto.name} is not a PlexusModel`,
       );
       invariant(
         decoratedTracker.has(proto as PlexusConstructor),
-        `Plexus model class ${target.name} attempted to inherit from the ${proto.name} class that also has to be declared as @syncing - every class in inheritance chain should use that decorator`,
+        `Plexus<${target.name}>: parent class ${proto.name} must also use @syncing decorator`,
       );
     }
     decoratedTracker.add(target);
@@ -96,15 +96,18 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
        * of @syncing decorator call. Thus, we need to use initializer.
        */
       const name = Object.hasOwn(target, "modelName") ? target.modelName : (context.name ?? target.modelName);
-      invariant(name, "Plexus class should have designated name");
-      invariant(context.metadata.schema, `there's no schema of model ${name} to sync`);
+      invariant(name, `Plexus<${target.name}>: class requires a modelName`);
+      invariant(context.metadata.schema, `Plexus<${name}>: class has no schema fields to sync`);
       target.modelName = name;
       target.schema = {} as GenericRecordSchema;
       // we specifically need for...in to traverse over the inherited fields too
       for (const key in context.metadata.schema) {
         target.schema[key] = context.metadata.schema[key];
       }
-      invariant(!entityClasses.has(target.modelName), `Plexus class name ${target.modelName} is non-unique`);
+      invariant(
+        !entityClasses.has(target.modelName),
+        `Plexus<${target.modelName}>: duplicate class name, must be unique`,
+      );
       entityClasses.set(target.modelName, target);
     });
     return target as PlexusConstructor<Model> & PlexusTagContainer<"decorated">;
@@ -238,6 +241,11 @@ const createHandlers = <
   const backingStructures = createBackingStructuresMap.get(context.name);
   return {
     get(this: Model): T {
+      invariant(
+        !this.__internals__.isDematerialized,
+        `Plexus<${this.__type__}#${this.uuid}.${context.name}>: model was dematerialized by undo; check whether you are using fresh models directly vs via path from root`,
+      );
+      // Dematerialized models can still be read (returns presync state)
       trackAccess(this, context.name);
       switch (this.__schema__[context.name]) {
         case "val":
@@ -249,6 +257,10 @@ const createHandlers = <
       }
     },
     set(this: Model, value: T) {
+      invariant(
+        !this.__internals__.isDematerialized,
+        `Plexus<${this.__type__}#${this.uuid}.${context.name}>: model was dematerialized by undo; check whether you are using fresh models directly vs via path from root`,
+      );
       if (this.__schema__[context.name] === "val") {
         set(context as any, this, value as Extract<T, AllowedYJSValue>);
         return;

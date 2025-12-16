@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "@here.build/arrival-env": "workspace:^",
+    "lib0": "^0.2.99",
     "nanoid": "^5.1.5",
     "tiny-invariant": "^1.3.3",
     "type-fest": "^4.41.0"

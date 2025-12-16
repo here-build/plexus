@@ -5,8 +5,6 @@ import * as Y from "yjs";
 
 import { documentEntityCaches } from "./entity-cache.js";
 import { entityClasses } from "./globals.js";
-import { getDependencyDoc } from "./plexus-registry.js";
-import { Plexus } from "./Plexus.js";
 import type { ConcretePlexusConstructor } from "./PlexusModel.js";
 import { PlexusModel } from "./PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ParentReference, Storageable } from "./proxy-runtime-types.js";
@@ -26,33 +24,28 @@ export function deref<T extends AllowedYJSValue>(doc: Y.Doc, pointer: AllowedYVa
     return pointer;
   }
 
-  // cross-project reference
-  if (pointer[1]) {
-    // Get the dependency doc directly
-    const depDoc = getDependencyDoc(doc, pointer[1]);
-    invariant(depDoc, `No dependency doc found for ${pointer[1]} from doc clientID:${doc.clientID}`);
-
-    // Recursively deref in the dependency doc (without the dependency ID)
-    return deref(depDoc, [pointer[0]]);
-  }
-
   const entityId = pointer[0];
-  // Default to current project
+
+  // Cross-dependency references should use DependencyResolver, not deref
+  invariant(!pointer[1], `Plexus<ref#${entityId}>: cross-dependency refs must use DependencyResolver`);
 
   const yModels = doc.getMap<Y.Map<Y.Map<Storageable> | string | ParentReference>>(YJS_GLOBALS.models.key);
 
   const entityModel = yModels?.get(entityId);
-  invariant(entityModel, `model #${entityId} do not exist`);
+  invariant(entityModel, `Plexus<document#${doc.clientID}>: model #${entityId} not found`);
 
   const targetType = entityModel?.get(YJS_GLOBALS.models.recordFields.type);
-  invariant(typeof targetType === "string", `missing type for ${entityId}`);
+  invariant(typeof targetType === "string", `Plexus<model#${entityId}>: missing type field`);
 
   const ModelConstructor = entityClasses.get(targetType) as ConcretePlexusConstructor;
-  invariant(ModelConstructor, `missing constructor ${targetType} for ${entityId}`);
+  invariant(ModelConstructor, `Plexus<${targetType}#${entityId}>: class not registered in entityClasses`);
 
   const fieldsMap = entityModel.get(YJS_GLOBALS.models.recordFields.fields);
-  invariant(fieldsMap, `missing model fields map`);
-  invariant(fieldsMap instanceof Y.Map, `model fields map has wrong type ${fieldsMap.constructor.name}`);
+  invariant(fieldsMap, `Plexus<${targetType}#${entityId}>: missing fields map`);
+  invariant(
+    fieldsMap instanceof Y.Map,
+    `Plexus<${targetType}#${entityId}>: fields map is ${fieldsMap.constructor.name}, expected Y.Map`,
+  );
 
   const entityCache = documentEntityCaches.get(doc);
   const knownEntity = entityCache.get(entityId)?.deref();
@@ -63,9 +56,7 @@ export function deref<T extends AllowedYJSValue>(doc: Y.Doc, pointer: AllowedYVa
   model.__internals__.uuid = entityId;
   model.__internals__.yjsModel = entityModel;
   model.__internals__.yjsFieldsMap = fieldsMap;
-  model.__internals__.presyncBackingStorage = new Map(model.__internals__.backingStorage);
   entityCache.set(entityId, new WeakRef(model));
-  Plexus.__modelMapBinding__.get(doc).set(model.uuid, model);
   model.__bootstrapObservation__();
   return model as T;
 }

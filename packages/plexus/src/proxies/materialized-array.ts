@@ -1,4 +1,4 @@
-import type * as Y from "yjs";
+import * as Y from "yjs";
 
 import { mutableArrayMethods } from "../globals.js";
 import { PlexusModel } from "../PlexusModel.js";
@@ -106,7 +106,19 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
   isChildField,
 }: MaterializedArrayProxyInitTarget) => {
   const backingArray: Array<T | null> = [];
-  const getYjsArray = () => owner.__yjsFieldsMap__?.get(key) as Y.Array<AllowedYValue> | null;
+  const getYjsArray = () => {
+    const yjsArray = owner.__yjsFieldsMap__?.get(key) as Y.Array<AllowedYValue> | null;
+    // todo this solves migration issues of adding new fields; yet, it do not generally help
+    if (yjsArray) {
+      return yjsArray;
+    }
+    if (owner.__doc__ && owner.__yjsFieldsMap__) {
+      const array = new Y.Array<AllowedYValue>();
+      owner.__yjsFieldsMap__.set(key, array);
+      return array;
+    }
+    return null;
+  };
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
     const yjsArray = getYjsArray();
     if (event.target !== yjsArray) {
@@ -124,12 +136,14 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
     }
     trackModification(self, ACCESS_ALL_SYMBOL);
   };
-  const yjsArray = getYjsArray();
-  yjsArray?.observe(observer);
+  {
+    const yjsArray = getYjsArray();
+    yjsArray?.observe(observer);
 
-  // Register for undo notifications
-  if (yjsArray) {
-    undoManagerNotifications.set(yjsArray, observer);
+    // Register for undo notifications
+    if (yjsArray) {
+      undoManagerNotifications.set(yjsArray, observer);
+    }
   }
 
   const self = new Proxy(backingArray, {

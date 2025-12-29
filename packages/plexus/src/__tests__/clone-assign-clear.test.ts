@@ -35,7 +35,7 @@ class TestModel extends PlexusModel {
   @syncing.set
   accessor tags!: Set<string>;
 
-  @syncing.map
+  @syncing.record
   accessor metadata!: Record<string, string>;
 
   @syncing.set

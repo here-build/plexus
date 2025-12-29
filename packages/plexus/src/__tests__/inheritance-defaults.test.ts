@@ -25,7 +25,7 @@ abstract class MiddleEntity extends BaseEntity {
   @syncing.list
   accessor middleList: string[] = ["default1", "default2"]; // Default array
 
-  @syncing.map
+  @syncing.record
   accessor middleMap: Record<string, number> = { defaultKey: 100 }; // Default object
 }
 
@@ -526,12 +526,12 @@ describe("Plexus Inheritance and Default Values", () => {
 
       @syncing
       class MapParent extends PlexusModel {
-        @syncing.map accessor configs: Record<string, Config> = {};
+        @syncing.record accessor configs: Record<string, Config> = {};
       }
 
       @syncing
       class ChildMapVersion extends MapParent {
-        @syncing.child.map accessor configs: Record<string, Config> = {}; // Override as child map
+        @syncing.child.record accessor configs: Record<string, Config> = {}; // Override as child map
       }
 
       const config1 = new Config({ key: "k1", value: "v1" });

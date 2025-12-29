@@ -25,7 +25,7 @@ class User extends PlexusModel {
   @syncing
   accessor email!: string;
 
-  @syncing.map
+  @syncing.record
   accessor posts!: Record<string, Post>;
 
   @syncing.set

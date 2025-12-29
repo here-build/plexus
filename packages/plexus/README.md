@@ -31,7 +31,7 @@ class User extends ArborModel {
   accessor email: string;
   
   // if you need maps, you have to use a bit different declaration
-  @syncing.map
+  @syncing.record
   accessor userAttributes: {
     // yes, you are allowed to mix primitives and ArborModels.
     // However, you are still limited to them. If you need complex type, you need to register it as another ArborModel
@@ -149,7 +149,8 @@ console.log(page1.parent) // project2
 ```
 
 This works only with child fields; non-child fields will not use this logic.
-value field, record field (`@syncing.child.map`), set field (`@syncing.child.set`), array field (`@syncing.child.list`) are all supported in that flow.
+value field, record field (`@syncing.child.record`), set field (`@syncing.child.set`), array field (
+`@syncing.child.list`) are all supported in that flow.
 
 Besides other benefits, this allows making the answer to the question "what to sync" dead simple.
 

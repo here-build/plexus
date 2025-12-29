@@ -1,4 +1,4 @@
-import type * as Y from "yjs";
+import * as Y from "yjs";
 
 import { deref } from "../deref.js";
 import type { PlexusModel } from "../PlexusModel.js";
@@ -32,7 +32,20 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
     }
     return backingSet;
   };
-  const getYjsSet = () => owner.__yjsFieldsMap__?.get(key) as Y.Array<AllowedYValue> | null;
+  // const getYjsSet = () => owner.__yjsFieldsMap__?.get(key) as Y.Array<AllowedYValue> | null;
+  const getYjsSet = () => {
+    const yjsArray = owner.__yjsFieldsMap__?.get(key) as Y.Array<AllowedYValue> | null;
+    // todo this solves migration issues of adding new fields; yet, it do not generally help
+    if (yjsArray) {
+      return yjsArray;
+    }
+    if (owner.__doc__ && owner.__yjsFieldsMap__) {
+      const array = new Y.Array<AllowedYValue>();
+      owner.__yjsFieldsMap__.set(key, array);
+      return array;
+    }
+    return null;
+  };
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
     if (event.target !== getYjsSet()) {
       return;

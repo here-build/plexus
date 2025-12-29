@@ -23,7 +23,7 @@ class Site extends PlexusModel {
   @syncing
   accessor name!: string;
 
-  @syncing.map
+  @syncing.record
   accessor components!: Record<string, Component>;
 }
 

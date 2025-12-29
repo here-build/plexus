@@ -24,7 +24,7 @@ class TplTag extends PlexusModel {
   @syncing.list
   accessor children!: TplTag[];
 
-  @syncing.map
+  @syncing.record
   accessor attrs!: Record<string, string>;
 }
 
@@ -42,7 +42,7 @@ class Component extends PlexusModel {
   @syncing.list
   accessor children!: Component[];
 
-  @syncing.map
+  @syncing.record
   accessor metadata!: Record<string, string>;
 }
 
@@ -51,7 +51,7 @@ class Site extends PlexusModel {
   @syncing
   accessor name!: string;
 
-  @syncing.map
+  @syncing.record
   accessor components!: Record<string, Component>;
 }
 

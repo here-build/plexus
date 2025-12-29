@@ -1,4 +1,4 @@
-import type * as Y from "yjs";
+import * as Y from "yjs";
 
 import { deref } from "../deref.js";
 import { PlexusModel } from "../PlexusModel.js";
@@ -25,7 +25,19 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
   key,
   isChildField,
 }: MaterializedRecordProxyInitTarget) => {
-  const getYjsMap = () => owner.__yjsFieldsMap__?.get(key) as Y.Map<AllowedYValue> | null;
+  const getYjsMap = () => {
+    const yjsMap = owner.__yjsFieldsMap__?.get(key) as Y.Map<AllowedYValue> | null;
+    // todo this solves migration issues of adding new fields; yet, it do not generally help
+    if (yjsMap) {
+      return yjsMap;
+    }
+    if (owner.__doc__ && owner.__yjsFieldsMap__) {
+      const array = new Y.Map<AllowedYValue>();
+      owner.__yjsFieldsMap__.set(key, array);
+      return array;
+    }
+    return null;
+  };
   const backingStorage: Record<string, T> = {};
   const observer = (event: Y.YMapEvent<AllowedYValue>) => {
     const yjsMap = getYjsMap();

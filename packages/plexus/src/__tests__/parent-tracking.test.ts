@@ -35,7 +35,7 @@ class Parent extends PlexusModel {
   @syncing.child.set
   accessor childSet!: Set<Child>;
 
-  @syncing.child.map
+  @syncing.child.record
   accessor childMap!: Record<string, Child>;
 }
 

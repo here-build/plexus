@@ -2,7 +2,7 @@ import invariant from "tiny-invariant";
 import { entityClasses } from "./globals.js";
 import { PlexusConstructor, PlexusModel } from "./PlexusModel.js";
 import { buildArrayProxy } from "./proxies/materialized-array.js";
-import { buildRecordProxy } from "./proxies/materialized-map.js";
+import { buildRecordProxy } from "./proxies/materialized-record.js";
 import { buildSetProxy } from "./proxies/materialized-set.js";
 import {
   AllowedPrimitive,
@@ -501,18 +501,18 @@ const buildDecorator = <MappingType extends keyof Mapping<any>, Discriminating e
 
 interface Mapping<T> {
   identity: T;
-  map: Record<string, T>;
+  record: Record<string, T>;
   set: Set<T>;
   list: T[];
 }
 
 export const syncing = Object.assign(syncingDecorator, {
   child: Object.assign(buildDecorator<"identity", true>("child-val"), {
-    map: buildDecorator<"map", true>("child-record"),
+    record: buildDecorator<"record", true>("child-record"),
     set: buildDecorator<"set", true>("child-set"),
     list: buildDecorator<"list", true>("child-list"),
   }),
-  map: buildDecorator<"map">("record"),
+  record: buildDecorator<"record">("record"),
   set: buildDecorator<"set">("set"),
   list: buildDecorator<"list">("list"),
 });

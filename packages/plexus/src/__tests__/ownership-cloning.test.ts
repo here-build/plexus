@@ -61,10 +61,10 @@ class ParentWithChildRecord extends PlexusModel {
   @syncing
   accessor name!: string;
 
-  @syncing.child.map
+  @syncing.child.record
   accessor childMap!: Record<string, ChildComponent>; // Ownership: clone children recursively
 
-  @syncing.map
+  @syncing.record
   accessor refMap!: Record<string, ChildComponent>; // No ownership: preserve references
 }
 

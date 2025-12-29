@@ -9,6 +9,7 @@ import { deref } from "./deref.js";
 import { documentEntityCaches } from "./entity-cache.js";
 import { docPlexus } from "./plexus-registry.js";
 import {
+  type AllowedYJSMapKey,
   type AllowedYJSValue,
   type AllowedYJSValueList,
   type AllowedYJSValueMap,
@@ -28,6 +29,7 @@ import {
   requestOrphanizationSymbol,
   type Storageable,
 } from "./proxy-runtime-types.js";
+import { serializeKey } from "./proxies/materialized-map.js";
 import { trackAccess, trackModification } from "./tracking.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { curryMaybeReference, maybeTransacting, never } from "./utils/utils.js";
@@ -456,6 +458,18 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
               ),
             );
             break;
+          case "map": {
+            // Map proxy uses PathMap for in-memory storage, serialize for Y.Map
+            const mapProxy = this[schemaKey] as Map<AllowedYJSMapKey, AllowedYJSValue>;
+            const entries: [string, AllowedYValue | null][] = [];
+            for (const [key, val] of mapProxy.entries()) {
+              // Use serializeKey to match materialized-map.ts format (Set:, Array:, Value: prefixes)
+              const serializedKey = serializeKey(key, doc);
+              entries.push([serializedKey, boundMaybeReference(val)]);
+            }
+            yprojectObjectInstanceFields.set(schemaKey, new Y.Map<AllowedYValue | null>(entries));
+            break;
+          }
           default:
             never(type);
         }

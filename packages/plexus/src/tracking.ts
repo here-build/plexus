@@ -21,11 +21,14 @@
  * - createTrackedFunction: Main API for React integration
  */
 
-import { flushNotifications, isTransacting, pendingNotifications } from "./utils/utils.js"; // Special symbols for tracking comprehensive access patterns
+import { flushNotifications, isTransacting, pendingNotifications } from "./utils/utils.js";
+import type { AllowedYJSMapKey } from "./proxy-runtime-types.js"; // Special symbols for tracking comprehensive access patterns
 
 // Special symbols for tracking comprehensive access patterns
 export const ACCESS_ALL_SYMBOL = Symbol("ACCESS_ALL");
 export const ACCESS_INDICES_SET_SYMBOL = Symbol("ACCESS_INDICES_SET");
+
+export type Tracker = string | symbol | AllowedYJSMapKey;
 
 // Helper class for defaulted maps
 class DefaultedMap<K, V> extends Map<K, V> {
@@ -42,11 +45,11 @@ class DefaultedMap<K, V> extends Map<K, V> {
 }
 
 // For capturing field access during function execution
-const activeTrackingMaps = new Set<DefaultedMap<any, Set<string | symbol>>>();
+const activeTrackingMaps = new Set<DefaultedMap<any, Set<Tracker>>>();
 
 const unconsumedNotifiers = new Set<{
   trackingFunction: () => void;
-  fieldset: DefaultedMap<any, Set<string | symbol>>;
+  fieldset: DefaultedMap<any, Set<Tracker>>;
 }>();
 
 let untracked = false;
@@ -64,8 +67,8 @@ export const __untracked__ = <T>(fn: () => T): T => {
 };
 
 type TrackingHook = {
-  access?: (entity: any, field: string | symbol) => void;
-  modification?: (entity: any, field: string | symbol) => void;
+  access?: (entity: any, field: Tracker) => void;
+  modification?: (entity: any, field: Tracker) => void;
 };
 
 export const trackingHook: TrackingHook = {};
@@ -73,7 +76,7 @@ export const trackingHook: TrackingHook = {};
 /**
  * Built-in access reporter that adds specific field access to ALL currently active tracking maps
  */
-export function trackAccess(entity: any, field: string | symbol): void {
+export function trackAccess(entity: any, field: Tracker): void {
   for (const fieldset of activeTrackingMaps) {
     fieldset.get(entity).add(field);
   }
@@ -83,7 +86,7 @@ export function trackAccess(entity: any, field: string | symbol): void {
 /**
  * Built-in modification reporter - notifies interested TrackedFunctions when data changes
  */
-export function trackModification(entity: any, field: string | symbol): void {
+export function trackModification(entity: any, field: Tracker): void {
   if (untracked) {
     return;
   }

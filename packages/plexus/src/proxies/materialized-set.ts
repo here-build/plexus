@@ -5,8 +5,8 @@ import type { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import { informOrphanizationSymbol, materializationSymbol, requestAdoptionSymbol } from "../proxy-runtime-types.js";
 import { ACCESS_ALL_SYMBOL, trackAccess, trackModification } from "../tracking.js";
-import { maybeReference, maybeTransacting } from "../utils/utils.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
+import { maybeReference, maybeTransacting } from "../utils/utils.js";
 
 export type MaterializedSetProxyInitTarget = {
   owner: PlexusModel;

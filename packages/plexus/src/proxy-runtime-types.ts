@@ -17,12 +17,26 @@ type LocalReferenceeTuple = [entityId: string];
 export type CrossProjectReferenceTuple = [entityId: string, dependencyId: string];
 export type ReferenceTuple = LocalReferenceeTuple | CrossProjectReferenceTuple;
 
-export type AllowedPrimitive = string | number | boolean | null;
+export type AllowedPrimitive = string | number | boolean | bigint | null;
 export type AllowedYValue = AllowedPrimitive | ReferenceTuple;
 export type AllowedYJSValue = AllowedPrimitive | PlexusModel;
 export type AllowedYJSValueSet = Set<AllowedYJSValue>;
 export type AllowedYJSValueMap = Record<string, AllowedYJSValue>;
 export type AllowedYJSValueList = AllowedYJSValue[];
+export type AllowedYJSMapKey = AllowedYJSValue | Set<AllowedYJSValue> | AllowedYJSValue[];
+
+/**
+ * Extended Map interface for Plexus maps with bulk operations.
+ * The `assign()` method replaces entire map contents atomically.
+ */
+export interface PlexusMap<K extends AllowedYJSMapKey, V extends AllowedYJSValue> extends Map<K, V> {
+  /**
+   * Replace entire map contents with new entries.
+   * Clears existing entries and adds all entries from the input.
+   */
+  assign(entries: Iterable<[K, V]> | Record<string, V>): void;
+}
+
 export type Storageable = AllowedYValue | Y.Map<AllowedYValue> | Y.Array<AllowedYValue>;
 
 // system this complex is needed to materialize readonly flag WITHOUT touching field itself that will cause cyclic dependency triggered
@@ -65,4 +79,4 @@ export type ModelStateInit = Record<
   AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList
 >;
 
-export type GenericRecordSchema = Record<string, `${"child-" | ""}${"val" | "record" | "set" | "list"}`>;
+export type GenericRecordSchema = Record<string, `${"child-" | ""}${"val" | "record" | "set" | "list"}` | "map">;

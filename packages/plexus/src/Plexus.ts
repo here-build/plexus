@@ -111,6 +111,23 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: ReadonlyDe
                     },
                   },
                 ];
+              case "map":
+                return [
+                  key,
+                  {
+                    configurable: true,
+                    enumerable: true,
+                    get: () => {
+                      cache[key] ??= new Map(
+                        Object.entries(value).map(([subkey, record]) => [
+                          subkey,
+                          deref(this.doc, record as AllowedYValue, documentId),
+                        ]),
+                      );
+                      return cache[key];
+                    },
+                  },
+                ];
             }
           }),
         ),

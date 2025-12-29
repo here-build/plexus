@@ -1,7 +1,8 @@
+import invariant from "tiny-invariant";
 import * as Y from "yjs";
 
 import { deref } from "../deref.js";
-import { PlexusModel } from "../PlexusModel.js";
+import type { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import {
   informOrphanizationSymbol,
@@ -10,9 +11,8 @@ import {
   requestOrphanizationSymbol,
 } from "../proxy-runtime-types.js";
 import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking.js";
-import { maybeReference, maybeTransacting } from "../utils/utils.js";
-import invariant from "tiny-invariant";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
+import { maybeReference, maybeTransacting } from "../utils/utils.js";
 
 export type MaterializedRecordProxyInitTarget = {
   owner: PlexusModel;

@@ -1,22 +1,26 @@
 import invariant from "tiny-invariant";
+
 import { entityClasses } from "./globals.js";
-import { PlexusConstructor, PlexusModel } from "./PlexusModel.js";
+import { docPlexus } from "./plexus-registry.js";
+import { type PlexusConstructor, PlexusModel } from "./PlexusModel.js";
 import { buildArrayProxy } from "./proxies/materialized-array.js";
+import { buildMapProxy } from "./proxies/materialized-map.js";
 import { buildRecordProxy } from "./proxies/materialized-record.js";
 import { buildSetProxy } from "./proxies/materialized-set.js";
 import {
-  AllowedPrimitive,
-  AllowedYJSValue,
-  GenericRecordSchema,
+  type AllowedPrimitive,
+  type AllowedYJSMapKey,
+  type AllowedYJSValue,
+  type GenericRecordSchema,
   informAdoptionSymbol,
-  PlexusTagContainer,
+  type PlexusMap,
+  type PlexusTagContainer,
   requestEmancipationSymbol,
   requestOrphanizationSymbol,
 } from "./proxy-runtime-types.js";
 import { __untracked__, trackAccess, trackModification } from "./tracking.js";
 import { DefaultedMap, DefaultedWeakMap } from "./utils/defaulted-collections.js";
 import { maybeReference, maybeTransacting } from "./utils/utils.js";
-import { docPlexus } from "./plexus-registry.js";
 
 const argsAreClassDecoratorArgs = <Model extends PlexusModel, T extends AllowedYJSValue>(
   args:
@@ -231,6 +235,7 @@ const createBackingStructuresMap = new DefaultedMap((key: string) => ({
   "child-record": new DefaultedWeakMap((owner: PlexusModel) => buildRecordProxy({ owner, key, isChildField: true })),
   list: new DefaultedWeakMap((owner: PlexusModel) => buildArrayProxy({ owner, key, isChildField: false })),
   "child-list": new DefaultedWeakMap((owner: PlexusModel) => buildArrayProxy({ owner, key, isChildField: true })),
+  map: new DefaultedWeakMap((owner: PlexusModel) => buildMapProxy({ owner, key })),
 }));
 
 const emptyEphemeralDependency = new DefaultedWeakMap(() => Object.freeze({}));
@@ -240,7 +245,12 @@ const emptyEphemeralDependency = new DefaultedWeakMap(() => Object.freeze({}));
 // by making that behavior dynamic we make overriding possible
 const createHandlers = <
   Model extends PlexusModel,
-  T extends AllowedYJSValue | Set<AllowedYJSValue> | AllowedYJSValue[] | Record<string, AllowedYJSValue>,
+  T extends
+    | AllowedYJSValue
+    | Set<AllowedYJSValue>
+    | AllowedYJSValue[]
+    | Record<string, AllowedYJSValue>
+    | PlexusMap<AllowedYJSMapKey, AllowedYJSValue>,
   Context extends ClassAccessorDecoratorContext<Model, T> & { name: string } = ClassAccessorDecoratorContext<
     Model,
     T
@@ -506,6 +516,28 @@ interface Mapping<T> {
   list: T[];
 }
 
+/**
+ * Specialized decorator for Map fields that preserves both key and value types.
+ * Returns PlexusMap which extends Map with bulk operations like assign().
+ */
+const buildMapDecorator = () =>
+  function plexusMapDecorator<
+    Model extends PlexusModel,
+    FieldValueKey extends AllowedYJSMapKey,
+    FieldValue extends AllowedYJSValue,
+  >(
+    target: ClassAccessorDecoratorTarget<Model, PlexusMap<FieldValueKey, FieldValue>>,
+    context: ClassAccessorDecoratorContext<Model, PlexusMap<FieldValueKey, FieldValue>> & { name: string },
+  ) {
+    if (!Object.hasOwn(context.metadata, "schema")) {
+      context.metadata.schema = {
+        __proto__: context.metadata.schema ?? {},
+      };
+    }
+    (context.metadata.schema as GenericRecordSchema)[context.name] = "map";
+    return createHandlers<Model, PlexusMap<FieldValueKey, FieldValue>>(context);
+  };
+
 export const syncing = Object.assign(syncingDecorator, {
   child: Object.assign(buildDecorator<"identity", true>("child-val"), {
     record: buildDecorator<"record", true>("child-record"),
@@ -515,4 +547,5 @@ export const syncing = Object.assign(syncingDecorator, {
   record: buildDecorator<"record">("record"),
   set: buildDecorator<"set">("set"),
   list: buildDecorator<"list">("list"),
+  map: buildMapDecorator(),
 });

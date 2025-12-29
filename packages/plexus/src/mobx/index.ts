@@ -1,6 +1,6 @@
 import { createAtom } from "mobx";
 
-import { ACCESS_ALL_SYMBOL, trackingHook } from "../tracking.js";
+import { ACCESS_ALL_SYMBOL, type Tracker, trackingHook } from "../tracking.js";
 import { DefaultedMap, DefaultedWeakMap } from "../utils/defaulted-collections.js";
 
 /**
@@ -14,9 +14,7 @@ export const enableMobXIntegration = () => {
   isGlobalIntegrationEnabled = true;
 
   const objectAllMap = new DefaultedWeakMap(() => createAtom(""));
-  const objectFieldMap = new DefaultedWeakMap(
-    () => new DefaultedMap((key: symbol | string) => createAtom(key.toString())),
-  );
+  const objectFieldMap = new DefaultedWeakMap(() => new DefaultedMap((key: Tracker) => createAtom(String(key))));
 
   trackingHook.access = (entity, field) => {
     const atom = field === ACCESS_ALL_SYMBOL ? objectAllMap.get(entity) : objectFieldMap.get(entity).get(field);

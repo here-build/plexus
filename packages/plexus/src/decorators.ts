@@ -465,29 +465,10 @@ const createHandlers = <
   };
 };
 
-const buildDecorator = <MappingType extends keyof Mapping<any>, Discriminating extends boolean = false>(
-  kind: GenericRecordSchema[string],
-) =>
-  function plexusDynamicDecorator<
-    Model extends PlexusModel,
-    FieldValue extends AllowedPrimitive | PlexusModel,
-    /**
-     * The problem we're solving here is that PlexusModel<A | B> is not matching PlexusModel<B>;
-     * yet we cannot just generalize types. So, we infer two types - FieldValue, that is produced from usage,
-     * and discriminator, that defines what FieldValue is allowed to be. Since we have 2 args, we can make first one
-     * produce FieldValue, and second one to act as discriminator. (decorators are weird; maybe there's more efficient
-     * way to solve it, but it's very hard to debug decorator types)
-     */
-    DiscriminatedFieldValue extends Discriminating extends true
-      ? FieldValue extends PlexusModel<infer ParentType extends Model>
-        ? ParentType extends Model
-          ? AllowedPrimitive | PlexusModel
-          : never
-        : never
-      : any,
-  >(
+const buildDecorator = <MappingType extends keyof Mapping<any>>(kind: GenericRecordSchema[string]) =>
+  function plexusDynamicDecorator<Model extends PlexusModel, FieldValue extends AllowedPrimitive | PlexusModel>(
     target: ClassAccessorDecoratorTarget<Model, Mapping<FieldValue>[MappingType]>,
-    context: ClassAccessorDecoratorContext<Model, Mapping<DiscriminatedFieldValue>[MappingType]> & { name: string },
+    context: ClassAccessorDecoratorContext<Model, Mapping<FieldValue>[MappingType]> & { name: string },
   ) {
     if (!Object.hasOwn(context.metadata, "schema")) {
       /**
@@ -506,7 +487,55 @@ const buildDecorator = <MappingType extends keyof Mapping<any>, Discriminating e
       };
     }
     (context.metadata.schema as GenericRecordSchema)[context.name] = kind;
-    return createHandlers<Model, Mapping<DiscriminatedFieldValue>[MappingType]>(context);
+    return createHandlers<Model, Mapping<FieldValue>[MappingType]>(context);
+  };
+
+type PreDiscriminateValue<
+  MappingType extends keyof Mapping<any>,
+  T extends Mapping<AllowedPrimitive | PlexusModel>[MappingType],
+  Parent extends PlexusModel,
+> = T extends Mapping<infer Value>[MappingType]
+  ? Extract<Value, PlexusModel> extends PlexusModel<infer ActualParent extends PlexusModel>
+    ? any extends ActualParent
+      ? T
+      : Parent extends Extract<ActualParent, Parent>
+        ? T
+        : never
+    : never
+  : never;
+
+type DiscriminateValue<
+  MappingType extends keyof Mapping<any>,
+  T extends Mapping<AllowedPrimitive | PlexusModel>[MappingType],
+  Parent extends PlexusModel,
+> =
+  PreDiscriminateValue<MappingType, T, Parent> extends never
+    ? Mapping<AllowedPrimitive | PlexusModel<Parent>>[MappingType]
+    : PreDiscriminateValue<MappingType, T, Parent>;
+
+/** separate function here is done only for better types debugging; no other purpose intended */
+const buildDiscriminatingDecorator = <MappingType extends keyof Mapping<any>>(kind: GenericRecordSchema[string]) =>
+  function plexusDynamicDecorator<
+    Model extends PlexusModel,
+    /**
+     * The problem we're solving here is that PlexusModel<A | B> is not matching PlexusModel<B>;
+     * yet we cannot just generalize types. So, we infer two types - FieldValue, that is produced from usage,
+     * and discriminator, that defines what FieldValue is allowed to be. Since we have 2 args, we can make first one
+     * produce FieldValue, and second one to act as discriminator. (decorators are weird; maybe there's more efficient
+     * way to solve it, but it's very hard to debug decorator types)
+     */
+    Value extends Mapping<AllowedYJSValue>[MappingType],
+  >(
+    target: ClassAccessorDecoratorTarget<Model, Value>,
+    context: ClassAccessorDecoratorContext<Model, DiscriminateValue<MappingType, Value, Model>> & { name: string },
+  ) {
+    if (!Object.hasOwn(context.metadata, "schema")) {
+      context.metadata.schema = {
+        __proto__: context.metadata.schema ?? {},
+      };
+    }
+    (context.metadata.schema as GenericRecordSchema)[context.name] = kind;
+    return createHandlers<Model, DiscriminateValue<MappingType, Value, Model>>(context);
   };
 
 interface Mapping<T> {
@@ -520,32 +549,31 @@ interface Mapping<T> {
  * Specialized decorator for Map fields that preserves both key and value types.
  * Returns PlexusMap which extends Map with bulk operations like assign().
  */
-const buildMapDecorator = () =>
-  function plexusMapDecorator<
-    Model extends PlexusModel,
-    FieldValueKey extends AllowedYJSMapKey,
-    FieldValue extends AllowedYJSValue,
-  >(
-    target: ClassAccessorDecoratorTarget<Model, PlexusMap<FieldValueKey, FieldValue>>,
-    context: ClassAccessorDecoratorContext<Model, PlexusMap<FieldValueKey, FieldValue>> & { name: string },
-  ) {
-    if (!Object.hasOwn(context.metadata, "schema")) {
-      context.metadata.schema = {
-        __proto__: context.metadata.schema ?? {},
-      };
-    }
-    (context.metadata.schema as GenericRecordSchema)[context.name] = "map";
-    return createHandlers<Model, PlexusMap<FieldValueKey, FieldValue>>(context);
-  };
+function plexusMapDecorator<
+  Model extends PlexusModel,
+  FieldValueKey extends AllowedYJSMapKey,
+  FieldValue extends AllowedYJSValue,
+>(
+  target: ClassAccessorDecoratorTarget<Model, PlexusMap<FieldValueKey, FieldValue>>,
+  context: ClassAccessorDecoratorContext<Model, PlexusMap<FieldValueKey, FieldValue>> & { name: string },
+) {
+  if (!Object.hasOwn(context.metadata, "schema")) {
+    context.metadata.schema = {
+      __proto__: context.metadata.schema ?? {},
+    };
+  }
+  (context.metadata.schema as GenericRecordSchema)[context.name] = "map";
+  return createHandlers<Model, PlexusMap<FieldValueKey, FieldValue>>(context);
+}
 
 export const syncing = Object.assign(syncingDecorator, {
-  child: Object.assign(buildDecorator<"identity", true>("child-val"), {
-    record: buildDecorator<"record", true>("child-record"),
-    set: buildDecorator<"set", true>("child-set"),
-    list: buildDecorator<"list", true>("child-list"),
+  child: Object.assign(buildDiscriminatingDecorator<"identity">("child-val"), {
+    record: buildDiscriminatingDecorator<"record">("child-record"),
+    set: buildDiscriminatingDecorator<"set">("child-set"),
+    list: buildDiscriminatingDecorator<"list">("child-list"),
   }),
   record: buildDecorator<"record">("record"),
   set: buildDecorator<"set">("set"),
   list: buildDecorator<"list">("list"),
-  map: buildMapDecorator(),
+  map: plexusMapDecorator,
 });

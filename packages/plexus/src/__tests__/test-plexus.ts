@@ -34,7 +34,7 @@ export function initTestPlexus<Root extends PlexusModel>(
  * Use when you have a doc that's already been synced/populated.
  */
 export function connectTestPlexus<Root extends PlexusModel>(doc: Y.Doc, dependencies: Record<string, Y.Doc> = {}) {
-  const plexus = TestPlexus.connect<Root, TestPlexus<Root>>(doc);
+  const plexus = TestPlexus.connect(doc) as TestPlexus<Root>;
   for (const dep of Object.values(dependencies)) {
     plexus.addDependency(Y.encodeStateAsUpdate(dep));
   }

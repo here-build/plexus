@@ -1,6 +1,7 @@
 import { ConcretePlexusConstructor, PlexusModel } from "./PlexusModel.js";
 import { __untracked__, ACCESS_ALL_SYMBOL, trackAccess } from "./tracking.js";
 import invariant from "tiny-invariant";
+import { AllowedYJSMapKey, AllowedYJSValue } from "./proxy-runtime-types.js";
 
 // Global clone transaction mapping for handling cycles and deduplication
 let cloneTransactionMapping: WeakMap<any, any> | null = null;
@@ -103,7 +104,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
               break;
             case "record":
               clonedModel[fieldKey] = Object.fromEntries(
-                Object.entries(fieldValue as Record<string, any>).map(([key, item]) => [
+                Object.entries(fieldValue as Record<string, AllowedYJSValue>).map(([key, item]) => [
                   key,
                   cloneTransactionMapping!.get(item) ?? item,
                 ]),
@@ -111,7 +112,28 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
               break;
             case "set":
               clonedModel[fieldKey] = new Set(
-                [...(fieldValue as any as Set<any>)].map((item) => cloneTransactionMapping!.get(item) ?? item),
+                [...(fieldValue as any as Set<AllowedYJSValue>)].map(
+                  (item) => cloneTransactionMapping!.get(item) ?? item,
+                ),
+              );
+              break;
+            case "map":
+              clonedModel[fieldKey] = new Map(
+                (fieldValue as any as Map<AllowedYJSMapKey, AllowedYJSValue>).entries().map(([key, value]) => {
+                  if (key instanceof Set) {
+                    return [
+                      new Set([...key].map((item) => cloneTransactionMapping!.get(item) ?? item)),
+                      cloneTransactionMapping!.get(value) ?? value,
+                    ];
+                  } else if (Array.isArray(key)) {
+                    return [
+                      key.map((item) => cloneTransactionMapping!.get(item) ?? item),
+                      cloneTransactionMapping!.get(value) ?? value,
+                    ];
+                  } else {
+                    return [cloneTransactionMapping!.get(key) ?? key, cloneTransactionMapping!.get(value) ?? value];
+                  }
+                }),
               );
               break;
           }

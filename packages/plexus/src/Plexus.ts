@@ -5,7 +5,7 @@
 import { decoding, encoding } from "lib0";
 import { nanoid } from "nanoid";
 import invariant from "tiny-invariant";
-import type { Constructor, ReadonlyDeep } from "type-fest";
+import type { ReadonlyDeep } from "type-fest";
 import * as Y from "yjs";
 import { UndoManager } from "yjs";
 
@@ -244,9 +244,9 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: ReadonlyDe
    */
   // it is bad to use Function; yet, it's impossible to use Constructor<> directly since constructor is protected.
   // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
-  static connect<Root extends PlexusModel, T extends Plexus<Root>>(this: Function & { prototype: T }, doc: Y.Doc): T {
+  static connect(doc: Y.Doc) {
     // Return existing instance if one exists for this class
-    const existing = docPlexus.get(doc) as T | undefined;
+    const existing = docPlexus.get(doc);
     if (existing) {
       invariant(
         existing.constructor === this,
@@ -262,24 +262,17 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: ReadonlyDe
       `Plexus<document#${doc.clientID}>.connect: no root found, await sync first`,
     );
 
-    const root = deref(doc, [YJS_GLOBALS.models.wellKnown.root]) as Root;
-    return new (this as Constructor<T>)(doc, root);
+    const root = deref(doc, [YJS_GLOBALS.models.wellKnown.root]) as PlexusModel;
+    return new this(doc, root);
   }
 
   /**
    * Bootstrap a new Y.Doc with the provided root entity.
    * Returns existing instance if one exists for this class.
    */
-  static bootstrap<T extends Plexus<Root>, Root extends PlexusModel>(
-    // it is bad to use Function; yet, it's impossible to use Constructor<> directly since constructor is protected.
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
-    this: Function & { prototype: T },
-    root: Root,
-    documentId: string = nanoid(),
-    doc: Y.Doc = new Y.Doc(),
-  ): T {
+  static bootstrap(root: PlexusModel, documentId: string = nanoid(), doc: Y.Doc = new Y.Doc()) {
     // Return existing instance if one exists for this class
-    const existing = docPlexus.get(doc) as T | undefined;
+    const existing = docPlexus.get(doc);
     if (existing) {
       invariant(
         existing.constructor === this,
@@ -288,7 +281,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: ReadonlyDe
       return existing;
     }
     doc.getMap(YJS_GLOBALS.metadata.key).set(YJS_GLOBALS.metadata.wellKnown.documentId, documentId);
-    return new (this as Constructor<T>)(doc, root);
+    return new this(doc, root);
   }
 
   undo() {

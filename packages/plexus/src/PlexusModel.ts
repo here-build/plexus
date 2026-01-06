@@ -393,6 +393,12 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
           [YJS_GLOBALS.models.recordFields.type, this.#type],
         ]);
         yModels.set(this.uuid, yprojectObjectInstance!);
+        // it should be placed before schema iteration to avoid circular self-reference issues
+        internals.yjsModel = yprojectObjectInstance;
+        internals.yjsFieldsMap = yprojectObjectInstanceFields;
+        internals.isDematerialized = false; // Clear if re-materializing after undo
+        documentEntityCaches.get(doc).set(this.uuid, new WeakRef(this));
+        // there may be instantation loops where we need to have internals.yjsModel materialized in that flow
         if (internals.parent) {
           const parentReference = internals.parent[referenceSymbol](doc);
           (yprojectObjectInstance as Y.Map<ParentReference>).set(
@@ -402,11 +408,6 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
               : [parentReference[0], internals.parentKey!],
           );
         }
-        // it should be placed before schema iteration to avoid circular self-reference issues
-        internals.yjsModel = yprojectObjectInstance;
-        internals.yjsFieldsMap = yprojectObjectInstanceFields;
-        internals.isDematerialized = false; // Clear if re-materializing after undo
-        documentEntityCaches.get(doc).set(this.uuid, new WeakRef(this));
       } else if (internals.isDematerialized) {
         // Re-materialization of a dematerialized model (Y.Map exists but yjsModel was cleared)
         internals.yjsModel = yprojectObjectInstance;
@@ -527,6 +528,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
         case "child-set":
         case "list":
         case "child-list":
+        case "map":
           this[key][materializationSymbol]();
       }
     }

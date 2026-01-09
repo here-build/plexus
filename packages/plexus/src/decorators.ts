@@ -466,9 +466,13 @@ const createHandlers = <
 };
 
 const buildDecorator = <MappingType extends keyof Mapping<any>>(kind: GenericRecordSchema[string]) =>
-  function plexusDynamicDecorator<Model extends PlexusModel, FieldValue extends AllowedPrimitive | PlexusModel>(
-    target: ClassAccessorDecoratorTarget<Model, Mapping<FieldValue>[MappingType]>,
-    context: ClassAccessorDecoratorContext<Model, Mapping<FieldValue>[MappingType]> & { name: string },
+  function plexusDynamicDecorator<
+    Model extends PlexusModel,
+    FieldValue extends AllowedPrimitive | PlexusModel,
+    Struct extends Mapping<FieldValue>[MappingType],
+  >(
+    target: ClassAccessorDecoratorTarget<Model, Struct>,
+    context: ClassAccessorDecoratorContext<Model, Struct> & { name: string },
   ) {
     if (!Object.hasOwn(context.metadata, "schema")) {
       /**
@@ -487,7 +491,7 @@ const buildDecorator = <MappingType extends keyof Mapping<any>>(kind: GenericRec
       };
     }
     (context.metadata.schema as GenericRecordSchema)[context.name] = kind;
-    return createHandlers<Model, Mapping<FieldValue>[MappingType]>(context);
+    return createHandlers<Model, Struct>(context);
   };
 
 type PreDiscriminateValue<

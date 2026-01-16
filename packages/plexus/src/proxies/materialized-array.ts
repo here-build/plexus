@@ -2,6 +2,7 @@ import invariant from "tiny-invariant";
 import * as Y from "yjs";
 
 import { deref } from "../deref.js";
+import { PlexusDuplicateChildError } from "../errors.js";
 import { mutableArrayMethods } from "../globals.js";
 import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
@@ -10,10 +11,21 @@ import {
   informOrphanizationSymbol,
   materializationSymbol,
   requestAdoptionSymbol,
+  validateAdoptionSymbol,
 } from "../proxy-runtime-types.js";
-import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking.js";
+import {
+  ACCESS_ALL_SYMBOL,
+  ENTRIES_LENGTH_SYMBOL,
+  KEYS_SYMBOL,
+  trackAccess,
+  trackModification,
+  VALUES_SYMBOL,
+} from "../tracking.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
+
+// Track if we've shown the copyWithin warning for child arrays (one-time per session)
+let copyWithinChildArrayWarningShown = false;
 
 /**
  * Important implementation nuances
@@ -124,17 +136,42 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
     if (event.target !== yjsArray) {
       return;
     }
-    // todo narrowed observer event triggers
-    // Update target array to maintain target-proxy parity for property descriptors
-    if (yjsArray) {
-      invariant(
-        yjsArray.doc,
-        `Plexus<${owner.__type__}#${owner.uuid}.${key}>: observer triggered for Y.Array without doc`,
-      );
-      // we specifically need splice to keep pointer and thus make proxy working
-      backingArray.splice(0, backingArray.length, ...yjsArray.toArray().map((item) => deref<T>(yjsArray.doc!, item)));
+    invariant(
+      yjsArray.doc,
+      `Plexus<${owner.__type__}#${owner.uuid}.${key}>: observer triggered for Y.Array without doc`,
+    );
+
+    const oldLength = backingArray.length;
+    const newItems = yjsArray.toArray().map((item) => deref<T>(yjsArray.doc!, item));
+    const newLength = newItems.length;
+
+    // Track which indices changed
+    const changedIndices: number[] = [];
+    const maxLen = Math.max(oldLength, newLength);
+    for (let i = 0; i < maxLen; i++) {
+      if (backingArray[i] !== newItems[i]) {
+        changedIndices.push(i);
+      }
     }
-    trackModification(self, ACCESS_ALL_SYMBOL);
+
+    // Update backing array
+    backingArray.splice(0, backingArray.length, ...newItems);
+
+    // Emit precise notifications
+    for (const index of changedIndices) {
+      trackModification(self, `${index}`);
+    }
+
+    // Emit VALUES_SYMBOL if any values changed
+    if (changedIndices.length > 0) {
+      trackModification(self, VALUES_SYMBOL);
+    }
+
+    // Only emit KEYS_SYMBOL if length actually changed
+    if (oldLength !== newLength) {
+      trackModification(self, KEYS_SYMBOL);
+      trackModification(self, ENTRIES_LENGTH_SYMBOL);
+    }
   };
   {
     const yjsArray = getYjsArray();
@@ -173,33 +210,51 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           return (...elements: Array<T>) =>
             maybeTransacting(owner.__doc__, () => {
               // Update parent tracking for child fields
-              const reusedElements = new Set<T>();
+              const reusedIndices: number[] = [];
+              const reusedElements: T[] = [];
+              const newElements: T[] = [];
               if (isChildField) {
-                // DUPLICATE VALIDATION: Prevent same child appearing multiple times in input
-                const seen = new Set<T>();
+                PlexusDuplicateChildError.uniquenessInvariant(elements, owner, key, "push");
+
                 for (const element of elements) {
                   if (element instanceof PlexusModel) {
-                    invariant(
-                      !seen.has(element),
-                      `Plexus<${owner.__type__}#${owner.uuid}.${key}>: push cannot insert the same child multiple times`,
-                    );
-                    seen.add(element);
-
-                    // REUSE DETECTION: Check if element already exists in array
-                    if (backingArray.includes(element)) {
-                      reusedElements.add(element);
+                    const existingIndex = backingArray.indexOf(element);
+                    if (existingIndex === -1) {
+                      newElements.push(element);
+                    } else {
+                      reusedIndices.push(existingIndex);
+                      reusedElements.push(element);
                     }
-                    element?.[requestAdoptionSymbol]?.(owner, key);
                   }
+                }
+
+                // Remove reused elements from their old positions (in reverse order)
+                reusedIndices.sort((a, b) => b - a);
+                for (const index of reusedIndices) {
+                  backingArray.splice(index, 1);
+                }
+
+                for (const element of newElements) {
+                  element?.[requestAdoptionSymbol]?.(owner, key);
                 }
               }
 
               backingArray.push(...elements);
-              for (const element of reusedElements) {
-                element?.[informAdoptionSymbol](owner, key);
-              }
+
               const yjsArray = getYjsArray();
-              yjsArray?.push(elements.map((element) => maybeReference(element, owner.__doc__!)));
+              if (yjsArray) {
+                for (const index of reusedIndices) {
+                  yjsArray.delete(index, 1);
+                }
+                yjsArray.push(elements.map((element) => maybeReference(element, owner.__doc__!)));
+              }
+
+              if (isChildField) {
+                for (const element of reusedElements) {
+                  element?.[informAdoptionSymbol](owner, key);
+                }
+              }
+
               trackModification(self, ACCESS_ALL_SYMBOL);
               return backingArray.length;
             });
@@ -207,39 +262,55 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           return (...elements: Array<T>) =>
             maybeTransacting(owner.__doc__, () => {
               // Update parent tracking for child fields
-              const reusedElements = new Set<T>();
+              const reusedIndices: number[] = [];
+              const reusedElements: T[] = [];
+              const newElements: T[] = [];
               if (isChildField) {
-                // Validate that elements to unshift don't contain duplicates
-                const seen = new Set<T>();
-                for (const element of elements) {
-                  if (element !== null && seen.has(element)) {
-                    throw new Error(
-                      "unshift cannot insert the same child multiple times, which would violate parent tracking semantics. " +
-                        "A child can only appear once in a parent's child array.",
-                    );
-                  }
-                  if (element !== null) {
-                    seen.add(element);
-                  }
+                PlexusDuplicateChildError.uniquenessInvariant(elements, owner, key, "unshift");
 
-                  if (backingArray.includes(element)) {
-                    reusedElements.add(element);
+                for (const element of elements) {
+                  if (element instanceof PlexusModel) {
+                    const existingIndex = backingArray.indexOf(element);
+                    if (existingIndex === -1) {
+                      newElements.push(element);
+                    } else {
+                      reusedIndices.push(existingIndex);
+                      reusedElements.push(element);
+                    }
                   }
+                }
+
+                reusedIndices.sort((a, b) => b - a);
+                for (const index of reusedIndices) {
+                  backingArray.splice(index, 1);
+                }
+
+                for (const element of newElements) {
                   element?.[requestAdoptionSymbol]?.(owner, key);
                 }
               }
 
               backingArray.unshift(...elements);
-              for (const element of reusedElements) {
-                element?.[informAdoptionSymbol](owner, key);
+
+              if (isChildField) {
+                for (const element of reusedElements) {
+                  element?.[informAdoptionSymbol](owner, key);
+                }
               }
+
               const yjsArray = getYjsArray();
+              if (yjsArray) {
+                for (const index of reusedIndices) {
+                  yjsArray.delete(index, 1);
+                }
+              }
               yjsArray?.unshift(elements.map((element) => maybeReference(element, owner.__doc__!)));
+
               trackModification(self, ACCESS_ALL_SYMBOL);
               return backingArray.length;
             });
         case "splice": // arr.splice(index, deleteCount, ...items)
-          return (start: number, deleteCount?: number, ...items: Array<T>) => {
+          return (start: number, deleteCount?: number, ...itemsToInsert: Array<T>) => {
             return maybeTransacting(owner.__doc__, () => {
               const actualStart =
                 start < 0 ? Math.max(backingArray.length + start, 0) : Math.min(start, backingArray.length);
@@ -253,22 +324,10 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
 
               // Detect items being moved within the same array
               // These items exist in the array outside the splice zone and need to be removed first
-              const itemsToInsert = items || [];
 
               // For child fields, validate that items to insert don't contain duplicates
               if (isChildField && itemsToInsert.length > 0) {
-                const seen = new Set<T>();
-                for (const item of itemsToInsert) {
-                  if (item !== null && seen.has(item)) {
-                    throw new Error(
-                      "splice cannot insert the same child multiple times, which would violate parent tracking semantics. " +
-                        "A child can only appear once in a parent's child array.",
-                    );
-                  }
-                  if (item !== null) {
-                    seen.add(item);
-                  }
-                }
+                PlexusDuplicateChildError.uniquenessInvariant(itemsToInsert, owner, key, "splice");
               }
 
               const itemsToRemoveFirst: Array<{ item: T; index: number }> = [];
@@ -285,6 +344,14 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 } else if (!removedItems.includes(item)) {
                   // Item is truly new (not in array at all)
                   trulyNewItems.push(item);
+                }
+              }
+
+              // VALIDATION: Validate truly new items BEFORE any state modification
+              // Note: itemsToRemoveFirst don't need validation since they're already in the array with correct parent
+              if (isChildField) {
+                for (const item of trulyNewItems) {
+                  item?.[validateAdoptionSymbol]?.(owner, key);
                 }
               }
 
@@ -455,27 +522,29 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
         case "copyWithin": // arr.copyWithin(target, start, end) → copy elements within array
           return (target: number, start: number, end?: number) => {
             return maybeTransacting(owner.__doc__, () => {
-              // For child fields, check if copyWithin would create duplicates
               if (isChildField) {
+                // One-time warning: copyWithin on child arrays has special semantics
+                if (!copyWithinChildArrayWarningShown) {
+                  copyWithinChildArrayWarningShown = true;
+                  console.warn(
+                    "copyWithin on child array",
+                    "Using copyWithin() on a child array (fields decorated with @syncing.child.list) may throw errors if the operation would create duplicate child references. Unlike normal arrays where copyWithin always succeeds, child arrays enforce uniqueness constraints. Consider using index assignment or splice() for moving items within the array.",
+                  );
+                }
+
+                // For child arrays, copyWithin respects copy semantics
+                // If copying would create duplicates, throw an error
+                // This is different from operations like push/splice which use move semantics
+
                 // Simulate the copyWithin operation to check for duplicates
                 const tempArray = [...backingArray];
                 tempArray.copyWithin(target, start, end);
 
                 // Check if any non-null element appears more than once
-                const seen = new Set<T>();
-                for (const element of tempArray) {
-                  if (element !== null && seen.has(element)) {
-                    throw new Error(
-                      "copyWithin would create duplicate child references, which violates parent tracking semantics. " +
-                        "A child can only appear once in a parent's child array.",
-                    );
-                  }
-                  if (element !== null) {
-                    seen.add(element);
-                  }
-                }
+                PlexusDuplicateChildError.uniquenessInvariant(tempArray, owner, key, "copyWithin");
               }
 
+              // If we get here, no duplicates would be created - proceed with operation
               backingArray.copyWithin(target, start, end);
 
               // Sync to Y.js - replace entire array
@@ -511,18 +580,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             maybeTransacting(owner.__doc__, () => {
               if (isChildField) {
                 // Validate that newElements doesn't contain duplicates
-                const seen = new Set<T>();
-                for (const element of newElements) {
-                  if (element !== null && seen.has(element)) {
-                    throw new Error(
-                      "assign cannot accept an array with duplicate child references, which would violate parent tracking semantics. " +
-                        "A child can only appear once in a parent's child array.",
-                    );
-                  }
-                  if (element !== null) {
-                    seen.add(element);
-                  }
-                }
+                PlexusDuplicateChildError.uniquenessInvariant(newElements, owner, key, "assign");
 
                 // Clear parent tracking for old items
                 const removedItems = setDifference(new Set(backingArray), new Set(newElements));
@@ -544,7 +602,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           };
         case "length": // Report length access to this array
           trackAccess(owner, key);
-          trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
+          trackAccess(self, ENTRIES_LENGTH_SYMBOL);
           return backingArray.length;
         case materializationSymbol:
           return () => {
@@ -558,19 +616,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             // DUPLICATE VALIDATION: Verify YJS data doesn't contain duplicates
             // This should never happen, but corrupted data or bugs could create this state
             if (isChildField) {
-              const seen = new Set<T>();
-              for (const item of materializedItems) {
-                if (item !== null && seen.has(item)) {
-                  throw new Error(
-                    `Materialization failed: YJS array contains duplicate child references for ${owner.constructor.name}.${key}. ` +
-                      `This violates parent tracking semantics. A child can only appear once in a parent's child array. ` +
-                      `This indicates corrupted data or a bug in array mutation handling.`,
-                  );
-                }
-                if (item !== null) {
-                  seen.add(item);
-                }
-              }
+              PlexusDuplicateChildError.uniquenessInvariant(materializedItems, owner, key, "materialization");
             }
 
             backingArray.splice(0, backingArray.length, ...materializedItems);
@@ -607,18 +653,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   // DUPLICATE VALIDATION: Check if the array method created duplicates
                   // This shouldn't happen with standard array methods, but validates against potential bugs
                   if (isChildField) {
-                    const seen = new Set<T>();
-                    for (const item of resultingArray) {
-                      if (item !== null && seen.has(item)) {
-                        throw new Error(
-                          `Array method '${String(elementKey)}' would create duplicate child references in ${owner.constructor.name}.${key}. ` +
-                            `This violates parent tracking semantics. A child can only appear once in a parent's child array.`,
-                        );
-                      }
-                      if (item !== null) {
-                        seen.add(item);
-                      }
-                    }
+                    PlexusDuplicateChildError.uniquenessInvariant(resultingArray, owner, key, String(elementKey));
                   }
 
                   // Clear parent tracking for old items
@@ -691,7 +726,8 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               backingArray.push(...gap);
               yjsArray?.push(gap);
             }
-            trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+            trackModification(self, KEYS_SYMBOL);
+            trackModification(self, ENTRIES_LENGTH_SYMBOL);
             return true;
           }
           return false;
@@ -706,84 +742,108 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               if (backingArray[parsedElementKey] === value) {
                 return true;
               }
-              // Fill holes with null to match YJS behavior
-              while (backingArray.length < parsedElementKey) {
-                trackModification(self, `${backingArray.length}`);
-                backingArray.push(null as any);
-              }
 
-              // Handle parent tracking for replaced item
-              let isReuse = false;
-              let targetIndex = parsedElementKey;
-              let reuseFromIndex = -1;
-              if (isChildField) {
-                // Save old item before overwriting
-                const oldItem = backingArray[parsedElementKey];
+              return maybeTransacting(owner.__doc__, () => {
+                // Track original length to detect extension
+                const originalLength = backingArray.length;
 
-                // Check if this is a reuse (value exists elsewhere in array)
-                const existingIndex = backingArray.indexOf(value);
-                isReuse = existingIndex !== -1 && existingIndex !== parsedElementKey;
+                // Fill holes with null to match YJS behavior
+                while (backingArray.length < parsedElementKey) {
+                  trackModification(self, `${backingArray.length}`);
+                  backingArray.push(null as any);
+                }
 
-                // If reusing an item from elsewhere in array, remove it from old position first
-                // This prevents duplicates and maintains "child can only appear once" invariant
-                if (isReuse) {
-                  reuseFromIndex = existingIndex; // Store for YJS sync
-                  trackModification(self, ACCESS_ALL_SYMBOL);
-                  backingArray.splice(existingIndex, 1);
-                  // Adjust target index if we removed an item before it
-                  if (existingIndex < parsedElementKey) {
-                    targetIndex = parsedElementKey - 1;
+                // Handle parent tracking for replaced item
+                let isReuse = false;
+                let reuseFromIndex = -1;
+                let targetIndex = parsedElementKey;
+                if (isChildField) {
+                  // Check if this is a reuse (value exists elsewhere in array)
+                  const existingIndex = backingArray.indexOf(value);
+                  isReuse = existingIndex !== -1 && existingIndex !== parsedElementKey;
+
+                  // If reusing an item from elsewhere in array, remove it from old position first
+                  // This prevents duplicates and maintains "child can only appear once" invariant
+                  // Child arrays use splice semantics (compact/shift), not sparse array semantics
+                  if (isReuse) {
+                    reuseFromIndex = existingIndex; // Store for YJS sync
+                    trackModification(self, ACCESS_ALL_SYMBOL);
+                    backingArray.splice(existingIndex, 1);
+                    // Adjust target index if we removed an item before it
+                    if (existingIndex < parsedElementKey) {
+                      targetIndex = parsedElementKey - 1;
+                    }
+                  }
+
+                  // Save old item at target position (after potential splice adjustment)
+                  const oldItem = backingArray[targetIndex];
+
+                  // Orphanize old item if it exists and it's different from new value
+                  if (oldItem && oldItem !== value) {
+                    oldItem?.[informOrphanizationSymbol]?.();
+                  }
+
+                  // For new items (not reuse), call requestAdoptionSymbol
+                  if (!isReuse) {
+                    value?.[requestAdoptionSymbol]?.(owner, key);
                   }
                 }
 
-                // Orphanize old item if it exists and it's different from new value
-                if (oldItem && oldItem !== value) {
-                  oldItem?.[informOrphanizationSymbol]?.();
-                }
+                backingArray[targetIndex] = value;
 
-                // For new items (not reuse), call requestAdoptionSymbol
-                if (!isReuse) {
-                  value?.[requestAdoptionSymbol]?.(owner, key);
-                }
-              }
+                const yjsArray = getYjsArray();
+                // Handle YJS sync
+                if (yjsArray) {
+                  if (isReuse && reuseFromIndex !== -1) {
+                    // For reused items, we removed from reuseFromIndex and set at targetIndex
+                    // Replicate the same operations in YJS:
+                    // 1. Delete from original position
+                    yjsArray.delete(reuseFromIndex, 1);
 
-              backingArray[targetIndex] = value;
-
-              const yjsArray = getYjsArray();
-              // Handle YJS sync
-              if (yjsArray) {
-                if (isReuse && reuseFromIndex !== -1) {
-                  // For reused items, we removed from reuseFromIndex and set at targetIndex
-                  // Replicate the same operations in YJS:
-                  // 1. Delete from original position
-                  yjsArray.delete(reuseFromIndex, 1);
-                  // 2. Delete the item being replaced (at adjusted position after first delete)
-                  let adjustedTargetForDelete = targetIndex;
-                  if (reuseFromIndex < parsedElementKey) {
-                    adjustedTargetForDelete = parsedElementKey - 1;
+                    // 2. Delete the item being replaced (at adjusted position after first delete)
+                    if (targetIndex >= yjsArray.length) {
+                      // Extending: fill holes and append
+                      const postfix: (typeof value | null)[] = [];
+                      while (postfix.length + yjsArray.length < targetIndex) {
+                        postfix.push(null);
+                      }
+                      postfix.push(maybeReference(value, owner.__doc__!));
+                      // we're doing it that way to make operation atomic
+                      yjsArray.push(postfix);
+                    } else {
+                      yjsArray.delete(targetIndex, 1);
+                      // 3. Insert new value at target
+                      yjsArray.insert(targetIndex, [maybeReference(value, owner.__doc__!)]);
+                    }
+                  } else if (parsedElementKey >= yjsArray.length) {
+                    // Extending array
+                    const postfix: null[] = [];
+                    while (postfix.length + yjsArray.length < parsedElementKey) {
+                      postfix.push(null);
+                    }
+                    // we're doing it that way to make operation atomic
+                    yjsArray.push([...postfix, maybeReference(value, owner.__doc__!)]);
+                  } else {
+                    // Replacing existing element
+                    yjsArray.delete(parsedElementKey, 1);
+                    yjsArray.insert(parsedElementKey, [maybeReference(value, owner.__doc__!)]);
                   }
-                  yjsArray.delete(adjustedTargetForDelete, 1);
-                  // 3. Insert new value at target
-                  yjsArray.insert(adjustedTargetForDelete, [maybeReference(value, owner.__doc__!)]);
-                } else if (parsedElementKey >= yjsArray.length) {
-                  // Extending array
-                  const postfix: null[] = [];
-                  while (postfix.length + yjsArray.length < parsedElementKey - 1) {
-                    postfix.push(null);
-                  }
-                  yjsArray.push([...postfix, maybeReference(value, owner.__doc__!)]);
-                } else {
-                  // Replacing existing element
-                  yjsArray.delete(targetIndex, 1);
-                  yjsArray.insert(targetIndex, [maybeReference(value, owner.__doc__!)]);
                 }
-              }
 
-              // For reused items, call informAdoptionSymbol after the move
-              if (isChildField && isReuse) {
-                value?.[informAdoptionSymbol]?.(owner, key);
-              }
-              trackModification(self, `${targetIndex}`);
+                // For reused items, call informAdoptionSymbol after the move
+                if (isChildField && isReuse) {
+                  value?.[informAdoptionSymbol]?.(owner, key);
+                }
+                trackModification(self, `${targetIndex}`);
+
+                // Emit KEYS_SYMBOL if array was extended (length changed)
+                if (backingArray.length > originalLength) {
+                  trackModification(self, KEYS_SYMBOL);
+                  trackModification(self, ENTRIES_LENGTH_SYMBOL);
+                }
+
+                return true;
+              });
             }
             return true;
           }

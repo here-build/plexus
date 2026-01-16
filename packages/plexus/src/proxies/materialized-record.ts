@@ -10,7 +10,7 @@ import {
   requestAdoptionSymbol,
   requestOrphanizationSymbol,
 } from "../proxy-runtime-types.js";
-import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking.js";
+import { ACCESS_ALL_SYMBOL, ENTRIES_LENGTH_SYMBOL, KEYS_SYMBOL, trackAccess, trackModification } from "../tracking.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
 
@@ -56,7 +56,8 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
       }
       trackModification(self, key);
     }
-    trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+    trackModification(self, KEYS_SYMBOL);
+    trackModification(self, ENTRIES_LENGTH_SYMBOL);
   };
   {
     const map = getYjsMap();
@@ -172,20 +173,18 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
         maybeTransacting(owner.__doc__, () => {
           trackModification(self, elementKey);
           if ((elementKey in proxyTarget && value == null) || (!(elementKey in proxyTarget) && value != null)) {
-            trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+            trackModification(self, KEYS_SYMBOL);
+            trackModification(self, ENTRIES_LENGTH_SYMBOL);
           }
           if (isChildField) {
             // Handle parent tracking for child fields. Clear parent tracking for old value if it exists
             proxyTarget[elementKey]?.[requestOrphanizationSymbol]?.();
+            value?.[requestAdoptionSymbol]?.(owner, key, elementKey);
           }
           if (value == null) {
             delete proxyTarget[elementKey];
           } else {
             proxyTarget[elementKey] = value;
-          }
-          if (isChildField) {
-            // Update parent tracking for new value
-            value?.[requestAdoptionSymbol]?.(owner, key, elementKey);
           }
           if (value == null) {
             getYjsMap()?.delete(elementKey);
@@ -215,7 +214,8 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
         getYjsMap()?.delete(elementKey);
         if (Reflect.deleteProperty(proxyTarget, elementKey)) {
           trackModification(self, elementKey);
-          trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+          trackModification(self, KEYS_SYMBOL);
+          trackModification(self, ENTRIES_LENGTH_SYMBOL);
         }
         return true;
       });
@@ -229,12 +229,12 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
         return false;
       }
       trackAccess(owner, key);
-      trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
+      trackAccess(self, KEYS_SYMBOL);
       return Reflect.has(proxyTarget, elementKey);
     },
     ownKeys(proxyTarget) {
       trackAccess(owner, key);
-      trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
+      trackAccess(self, KEYS_SYMBOL);
       return Reflect.ownKeys(proxyTarget);
     },
   });

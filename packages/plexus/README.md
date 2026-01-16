@@ -1,158 +1,219 @@
-# @here.build/arbor
-TODO rename the package itself
+# @here.build/plexus
 
-Arbor is both a conceptual and programmatic framework for application state management, aiming to solve the biggest
-pain points of state management - automatic replication, scoping and debugability - by setupping the middle ground of state.
+Reactive state management with automatic replication. TypeScript classes that sync across clients via Yjs CRDTs.
 
-It provides few primitives on top of well-known ideas and technologies.
-To start with, you can think of it as "MobX on top of YJS" or "JS classes but with collaboration and reactivity".
-It intentionally resembles the design of MobX while using yjs as CRDT runtime to provide the cross-client sync.
-
-Arbor (referring to Arbor Mundi, "the world tree") is doing exactly that - the app world tree.
-By treating the web application (or mobile app, or anything else you want, for example, CLI) as some material representation
-of "platonic" application being represented by tree of classes, we become able to narrow down the scope of anything we need.
-
-```typescript
- // we explicitly state each Arbor class as syncing.
- // That allows to do some inheritance with abstract classes without polluting the global state
-@syncing
-class User extends ArborModel {
-  // todo actually support override
-  // modelName, that is used as a key in hydration flow, is automatically inferred from class name but can be overridden
-  // this is done to make single-tree apps simple while making multi-tree apps possible
-  // static modelName = "User"
-  
-  // any @syncing field gets synced  
-  @syncing
-  accessor name: string;
-
-  // the only constraint you have is the types allowed to be synced. It can be any primitive value or any ArborModel.
-  @syncing
-  accessor email: string;
-  
-  // if you need maps, you have to use a bit different declaration
-  @syncing.record
-  accessor userAttributes: {
-    // yes, you are allowed to mix primitives and ArborModels.
-    // However, you are still limited to them. If you need complex type, you need to register it as another ArborModel
-    inviter: User,
-    registeredAt: string
-  } 
-  
-  // same works with arrays
-  @syncing.array
-  accessor projects: Project[];
-  
-  // and even sets
-  @syncing.set
-  accessor featureFlags: Set<string>
-  
-  // you can just define anything you want. It's still JS classes. Just with some fields being synced
-  get nickname() {
-    return this.name || this.email.split('@')[0];
-  }
-}
+```bash
+npm install @here.build/plexus
 ```
 
-From this perspective it's quite clear that it is actually looking like "MobX with replication".
-You do not need to know anything new. Just add `@syncing` to make something syncing (ok, with few constraints coming from types not available from the runtime).
+## Quick Start
 
-## World tree class
+> You will need to use TypeScript with stage-3 decorators specifically. Make sure that `experimentalDecorators` in
+`tsconfig.json` is disabled.
 
-But the "world tree" concept is a bit more complex, adding new primitives to the whole structure.
-
-First, any Arbor tree starts with root, that is defined in Arbor class:
 ```typescript
-// Arbor class itself is abstract, so you need to do explicit declaration for implementation.
-// We're syncing via yjs. Since yjs is highly flexible, it's basically your responsibility to decide how to make it work.
-// This is done specifically to not limit the access to the initialization flow.
-// One of reasons why Arbor class is abstract is to promote the document setup in child constructor.
-class MyArbor extends Arbor<User> {
-  constructor(projectId: string) {
-    const doc = new Y.Doc();
-    super(doc);
-    // Set up sync provider of choice. at this point of time you are free to implement any logic over the doc
-    this.syncProvider = {...};
-    // this.rootPromise is represented in Arbor class already but you are free to overwrite it in constructor
-    this.rootPromise = new Promise((res) => this.syncProvider.on("synced", res))
-      // root loading is postpoined until state is synced
-      .then(() => this.loadRoot());
+import * as Y from "yjs";
+// this is all API you will need
+import { Plexus, PlexusModel, syncing } from "@here.build/plexus";
+
+@syncing
+class Counter extends PlexusModel {
+  @syncing accessor count: number = 0;
+}
+
+const plexus = Plexus.bootstrap(new Counter(), new Y.Doc());
+plexus.root.count++; // Synced to all connected clients
+```
+
+Connect any Yjs
+provider - [y-websocket](https://github.com/yjs/y-websocket), [y-webrtc](https://github.com/yjs/y-webrtc), [Hocuspocus](https://hocuspocus.dev), [PartyKit](https://partykit.io), [Liveblocks](https://liveblocks.io), [y-sweet](https://jamsocket.com/y-sweet) -
+for real-time sync:
+
+```typescript
+import * as Y from "yjs";
+import { WebsocketProvider } from "y-websocket";
+
+const doc = new Y.Doc();
+const provider = new WebsocketProvider("wss://your-server", "room", doc);
+await provider.synced; // implementation vary between providers - see docs
+Plexus.connect(doc);
+```
+
+## Defining Models
+
+```typescript
+@syncing
+class Project extends PlexusModel {
+  // Primitives and references
+  @syncing accessor title: string = "";
+  @syncing accessor owner: User | null = null;
+  @syncing accessor createdAt: Date = new Date();
+
+  // Collections
+  @syncing.list accessor members: User[] = [];
+  @syncing.set accessor tags: Set<string> = new Set();
+  @syncing.record accessor metadata: Record<string, string> = {};
+  @syncing.map accessor scores: Map<User, number> = new Map();
+
+  // Computed properties work as expected. It's just JS.
+  get memberCount() {
+    return this.members.length;
   }
 }
 
-const arbor = new MyArbor('test project');
-const user = await arbor.rootPromise;
-```
-
-When application starts with some root node (even the god object), it becomes dramatically way simpler to manage what's
-happening inside the application.
-
-Yes, arbor brings several easily mitigatable constraints, but in exchange it offers something amazing.
-
-First, it allows to use single instances to represent any node:
-```typescript
-const arbor = new MyArbor('test project');
-const user = await arbor.rootPromise;
-user === arbor.loadEntity(user.uuid) // true. you do not need to check by uuid or in any other manner
-```
-
-By detaching the state tree from render tree, we are able to think with application, not render.
-```typescript
 @syncing
-class User extends ArborModel {
-  @syncing
-  accessor name: string;
+class SuperProject extends Project {
+  // model name is optional but may be useful to solve mangling issues
+  static readonly modelName = "Project*";
 
-  @syncing
-  accessor email: string;
-
-  useStore = create((set) => ({...})) // zustand store 
-  $counter = createStore(0); // effector store
-  
-  @observable
-  accessor newName: string; // mobx
+  // you can redefine types, including sync types, in inherited classes.
+  // there will be TS issues, since 
+  // @ts-expect-error
+  @syncing.child accessor title: string | RichName = "";
 }
 ```
 
-Since this is stored in a singleton representing the app, it is persistent - when you exit the component, it does not get destructed.
-Of course, if you need some component grade state, you can do it - just outside the Arbor model. Simply because it's render state, not app state.
+**Supported types:** `string`, `number` (including `Infinity`, `-Infinity`, `NaN`), `boolean`, `null`, `bigint`, `Date`,
+`Uint8Array`, `Blob` (experimental), and `PlexusModel` references.
 
-## Child management
+Note that `undefined` is not supported and will be turned into `null`.
 
-In addition to common syncing fields, arbor also supports automatich parent-child relationship tracking
+## Using Models
+
+```typescript jsx
+// all @syncing fields can be passed inside the constructor argument
+const project = new Project({ title: 'hello', members: [user] });
+// even when omitted, structs will be created empty
+project.tags.add("test");
+// There is no difference between synced and non-synced models.
+// You may work with local model instances, then add them in plexus root and they will be
+// synced automatically. Think of it like sync spreads on touch.
+plexus.root.projects.push(project);
+```
+
+In addition, every model instance has stable `.uuid` field since beginning (specifically, `nanoid` format is used).
+You can use it for external references.
+
+## Map Keys
+
+Maps use structural equality for keys—Sets, Arrays, Dates, tuples, and PlexusModel references all work:
+
+```typescript
+@syncing.map accessor byDimensions: Map<Set<string>, number> = new Map();
+
+// Order doesn't matter for Set keys
+map.set(new Set(["a", "b"]), 42);
+map.get(new Set(["b", "a"])); // 42
+
+// Arrays and tuples are order-sensitive
+@syncing.map accessor events: Map<[Date, string], Event> = new Map();
+@syncing.map accessor userActions: Map<[User, Date, string], Action> = new Map();
+
+// Models as keys, including mixed compound keys
+@syncing.map accessor scores: Map<User, number> = new Map();
+@syncing.map accessor assignments: Map<Set<User | Date>, Task> = new Map();
+```
+
+This behavior differs from "normal" JS behavior intentionally, since "pointer reference" maps are pointless concepts in
+collaborative environments - you cannot pass `new Set()` to other machine; all you can do is structural comparisons.
+However, this concept is pretty powerful to define many-to-one relations (also known as hyperedges) like this:
+`Map<Set<User>, Group>`.
+
+## Child Fields and Ownership
+
+Use `.child` for parent-child relationships with automatic reparenting:
 
 ```typescript
 @syncing
-class Project extends ArborModel {
-  @syncing.child.list
-  accessor pages: Page[];
-}
-@syncing
-class Page extends ArborModel {
-  // TypeScript does not allow to dynamically detect child/parent relations, sadly, so we need to define that manually  
-  declare parent: Project;
-  
-  @syncing
-  accessor name: string;
+class Project extends PlexusModel {
+  @syncing.child.list accessor pages: Page[];
 }
 
-const page1 = new Page({name: "page 1"});
-const page2 = new Page({name: "page 2"});
-const project1 = new Project({
-  pages: [page1, page2]
-})
-const project2 = new Project({
-  pages: [project1.pages[0]]
-})
-console.log(project1.pages) // new Page({name: "page 2"})
-console.log(page1.parent) // project2
+@syncing
+class KitchenSink extends PlexusModel {
+  @syncing.child.set accessor everything: Set<PlexusModel>; 
+}
+
+@syncing
+class Page extends PlexusModel<Project> {
+    @syncing name: string;
+}
+
+// Moving between parents
+const page = new Page({name: 'homepage'});
+project1.pages.push(page); // page.parent is project1 now
+project2.pages.push(page); // page.parent is project2 - and project1.pages is empty
+kitchenSink.everything.add(page); // cross-structure moves works too - page.parent is kitchenSink now
 ```
 
-This works only with child fields; non-child fields will not use this logic.
-value field, record field (`@syncing.child.record`), set field (`@syncing.child.set`), array field (
-`@syncing.child.list`) are all supported in that flow.
+`@syncing.child`, `@syncing.child.set`, `@syncing.child.list`, `@syncing.child.record` are supported.
 
-Besides other benefits, this allows making the answer to the question "what to sync" dead simple.
+> Maps are special due to models being allowed to use as keys, which cause uncertainty on multiple levels. Ownership
+> tracking is intentionally disabled for them for now due to multiple unclear behaviors.
 
-> Anything that can be reached from Arbor root is expected to synced. Everything else is ephemeral.
+## Reactivity
 
+Use MobX 6.x integration for automatic fine-grained tracking:
+
+```typescript
+// use automatic register - recommended
+import "@here.build/plexus/mobx/register";
+// or manual initializer
+import { enableMobXIntegration } from "@here.build/plexus/mobx";
+import { autorun } from "mobx";
+
+autorun(() => {
+  console.log(`${project.title}: ${project.members.length} members`);
+});
+
+project.title = "Updated"; // Triggers reaction
+```
+
+Without MobX, use `createTrackedFunction`:
+
+```typescript
+import { createTrackedFunction } from "@here.build/plexus";
+
+const track = createTrackedFunction(
+  () => console.log("Changed!"),
+  () => [project.title, project.members.length]
+);
+// "Changed!" will be emitted once after every track() call. 
+track();
+```
+
+> This is extremely minimal tracking, is intended to be used in environments without mobx and is fallback system
+
+## Transactions
+
+Batch changes into a single sync event:
+
+```typescript
+// plexus.transact abstracts both reactivity and yjs transactions.
+// mobx autorun() will trigger only once after transaction is done.
+// Note that mobx transaction actions are not integrated - if mixing values of reactive systems,
+// you will need to use both plexus.transact() and action().
+plexus.transact(() => {
+  project.title = "New Title";
+  project.members.push(user1, user2);
+  project.metadata.status = "active";
+});
+```
+
+## API
+
+```typescript
+// Bootstrap with root model - use when doc is empty.
+// sometimes you may need custom document, but by default doc is created.
+const plexus = Plexus.bootstrap(root: PlexusModel, doc?: Y.Doc);
+
+// Or connect to existing Yjs doc. Wait for document sync before connecting - connect is sync.
+const plexus = Plexus.connect(existingDoc);
+
+// Access root and doc
+plexus.root;
+plexus.doc;
+
+// Load entity by UUID (singleton, always same instance guarantee)
+const project = plexus.loadEntity<Project>(uuid);
+```

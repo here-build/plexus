@@ -26,7 +26,22 @@ import type { AllowedYJSMapKey } from "./proxy-runtime-types.js"; // Special sym
 
 // Special symbols for tracking comprehensive access patterns
 export const ACCESS_ALL_SYMBOL = Symbol("ACCESS_ALL");
-export const ACCESS_INDICES_SET_SYMBOL = Symbol("ACCESS_INDICES_SET");
+
+/**
+ * Semantic tracking symbols for collections (Set, Map, Array, Record)
+ * Some cases require specific trigger conditions to avoid false-positives:
+ * - KEYS_SYMBOL: Track key/index additions/removals. (has(), keys(), includes())
+ * - VALUES_SYMBOL: Track value changes (get(), values(), at())
+ * - ENTRIES_LENGTH_SYMBOL: Track length/size changes (size, length)
+ *
+ * Derivation rules:
+ * - ENTRIES_LENGTH_SYMBOL fires when KEYS_SYMBOL fires (key add/remove changes length)
+ * - ACCESS_ALL_SYMBOL fires on any change
+ */
+
+export const KEYS_SYMBOL = Symbol("KEYS");
+export const VALUES_SYMBOL = Symbol("VALUES");
+export const ENTRIES_LENGTH_SYMBOL = Symbol("ENTRIES_LENGTH");
 
 export type Tracker = string | symbol | AllowedYJSMapKey;
 
@@ -94,12 +109,14 @@ export function trackModification(entity: any, field: Tracker): void {
     if (!notifier.fieldset.has(entity)) {
       continue;
     }
-    const entityKeyset = notifier.fieldset.get(entity)!;
-    if (field === ACCESS_ALL_SYMBOL || entityKeyset.has(field) || entityKeyset.has(ACCESS_ALL_SYMBOL)) {
-      unconsumedNotifiers.delete(notifier);
-
-      pendingNotifications.add(notifier.trackingFunction);
+    if (field !== ACCESS_ALL_SYMBOL) {
+      const entityKeyset = notifier.fieldset.get(entity)!;
+      if (!entityKeyset.has(field) && !entityKeyset.has(ACCESS_ALL_SYMBOL)) {
+        continue;
+      }
     }
+    unconsumedNotifiers.delete(notifier);
+    pendingNotifications.add(notifier.trackingFunction);
   }
   if (trackingHook.modification) {
     if (isTransacting) {

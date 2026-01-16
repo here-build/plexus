@@ -4,7 +4,7 @@ import { deref } from "../deref.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import { informOrphanizationSymbol, materializationSymbol, requestAdoptionSymbol } from "../proxy-runtime-types.js";
-import { ACCESS_ALL_SYMBOL, trackAccess, trackModification } from "../tracking.js";
+import { ACCESS_ALL_SYMBOL, ENTRIES_LENGTH_SYMBOL, KEYS_SYMBOL, trackAccess, trackModification } from "../tracking.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
 
@@ -51,8 +51,9 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
       return;
     }
     needsRegeneration = true;
-    // todo narrowed observer event triggers
-    trackModification(self, ACCESS_ALL_SYMBOL);
+    // YJS changes are always key changes (add/delete)
+    trackModification(self, KEYS_SYMBOL);
+    trackModification(self, ENTRIES_LENGTH_SYMBOL);
   };
   const yjsSet = getYjsSet();
   yjsSet?.observe(observer);
@@ -66,24 +67,32 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
     get(_, elementKey) {
       switch (elementKey) {
         case "size":
+          trackAccess(owner, key);
+          trackAccess(self, ENTRIES_LENGTH_SYMBOL);
           return getYjsSet()?.length ?? getBackgingSet().size;
         case "add":
           return (value: T) => {
-            if (getBackgingSet().add(value)) {
-              maybeTransacting(owner.__doc__!, () => {
-                trackModification(self, ACCESS_ALL_SYMBOL);
-                // Update parent tracking for child fields
-                if (isChildField) {
-                  value?.[requestAdoptionSymbol]?.(owner, key);
-                }
-
-                // Y.Array.push expects an array of items
-                getYjsSet()?.push([maybeReference(value, owner.__doc__!)]);
-              });
-              return true;
+            const backingStorage = getBackgingSet();
+            // Already in set - no-op
+            if (backingStorage.has(value)) {
+              return false;
             }
 
-            return false;
+            // For child fields, call requestAdoptionSymbol BEFORE modifying state
+            // This includes cycle detection and will throw if the add would create a cycle
+            if (isChildField) {
+              value?.[requestAdoptionSymbol]?.(owner, key);
+            }
+
+            // Now safe to add to backing set
+            backingStorage.add(value);
+            maybeTransacting(owner.__doc__!, () => {
+              trackModification(self, KEYS_SYMBOL);
+              trackModification(self, ENTRIES_LENGTH_SYMBOL);
+              // Y.Array.push expects an array of items
+              getYjsSet()?.push([maybeReference(value, owner.__doc__!)]);
+            });
+            return true;
           };
         case "clear":
           return () => {
@@ -93,7 +102,8 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
             }
             maybeTransacting(owner.__doc__!, () => {
               getBackgingSet().clear();
-              trackModification(self, ACCESS_ALL_SYMBOL);
+              trackModification(self, KEYS_SYMBOL);
+              trackModification(self, ENTRIES_LENGTH_SYMBOL);
               // Clear parent tracking for all items
               if (isChildField) {
                 for (const item of backingSet) {
@@ -111,7 +121,8 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
 
             const newValuesSet = new Set(newValues);
             maybeTransacting(owner.__doc__, () => {
-              trackModification(self, ACCESS_ALL_SYMBOL);
+              trackModification(self, KEYS_SYMBOL);
+              trackModification(self, ENTRIES_LENGTH_SYMBOL);
               // Clear parent tracking for old items
               if (isChildField) {
                 for (const item of backingSet) {
@@ -157,7 +168,8 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
                 yjsArray.delete(index, 1);
               });
             }
-            trackModification(self, ACCESS_ALL_SYMBOL);
+            trackModification(self, KEYS_SYMBOL);
+            trackModification(self, ENTRIES_LENGTH_SYMBOL);
             return true;
           };
         case "entries":
@@ -191,7 +203,7 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
         case "has":
           return (value: T) => {
             trackAccess(owner, key);
-            trackAccess(self, ACCESS_ALL_SYMBOL);
+            trackAccess(self, KEYS_SYMBOL);
             return getBackgingSet().has(value);
           };
         case "intersection":

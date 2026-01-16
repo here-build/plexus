@@ -7,7 +7,15 @@ import * as Y from "yjs";
 import { clone } from "./clone.js";
 import { deref } from "./deref.js";
 import { documentEntityCaches } from "./entity-cache.js";
+import {
+  PlexusCycleError,
+  PlexusDependencyError,
+  PlexusDocMismatchError,
+  PlexusRootParentError,
+  PlexusSelfAdoptionError,
+} from "./errors.js";
 import { docPlexus } from "./plexus-registry.js";
+import { serializeKey } from "./proxies/materialized-map.js";
 import {
   type AllowedYJSMapKey,
   type AllowedYJSValue,
@@ -18,6 +26,7 @@ import {
   type GenericRecordSchema,
   informAdoptionSymbol,
   informOrphanizationSymbol,
+  type Internals,
   materializationSymbol,
   type ParentReference,
   type PlexusTagContainer,
@@ -28,8 +37,8 @@ import {
   requestEmancipationSymbol,
   requestOrphanizationSymbol,
   type Storageable,
+  validateAdoptionSymbol,
 } from "./proxy-runtime-types.js";
-import { serializeKey } from "./proxies/materialized-map.js";
 import { trackAccess, trackModification } from "./tracking.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { curryMaybeReference, maybeTransacting, never } from "./utils/utils.js";
@@ -84,33 +93,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   // eslint-disable-next-line sonarjs/public-static-readonly
   static modelName: string;
   // here and in other places we're using accessors only to remove elements from enumerable set
-  __internals__:
-    | {
-        isDependency?: false;
-        parent: Parent | null;
-        parentKey: string | null;
-        parentMetadata: string | null;
-        initializationState: Record<
-          string,
-          AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList | undefined
-        >;
-        isWithinYjsModelSeed: boolean;
-        yjsModel?: Y.Map<Y.Map<Storageable> | string | ParentReference>;
-        yjsFieldsMap?: Y.Map<Storageable>;
-        uuid?: string;
-        reference?: ReferenceTuple;
-        backingStorage: Map<string, any>;
-        isDematerialized?: boolean;
-        unobserve?: () => void;
-      }
-    | {
-        isDematerialized?: false;
-        isDependency: true;
-        documentId: string;
-        uuid: string;
-        parent: Parent;
-        reference: [string, string];
-      };
+  __internals__: Internals<Parent>;
   static readonly schema: GenericRecordSchema;
 
   constructor(init: unknown = {}) {
@@ -224,6 +207,51 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     return this.__internals__.parent;
   }
 
+  /**
+   * True if this is the root entity (uuid === "root")
+   */
+  get isRoot(): boolean {
+    return this.uuid === "root";
+  }
+
+  /**
+   * True if entity is materialized but not reachable from root.
+   * Ephemeral (unmaterialized) entities are NOT detached.
+   * Dependency entities are NOT detached.
+   */
+  get isDetached(): boolean {
+    if (!this.__doc__) return false; // Ephemeral
+    if (this.__internals__.isDependency) return false;
+    if (this.isRoot) return false;
+    return this.rootAncestor === null;
+  }
+
+  /**
+   * Walk up parent chain to find root.
+   * Returns root if reachable, null if detached or in cycle.
+   * For root entity, returns this.
+   */
+  get rootAncestor(): PlexusModel<null> | null {
+    if (this.isRoot) return this as unknown as PlexusModel<null>;
+    if (!this.__doc__) return null;
+    if (this.__internals__.isDependency) return null;
+
+    const visited = new Set<PlexusModel>();
+    let current: PlexusModel | null = this as PlexusModel;
+
+    while (current) {
+      if (visited.has(current)) return null; // Cycle detected
+      visited.add(current);
+
+      if (current.uuid === "root") {
+        return current as PlexusModel<null>;
+      }
+      current = current.__internals__.parent;
+    }
+
+    return null; // Orphan
+  }
+
   get documentId(): string | undefined {
     return this.__doc__?.getMap(YJS_GLOBALS.metadata.key).get(YJS_GLOBALS.metadata.wellKnown.documentId) as
       | string
@@ -257,14 +285,38 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     return this.__type__;
   }
 
+  /**
+   * Validates adoption without modifying any state.
+   * All checks that could throw must happen here BEFORE any state modification.
+   * This prevents partial state modification when validation fails.
+   * Uses custom error types with verbose console.error logging.
+   */
+  [validateAdoptionSymbol]<T extends Exclude<Parent, null>>(this: PlexusModel, newParent: T, field: string): void {
+    const internals = this.__internals__;
+
+    PlexusDependencyError.invariant(!internals.isDependency, this, "adopted");
+    PlexusRootParentError.invariant(internals.uuid !== YJS_GLOBALS.models.wellKnown.root, this, newParent);
+    PlexusSelfAdoptionError.invariant(newParent !== this, this, field);
+    for (let cur: PlexusModel | null = newParent; cur; cur = cur.__internals__.parent) {
+      PlexusCycleError.invariant(cur !== this, this, newParent, field, cur);
+    }
+
+    // Check 5: Doc mismatch check
+    PlexusDocMismatchError.invariant(
+      !newParent.__doc__ || !this.__doc__ || newParent.__doc__ === this.__doc__,
+      this,
+      newParent,
+    );
+  }
+
+  /**
+   * Updates parent pointers and YJS state for adoption.
+   * IMPORTANT: Validation must be done via validateAdoptionSymbol BEFORE calling this.
+   * This method assumes all validation has passed and only modifies state.
+   */
   [informAdoptionSymbol]<T extends Exclude<Parent, null>>(newParent: T, field: string, extraFieldMetadata?: string) {
     const internals = this.__internals__;
-    invariant(!internals.isDependency, `Plexus<${this.__type__}#${this.uuid}>: dependency cannot be adopted`);
-    invariant(
-      internals.uuid !== YJS_GLOBALS.models.wellKnown.root || (newParent as PlexusModel) === this,
-      `Plexus<${this.__type__}#root>: root entity cannot have a parent`,
-    );
-
+    PlexusDependencyError.invariant(!internals.isDependency, this, "edited");
     if (
       internals.parent === newParent &&
       internals.parentKey === field &&
@@ -274,13 +326,6 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     }
     if (!internals.yjsModel && newParent.__doc__) {
       this[referenceSymbol](newParent.__doc__);
-    } else {
-      if (newParent.__doc__ && this.__doc__) {
-        invariant(
-          newParent.__doc__ === this.__doc__,
-          `Plexus<${this.__type__}#${this.uuid}>: cannot adopt entity from different doc`,
-        );
-      }
     }
 
     const oldParent = internals.parent;
@@ -303,16 +348,20 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     });
   }
 
+  /**
+   * Requests adoption of this entity by a new parent.
+   * Validates, emancipates from old parent, then adopts to new parent.
+   * CRITICAL: Validation happens BEFORE any state modification to prevent partial state on error.
+   */
   [requestAdoptionSymbol]<T extends Exclude<Parent, null>>(newParent: T, field: string, extraFieldMetadata?: string) {
     const internals = this.__internals__;
-    invariant(!internals.isDependency, `Plexus<${this.__type__}#${this.uuid}>: dependency cannot be adopted`);
-    const parent = this.parent;
-    const oldField = internals.parentKey;
-    const oldExtraFieldMetadata = internals.parentMetadata;
-    this.#emancipate();
-    if (parent === newParent && oldField === field && oldExtraFieldMetadata === extraFieldMetadata) {
+
+    if (this.parent === newParent && internals.parentKey === field && internals.parentMetadata === extraFieldMetadata) {
       return;
     }
+
+    this[validateAdoptionSymbol](newParent, field);
+    this.#emancipate();
     this[informAdoptionSymbol](newParent, field, extraFieldMetadata);
   }
 
@@ -323,7 +372,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
 
   [informOrphanizationSymbol]() {
     const internals = this.__internals__;
-    invariant(!internals.isDependency, `Plexus<${this.__type__}#${this.uuid}>: dependency cannot be orphaned`);
+    PlexusDependencyError.invariant(!internals.isDependency, this, "orphaned");
     internals.parent = null;
     internals.parentKey = null;
     internals.parentMetadata = null;
@@ -339,6 +388,37 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
         });
       }
     }
+  }
+
+  /**
+   * Explicitly detach this entity from its parent.
+   * Removes the entity from its parent's child container and nulls the parent pointer.
+   *
+   * This is useful for operations that need to temporarily disconnect entities,
+   * such as node swapping or restructuring the tree.
+   *
+   * Its primary value is that it allows to not think about "where exactly this parent uses this child" as this
+   * is sometimes quite tricky (and since it's using internal state, it's also faster)
+   *
+   * @returns true if entity was attached and is now detached, false if already detached
+   *
+   * @throws PlexusDependencyError if called on a dependency entity
+   *
+   * @example
+   * ```typescript
+   * // Swap two nodes by detaching first
+   * const wasAttached = nodeB.detach();
+   * if (wasAttached) {
+   *   parent.childVal = nodeA;  // Now safe to replace
+   * }
+   * ```
+   */
+  detach(): boolean {
+    if (this.parent === null) {
+      return false;
+    }
+    this[requestOrphanizationSymbol]();
+    return true;
   }
 
   clone<T extends PlexusModel>(this: T, newProps: Partial<Omit<T, keyof PlexusModel>> = {}): T {
@@ -587,7 +667,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
 
   #emancipate() {
     const internals = this.__internals__;
-    invariant(!internals.isDependency, `Plexus<${this.__type__}#${this.uuid}>: dependency cannot be emancipated`);
+    PlexusDependencyError.invariant(!internals.isDependency, this, "emancipated");
     if (!this.parent) {
       return;
     }

@@ -10,6 +10,7 @@ export const informAdoptionSymbol = Symbol("report parentship change");
 export const informOrphanizationSymbol = Symbol("report orphanage");
 export const requestAdoptionSymbol = Symbol("report parentship change");
 export const requestOrphanizationSymbol = Symbol("report orphanage");
+export const validateAdoptionSymbol = Symbol("validate adoption");
 
 export type ParentReference = [entityId: string, fieldName: string, metadata?: string];
 // New tuple-based references (memory optimized)
@@ -80,3 +81,33 @@ export type ModelStateInit = Record<
 >;
 
 export type GenericRecordSchema = Record<string, `${"child-" | ""}${"val" | "record" | "set" | "list"}` | "map">;
+
+export type Internals<Parent extends PlexusModel | null> =
+  | {
+      isDependency?: false;
+      parent: Parent | null;
+      parentKey: string | null;
+      parentMetadata: string | null;
+      initializationState: Record<
+        string,
+        AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList | undefined
+      >;
+      isWithinYjsModelSeed: boolean;
+      yjsModel?: Y.Map<Y.Map<Storageable> | string | ParentReference>;
+      yjsFieldsMap?: Y.Map<Storageable>;
+      uuid?: string;
+      reference?: ReferenceTuple;
+      backingStorage: Map<string, any>;
+      isDematerialized?: boolean;
+      unobserve?: () => void;
+    }
+  | {
+      isDependency: true;
+      isDematerialized?: false;
+      documentId: string;
+      uuid: string;
+      parent: Parent;
+      reference: [string, string];
+      parentKey: null;
+      parentMetadata: null;
+    };

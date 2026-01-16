@@ -45,6 +45,8 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: ReadonlyDe
             return parentUuid ? defaultedMap.get(parentUuid) : null;
           },
           reference: [documentId, uuid],
+          parentKey: null,
+          parentMetadata: null,
         },
       );
       const cache: Record<string, unknown> = {};

@@ -4,7 +4,14 @@ import { deref } from "../deref.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import { materializationSymbol } from "../proxy-runtime-types.js";
-import { ACCESS_ALL_SYMBOL, ACCESS_INDICES_SET_SYMBOL, trackAccess, trackModification } from "../tracking.js";
+import {
+  ACCESS_ALL_SYMBOL,
+  ENTRIES_LENGTH_SYMBOL,
+  KEYS_SYMBOL,
+  trackAccess,
+  trackModification,
+  VALUES_SYMBOL,
+} from "../tracking.js";
 import { deserializeKey, serializeKey } from "./key-serialization.js";
 import { PathMap } from "./PathMap.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
@@ -46,8 +53,15 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
     if (event.target !== yjsMap || !yjsMap.doc) {
       return;
     }
+
+    let keysChanged = false;
+    let valuesChanged = false;
+
     for (const serializedKey of event.keysChanged) {
-      if (yjsMap.has(serializedKey)) {
+      const hadKeyBefore = serializedToKey.has(serializedKey);
+      const hasKeyNow = yjsMap.has(serializedKey);
+
+      if (hasKeyNow) {
         // Added or updated
         const deserializedKey = deserializeKey(serializedKey, yjsMap.doc) as K;
         const value = deref(yjsMap.doc, yjsMap.get(serializedKey)) as V;
@@ -55,6 +69,11 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         serializedToKey.set(serializedKey, deserializedKey);
         // Use canonical key for tracking (matches what get() uses)
         trackModification(self, backingStorage.getCanonicalKey(deserializedKey));
+
+        if (!hadKeyBefore) {
+          keysChanged = true; // Key was added
+        }
+        valuesChanged = true; // Value was set (added or updated)
       } else {
         // Deleted
         const originalKey = serializedToKey.get(serializedKey);
@@ -64,10 +83,19 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           backingStorage.delete(originalKey);
           serializedToKey.delete(serializedKey);
           trackModification(self, canonicalKey);
+          keysChanged = true; // Key was deleted
+          valuesChanged = true; // Value was removed
         }
       }
     }
-    trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+
+    if (valuesChanged) {
+      trackModification(self, VALUES_SYMBOL);
+    }
+    if (keysChanged) {
+      trackModification(self, KEYS_SYMBOL);
+      trackModification(self, ENTRIES_LENGTH_SYMBOL);
+    }
   };
 
   // Initialize from existing Y.Map if present
@@ -87,7 +115,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
   const mapLike = {
     get size() {
       trackAccess(owner, key);
-      trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
+      trackAccess(self, ENTRIES_LENGTH_SYMBOL);
       return backingStorage.size;
     },
 
@@ -114,8 +142,10 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         }
 
         trackModification(self, backingStorage.getCanonicalKey(mapKey));
+        trackModification(self, VALUES_SYMBOL);
         if (!hadKey) {
-          trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+          trackModification(self, KEYS_SYMBOL);
+          trackModification(self, ENTRIES_LENGTH_SYMBOL);
         }
       });
       return self;
@@ -123,7 +153,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
 
     has(mapKey: K): boolean {
       trackAccess(owner, key);
-      trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
+      trackAccess(self, KEYS_SYMBOL);
       return backingStorage.has(mapKey);
     },
 
@@ -132,6 +162,8 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         return false;
       }
       return maybeTransacting(owner.__doc__, () => {
+        // Get canonical key before delete (delete preserves it as WeakRef)
+        const canonicalKey = backingStorage.getCanonicalKey(mapKey);
         backingStorage.delete(mapKey);
         if (owner.__doc__) {
           const serializedKey = serializeKey(mapKey, owner.__doc__);
@@ -139,8 +171,10 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           getYjsMap()?.delete(serializedKey);
         }
 
-        trackModification(self, backingStorage.getCanonicalKey(mapKey));
-        trackModification(self, ACCESS_INDICES_SET_SYMBOL);
+        trackModification(self, canonicalKey);
+        trackModification(self, VALUES_SYMBOL);
+        trackModification(self, KEYS_SYMBOL);
+        trackModification(self, ENTRIES_LENGTH_SYMBOL);
         return true;
       });
     },
@@ -159,13 +193,13 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
 
     *keys(): MapIterator<K> {
       trackAccess(owner, key);
-      trackAccess(self, ACCESS_INDICES_SET_SYMBOL);
+      trackAccess(self, KEYS_SYMBOL);
       yield* backingStorage.keys();
     },
 
     *values(): MapIterator<V> {
       trackAccess(owner, key);
-      trackAccess(self, ACCESS_ALL_SYMBOL);
+      trackAccess(self, VALUES_SYMBOL);
       yield* backingStorage.values();
     },
 
@@ -190,10 +224,9 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
     [Symbol.toStringTag]: "Map",
 
     // Plexus-specific methods
-    assign(entries: Iterable<[K, V]> | Record<string, V>): void {
+    assign(map: Map<K, V>): void {
       maybeTransacting(owner.__doc__, () => {
-        const iterable =
-          Symbol.iterator in entries ? (entries as Iterable<[K, V]>) : (Object.entries(entries) as Iterable<[K, V]>);
+        const iterable = map.entries();
 
         // Prep new data first (best-effort atomicity)
         const newEntries: [K, V][] = [...iterable];

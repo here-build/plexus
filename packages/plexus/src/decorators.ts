@@ -13,10 +13,10 @@ import {
   type AllowedYJSValue,
   type GenericRecordSchema,
   informAdoptionSymbol,
-  type PlexusMap,
   type PlexusTagContainer,
   requestEmancipationSymbol,
   requestOrphanizationSymbol,
+  validateAdoptionSymbol,
 } from "./proxy-runtime-types.js";
 import { __untracked__, trackAccess, trackModification } from "./tracking.js";
 import { DefaultedMap, DefaultedWeakMap } from "./utils/defaulted-collections.js";
@@ -180,6 +180,16 @@ const setChild = <
   if (storedValue === value) {
     return;
   }
+
+  /**
+   * We're failing early here. We need to understand whether this will crash before we will do any changes.
+   * This mean that we cannot rely on in-motion crashes as state will be mutated already.
+   * So, before any write action we are checking whether it's OK.
+   */
+  if (value instanceof PlexusModel) {
+    value[validateAdoptionSymbol](object, context.name);
+  }
+
   maybeTransacting(object.__doc__, () => {
     storedValue?.[requestOrphanizationSymbol]?.();
     // old: orphan inside storage, new: attached to old parent
@@ -250,7 +260,7 @@ const createHandlers = <
     | Set<AllowedYJSValue>
     | AllowedYJSValue[]
     | Record<string, AllowedYJSValue>
-    | PlexusMap<AllowedYJSMapKey, AllowedYJSValue>,
+    | Map<AllowedYJSMapKey, AllowedYJSValue>,
   Context extends ClassAccessorDecoratorContext<Model, T> & { name: string } = ClassAccessorDecoratorContext<
     Model,
     T
@@ -494,6 +504,18 @@ const buildDecorator = <MappingType extends keyof Mapping<any>>(kind: GenericRec
     return createHandlers<Model, Struct>(context);
   };
 
+/**
+ * This type basically says: (types logic is inverted, obviously)
+ * "If you're using child field - you know what the hell you are doing".
+ * Its logic is following:
+ * - if it's primitives only, you do not need children
+ * - if it's mixed primitives and models, it's ok, let's extract models specifically to look at them
+ * - now let's look who's parent of field you passed
+ * - if it's default value (any), then it's allowed value. We're not forcing for children declaration hard - sometimes it's not needed
+ * - but if you decided to annotate the parent, you better make sure that it's including this specific parent
+ *
+ * this enables optional type-level schema validation of child-parent relations
+ */
 type PreDiscriminateValue<
   MappingType extends keyof Mapping<any>,
   T extends Mapping<AllowedPrimitive | PlexusModel>[MappingType],
@@ -558,8 +580,8 @@ function plexusMapDecorator<
   FieldValueKey extends AllowedYJSMapKey,
   FieldValue extends AllowedYJSValue,
 >(
-  target: ClassAccessorDecoratorTarget<Model, PlexusMap<FieldValueKey, FieldValue>>,
-  context: ClassAccessorDecoratorContext<Model, PlexusMap<FieldValueKey, FieldValue>> & { name: string },
+  target: ClassAccessorDecoratorTarget<Model, Map<FieldValueKey, FieldValue>>,
+  context: ClassAccessorDecoratorContext<Model, Map<FieldValueKey, FieldValue>> & { name: string },
 ) {
   if (!Object.hasOwn(context.metadata, "schema")) {
     context.metadata.schema = {
@@ -567,7 +589,7 @@ function plexusMapDecorator<
     };
   }
   (context.metadata.schema as GenericRecordSchema)[context.name] = "map";
-  return createHandlers<Model, PlexusMap<FieldValueKey, FieldValue>>(context);
+  return createHandlers<Model, Map<FieldValueKey, FieldValue>>(context);
 }
 
 export const syncing = Object.assign(syncingDecorator, {

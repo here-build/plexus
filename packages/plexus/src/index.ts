@@ -25,11 +25,7 @@ export * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 
 // Plexus document orchestration
 export * from "./Plexus.js";
-export { docPlexus } from "./plexus-registry.js";
+export * from "./plexus-registry.js";
 
-// Utilities
-export { deref } from "./deref.js";
-export { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
-
-// Tree walking
-export { walk, walkChildren, type WalkContext, type Visitor, type Visitors } from "./walk.js";
+// Tree walking (traverser) and visiting (value-producing)
+export * from "./walk.js";

@@ -114,6 +114,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: ReadonlyDe
                   },
                 ];
               case "map":
+              case "child-map":
                 return [
                   key,
                   {

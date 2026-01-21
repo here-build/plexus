@@ -87,6 +87,24 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
               ]),
             );
             break;
+          case "child-map": {
+            const sourceMap = fieldValue as Map<AllowedYJSMapKey, AllowedYJSValue>;
+            const clonedEntries: [AllowedYJSMapKey, AllowedYJSValue][] = [];
+            for (const [key, value] of sourceMap.entries()) {
+              const clonedValue = value instanceof PlexusModel ? value.clone() : value;
+              let clonedKey: AllowedYJSMapKey;
+              if (key instanceof Set) {
+                clonedKey = new Set([...key].map((item) => (item instanceof PlexusModel ? item.clone() : item)));
+              } else if (Array.isArray(key)) {
+                clonedKey = key.map((item) => (item instanceof PlexusModel ? item.clone() : item));
+              } else {
+                clonedKey = key instanceof PlexusModel ? key.clone() : key;
+              }
+              clonedEntries.push([clonedKey, clonedValue]);
+            }
+            clonedModel[fieldKey] = new Map(clonedEntries);
+            break;
+          }
         }
       });
     }

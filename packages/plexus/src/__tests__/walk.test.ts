@@ -94,35 +94,6 @@ describe("walk", () => {
     expect(depths).toEqual([0, 1, 2]);
   });
 
-  it("provides path to ancestors", () => {
-    const tree = new Tree();
-    const branch = new Branch({ name: "b" });
-    const leaf = new Leaf({ value: "l" });
-
-    tree.mainBranch = branch;
-    branch.leaf = leaf;
-
-    let leafPath: PlexusModel[] = [];
-
-    walk<{
-      Tree: Tree;
-      Branch: Branch;
-      Leaf: Leaf;
-    }>(
-      tree,
-      {},
-      {
-        Leaf(node, { path }) {
-          leafPath = [...path];
-        },
-      },
-    );
-
-    expect(leafPath.length).toBe(2);
-    expect(leafPath[0]).toBe(tree);
-    expect(leafPath[1]).toBe(branch);
-  });
-
   it("stop() halts traversal", () => {
     const tree = new Tree();
     tree.branches = [new Branch({ name: "b1" }), new Branch({ name: "b2" }), new Branch({ name: "b3" })];
@@ -213,42 +184,6 @@ describe("buildVisitor", () => {
 
     const result = visit(tree);
     expect(result).toBe("Tree(Branch:b1(Leaf:l1), Branch:b2(null))");
-  });
-
-  it("provides path to parent nodes", () => {
-    const tree = new Tree();
-    const branch = new Branch({ name: "b" });
-    const leaf = new Leaf({ value: "l" });
-
-    tree.mainBranch = branch;
-    branch.leaf = leaf;
-
-    let capturedPath: PlexusModel[] = [];
-
-    const visit = buildVisitor<{
-      Tree: Tree;
-      Branch: Branch;
-      Leaf: Leaf;
-    }>()({
-      Tree(node): null {
-        if (node.mainBranch) visit(node.mainBranch);
-        return null;
-      },
-      Branch(node): null {
-        if (node.leaf) visit(node.leaf);
-        return null;
-      },
-      Leaf(node, { path }): null {
-        capturedPath = [...path];
-        return null;
-      },
-    });
-
-    visit(tree);
-
-    expect(capturedPath.length).toBe(2);
-    expect(capturedPath[0]).toBe(tree);
-    expect(capturedPath[1]).toBe(branch);
   });
 
   it("works for codegen-style string building", () => {

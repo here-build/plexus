@@ -888,4 +888,161 @@ describe("array field (@syncing.list)", () => {
       expect(originalB.parent).toBe(null);
     });
   });
+
+  describe("State consistency on failed adoption", () => {
+    // Tests that verify state isn't corrupted when adoption throws (cycle error)
+    // This was a bug where orphaning/removal happened BEFORE validation
+
+    it("push: should not remove reused elements when new element adoption fails", () => {
+      @syncing
+      class PushTreeNode extends PlexusModel {
+        @syncing accessor name!: string;
+        @syncing.child.list accessor children!: PushTreeNode[];
+      }
+
+      const grandchild = new PushTreeNode({ name: "grandchild", children: [] });
+      const child = new PushTreeNode({ name: "child", children: [grandchild] });
+      const rootNode = new PushTreeNode({ name: "root", children: [child] });
+
+      const { root } = initTestPlexus(rootNode);
+      const childNode = root.children[0];
+      const grandchildNode = childNode.children[0];
+
+      // Simplified: grandchild's array trying to push childNode (its ancestor)
+      expect(() => {
+        grandchildNode.children.push(childNode);
+      }).toThrow(/would create cycle/i);
+
+      // Hierarchy should be unchanged
+      expect(childNode.parent).toBe(root);
+      expect(grandchildNode.parent).toBe(childNode);
+      expect(childNode.children[0]).toBe(grandchildNode);
+    });
+
+    it("push: should preserve array state when pushing cycle-causing element with reused element", () => {
+      @syncing
+      class PushReuseTreeNode extends PlexusModel {
+        @syncing accessor name!: string;
+        @syncing.child.list accessor children!: PushReuseTreeNode[];
+      }
+
+      // Build: root -> parent (has [item1, item2, item3])
+      //                    -> child (empty, will try to push parent with reuse of item1)
+      const item1 = new PushReuseTreeNode({ name: "item1", children: [] });
+      const item2 = new PushReuseTreeNode({ name: "item2", children: [] });
+      const item3 = new PushReuseTreeNode({ name: "item3", children: [] });
+      const child = new PushReuseTreeNode({ name: "child", children: [] });
+      const parent = new PushReuseTreeNode({ name: "parent", children: [item1, item2, item3, child] });
+      const rootNode = new PushReuseTreeNode({ name: "root", children: [parent] });
+
+      const { root } = initTestPlexus(rootNode);
+      const parentNode = root.children[0];
+      const childNode = parentNode.children[3];
+      const item1Node = parentNode.children[0];
+      const item2Node = parentNode.children[1];
+
+      // child tries to push parent (its ancestor) - would create cycle
+      expect(() => {
+        childNode.children.push(parentNode);
+      }).toThrow(/would create cycle/i);
+
+      // All items should still be properly parented
+      expect(item1Node.parent).toBe(parentNode);
+      expect(item2Node.parent).toBe(parentNode);
+      expect(childNode.parent).toBe(parentNode);
+      expect(parentNode.children.length).toBe(4);
+    });
+
+    it("unshift: should not corrupt array when adoption fails", () => {
+      @syncing
+      class UnshiftTreeNode extends PlexusModel {
+        @syncing accessor name!: string;
+        @syncing.child.list accessor children!: UnshiftTreeNode[];
+      }
+
+      const grandchild = new UnshiftTreeNode({ name: "grandchild", children: [] });
+      const child = new UnshiftTreeNode({ name: "child", children: [grandchild] });
+      const rootNode = new UnshiftTreeNode({ name: "root", children: [child] });
+
+      const { root } = initTestPlexus(rootNode);
+      const childNode = root.children[0];
+      const grandchildNode = childNode.children[0];
+
+      // grandchild tries to unshift childNode (its ancestor)
+      expect(() => {
+        grandchildNode.children.unshift(childNode);
+      }).toThrow(/would create cycle/i);
+
+      // Hierarchy should be unchanged
+      expect(childNode.parent).toBe(root);
+      expect(grandchildNode.parent).toBe(childNode);
+      expect(grandchildNode.children.length).toBe(0);
+    });
+
+    it("assign: should not orphan existing items when new items adoption fails", () => {
+      @syncing
+      class AssignTreeNode extends PlexusModel {
+        @syncing accessor name!: string;
+        @syncing.child.list accessor children!: AssignTreeNode[];
+      }
+
+      // Create hierarchy: root -> child -> grandchild -> [item1, item2]
+      const item1 = new AssignTreeNode({ name: "item1", children: [] });
+      const item2 = new AssignTreeNode({ name: "item2", children: [] });
+      const grandchild = new AssignTreeNode({ name: "grandchild", children: [item1, item2] });
+      const child = new AssignTreeNode({ name: "child", children: [grandchild] });
+      const rootNode = new AssignTreeNode({ name: "root", children: [child] });
+
+      const { root } = initTestPlexus(rootNode);
+      const childNode = root.children[0];
+      const grandchildNode = childNode.children[0];
+      const item1Node = grandchildNode.children[0];
+      const item2Node = grandchildNode.children[1];
+      const newItem = new AssignTreeNode({ name: "new", children: [] });
+
+      // grandchild tries to assign array including child (its ancestor) - would create cycle
+      expect(() => {
+        grandchildNode.children = [newItem, childNode];
+      }).toThrow(/would create cycle/i);
+
+      // Original items should still be properly parented to grandchild
+      expect(item1Node.parent).toBe(grandchildNode);
+      expect(item2Node.parent).toBe(grandchildNode);
+      expect(grandchildNode.children.length).toBe(2);
+      expect(grandchildNode.children[0]).toBe(item1Node);
+      expect(grandchildNode.children[1]).toBe(item2Node);
+      // newItem should not have been adopted
+      expect(newItem.parent).toBeNull();
+      // childNode should still be parented to root
+      expect(childNode.parent).toBe(root);
+    });
+
+    it("index assignment: should not orphan existing item when replacement adoption fails", () => {
+      @syncing
+      class IndexTreeNode extends PlexusModel {
+        @syncing accessor name!: string;
+        @syncing.child.list accessor children!: IndexTreeNode[];
+      }
+
+      const existingChild = new IndexTreeNode({ name: "existing", children: [] });
+      const grandchild = new IndexTreeNode({ name: "grandchild", children: [existingChild] });
+      const child = new IndexTreeNode({ name: "child", children: [grandchild] });
+      const rootNode = new IndexTreeNode({ name: "root", children: [child] });
+
+      const { root } = initTestPlexus(rootNode);
+      const childNode = root.children[0];
+      const grandchildNode = childNode.children[0];
+      const existingNode = grandchildNode.children[0];
+
+      // Try to replace existingChild with childNode (ancestor) - would create cycle
+      expect(() => {
+        grandchildNode.children[0] = childNode;
+      }).toThrow(/would create cycle/i);
+
+      // existingChild should still be in place
+      expect(grandchildNode.children[0]).toBe(existingNode);
+      expect(existingNode.parent).toBe(grandchildNode);
+      expect(grandchildNode.parent).toBe(childNode);
+    });
+  });
 });

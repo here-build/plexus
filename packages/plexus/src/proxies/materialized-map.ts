@@ -3,7 +3,14 @@ import * as Y from "yjs";
 import { deref } from "../deref.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
-import { materializationSymbol } from "../proxy-runtime-types.js";
+import {
+  informAdoptionSymbol,
+  informOrphanizationSymbol,
+  materializationSymbol,
+  requestAdoptionSymbol,
+  requestOrphanizationSymbol,
+  validateAdoptionSymbol,
+} from "../proxy-runtime-types.js";
 import {
   ACCESS_ALL_SYMBOL,
   ENTRIES_LENGTH_SYMBOL,
@@ -23,11 +30,13 @@ export { serializeKey } from "./key-serialization.js";
 export type MaterializedMapProxyInitTarget = {
   owner: PlexusModel;
   key: string;
+  isChildField?: boolean;
 };
 
 export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSValue>({
   owner,
   key,
+  isChildField,
 }: MaterializedMapProxyInitTarget) => {
   const getYjsMap = () => {
     const yjsMap = owner.__yjsFieldsMap__?.get(key) as Y.Map<AllowedYValue> | null;
@@ -65,6 +74,18 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         // Added or updated
         const deserializedKey = deserializeKey(serializedKey, yjsMap.doc) as K;
         const value = deref(yjsMap.doc, yjsMap.get(serializedKey)) as V;
+
+        // Handle child tracking for remote changes
+        if (isChildField) {
+          // Orphan the old value if being replaced
+          if (hadKeyBefore) {
+            const oldValue = backingStorage.get(deserializedKey);
+            oldValue?.[informOrphanizationSymbol]?.();
+          }
+          // Adopt the new value (use inform since remote changes can't be rejected)
+          value?.[informAdoptionSymbol]?.(owner, key, serializedKey);
+        }
+
         backingStorage.set(deserializedKey, value);
         serializedToKey.set(serializedKey, deserializedKey);
         // Use canonical key for tracking (matches what get() uses)
@@ -78,6 +99,12 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         // Deleted
         const originalKey = serializedToKey.get(serializedKey);
         if (originalKey) {
+          // Handle child tracking for remote deletions
+          if (isChildField) {
+            const oldValue = backingStorage.get(originalKey);
+            oldValue?.[informOrphanizationSymbol]?.();
+          }
+
           // Get canonical key before delete (delete preserves it as WeakRef)
           const canonicalKey = backingStorage.getCanonicalKey(originalKey);
           backingStorage.delete(originalKey);
@@ -131,6 +158,19 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       }
       maybeTransacting(owner.__doc__, () => {
         const hadKey = backingStorage.has(mapKey);
+
+        // Handle child tracking - VALIDATE FIRST, then orphan old value, adopt new value
+        if (isChildField) {
+          const serializedSubKey = owner.__doc__ ? serializeKey(mapKey, owner.__doc__) : String(mapKey);
+          // Validate adoption BEFORE any state changes (throws on cycle)
+          value?.[validateAdoptionSymbol]?.(owner, key, serializedSubKey);
+
+          // Now safe to orphan old value and adopt new one
+          const oldValue = backingStorage.get(mapKey);
+          oldValue?.[requestOrphanizationSymbol]?.();
+          value?.[requestAdoptionSymbol]?.(owner, key, serializedSubKey);
+        }
+
         backingStorage.set(mapKey, value);
 
         // Write to Y.Map if connected
@@ -162,6 +202,12 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         return false;
       }
       return maybeTransacting(owner.__doc__, () => {
+        // Handle child tracking - orphan the value being deleted
+        if (isChildField) {
+          const oldValue = backingStorage.get(mapKey);
+          oldValue?.[informOrphanizationSymbol]?.();
+        }
+
         // Get canonical key before delete (delete preserves it as WeakRef)
         const canonicalKey = backingStorage.getCanonicalKey(mapKey);
         backingStorage.delete(mapKey);
@@ -184,6 +230,13 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         return;
       }
       maybeTransacting(owner.__doc__, () => {
+        // Handle child tracking - orphan all values
+        if (isChildField) {
+          for (const value of backingStorage.values()) {
+            value?.[informOrphanizationSymbol]?.();
+          }
+        }
+
         backingStorage.clear();
         serializedToKey.clear();
         getYjsMap()?.clear();
@@ -230,6 +283,29 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
 
         // Prep new data first (best-effort atomicity)
         const newEntries: [K, V][] = [...iterable];
+
+        // For child fields, calculate what needs to be adopted/orphaned
+        // and VALIDATE all adoptions BEFORE any state changes
+        const oldValueSet = new Set(backingStorage.values());
+        const newValueSet = new Set(newEntries.map(([_, v]) => v));
+
+        if (isChildField) {
+          // VALIDATE FIRST: Check all truly new values can be adopted
+          for (const [k, v] of newEntries) {
+            if (v && !oldValueSet.has(v)) {
+              const serializedSubKey = owner.__doc__ ? serializeKey(k, owner.__doc__) : String(k);
+              v[validateAdoptionSymbol]?.(owner, key, serializedSubKey);
+            }
+          }
+
+          // Now safe to orphan values that aren't in the new set
+          for (const value of oldValueSet) {
+            if (value && !newValueSet.has(value)) {
+              value[informOrphanizationSymbol]?.();
+            }
+          }
+        }
+
         const newSerializedEntries: [string, K, AllowedYValue][] = [];
         const yjsMap = getYjsMap();
         if (yjsMap && owner.__doc__) {
@@ -251,6 +327,16 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           yjsMap?.set(serializedKey, yjsValue);
         }
 
+        // Handle child tracking - adopt all truly new values
+        if (isChildField) {
+          for (const [serializedKey, k] of newSerializedEntries) {
+            const v = backingStorage.get(k);
+            if (v && !oldValueSet.has(v)) {
+              v[requestAdoptionSymbol]?.(owner, key, serializedKey);
+            }
+          }
+        }
+
         trackModification(self, ACCESS_ALL_SYMBOL);
       });
     },
@@ -264,8 +350,14 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
 
       for (const [serializedKey, v] of map.entries()) {
         const deserializedKey = deserializeKey(serializedKey, map.doc) as K;
-        backingStorage.set(deserializedKey, deref(map.doc!, v) as V);
+        const value = deref(map.doc!, v) as V;
+        backingStorage.set(deserializedKey, value);
         serializedToKey.set(serializedKey, deserializedKey);
+
+        // Adopt children during materialization
+        if (isChildField) {
+          value?.[informAdoptionSymbol]?.(owner, key, serializedKey);
+        }
       }
 
       map.observe(observer);

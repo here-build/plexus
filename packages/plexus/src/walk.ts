@@ -126,6 +126,14 @@ export function walkChildren<State>(
           }
         }
         break;
+
+      case "child-map":
+        for (const item of (value as Map<unknown, unknown>).values()) {
+          if (isPlexusModel(item)) {
+            visit(item, path, state);
+          }
+        }
+        break;
     }
   }
 }

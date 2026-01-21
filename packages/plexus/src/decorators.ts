@@ -245,7 +245,8 @@ const createBackingStructuresMap = new DefaultedMap((key: string) => ({
   "child-record": new DefaultedWeakMap((owner: PlexusModel) => buildRecordProxy({ owner, key, isChildField: true })),
   list: new DefaultedWeakMap((owner: PlexusModel) => buildArrayProxy({ owner, key, isChildField: false })),
   "child-list": new DefaultedWeakMap((owner: PlexusModel) => buildArrayProxy({ owner, key, isChildField: true })),
-  map: new DefaultedWeakMap((owner: PlexusModel) => buildMapProxy({ owner, key })),
+  map: new DefaultedWeakMap((owner: PlexusModel) => buildMapProxy({ owner, key, isChildField: false })),
+  "child-map": new DefaultedWeakMap((owner: PlexusModel) => buildMapProxy({ owner, key, isChildField: true })),
 }));
 
 const emptyEphemeralDependency = new DefaultedWeakMap(() => Object.freeze({}));
@@ -592,11 +593,74 @@ function plexusMapDecorator<
   return createHandlers<Model, Map<FieldValueKey, FieldValue>>(context);
 }
 
+/**
+ * Pre-discrimination for map values.
+ * Checks if V can be a child of Parent - returns V if valid, never if not.
+ *
+ * Logic (same as PreDiscriminateValue but for raw value type, not Mapping):
+ * - Extract PlexusModel from V (might be V itself or part of union)
+ * - If no PlexusModel in V, return never (child fields require model values)
+ * - If PlexusModel has `any` parent (unspecified), allow it
+ * - If PlexusModel's declared parent includes this Parent, allow it
+ * - Otherwise, return never
+ */
+type PreDiscriminateMapValue<V extends AllowedYJSValue, Parent extends PlexusModel> =
+  Extract<V, PlexusModel> extends PlexusModel<infer ActualParent extends PlexusModel>
+    ? any extends ActualParent
+      ? V
+      : Parent extends Extract<ActualParent, Parent>
+        ? V
+        : never
+    : never;
+
+/**
+ * Full discrimination for map values with fallback.
+ * If PreDiscriminateMapValue returns never (invalid parent relationship),
+ * falls back to a correctly-constrained type instead of just failing.
+ */
+type DiscriminateMapValue<V extends AllowedYJSValue, Parent extends PlexusModel> =
+  PreDiscriminateMapValue<V, Parent> extends never
+    ? AllowedPrimitive | PlexusModel<Parent>
+    : PreDiscriminateMapValue<V, Parent>;
+
+type MapKey<T extends Map<any, any>> =
+  T extends Map<infer K, any>
+    ?
+        | (Extract<K, Set<AllowedYJSValue>> extends Set<AllowedYJSValue> ? K : never)
+        | (Extract<K, Array<AllowedYJSValue>> extends Array<AllowedYJSValue> ? K : never)
+        | (Extract<K, AllowedYJSValue> extends AllowedYJSValue ? K : never)
+    : never;
+
+type MapValue<T extends Map<any, any>> = T extends Map<any, infer K> ? Extract<K, AllowedYJSValue> : never;
+type DiscriminateMap<Field extends Map<any, any>, Parent extends PlexusModel> = Map<
+  MapKey<Field>,
+  DiscriminateMapValue<MapValue<Field>, Parent>
+>;
+/**
+ * Specialized decorator for Map fields where values are tracked as children.
+ * Provides parent-child ownership tracking for map values.
+ */
+function plexusChildMapDecorator<Model extends PlexusModel, Field extends Map<any, any>>(
+  target: ClassAccessorDecoratorTarget<Model, Field>,
+  context: ClassAccessorDecoratorContext<Model, DiscriminateMap<Field, Model>> & {
+    name: string;
+  },
+) {
+  if (!Object.hasOwn(context.metadata, "schema")) {
+    context.metadata.schema = {
+      __proto__: context.metadata.schema ?? {},
+    };
+  }
+  (context.metadata.schema as GenericRecordSchema)[context.name] = "child-map";
+  return createHandlers<Model, DiscriminateMap<Field, Model>>(context);
+}
+
 export const syncing = Object.assign(syncingDecorator, {
   child: Object.assign(buildDiscriminatingDecorator<"identity">("child-val"), {
     record: buildDiscriminatingDecorator<"record">("child-record"),
     set: buildDiscriminatingDecorator<"set">("child-set"),
     list: buildDiscriminatingDecorator<"list">("child-list"),
+    map: plexusChildMapDecorator,
   }),
   record: buildDecorator<"record">("record"),
   set: buildDecorator<"set">("set"),

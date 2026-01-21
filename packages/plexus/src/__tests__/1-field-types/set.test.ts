@@ -303,4 +303,143 @@ describe("Set Proxy Implementation", () => {
       expect(model.components.has(comp1)).toBe(true);
     });
   });
+
+  describe("Child Set (@syncing.child.set)", () => {
+    @syncing
+    class SetTreeNode extends PlexusModel {
+      @syncing accessor name!: string;
+      @syncing.child.set accessor children!: Set<SetTreeNode>;
+    }
+
+    describe("Basic operations", () => {
+      it("should add and track children", () => {
+        const child1 = new SetTreeNode({ name: "child1", children: new Set() });
+        const child2 = new SetTreeNode({ name: "child2", children: new Set() });
+        const rootNode = new SetTreeNode({ name: "root", children: new Set([child1, child2]) });
+
+        const { root } = initTestPlexus(rootNode);
+        expect(root.children.size).toBe(2);
+        expect(root.children.has(child1)).toBe(true);
+        expect(root.children.has(child2)).toBe(true);
+
+        // Children should know their parent
+        expect(child1.parent).toBe(root);
+        expect(child2.parent).toBe(root);
+      });
+
+      it("should orphan children on delete", () => {
+        const child = new SetTreeNode({ name: "child", children: new Set() });
+        const rootNode = new SetTreeNode({ name: "root", children: new Set([child]) });
+
+        const { root } = initTestPlexus(rootNode);
+        expect(child.parent).toBe(root);
+
+        root.children.delete(child);
+        expect(child.parent).toBeNull();
+        expect(root.children.size).toBe(0);
+      });
+
+      it("should orphan all children on clear", () => {
+        const child1 = new SetTreeNode({ name: "child1", children: new Set() });
+        const child2 = new SetTreeNode({ name: "child2", children: new Set() });
+        const rootNode = new SetTreeNode({ name: "root", children: new Set([child1, child2]) });
+
+        const { root } = initTestPlexus(rootNode);
+        root.children.clear();
+
+        expect(child1.parent).toBeNull();
+        expect(child2.parent).toBeNull();
+        expect(root.children.size).toBe(0);
+      });
+
+      it("should detect cycles on add", () => {
+        const grandchild = new SetTreeNode({ name: "grandchild", children: new Set() });
+        const child = new SetTreeNode({ name: "child", children: new Set([grandchild]) });
+        const rootNode = new SetTreeNode({ name: "root", children: new Set([child]) });
+
+        const { root } = initTestPlexus(rootNode);
+        const childNode = [...root.children][0];
+        const grandchildNode = [...childNode.children][0];
+
+        // grandchild tries to add child (its ancestor) - would create cycle
+        expect(() => {
+          grandchildNode.children.add(childNode);
+        }).toThrow(/would create cycle/i);
+      });
+    });
+
+    describe("State consistency on failed adoption", () => {
+      it("add: should not corrupt state when adoption fails", () => {
+        const grandchild = new SetTreeNode({ name: "grandchild", children: new Set() });
+        const child = new SetTreeNode({ name: "child", children: new Set([grandchild]) });
+        const rootNode = new SetTreeNode({ name: "root", children: new Set([child]) });
+
+        const { root } = initTestPlexus(rootNode);
+        const childNode = [...root.children][0];
+        const grandchildNode = [...childNode.children][0];
+
+        // grandchild tries to add child (its ancestor) - would create cycle
+        expect(() => {
+          grandchildNode.children.add(childNode);
+        }).toThrow(/would create cycle/i);
+
+        // State should be unchanged
+        expect(grandchildNode.children.size).toBe(0);
+        expect(childNode.parent).toBe(root);
+        expect(grandchildNode.parent).toBe(childNode);
+      });
+
+      it("assign: should not orphan existing items when new items adoption fails", () => {
+        const item1 = new SetTreeNode({ name: "item1", children: new Set() });
+        const item2 = new SetTreeNode({ name: "item2", children: new Set() });
+        const grandchild = new SetTreeNode({ name: "grandchild", children: new Set([item1, item2]) });
+        const child = new SetTreeNode({ name: "child", children: new Set([grandchild]) });
+        const rootNode = new SetTreeNode({ name: "root", children: new Set([child]) });
+
+        const { root } = initTestPlexus(rootNode);
+        const childNode = [...root.children][0];
+        const grandchildNode = [...childNode.children][0];
+        const item1Node = [...grandchildNode.children].find((c) => c.name === "item1")!;
+        const item2Node = [...grandchildNode.children].find((c) => c.name === "item2")!;
+        const newItem = new SetTreeNode({ name: "new", children: new Set() });
+
+        // grandchild tries to assign including child (its ancestor) - would create cycle
+        expect(() => {
+          grandchildNode.children = new Set([newItem, childNode]);
+        }).toThrow(/would create cycle/i);
+
+        // Original items should still be properly parented
+        expect(item1Node.parent).toBe(grandchildNode);
+        expect(item2Node.parent).toBe(grandchildNode);
+        expect(grandchildNode.children.size).toBe(2);
+        expect(grandchildNode.children.has(item1Node)).toBe(true);
+        expect(grandchildNode.children.has(item2Node)).toBe(true);
+        // newItem should not have been adopted
+        expect(newItem.parent).toBeNull();
+        // childNode should still be parented to root
+        expect(childNode.parent).toBe(root);
+      });
+
+      it("assign: should preserve state when valid item in batch but invalid item throws", () => {
+        const grandchild = new SetTreeNode({ name: "grandchild", children: new Set() });
+        const child = new SetTreeNode({ name: "child", children: new Set([grandchild]) });
+        const rootNode = new SetTreeNode({ name: "root", children: new Set([child]) });
+
+        const { root } = initTestPlexus(rootNode);
+        const childNode = [...root.children][0];
+        const grandchildNode = [...childNode.children][0];
+        const validItem = new SetTreeNode({ name: "valid", children: new Set() });
+
+        // Try to assign one valid item and one invalid (ancestor)
+        expect(() => {
+          grandchildNode.children = new Set([validItem, childNode]);
+        }).toThrow(/would create cycle/i);
+
+        // Neither item should have been added
+        expect(grandchildNode.children.size).toBe(0);
+        expect(validItem.parent).toBeNull();
+        expect(childNode.parent).toBe(root);
+      });
+    });
+  });
 });

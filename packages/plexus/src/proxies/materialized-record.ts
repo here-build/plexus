@@ -9,6 +9,7 @@ import {
   materializationSymbol,
   requestAdoptionSymbol,
   requestOrphanizationSymbol,
+  validateAdoptionSymbol,
 } from "../proxy-runtime-types.js";
 import { ACCESS_ALL_SYMBOL, ENTRIES_LENGTH_SYMBOL, KEYS_SYMBOL, trackAccess, trackModification } from "../tracking.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
@@ -95,30 +96,47 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
         case "assign":
           return (newEntries: Record<string, AllowedYJSValue> | Iterable<[string, AllowedYJSValue]>) => {
             maybeTransacting(owner.__doc__, () => {
-              // Clear parent tracking for all old values
+              // Convert to array for multiple iterations
+              const entriesArray: [string, AllowedYJSValue][] = [
+                ...(Symbol.iterator in newEntries ? newEntries : Object.entries(newEntries)),
+              ];
+
+              // For child fields, calculate what needs to be adopted/orphaned
+              // and VALIDATE all adoptions BEFORE any state changes
+              const oldValueSet = new Set(Object.values(proxyTarget));
+              const newValueSet = new Set(entriesArray.map(([_, v]) => v));
+
               if (isChildField) {
-                for (const value of Object.values(proxyTarget)) {
-                  // todo this may be actually redundantly emitting orphanisations - we need real diffs
-                  value?.[informOrphanizationSymbol]?.();
+                // VALIDATE FIRST: Check all truly new values can be adopted
+                for (const [k, v] of entriesArray) {
+                  if (v && !oldValueSet.has(v as any)) {
+                    v[validateAdoptionSymbol]?.(owner, key, k);
+                  }
+                }
+
+                // Now safe to orphan values that aren't in the new set
+                for (const value of oldValueSet) {
+                  if (value && !newValueSet.has(value)) {
+                    value[informOrphanizationSymbol]?.();
+                  }
                 }
               }
 
-              for (const key of Object.keys(proxyTarget)) {
-                delete proxyTarget[key];
+              for (const k of Object.keys(proxyTarget)) {
+                delete proxyTarget[k];
               }
-              Object.assign(proxyTarget, newEntries);
+              Object.assign(proxyTarget, Object.fromEntries(entriesArray));
 
               const map = getYjsMap();
               map?.clear();
 
               trackModification(self, ACCESS_ALL_SYMBOL);
-              if (isChildField || map) {
-                for (const [k, v] of Symbol.iterator in newEntries ? newEntries : Object.entries(newEntries)) {
-                  if (isChildField) {
-                    v?.[requestAdoptionSymbol]?.(owner, key, k);
-                  }
-                  map?.set(k, maybeReference(v, owner.__doc__!));
+              for (const [k, v] of entriesArray) {
+                // Adopt truly new values
+                if (isChildField && v && !oldValueSet.has(v as any)) {
+                  v[requestAdoptionSymbol]?.(owner, key, k);
                 }
+                map?.set(k, maybeReference(v, owner.__doc__!));
               }
             });
           };
@@ -177,7 +195,9 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
             trackModification(self, ENTRIES_LENGTH_SYMBOL);
           }
           if (isChildField) {
-            // Handle parent tracking for child fields. Clear parent tracking for old value if it exists
+            // VALIDATE FIRST before any state changes (throws on cycle)
+            value?.[validateAdoptionSymbol]?.(owner, key, elementKey);
+            // Now safe to orphan old value and adopt new one
             proxyTarget[elementKey]?.[requestOrphanizationSymbol]?.();
             value?.[requestAdoptionSymbol]?.(owner, key, elementKey);
           }

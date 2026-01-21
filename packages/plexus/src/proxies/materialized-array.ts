@@ -228,7 +228,12 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   }
                 }
 
-                // Remove reused elements from their old positions (in reverse order)
+                // VALIDATE FIRST: Check all new elements can be adopted before any state changes
+                for (const element of newElements) {
+                  element?.[validateAdoptionSymbol]?.(owner, key);
+                }
+
+                // Now safe to remove reused elements from their old positions (in reverse order)
                 reusedIndices.sort((a, b) => b - a);
                 for (const index of reusedIndices) {
                   backingArray.splice(index, 1);
@@ -280,6 +285,12 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   }
                 }
 
+                // VALIDATE FIRST: Check all new elements can be adopted before any state changes
+                for (const element of newElements) {
+                  element?.[validateAdoptionSymbol]?.(owner, key);
+                }
+
+                // Now safe to remove reused elements from their old positions
                 reusedIndices.sort((a, b) => b - a);
                 for (const index of reusedIndices) {
                   backingArray.splice(index, 1);
@@ -582,9 +593,16 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 // Validate that newElements doesn't contain duplicates
                 PlexusDuplicateChildError.uniquenessInvariant(newElements, owner, key, "assign");
 
-                // Clear parent tracking for old items
+                // Calculate what needs to be added/removed
                 const removedItems = setDifference(new Set(backingArray), new Set(newElements));
                 const addedItems = setDifference(new Set(newElements), new Set(backingArray));
+
+                // VALIDATE FIRST: Check all added items can be adopted before any state changes
+                for (const item of addedItems) {
+                  item?.[validateAdoptionSymbol]?.(owner, key);
+                }
+
+                // Now safe to orphan removed items and adopt added items
                 for (const item of removedItems) {
                   item?.[informOrphanizationSymbol]?.();
                 }
@@ -656,9 +674,18 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                     PlexusDuplicateChildError.uniquenessInvariant(resultingArray, owner, key, String(elementKey));
                   }
 
-                  // Clear parent tracking for old items
+                  // Calculate what needs to be added/removed
                   const removedItems = setDifference(new Set(backingArray), new Set(resultingArray));
                   const addedItems = setDifference(new Set(resultingArray), new Set(backingArray));
+
+                  // VALIDATE FIRST: Check all added items can be adopted before any state changes
+                  if (isChildField) {
+                    for (const item of addedItems) {
+                      item?.[validateAdoptionSymbol]?.(owner, key);
+                    }
+                  }
+
+                  // Now safe to orphan removed items and adopt added items
                   for (const item of removedItems) {
                     item?.[informOrphanizationSymbol]?.();
                   }
@@ -761,6 +788,12 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   // Check if this is a reuse (value exists elsewhere in array)
                   const existingIndex = backingArray.indexOf(value);
                   isReuse = existingIndex !== -1 && existingIndex !== parsedElementKey;
+
+                  // VALIDATE FIRST: For non-reuse case, validate BEFORE any state changes
+                  // This ensures we don't corrupt state if validation throws (e.g., cycle detection)
+                  if (!isReuse) {
+                    value?.[validateAdoptionSymbol]?.(owner, key);
+                  }
 
                   // If reusing an item from elsewhere in array, remove it from old position first
                   // This prevents duplicates and maintains "child can only appear once" invariant

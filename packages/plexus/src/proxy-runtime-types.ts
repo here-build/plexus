@@ -47,7 +47,7 @@ export interface PlexusTagContainer<Token> {
 
 export type PlexusUUID<Type, Model extends PlexusModel> = Type & PlexusTagContainer<{ model: Model }>;
 
-export type GenericRecordSchema = Record<string, `${"child-" | ""}${"val" | "record" | "set" | "list"}` | "map">;
+export type GenericRecordSchema = Record<string, `${"child-" | ""}${"val" | "record" | "set" | "list" | "map"}`>;
 
 export type Internals<Parent extends PlexusModel | null> =
   | {

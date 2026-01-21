@@ -539,7 +539,8 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
               ),
             );
             break;
-          case "map": {
+          case "map":
+          case "child-map": {
             // Map proxy uses PathMap for in-memory storage, serialize for Y.Map
             const mapProxy = this[schemaKey] as Map<AllowedYJSMapKey, AllowedYJSValue>;
             const entries: [string, AllowedYValue | null][] = [];
@@ -609,6 +610,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
         case "list":
         case "child-list":
         case "map":
+        case "child-map":
           this[key][materializationSymbol]();
       }
     }
@@ -703,6 +705,16 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       }
       case "child-record":
         delete parent[parentKey][extraParentMetadata!];
+        break;
+      case "child-map":
+        // extraParentMetadata contains the serialized key
+        // We need to find and delete the entry with this child as value
+        for (const [k, v] of (parent[parentKey] as Map<any, any>).entries()) {
+          if (v === this) {
+            (parent[parentKey] as Map<any, any>).delete(k);
+            break;
+          }
+        }
         break;
     }
     currentlyEmancipating.delete(this);

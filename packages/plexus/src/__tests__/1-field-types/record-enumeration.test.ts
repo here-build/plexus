@@ -309,4 +309,114 @@ describe("Record Enumeration", () => {
       expect(keys).toEqual(["z", "a", "m"]);
     });
   });
+
+  describe("State consistency on failed adoption", () => {
+    // These tests ensure that when adoption validation fails (e.g., cycle detection),
+    // no state changes have occurred - the operation should be atomic (all-or-nothing).
+
+    @syncing
+    class RecordTreeNode extends PlexusModel {
+      @syncing accessor name!: string;
+      @syncing.child.record accessor children!: Record<string, RecordTreeNode>;
+    }
+
+    it("set: should not orphan existing value when replacement adoption fails", () => {
+      // Create hierarchy: root -> child -> grandchild -> existing
+      const existing = new RecordTreeNode({ name: "existing", children: {} });
+      const grandchild = new RecordTreeNode({ name: "grandchild", children: { existing } });
+      const child = new RecordTreeNode({ name: "child", children: { grandchild } });
+      const rootNode = new RecordTreeNode({ name: "root", children: { child } });
+
+      const { root } = initTestPlexus(rootNode);
+      const childNode = root.children["child"];
+      const grandchildNode = childNode.children["grandchild"];
+      const existingNode = grandchildNode.children["existing"];
+
+      // grandchild tries to replace "existing" with childNode (its ancestor) - would create cycle
+      expect(() => {
+        grandchildNode.children["existing"] = childNode;
+      }).toThrow(/would create cycle/i);
+
+      // Original value should still be properly parented
+      expect(existingNode.parent).toBe(grandchildNode);
+      expect(grandchildNode.children["existing"]).toBe(existingNode);
+      // childNode should still be parented to root
+      expect(childNode.parent).toBe(root);
+    });
+
+    it("set: should not orphan existing value when new key adoption fails", () => {
+      // Create hierarchy: root -> child -> grandchild
+      const grandchild = new RecordTreeNode({ name: "grandchild", children: {} });
+      const child = new RecordTreeNode({ name: "child", children: { grandchild } });
+      const rootNode = new RecordTreeNode({ name: "root", children: { child } });
+
+      const { root } = initTestPlexus(rootNode);
+      const childNode = root.children["child"];
+      const grandchildNode = childNode.children["grandchild"];
+
+      // grandchild tries to add childNode (its ancestor) as new key - would create cycle
+      expect(() => {
+        grandchildNode.children["newKey"] = childNode;
+      }).toThrow(/would create cycle/i);
+
+      // grandchild's children should be unchanged (no "newKey")
+      expect(Object.keys(grandchildNode.children)).toEqual([]);
+      // childNode should still be parented to root
+      expect(childNode.parent).toBe(root);
+    });
+
+    it("assign: should not orphan existing items when new items adoption fails", () => {
+      // Create hierarchy: root -> child -> grandchild -> [item1, item2]
+      const item1 = new RecordTreeNode({ name: "item1", children: {} });
+      const item2 = new RecordTreeNode({ name: "item2", children: {} });
+      const grandchild = new RecordTreeNode({ name: "grandchild", children: { item1, item2 } });
+      const child = new RecordTreeNode({ name: "child", children: { grandchild } });
+      const rootNode = new RecordTreeNode({ name: "root", children: { child } });
+
+      const { root } = initTestPlexus(rootNode);
+      const childNode = root.children["child"];
+      const grandchildNode = childNode.children["grandchild"];
+      const item1Node = grandchildNode.children["item1"];
+      const item2Node = grandchildNode.children["item2"];
+      const newItem = new RecordTreeNode({ name: "new", children: {} });
+
+      // grandchild tries to assign including child (its ancestor) - would create cycle
+      expect(() => {
+        grandchildNode.children = { newItem, badItem: childNode };
+      }).toThrow(/would create cycle/i);
+
+      // Original items should still be properly parented
+      expect(item1Node.parent).toBe(grandchildNode);
+      expect(item2Node.parent).toBe(grandchildNode);
+      expect(Object.keys(grandchildNode.children).sort()).toEqual(["item1", "item2"]);
+      expect(grandchildNode.children["item1"]).toBe(item1Node);
+      expect(grandchildNode.children["item2"]).toBe(item2Node);
+      // newItem should not have been adopted
+      expect(newItem.parent).toBeNull();
+      // childNode should still be parented to root
+      expect(childNode.parent).toBe(root);
+    });
+
+    it("assign: should preserve state when valid item in batch but invalid item throws", () => {
+      // This tests that even if some items are valid, if one fails, none should be added
+      const grandchild = new RecordTreeNode({ name: "grandchild", children: {} });
+      const child = new RecordTreeNode({ name: "child", children: { grandchild } });
+      const rootNode = new RecordTreeNode({ name: "root", children: { child } });
+
+      const { root } = initTestPlexus(rootNode);
+      const childNode = root.children["child"];
+      const grandchildNode = childNode.children["grandchild"];
+      const validItem = new RecordTreeNode({ name: "valid", children: {} });
+
+      // Try to assign one valid item and one invalid (ancestor)
+      expect(() => {
+        grandchildNode.children = { valid: validItem, invalid: childNode };
+      }).toThrow(/would create cycle/i);
+
+      // Neither item should have been added
+      expect(Object.keys(grandchildNode.children)).toEqual([]);
+      expect(validItem.parent).toBeNull();
+      expect(childNode.parent).toBe(root);
+    });
+  });
 });

@@ -3,7 +3,12 @@ import * as Y from "yjs";
 import { deref } from "../deref.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
-import { informOrphanizationSymbol, materializationSymbol, requestAdoptionSymbol } from "../proxy-runtime-types.js";
+import {
+  informOrphanizationSymbol,
+  materializationSymbol,
+  requestAdoptionSymbol,
+  validateAdoptionSymbol,
+} from "../proxy-runtime-types.js";
 import { ACCESS_ALL_SYMBOL, ENTRIES_LENGTH_SYMBOL, KEYS_SYMBOL, trackAccess, trackModification } from "../tracking.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
@@ -96,20 +101,22 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
           };
         case "clear":
           return () => {
-            const outputLength = getBackgingSet().size;
+            const currentBackingSet = getBackgingSet();
+            const outputLength = currentBackingSet.size;
             if (outputLength === 0) {
               return;
             }
             maybeTransacting(owner.__doc__!, () => {
-              getBackgingSet().clear();
-              trackModification(self, KEYS_SYMBOL);
-              trackModification(self, ENTRIES_LENGTH_SYMBOL);
-              // Clear parent tracking for all items
+              // Orphan all items BEFORE clearing the backing set
               if (isChildField) {
-                for (const item of backingSet) {
+                for (const item of currentBackingSet) {
                   item?.[informOrphanizationSymbol]?.();
                 }
               }
+
+              currentBackingSet.clear();
+              trackModification(self, KEYS_SYMBOL);
+              trackModification(self, ENTRIES_LENGTH_SYMBOL);
 
               getYjsSet()?.delete(0, outputLength);
             });
@@ -123,26 +130,35 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
             maybeTransacting(owner.__doc__, () => {
               trackModification(self, KEYS_SYMBOL);
               trackModification(self, ENTRIES_LENGTH_SYMBOL);
-              // Clear parent tracking for old items
+
               if (isChildField) {
+                // VALIDATE FIRST: Check all truly new values can be adopted before any state changes
+                for (const value of newValuesSet) {
+                  if (value && !backingSet.has(value)) {
+                    value[validateAdoptionSymbol]?.(owner, key);
+                  }
+                }
+
+                // Now safe to orphan values that aren't in the new set
                 for (const item of backingSet) {
-                  if (!newValuesSet.has(item)) {
-                    item?.[informOrphanizationSymbol]?.();
+                  if (item && !newValuesSet.has(item)) {
+                    item[informOrphanizationSymbol]?.();
                   }
                 }
               }
 
               // Clear existing contents
               yjsArray?.delete(0, yjsArray.length);
-              // Add new values
+
+              // Adopt truly new values
               if (isChildField) {
-                for (const value of newValues) {
-                  if (!backingSet.has(value)) {
-                    value?.[requestAdoptionSymbol]?.(owner, key);
+                for (const value of newValuesSet) {
+                  if (value && !backingSet.has(value)) {
+                    value[requestAdoptionSymbol]?.(owner, key);
                   }
                 }
               }
-              yjsArray?.push([...newValues].map((value) => maybeReference(value, owner.__doc__!)));
+              yjsArray?.push([...newValuesSet].map((value) => maybeReference(value, owner.__doc__!)));
               backingSet = newValuesSet;
             });
           };

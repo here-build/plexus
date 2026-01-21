@@ -48,10 +48,8 @@ describe("Set Proxy Implementation", () => {
         components: new Set(),
       });
 
-      expect(model.tags).toBeInstanceOf(Set);
-      expect(model.components).toBeInstanceOf(Set);
-      expect(model.tags.size).toBe(0);
-      expect(model.components.size).toBe(0);
+      expect(model.tags).to.be.instanceOf(Set).and.have.property("size", 0);
+      expect(model.components).to.be.instanceOf(Set).and.have.property("size", 0);
     });
 
     it("should support basic Set operations", () => {
@@ -62,22 +60,25 @@ describe("Set Proxy Implementation", () => {
       });
 
       // Basic set operations
-      expect(model.tags.has("tag1")).toBe(true);
-      expect(model.tags.has("tag3")).toBe(false);
-      expect(model.tags.size).toBe(2);
+      expect([model.tags.has("tag1"), model.tags.has("tag3"), model.tags.size]).to.have.ordered.members([
+        true,
+        false,
+        2,
+      ]);
 
       // Add operation
       model.tags.add("tag3");
-      expect(model.tags.has("tag3")).toBe(true);
-      expect(model.tags.size).toBe(3);
+      expect([model.tags.has("tag3"), model.tags.size]).to.have.ordered.members([true, 3]);
 
       // Delete operation
-      expect(model.tags.delete("tag1")).toBe(true);
-      expect(model.tags.has("tag1")).toBe(false);
-      expect(model.tags.size).toBe(2);
+      expect([model.tags.delete("tag1"), model.tags.has("tag1"), model.tags.size]).to.have.ordered.members([
+        true,
+        false,
+        2,
+      ]);
 
       // Delete non-existent
-      expect(model.tags.delete("nonexistent")).toBe(false);
+      expect(model.tags.delete("nonexistent")).to.equal(false);
     });
 
     it("should support Set iteration methods", () => {
@@ -89,22 +90,20 @@ describe("Set Proxy Implementation", () => {
 
       // Test values()
       const values = Array.from(model.tags.values());
-      expect(values).toEqual(expect.arrayContaining(["tag1", "tag2", "tag3"]));
+      expect(values).to.include.members(["tag1", "tag2", "tag3"]);
 
       // Test forEach
       const collected: string[] = [];
       model.tags.forEach((value) => collected.push(value));
-      expect(collected).toEqual(expect.arrayContaining(["tag1", "tag2", "tag3"]));
+      expect(collected).to.include.members(["tag1", "tag2", "tag3"]);
 
       // Test entries()
       const entries = Array.from(model.tags.entries());
-      expect(entries).toEqual(
-        expect.arrayContaining([
-          ["tag1", "tag1"],
-          ["tag2", "tag2"],
-          ["tag3", "tag3"],
-        ]),
-      );
+      expect(entries).to.deep.include.members([
+        ["tag1", "tag1"],
+        ["tag2", "tag2"],
+        ["tag3", "tag3"],
+      ]);
     });
 
     const hasSetComparators =
@@ -124,14 +123,14 @@ describe("Set Proxy Implementation", () => {
       const superSet = new Set(["tag1", "tag2", "tag3"]);
 
       // Test set relationship methods
-      expect((model.tags as any).isDisjointFrom(new Set(["tag3", "tag4"]))).toBe(true);
-      expect((model.tags as any).isDisjointFrom(otherSet)).toBe(false);
-
-      expect((model.tags as any).isSubsetOf(superSet)).toBe(true);
-      expect((model.tags as any).isSubsetOf(subSet)).toBe(false);
-
-      expect((model.tags as any).isSupersetOf(subSet)).toBe(true);
-      expect((model.tags as any).isSupersetOf(superSet)).toBe(false);
+      expect([
+        (model.tags as any).isDisjointFrom(new Set(["tag3", "tag4"])),
+        (model.tags as any).isDisjointFrom(otherSet),
+        (model.tags as any).isSubsetOf(superSet),
+        (model.tags as any).isSubsetOf(subSet),
+        (model.tags as any).isSupersetOf(subSet),
+        (model.tags as any).isSupersetOf(superSet),
+      ]).to.have.ordered.members([true, false, true, false, true, false]);
     });
 
     it("should support clear operation", () => {
@@ -141,10 +140,9 @@ describe("Set Proxy Implementation", () => {
         components: new Set(),
       });
 
-      expect(model.tags.size).toBe(3);
+      expect(model.tags).to.have.property("size", 3);
       model.tags.clear();
-      expect(model.tags.size).toBe(0);
-      expect(model.tags.has("tag1")).toBe(false);
+      expect([model.tags.size, model.tags.has("tag1")]).to.have.ordered.members([0, false]);
     });
 
     it("should work with entity sets", () => {
@@ -157,20 +155,21 @@ describe("Set Proxy Implementation", () => {
         components: new Set([comp1, comp2]),
       });
 
-      expect(model.components.size).toBe(2);
-      expect(model.components.has(comp1)).toBe(true);
-      expect(model.components.has(comp2)).toBe(true);
+      expect([model.components.size, model.components.has(comp1), model.components.has(comp2)]).to.have.ordered.members(
+        [2, true, true],
+      );
 
       // Add another component
       const comp3 = new TestComponent({ name: "Component 3", version: 3 });
       model.components.add(comp3);
-      expect(model.components.size).toBe(3);
-      expect(model.components.has(comp3)).toBe(true);
+      expect([model.components.size, model.components.has(comp3)]).to.have.ordered.members([3, true]);
 
       // Remove a component
-      expect(model.components.delete(comp1)).toBe(true);
-      expect(model.components.has(comp1)).toBe(false);
-      expect(model.components.size).toBe(2);
+      expect([
+        model.components.delete(comp1),
+        model.components.has(comp1),
+        model.components.size,
+      ]).to.have.ordered.members([true, false, 2]);
     });
   });
 
@@ -186,10 +185,12 @@ describe("Set Proxy Implementation", () => {
       const { doc: plexusDoc, root } = await initTestPlexus<TestModelWithSet>(model);
 
       // Verify the loaded root has correct data
-      expect(root.name).toBe("Test Model");
-      expect(root.tags.size).toBe(2);
-      expect(root.tags.has("tag1")).toBe(true);
-      expect(root.tags.has("tag2")).toBe(true);
+      expect([root.name, root.tags.size, root.tags.has("tag1"), root.tags.has("tag2")]).to.have.ordered.members([
+        "Test Model",
+        2,
+        true,
+        true,
+      ]);
 
       // Check that YJS arrays were created
       const yprojectFields = plexusDoc.getMap<Y.Map<Storageable>>("models");
@@ -198,9 +199,8 @@ describe("Set Proxy Implementation", () => {
         yprojectFields.get(entityId)?.get(YJS_GLOBALS.models.recordFields.fields) as undefined | Y.Map<Y.Array<any>>
       )?.get("tags") as Y.Array<any>;
 
-      expect(tagsArray).toBeInstanceOf(Y.Array);
-      expect(tagsArray.length).toBe(2);
-      expect(tagsArray.toArray()).toEqual(expect.arrayContaining(["tag1", "tag2"]));
+      expect(tagsArray).to.be.instanceOf(Y.Array).and.have.property("length", 2);
+      expect(tagsArray.toArray()).to.include.members(["tag1", "tag2"]);
     });
 
     it("should sync set changes through YJS", async () => {
@@ -214,20 +214,18 @@ describe("Set Proxy Implementation", () => {
       const { doc: plexusDoc, root } = await initTestPlexus<TestModelWithSet>(model);
 
       // Verify initial state
-      expect(root.tags.has("tag1")).toBe(true);
-      expect(root.tags.size).toBe(1);
+      expect([root.tags.has("tag1"), root.tags.size]).to.have.ordered.members([true, 1]);
 
       // Changes should sync through YJS
       root.tags.add("tag2");
-      expect(root.tags.has("tag2")).toBe(true);
-      expect(root.tags.size).toBe(2);
+      expect([root.tags.has("tag2"), root.tags.size]).to.have.ordered.members([true, 2]);
 
       // Check YJS backing
       const yprojectFields = plexusDoc.getMap<Y.Map<Storageable>>("models");
       const entityId = root.uuid;
       const tagsArray = (yprojectFields.get(entityId)?.get("fields") as undefined | Y.Map<Y.Array<any>>)?.get("tags");
-      expect(tagsArray?.length).toBe(2);
-      expect(tagsArray?.toArray()).toEqual(expect.arrayContaining(["tag1", "tag2"]));
+      expect(tagsArray).to.have.property("length", 2);
+      expect(tagsArray?.toArray()).to.include.members(["tag1", "tag2"]);
     });
 
     it("should handle entity sets in materialized state", async () => {
@@ -244,20 +242,23 @@ describe("Set Proxy Implementation", () => {
       const { root } = await initTestPlexus<TestModelWithSet>(model);
 
       // Verify initial component set
-      expect(root.components.size).toBe(1);
-      expect(root.components.has(comp1)).toBe(true);
+      expect([root.components.size, root.components.has(comp1)]).to.have.ordered.members([1, true]);
 
       // Add component to materialized set
       root.components.add(comp2);
-      expect(root.components.size).toBe(2);
-      expect(root.components.has(comp1)).toBe(true);
-      expect(root.components.has(comp2)).toBe(true);
+      expect([root.components.size, root.components.has(comp1), root.components.has(comp2)]).to.have.ordered.members([
+        2,
+        true,
+        true,
+      ]);
 
       // Remove component
-      expect(root.components.delete(comp1)).toBe(true);
-      expect(root.components.size).toBe(1);
-      expect(root.components.has(comp1)).toBe(false);
-      expect(root.components.has(comp2)).toBe(true);
+      expect([
+        root.components.delete(comp1),
+        root.components.size,
+        root.components.has(comp1),
+        root.components.has(comp2),
+      ]).to.have.ordered.members([true, 1, false, true]);
     });
   });
 
@@ -269,18 +270,20 @@ describe("Set Proxy Implementation", () => {
         components: new Set(),
       });
 
-      expect(model.tags.size).toBe(0);
-      expect(model.tags.clear()).toBe(undefined); // Native Set.clear() returns undefined
-      expect(model.tags.delete("nonexistent")).toBe(false);
-      expect(model.tags.has("anything")).toBe(false);
+      expect([
+        model.tags.size,
+        model.tags.clear(),
+        model.tags.delete("nonexistent"),
+        model.tags.has("anything"),
+      ]).to.have.ordered.members([0, undefined, false, false]);
 
       // Iteration should work on empty sets
       const values = Array.from(model.tags.values());
-      expect(values).toEqual([]);
+      expect(values).to.deep.equal([]);
 
       const collected: string[] = [];
       model.tags.forEach((value) => collected.push(value));
-      expect(collected).toEqual([]);
+      expect(collected).to.deep.equal([]);
     });
 
     it("should maintain Set uniqueness", () => {
@@ -292,15 +295,13 @@ describe("Set Proxy Implementation", () => {
 
       // Adding duplicate should not increase size
       model.tags.add("tag1");
-      expect(model.tags.size).toBe(1);
-      expect(model.tags.has("tag1")).toBe(true);
+      expect([model.tags.size, model.tags.has("tag1")]).to.have.ordered.members([1, true]);
 
       // Should work with entities too
       const comp1 = new TestComponent({ name: "Component 1", version: 1 });
       model.components.add(comp1);
       model.components.add(comp1); // Adding same entity
-      expect(model.components.size).toBe(1);
-      expect(model.components.has(comp1)).toBe(true);
+      expect([model.components.size, model.components.has(comp1)]).to.have.ordered.members([1, true]);
     });
   });
 
@@ -318,13 +319,14 @@ describe("Set Proxy Implementation", () => {
         const rootNode = new SetTreeNode({ name: "root", children: new Set([child1, child2]) });
 
         const { root } = initTestPlexus(rootNode);
-        expect(root.children.size).toBe(2);
-        expect(root.children.has(child1)).toBe(true);
-        expect(root.children.has(child2)).toBe(true);
+        expect([root.children.size, root.children.has(child1), root.children.has(child2)]).to.have.ordered.members([
+          2,
+          true,
+          true,
+        ]);
 
         // Children should know their parent
-        expect(child1.parent).toBe(root);
-        expect(child2.parent).toBe(root);
+        expect([child1.parent, child2.parent]).to.have.ordered.members([root, root]);
       });
 
       it("should orphan children on delete", () => {
@@ -332,11 +334,10 @@ describe("Set Proxy Implementation", () => {
         const rootNode = new SetTreeNode({ name: "root", children: new Set([child]) });
 
         const { root } = initTestPlexus(rootNode);
-        expect(child.parent).toBe(root);
+        expect(child.parent).to.equal(root);
 
         root.children.delete(child);
-        expect(child.parent).toBeNull();
-        expect(root.children.size).toBe(0);
+        expect([child.parent, root.children.size]).to.have.ordered.members([null, 0]);
       });
 
       it("should orphan all children on clear", () => {
@@ -347,9 +348,7 @@ describe("Set Proxy Implementation", () => {
         const { root } = initTestPlexus(rootNode);
         root.children.clear();
 
-        expect(child1.parent).toBeNull();
-        expect(child2.parent).toBeNull();
-        expect(root.children.size).toBe(0);
+        expect([child1.parent, child2.parent, root.children.size]).to.have.ordered.members([null, null, 0]);
       });
 
       it("should detect cycles on add", () => {
@@ -364,7 +363,7 @@ describe("Set Proxy Implementation", () => {
         // grandchild tries to add child (its ancestor) - would create cycle
         expect(() => {
           grandchildNode.children.add(childNode);
-        }).toThrow(/would create cycle/i);
+        }).to.throw(/would create cycle/i);
       });
     });
 
@@ -381,12 +380,14 @@ describe("Set Proxy Implementation", () => {
         // grandchild tries to add child (its ancestor) - would create cycle
         expect(() => {
           grandchildNode.children.add(childNode);
-        }).toThrow(/would create cycle/i);
+        }).to.throw(/would create cycle/i);
 
         // State should be unchanged
-        expect(grandchildNode.children.size).toBe(0);
-        expect(childNode.parent).toBe(root);
-        expect(grandchildNode.parent).toBe(childNode);
+        expect([grandchildNode.children.size, childNode.parent, grandchildNode.parent]).to.have.ordered.members([
+          0,
+          root,
+          childNode,
+        ]);
       });
 
       it("assign: should not orphan existing items when new items adoption fails", () => {
@@ -406,18 +407,18 @@ describe("Set Proxy Implementation", () => {
         // grandchild tries to assign including child (its ancestor) - would create cycle
         expect(() => {
           grandchildNode.children = new Set([newItem, childNode]);
-        }).toThrow(/would create cycle/i);
+        }).to.throw(/would create cycle/i);
 
         // Original items should still be properly parented
-        expect(item1Node.parent).toBe(grandchildNode);
-        expect(item2Node.parent).toBe(grandchildNode);
-        expect(grandchildNode.children.size).toBe(2);
-        expect(grandchildNode.children.has(item1Node)).toBe(true);
-        expect(grandchildNode.children.has(item2Node)).toBe(true);
-        // newItem should not have been adopted
-        expect(newItem.parent).toBeNull();
-        // childNode should still be parented to root
-        expect(childNode.parent).toBe(root);
+        expect([
+          item1Node.parent,
+          item2Node.parent,
+          grandchildNode.children.size,
+          grandchildNode.children.has(item1Node),
+          grandchildNode.children.has(item2Node),
+          newItem.parent,
+          childNode.parent,
+        ]).to.have.ordered.members([grandchildNode, grandchildNode, 2, true, true, null, root]);
       });
 
       it("assign: should preserve state when valid item in batch but invalid item throws", () => {
@@ -433,12 +434,14 @@ describe("Set Proxy Implementation", () => {
         // Try to assign one valid item and one invalid (ancestor)
         expect(() => {
           grandchildNode.children = new Set([validItem, childNode]);
-        }).toThrow(/would create cycle/i);
+        }).to.throw(/would create cycle/i);
 
         // Neither item should have been added
-        expect(grandchildNode.children.size).toBe(0);
-        expect(validItem.parent).toBeNull();
-        expect(childNode.parent).toBe(root);
+        expect([grandchildNode.children.size, validItem.parent, childNode.parent]).to.have.ordered.members([
+          0,
+          null,
+          root,
+        ]);
       });
     });
   });

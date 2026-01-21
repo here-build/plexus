@@ -28,7 +28,7 @@ describe("Record Enumeration", () => {
   describe("Object.keys()", () => {
     it("returns empty array for empty record", () => {
       const { root } = initTestPlexus(new Container());
-      expect(Object.keys(root.primitiveRecord)).toEqual([]);
+      expect(Object.keys(root.primitiveRecord)).to.deep.equal([]);
     });
 
     it("returns keys of primitive record", () => {
@@ -39,10 +39,7 @@ describe("Record Enumeration", () => {
       root.primitiveRecord["c"] = "valueC";
 
       const keys = Object.keys(root.primitiveRecord);
-      expect(keys).toHaveLength(3);
-      expect(keys).toContain("a");
-      expect(keys).toContain("b");
-      expect(keys).toContain("c");
+      expect(keys).to.have.lengthOf(3).and.include.members(["a", "b", "c"]);
     });
 
     it("returns keys of child record", () => {
@@ -52,36 +49,33 @@ describe("Record Enumeration", () => {
       root.childRecord["second"] = new Item({ name: "Second" });
 
       const keys = Object.keys(root.childRecord);
-      expect(keys).toHaveLength(2);
-      expect(keys).toContain("first");
-      expect(keys).toContain("second");
+      expect(keys).to.have.lengthOf(2).and.include.members(["first", "second"]);
     });
 
     it("updates after adding keys", () => {
       const { root } = initTestPlexus(new Container());
 
-      expect(Object.keys(root.primitiveRecord)).toHaveLength(0);
+      expect(Object.keys(root.primitiveRecord)).to.have.lengthOf(0);
 
       root.primitiveRecord["new"] = "value";
-      expect(Object.keys(root.primitiveRecord)).toHaveLength(1);
-      expect(Object.keys(root.primitiveRecord)).toContain("new");
+      expect(Object.keys(root.primitiveRecord)).to.have.lengthOf(1).and.include("new");
     });
 
     it("updates after removing keys", () => {
       const { root } = initTestPlexus(new Container());
 
       root.primitiveRecord["key"] = "value";
-      expect(Object.keys(root.primitiveRecord)).toContain("key");
+      expect(Object.keys(root.primitiveRecord)).to.include("key");
 
       delete root.primitiveRecord["key"];
-      expect(Object.keys(root.primitiveRecord)).not.toContain("key");
+      expect(Object.keys(root.primitiveRecord)).to.not.include("key");
     });
   });
 
   describe("Object.values()", () => {
     it("returns empty array for empty record", () => {
       const { root } = initTestPlexus(new Container());
-      expect(Object.values(root.primitiveRecord)).toEqual([]);
+      expect(Object.values(root.primitiveRecord)).to.deep.equal([]);
     });
 
     it("returns values of primitive record", () => {
@@ -91,9 +85,7 @@ describe("Record Enumeration", () => {
       root.primitiveRecord["b"] = "beta";
 
       const values = Object.values(root.primitiveRecord);
-      expect(values).toHaveLength(2);
-      expect(values).toContain("alpha");
-      expect(values).toContain("beta");
+      expect(values).to.have.lengthOf(2).and.include.members(["alpha", "beta"]);
     });
 
     it("returns child instances from child record", () => {
@@ -103,15 +95,15 @@ describe("Record Enumeration", () => {
       root.childRecord["two"] = new Item({ name: "Two", value: 2 });
 
       const values = Object.values(root.childRecord);
-      expect(values).toHaveLength(2);
-      expect(values.map((v) => v.name).sort()).toEqual(["One", "Two"]);
+      expect(values).to.have.lengthOf(2);
+      expect(values.map((v) => v.name).sort()).to.have.ordered.members(["One", "Two"]);
     });
   });
 
   describe("Object.entries()", () => {
     it("returns empty array for empty record", () => {
       const { root } = initTestPlexus(new Container());
-      expect(Object.entries(root.primitiveRecord)).toEqual([]);
+      expect(Object.entries(root.primitiveRecord)).to.deep.equal([]);
     });
 
     it("returns key-value pairs for primitive record", () => {
@@ -121,10 +113,10 @@ describe("Record Enumeration", () => {
       root.primitiveRecord["y"] = "Y";
 
       const entries = Object.entries(root.primitiveRecord);
-      expect(entries).toHaveLength(2);
+      expect(entries).to.have.lengthOf(2);
 
       const obj = Object.fromEntries(entries);
-      expect(obj).toEqual({ x: "X", y: "Y" });
+      expect(obj).to.deep.equal({ x: "X", y: "Y" });
     });
 
     it("returns key-child pairs for child record", () => {
@@ -134,12 +126,11 @@ describe("Record Enumeration", () => {
       root.childRecord["item2"] = new Item({ name: "Item2" });
 
       const entries = Object.entries(root.childRecord);
-      expect(entries).toHaveLength(2);
+      expect(entries).to.have.lengthOf(2);
 
-      for (const [key, value] of entries) {
-        expect(typeof key).toBe("string");
-        expect(value).toBeInstanceOf(Item);
-      }
+      expect(entries).to.satisfy((e: [string, Item][]) =>
+        e.every(([key, value]) => typeof key === "string" && value instanceof Item),
+      );
     });
   });
 
@@ -152,7 +143,7 @@ describe("Record Enumeration", () => {
         keys.push(key);
       }
 
-      expect(keys).toHaveLength(0);
+      expect(keys).to.have.lengthOf(0);
     });
 
     it("iterates over all keys in record", () => {
@@ -167,10 +158,7 @@ describe("Record Enumeration", () => {
         keys.push(key);
       }
 
-      expect(keys).toHaveLength(3);
-      expect(keys).toContain("first");
-      expect(keys).toContain("second");
-      expect(keys).toContain("third");
+      expect(keys).to.have.lengthOf(3).and.include.members(["first", "second", "third"]);
     });
   });
 
@@ -179,7 +167,7 @@ describe("Record Enumeration", () => {
       const { root } = initTestPlexus(new Container());
       const spread = { ...root.primitiveRecord };
 
-      expect(Object.keys(spread)).toHaveLength(0);
+      expect(Object.keys(spread)).to.have.lengthOf(0);
     });
 
     it("spreads record contents", () => {
@@ -189,7 +177,7 @@ describe("Record Enumeration", () => {
       root.primitiveRecord["b"] = "B";
 
       const spread = { ...root.primitiveRecord };
-      expect(spread).toEqual({ a: "A", b: "B" });
+      expect(spread).to.deep.equal({ a: "A", b: "B" });
     });
 
     it("spreads child record with live references", () => {
@@ -198,11 +186,11 @@ describe("Record Enumeration", () => {
       root.childRecord["item"] = new Item({ name: "Original" });
 
       const spread = { ...root.childRecord };
-      expect(spread.item.name).toBe("Original");
+      expect(spread.item.name).to.equal("Original");
 
       // Changes to original reflect in spread (same reference)
       root.childRecord["item"].name = "Modified";
-      expect(spread.item.name).toBe("Modified");
+      expect(spread.item.name).to.equal("Modified");
     });
   });
 
@@ -210,8 +198,10 @@ describe("Record Enumeration", () => {
     it("returns false for non-existent key", () => {
       const { root } = initTestPlexus(new Container());
 
-      expect(Object.hasOwn(root.primitiveRecord, "missing")).toBe(false);
-      expect("missing" in root.primitiveRecord).toBe(false);
+      expect([
+        Object.hasOwn(root.primitiveRecord, "missing"),
+        "missing" in root.primitiveRecord,
+      ]).to.have.ordered.members([false, false]);
     });
 
     it("returns true for existing key", () => {
@@ -219,18 +209,19 @@ describe("Record Enumeration", () => {
 
       root.primitiveRecord["exists"] = "value";
 
-      expect(Object.hasOwn(root.primitiveRecord, "exists")).toBe(true);
-      expect("exists" in root.primitiveRecord).toBe(true);
+      expect([Object.hasOwn(root.primitiveRecord, "exists"), "exists" in root.primitiveRecord]).to.have.ordered.members(
+        [true, true],
+      );
     });
 
     it("returns false after key deletion", () => {
       const { root } = initTestPlexus(new Container());
 
       root.primitiveRecord["temp"] = "temporary";
-      expect("temp" in root.primitiveRecord).toBe(true);
+      expect("temp" in root.primitiveRecord).to.equal(true);
 
       delete root.primitiveRecord["temp"];
-      expect("temp" in root.primitiveRecord).toBe(false);
+      expect("temp" in root.primitiveRecord).to.equal(false);
     });
   });
 
@@ -244,7 +235,7 @@ describe("Record Enumeration", () => {
       tracked();
 
       root.primitiveRecord["new"] = "newValue";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when iterating keys and key removed", () => {
@@ -256,7 +247,7 @@ describe("Record Enumeration", () => {
       tracked();
 
       delete root.primitiveRecord["toRemove"];
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when using 'in' operator and key presence changes", () => {
@@ -267,7 +258,7 @@ describe("Record Enumeration", () => {
       tracked();
 
       root.primitiveRecord["key"] = "value";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -279,9 +270,7 @@ describe("Record Enumeration", () => {
       root.primitiveRecord["1"] = "one";
       root.primitiveRecord["100"] = "hundred";
 
-      expect(Object.keys(root.primitiveRecord)).toContain("0");
-      expect(Object.keys(root.primitiveRecord)).toContain("1");
-      expect(Object.keys(root.primitiveRecord)).toContain("100");
+      expect(Object.keys(root.primitiveRecord)).to.include.members(["0", "1", "100"]);
     });
 
     it("handles keys with special characters", () => {
@@ -292,9 +281,7 @@ describe("Record Enumeration", () => {
       root.primitiveRecord["with_underscore"] = "underscore";
 
       const keys = Object.keys(root.primitiveRecord);
-      expect(keys).toContain("with-dash");
-      expect(keys).toContain("with.dot");
-      expect(keys).toContain("with_underscore");
+      expect(keys).to.include.members(["with-dash", "with.dot", "with_underscore"]);
     });
 
     it("preserves key order (insertion order)", () => {
@@ -306,7 +293,7 @@ describe("Record Enumeration", () => {
 
       const keys = Object.keys(root.primitiveRecord);
       // JavaScript objects maintain insertion order for string keys
-      expect(keys).toEqual(["z", "a", "m"]);
+      expect(keys).to.have.ordered.members(["z", "a", "m"]);
     });
   });
 
@@ -335,13 +322,14 @@ describe("Record Enumeration", () => {
       // grandchild tries to replace "existing" with childNode (its ancestor) - would create cycle
       expect(() => {
         grandchildNode.children["existing"] = childNode;
-      }).toThrow(/would create cycle/i);
+      }).to.throw(/would create cycle/i);
 
       // Original value should still be properly parented
-      expect(existingNode.parent).toBe(grandchildNode);
-      expect(grandchildNode.children["existing"]).toBe(existingNode);
-      // childNode should still be parented to root
-      expect(childNode.parent).toBe(root);
+      expect([existingNode.parent, grandchildNode.children["existing"], childNode.parent]).to.have.ordered.members([
+        grandchildNode,
+        existingNode,
+        root,
+      ]);
     });
 
     it("set: should not orphan existing value when new key adoption fails", () => {
@@ -357,12 +345,11 @@ describe("Record Enumeration", () => {
       // grandchild tries to add childNode (its ancestor) as new key - would create cycle
       expect(() => {
         grandchildNode.children["newKey"] = childNode;
-      }).toThrow(/would create cycle/i);
+      }).to.throw(/would create cycle/i);
 
       // grandchild's children should be unchanged (no "newKey")
-      expect(Object.keys(grandchildNode.children)).toEqual([]);
-      // childNode should still be parented to root
-      expect(childNode.parent).toBe(root);
+      expect(Object.keys(grandchildNode.children)).to.deep.equal([]);
+      expect(childNode.parent).to.equal(root);
     });
 
     it("assign: should not orphan existing items when new items adoption fails", () => {
@@ -383,18 +370,18 @@ describe("Record Enumeration", () => {
       // grandchild tries to assign including child (its ancestor) - would create cycle
       expect(() => {
         grandchildNode.children = { newItem, badItem: childNode };
-      }).toThrow(/would create cycle/i);
+      }).to.throw(/would create cycle/i);
 
       // Original items should still be properly parented
-      expect(item1Node.parent).toBe(grandchildNode);
-      expect(item2Node.parent).toBe(grandchildNode);
-      expect(Object.keys(grandchildNode.children).sort()).toEqual(["item1", "item2"]);
-      expect(grandchildNode.children["item1"]).toBe(item1Node);
-      expect(grandchildNode.children["item2"]).toBe(item2Node);
-      // newItem should not have been adopted
-      expect(newItem.parent).toBeNull();
-      // childNode should still be parented to root
-      expect(childNode.parent).toBe(root);
+      expect([
+        item1Node.parent,
+        item2Node.parent,
+        grandchildNode.children["item1"],
+        grandchildNode.children["item2"],
+        newItem.parent,
+        childNode.parent,
+      ]).to.have.ordered.members([grandchildNode, grandchildNode, item1Node, item2Node, null, root]);
+      expect(Object.keys(grandchildNode.children).sort()).to.have.ordered.members(["item1", "item2"]);
     });
 
     it("assign: should preserve state when valid item in batch but invalid item throws", () => {
@@ -411,12 +398,14 @@ describe("Record Enumeration", () => {
       // Try to assign one valid item and one invalid (ancestor)
       expect(() => {
         grandchildNode.children = { valid: validItem, invalid: childNode };
-      }).toThrow(/would create cycle/i);
+      }).to.throw(/would create cycle/i);
 
       // Neither item should have been added
-      expect(Object.keys(grandchildNode.children)).toEqual([]);
-      expect(validItem.parent).toBeNull();
-      expect(childNode.parent).toBe(root);
+      expect([Object.keys(grandchildNode.children), validItem.parent, childNode.parent]).to.deep.equal([
+        [],
+        null,
+        root,
+      ]);
     });
   });
 });

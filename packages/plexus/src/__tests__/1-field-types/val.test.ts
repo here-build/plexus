@@ -51,24 +51,25 @@ describe("Plexus Basic Functionality", () => {
     const { plexus, root, doc } = initTestPlexus<Post>(post);
 
     // Verify Plexus is properly initialized
-    expect(plexus).toBeDefined();
-    expect(doc).toBeInstanceOf(Y.Doc);
+    expect(plexus).to.not.be.undefined;
+    expect(doc).to.be.instanceOf(Y.Doc);
 
     // Verify entity data is properly loaded
-    expect(root.title).toBe("Test Post");
-    expect(root.content).toBe("Test content");
-    expect(root.author).not.toBeNull();
-    expect(root.author!.name).toBe("John Doe");
-    expect(root.tags).toHaveLength(2);
-    expect(root.tags[0]).toBe("test");
+    expect([
+      root.title,
+      root.content,
+      root.author,
+      root.author!.name,
+      root.tags.length,
+      root.tags[0],
+    ]).to.have.ordered.members(["Test Post", "Test content", root.author, "John Doe", 2, "test"]);
+    expect(root.author).to.not.be.null;
 
     // Verify mutations work
     root.title = "Updated Title";
     root.tags.push("updated");
 
-    expect(root.title).toBe("Updated Title");
-    expect(root.tags).toHaveLength(3);
-    expect(root.tags[2]).toBe("updated");
+    expect([root.title, root.tags.length, root.tags[2]]).to.have.ordered.members(["Updated Title", 3, "updated"]);
   });
 
   it("should have root available immediately after construction", () => {
@@ -81,9 +82,8 @@ describe("Plexus Basic Functionality", () => {
     const { plexus, root } = initTestPlexus<User>(user);
 
     // Root is immediately available (no async)
-    expect(plexus.root).toBe(root);
-    expect(plexus.root.name).toBe("Jane Doe");
-    expect(plexus.root.age).toBe(25);
+    expect(plexus.root).to.equal(root);
+    expect([plexus.root.name, plexus.root.age]).to.have.ordered.members(["Jane Doe", 25]);
   });
 
   it("should maintain document-plexus relationship", () => {
@@ -96,7 +96,7 @@ describe("Plexus Basic Functionality", () => {
     const { plexus, doc } = initTestPlexus<User>(user);
 
     // Verify Plexus is associated with document
-    expect(plexus.doc).toBe(doc);
+    expect(plexus.doc).to.equal(doc);
   });
 
   it("should handle entity relationships correctly", () => {
@@ -116,12 +116,11 @@ describe("Plexus Basic Functionality", () => {
     const { root } = initTestPlexus<Post>(post);
 
     // Verify relationship integrity
-    expect(root.author).not.toBeNull();
-    expect(root.author!.name).toBe("Author Name");
-    expect(root.author!.email).toBe("author@example.com");
+    expect(root.author).to.not.be.null;
+    expect([root.author!.name, root.author!.email]).to.have.ordered.members(["Author Name", "author@example.com"]);
 
     // Verify relationship is maintained through mutations
     root.author!.name = "Updated Author";
-    expect(root.author!.name).toBe("Updated Author");
+    expect(root.author!.name).to.equal("Updated Author");
   });
 });

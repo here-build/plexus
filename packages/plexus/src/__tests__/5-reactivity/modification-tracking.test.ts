@@ -30,12 +30,12 @@ describe("Simple Data Change Notifications", () => {
     });
 
     // First execution - just captures access, no notification
-    expect(trackedFn()).toBe("test");
-    expect(notifyChanges).toHaveBeenCalledTimes(0);
+    expect(trackedFn()).to.equal("test");
+    expect(notifyChanges).to.have.property("mock").with.property("calls").with.lengthOf(0);
 
     // Modify the accessed field - should notify synchronously
     obj.name = "changed";
-    expect(notifyChanges).toHaveBeenCalledTimes(1);
+    expect(notifyChanges).to.have.property("mock").with.property("calls").with.lengthOf(1);
   });
 
   it("should NOT notify when non-accessed data is modified", () => {
@@ -45,12 +45,12 @@ describe("Simple Data Change Notifications", () => {
       return obj.name; // Only access obj.name
     });
 
-    expect(trackedFn()).toBe("test");
-    expect(notifyChanges).toHaveBeenCalledTimes(0);
+    expect(trackedFn()).to.equal("test");
+    expect(notifyChanges).to.have.property("mock").with.property("calls").with.lengthOf(0);
 
     // Modify a field that was NOT accessed - should not notify
     obj.count = 10;
-    expect(notifyChanges).toHaveBeenCalledTimes(0);
+    expect(notifyChanges).to.have.property("mock").with.property("calls").with.lengthOf(0);
   });
 
   it("should work with multiple functions", () => {
@@ -61,12 +61,12 @@ describe("Simple Data Change Notifications", () => {
     const trackedFn2 = createTrackedFunction(notifyChanges2, () => obj.name);
 
     // Both functions access obj.name
-    expect(trackedFn1()).toBe("test");
-    expect(trackedFn2()).toBe("test");
+    expect(trackedFn1()).to.equal("test");
+    expect(trackedFn2()).to.equal("test");
 
     // Change the shared field - both should be notified
     obj.name = "changed";
-    expect(notifyChanges1).toHaveBeenCalledTimes(1);
-    expect(notifyChanges2).toHaveBeenCalledTimes(1);
+    expect(notifyChanges1).to.have.property("mock").with.property("calls").with.lengthOf(1);
+    expect(notifyChanges2).to.have.property("mock").with.property("calls").with.lengthOf(1);
   });
 });

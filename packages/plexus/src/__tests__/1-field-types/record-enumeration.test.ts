@@ -218,10 +218,10 @@ describe("Record Enumeration", () => {
       const { root } = initTestPlexus(new Container());
 
       root.primitiveRecord["temp"] = "temporary";
-      expect("temp" in root.primitiveRecord).to.equal(true);
+      expect("temp" in root.primitiveRecord).to.eq(true);
 
       delete root.primitiveRecord["temp"];
-      expect("temp" in root.primitiveRecord).to.equal(false);
+      expect("temp" in root.primitiveRecord).to.eq(false);
     });
   });
 

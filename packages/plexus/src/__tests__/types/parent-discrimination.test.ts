@@ -161,7 +161,7 @@ describe("Parent Discrimination Types", () => {
 
       // Simple assertion to make test pass - the real test is the @ts-expect-error
       // annotations in simple-discrimination.type-check.ts
-      expect(true).toBe(true);
+      expect(true).to.eq(true);
     });
   });
 

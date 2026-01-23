@@ -53,7 +53,7 @@ describe("Transaction Batching", () => {
       });
 
       // Should batch into single notification
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("batches array mutations in transaction", () => {
@@ -69,8 +69,8 @@ describe("Transaction Batching", () => {
         root.items.push(new Item({ name: "c" }));
       });
 
-      expect(notify).toHaveBeenCalledTimes(1);
-      expect(root.items.length).toBe(3);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(root.items).to.have.lengthOf(3);
     });
 
     it("batches record mutations in transaction", () => {
@@ -86,8 +86,8 @@ describe("Transaction Batching", () => {
         root.data["c"] = "C";
       });
 
-      expect(notify).toHaveBeenCalledTimes(1);
-      expect(Object.keys(root.data).length).toBe(3);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(Object.keys(root.data)).to.have.lengthOf(3);
     });
   });
 
@@ -100,7 +100,7 @@ describe("Transaction Batching", () => {
         root.counter = i;
       }
 
-      expect(root.counter).toBe(99);
+      expect(root.counter).to.equal(99);
     });
 
     it("handles rapid array pushes", () => {
@@ -110,8 +110,7 @@ describe("Transaction Batching", () => {
         root.items.push(new Item({ name: `item${i}` }));
       }
 
-      expect(root.items.length).toBe(50);
-      expect(root.items[49].name).toBe("item49");
+      expect([root.items.length, root.items[49].name]).to.have.ordered.members([50, "item49"]);
     });
 
     it("handles rapid record updates", () => {
@@ -121,7 +120,7 @@ describe("Transaction Batching", () => {
         root.data[`key${i}`] = `value${i}`;
       }
 
-      expect(Object.keys(root.data).length).toBe(50);
+      expect(Object.keys(root.data)).to.have.lengthOf(50);
     });
   });
 
@@ -145,7 +144,7 @@ describe("Transaction Batching", () => {
       root.value = "changed";
       root.counter = 1;
 
-      expect(order).toEqual(["value", "counter"]);
+      expect(order).to.deep.equal(["value", "counter"]);
     });
 
     it("nested property changes notify correctly", () => {
@@ -157,7 +156,7 @@ describe("Transaction Batching", () => {
       tracked();
 
       root.child!.name = "changed";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -177,8 +176,7 @@ describe("Transaction Batching", () => {
         root.counter = 3;
       });
 
-      expect(midTransactionValue).toBe(2);
-      expect(root.counter).toBe(3);
+      expect([midTransactionValue, root.counter]).to.have.ordered.members([2, 3]);
     });
 
     it("handles exceptions in transaction gracefully", () => {
@@ -190,12 +188,12 @@ describe("Transaction Batching", () => {
           root.counter = 1;
           throw new Error("Transaction error");
         });
-      }).toThrow("Transaction error");
+      }).to.throw("Transaction error");
 
       // After exception, the mutation may or may not be visible
       // depending on when the exception occurred
       // This documents the behavior
-      expect(typeof root.counter).toBe("number");
+      expect(typeof root.counter).to.equal("number");
     });
   });
 
@@ -220,9 +218,7 @@ describe("Transaction Batching", () => {
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(plexus1.doc));
 
       // All changes should be visible
-      expect(root2.value).toBe("synced");
-      expect(root2.counter).toBe(42);
-      expect(root2.data["key"]).toBe("value");
+      expect([root2.value, root2.counter, root2.data["key"]]).to.have.ordered.members(["synced", 42, "value"]);
 
       doc2.destroy();
     });

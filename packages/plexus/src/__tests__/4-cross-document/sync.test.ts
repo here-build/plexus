@@ -111,12 +111,12 @@ describe("Cross-Document Orphaning Edge Cases", () => {
     doc1.destroy();
 
     // component2 should still be accessible and functional
-    expect(component2.name).toBe("Will Be Orphaned");
+    expect(component2.name).to.equal("Will Be Orphaned");
 
     // Modifications should still work on surviving document
     component2.name = "Still Alive";
 
-    expect(component2.name).toBe("Still Alive");
+    expect(component2.name).to.equal("Still Alive");
   });
 });
 
@@ -142,7 +142,7 @@ describe("Cross-Document Proxy Sync", () => {
       name: "Bidirectional Test Site",
       components: {},
     });
-    const { doc: doc1, root: site1 } = await initTestPlexus<Site>(ephemeralSite);
+    const { doc: doc1, root: site1 } = initTestPlexus<Site>(ephemeralSite);
     const component1 = new Component({
       name: "Original",
       type: "component",
@@ -150,17 +150,17 @@ describe("Cross-Document Proxy Sync", () => {
       children: [],
       metadata: { version: "1.0" },
     });
-    expect(component1.metadata["version"]).toBe("1.0"); // success
+    expect(component1.metadata["version"]).to.equal("1.0"); // success
     console.log(component1.metadata); // { version: '1.0' }
     site1.components["comp1"] = component1;
     console.log(component1.metadata); // {}
-    expect(component1.metadata["version"]).toBe("1.0"); //fail
+    expect(component1.metadata["version"]).to.equal("1.0"); //fail
 
     // Initial sync
     syncDocs(doc1, doc2);
 
     // Doc2: Get reference to same entities using Plexus
-    const { root: site2 } = await connectTestPlexus<Site>(doc2);
+    const { root: site2 } = connectTestPlexus<Site>(doc2);
     const component2 = site2.components["comp1"];
 
     // Doc2: Modify the component
@@ -171,9 +171,11 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc1: Verify changes appeared
-    expect(component1.name).toBe("Modified in Doc2");
-    expect(component1.metadata["author"]).toBe("doc2");
-    expect(component1.metadata["version"]).toBe("1.0"); // Original data preserved
+    expect([component1.name, component1.metadata["author"], component1.metadata["version"]]).to.have.ordered.members([
+      "Modified in Doc2",
+      "doc2",
+      "1.0", // Original data preserved
+    ]);
 
     // Doc1: Make counter-changes
     component1.type = "modified-component";
@@ -183,9 +185,15 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Verify bidirectional sync
-    expect(component2.type).toBe("modified-component");
-    expect(component2.metadata["lastModified"]).toBe("doc1");
-    expect(component2.metadata["author"]).toBe("doc2"); // Previous changes preserved
+    expect([
+      component2.type,
+      component2.metadata["lastModified"],
+      component2.metadata["author"],
+    ]).to.have.ordered.members([
+      "modified-component",
+      "doc1",
+      "doc2", // Previous changes preserved
+    ]);
   });
 
   it("should sync nested entities properly", async () => {
@@ -194,7 +202,7 @@ describe("Cross-Document Proxy Sync", () => {
       name: "Nested Test Site",
       components: {},
     });
-    const { doc: doc1, root: site1 } = await initTestPlexus<Site>(ephemeralSite2);
+    const { doc: doc1, root: site1 } = initTestPlexus<Site>(ephemeralSite2);
 
     const parentComponent = new Component({
       name: "Parent",
@@ -225,26 +233,30 @@ describe("Cross-Document Proxy Sync", () => {
     site1.components["parent"] = parentComponent; // Trigger contagion for all
 
     // Verify nested references work in doc1
-    expect(site1.components["parent"].tplTree?.tag).toBe("div");
-    expect(site1.components["parent"].tplTree?.children[0].tag).toBe("span");
-    expect(site1.components["parent"].tplTree?.children[0].attrs["id"]).toBe("child-1");
+    expect([
+      site1.components["parent"].tplTree?.tag,
+      site1.components["parent"].tplTree?.children[0].tag,
+      site1.components["parent"].tplTree?.children[0].attrs["id"],
+    ]).to.have.ordered.members(["div", "span", "child-1"]);
 
     // Sync to doc2
     syncDocs(doc1, doc2);
 
     // Doc2: Access nested structure using Plexus
-    const { root: site2 } = await connectTestPlexus<Site>(doc2);
+    const { root: site2 } = connectTestPlexus<Site>(doc2);
     const parent2 = site2.components["parent"];
 
     // Verify nested structure synced completely
-    expect(parent2.name).toBe("Parent");
-    expect(parent2.tplTree?.tag).toBe("div");
-    expect(parent2.tplTree?.name).toBe("Root");
-    expect(parent2.tplTree?.attrs["className"]).toBe("container");
-    expect(parent2.tplTree?.children).toHaveLength(1);
-    expect(parent2.tplTree?.children[0].tag).toBe("span");
-    expect(parent2.tplTree?.children[0].name).toBe("Child");
-    expect(parent2.tplTree?.children[0].attrs["id"]).toBe("child-1");
+    expect([
+      parent2.name,
+      parent2.tplTree?.tag,
+      parent2.tplTree?.name,
+      parent2.tplTree?.attrs["className"],
+      parent2.tplTree?.children[0].tag,
+      parent2.tplTree?.children[0].name,
+      parent2.tplTree?.children[0].attrs["id"],
+    ]).to.have.ordered.members(["Parent", "div", "Root", "container", "span", "Child", "child-1"]);
+    expect(parent2.tplTree?.children).to.have.lengthOf(1);
 
     // Doc2: Modify nested structure
     if (parent2.tplTree) {
@@ -255,8 +267,10 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc1: Verify nested changes propagated
-    expect(parentComponent.tplTree!.children[0].attrs["modified"]).toBe("true");
-    expect(parentComponent.tplTree!.attrs["updated"]).toBe("doc2");
+    expect([
+      parentComponent.tplTree!.children[0].attrs["modified"],
+      parentComponent.tplTree!.attrs["updated"],
+    ]).to.have.ordered.members(["true", "doc2"]);
   });
 
   it("should sync arrays and primitive collections", async () => {
@@ -265,7 +279,7 @@ describe("Cross-Document Proxy Sync", () => {
       name: "Collections Test Site",
       components: {},
     });
-    const { doc: doc1, root: site1 } = await initTestPlexus<Site>(ephemeralSite3);
+    const { doc: doc1, root: site1 } = initTestPlexus<Site>(ephemeralSite3);
     const parent = new Component({
       name: "Parent",
       type: "container",
@@ -308,26 +322,26 @@ describe("Cross-Document Proxy Sync", () => {
     console.log("parent.children[1]:", parent.children[1]?.name);
 
     // Verify initial state
-    expect(parent.children).toHaveLength(2);
-    expect(parent.children[0].name).toBe("Child1");
-    expect(parent.children[1].name).toBe("Child2");
-    expect(parent.metadata["framework"]).toBe("react");
+    expect(parent.children).to.have.lengthOf(2);
+    expect([parent.children[0].name, parent.children[1].name, parent.metadata["framework"]]).to.have.ordered.members([
+      "Child1",
+      "Child2",
+      "react",
+    ]);
 
     // Sync to doc2
     syncDocs(doc1, doc2);
 
     // Doc2: Access collections using Plexus
-    const { root: site2 } = await connectTestPlexus<Site>(doc2);
+    const { root: site2 } = connectTestPlexus<Site>(doc2);
     const parent2 = site2.components["parent"];
 
     // Verify array sync
-    expect(parent2.children).toHaveLength(2);
-    expect(parent2.children[0].name).toBe("Child1");
-    expect(parent2.children[1].name).toBe("Child2");
+    expect(parent2.children).to.have.lengthOf(2);
+    expect([parent2.children[0].name, parent2.children[1].name]).to.have.ordered.members(["Child1", "Child2"]);
 
     // Verify map sync
-    expect(parent2.metadata["framework"]).toBe("react");
-    expect(parent2.metadata["version"]).toBe("18.0");
+    expect([parent2.metadata["framework"], parent2.metadata["version"]]).to.have.ordered.members(["react", "18.0"]);
 
     // Doc2: Modify collections (but add child via doc1 due to contagion requirements)
     const child3 = new Component({
@@ -347,22 +361,25 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc1: Verify collection changes
-    expect(parent.children).toHaveLength(3);
-    expect(parent.children[2].name).toBe("Child3");
-    expect(parent.metadata["newProp"]).toBe("added-in-doc2");
-    expect(parent.metadata["tags"]).toBeUndefined();
-    expect(parent.metadata["framework"]).toBe("react"); // Preserved
+    expect(parent.children).to.have.lengthOf(3);
+    expect(parent.children[2].name).to.equal("Child3");
+    expect([parent.metadata["newProp"], parent.metadata["tags"], parent.metadata["framework"]]).to.have.ordered.members(
+      [
+        "added-in-doc2",
+        undefined,
+        "react", // Preserved
+      ],
+    );
 
     // Doc1: Test array methods
     const removed = parent.children.pop();
-    expect(removed?.name).toBe("Child3");
-    expect(parent.children).toHaveLength(2);
+    expect(removed?.name).to.equal("Child3");
+    expect(parent.children).to.have.lengthOf(2);
 
     // Sync array mutation
     syncDocs(doc1, doc2);
-    expect(parent2.children).toHaveLength(2);
-    expect(parent2.children[0].name).toBe("Child1");
-    expect(parent2.children[1].name).toBe("Child2");
+    expect(parent2.children).to.have.lengthOf(2);
+    expect([parent2.children[0].name, parent2.children[1].name]).to.have.ordered.members(["Child1", "Child2"]);
   });
 
   it("should handle entity identity across documents", async () => {
@@ -371,7 +388,7 @@ describe("Cross-Document Proxy Sync", () => {
       name: "Identity Test Site",
       components: {},
     });
-    const { doc: doc1, root: site1 } = await initTestPlexus<Site>(ephemeralSite4);
+    const { doc: doc1, root: site1 } = initTestPlexus<Site>(ephemeralSite4);
 
     const comp1 = new Component({
       name: "Component1",
@@ -398,26 +415,25 @@ describe("Cross-Document Proxy Sync", () => {
     syncDocs(doc1, doc2);
 
     // Doc2: Verify identity relationships using Plexus
-    const { root: site2 } = await connectTestPlexus<Site>(doc2);
+    const { root: site2 } = connectTestPlexus<Site>(doc2);
     const comp1_doc2 = site2.components["comp1"];
     const comp2_doc2 = site2.components["comp2"];
 
     // Verify cross-references work
-    expect(comp1_doc2.children[0]).toBe(comp2_doc2); // Same object reference
-    expect(comp1_doc2.children[0].name).toBe("Component2");
+    expect(comp1_doc2.children[0] === comp2_doc2).to.eq(true); // Same object reference
+    expect(comp1_doc2.children[0].name).to.equal("Component2");
 
     // Modify through reference in doc2
     comp1_doc2.children[0].name = "Modified Child";
 
     // Verify change appears through both references
-    expect(comp2_doc2.name).toBe("Modified Child");
+    expect(comp2_doc2.name).to.equal("Modified Child");
 
     // Sync back to doc1
     syncDocs(doc1, doc2);
 
     // Verify identity preserved in doc1
-    expect(comp1.children[0]).toBe(comp2); // Still same reference
-    expect(comp2.name).toBe("Modified Child");
-    expect(comp1.children[0].name).toBe("Modified Child");
+    expect(comp1.children[0] === comp2).to.eq(true); // Still same reference
+    expect([comp2.name, comp1.children[0].name]).to.have.ordered.members(["Modified Child", "Modified Child"]);
   });
 });

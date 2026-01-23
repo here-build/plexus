@@ -77,16 +77,16 @@ describe("Garbage Collection Edge Cases", () => {
     }
 
     // Verify entities are still accessible through parent
-    expect(site.components["parent"].children.length).toBe(100);
-    expect(site.components["parent"].children[0].name).toBe("Entity0");
-    expect(site.components["parent"].children[99].name).toBe("Entity99");
+    expect(site.components["parent"].children).to.have.lengthOf(100);
+    expect(site.components["parent"].children[0].name).to.equal("Entity0");
+    expect(site.components["parent"].children[99].name).to.equal("Entity99");
 
     // Verify we can still perform operations
     site.components["parent"].children.push(
       new Component({ name: "NewEntity", type: "component", children: [], metadata: {} }),
     );
 
-    expect(site.components["parent"].children.length).toBe(101);
-    expect(site.components["parent"].children[100].name).toBe("NewEntity");
+    expect(site.components["parent"].children).to.have.lengthOf(101);
+    expect(site.components["parent"].children[100].name).to.equal("NewEntity");
   });
 });

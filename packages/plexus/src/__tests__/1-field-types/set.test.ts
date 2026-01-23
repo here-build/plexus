@@ -78,7 +78,7 @@ describe("Set Proxy Implementation", () => {
       ]);
 
       // Delete non-existent
-      expect(model.tags.delete("nonexistent")).to.equal(false);
+      expect(model.tags.delete("nonexistent")).to.eq(false);
     });
 
     it("should support Set iteration methods", () => {
@@ -182,7 +182,7 @@ describe("Set Proxy Implementation", () => {
       });
 
       // Materialize via Plexus
-      const { doc: plexusDoc, root } = await initTestPlexus<TestModelWithSet>(model);
+      const { doc: plexusDoc, root } = initTestPlexus<TestModelWithSet>(model);
 
       // Verify the loaded root has correct data
       expect([root.name, root.tags.size, root.tags.has("tag1"), root.tags.has("tag2")]).to.have.ordered.members([
@@ -211,7 +211,7 @@ describe("Set Proxy Implementation", () => {
       });
 
       // Materialize via Plexus
-      const { doc: plexusDoc, root } = await initTestPlexus<TestModelWithSet>(model);
+      const { doc: plexusDoc, root } = initTestPlexus<TestModelWithSet>(model);
 
       // Verify initial state
       expect([root.tags.has("tag1"), root.tags.size]).to.have.ordered.members([true, 1]);
@@ -239,7 +239,7 @@ describe("Set Proxy Implementation", () => {
       });
 
       // Materialize via Plexus
-      const { root } = await initTestPlexus<TestModelWithSet>(model);
+      const { root } = initTestPlexus<TestModelWithSet>(model);
 
       // Verify initial component set
       expect([root.components.size, root.components.has(comp1)]).to.have.ordered.members([1, true]);

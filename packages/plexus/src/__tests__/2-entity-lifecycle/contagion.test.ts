@@ -96,14 +96,14 @@ describe("Contagion (Auto-materialization)", () => {
     });
 
     // Verify ephemeral state
-    expect(ephemeralComponent.name).toBe("Header");
+    expect(ephemeralComponent.name).to.equal("Header");
 
     // Trigger contagion by adding to materialized entity
     site1.components["header"] = ephemeralComponent;
 
     // Verify materialization happened - component should now reference YJS
-    expect(site1.components["header"]).toBe(ephemeralComponent); // Same object reference
-    expect(site1.components["header"].name).toBe("Header");
+    expect(site1.components["header"]).to.equal(ephemeralComponent); // Same object reference
+    expect(site1.components["header"].name).to.equal("Header");
 
     // Sync to doc2
     syncDocs(doc1, doc2);
@@ -113,8 +113,6 @@ describe("Contagion (Auto-materialization)", () => {
     const component2 = site2.components["header"];
 
     // Verify sync worked
-    expect(component2).toBeTruthy();
-    expect(component2.name).toBe("Header");
-    expect(component2.type).toBe("component");
+    expect([component2, component2.name, component2.type]).to.have.ordered.members([component2, "Header", "component"]);
   });
 });

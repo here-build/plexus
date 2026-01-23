@@ -59,10 +59,10 @@ describe("Ephemeral State Reactivity", () => {
       const tracked = createTrackedFunction(notify, () => container.val);
 
       tracked();
-      expect(notify).toHaveBeenCalledTimes(0);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
 
       container.val = "changed";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("does NOT notify when non-accessed val is modified", () => {
@@ -71,7 +71,7 @@ describe("Ephemeral State Reactivity", () => {
 
       tracked();
       container.valNum = 42; // Different field
-      expect(notify).toHaveBeenCalledTimes(0);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
     });
   });
 
@@ -82,7 +82,7 @@ describe("Ephemeral State Reactivity", () => {
 
       tracked();
       container.list.push("item");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when list element is modified", () => {
@@ -93,7 +93,7 @@ describe("Ephemeral State Reactivity", () => {
 
       tracked();
       container.list[0] = "changed";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies on list iteration after push", () => {
@@ -102,7 +102,7 @@ describe("Ephemeral State Reactivity", () => {
 
       tracked();
       container.list.push("new");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -113,7 +113,7 @@ describe("Ephemeral State Reactivity", () => {
 
       tracked();
       container.set.add("item");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when set.delete() is called (tracking via iteration)", () => {
@@ -124,7 +124,7 @@ describe("Ephemeral State Reactivity", () => {
 
       tracked();
       container.set.delete("item");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -135,7 +135,7 @@ describe("Ephemeral State Reactivity", () => {
 
       tracked();
       container.record["key"] = "value";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when record key is deleted", () => {
@@ -146,7 +146,7 @@ describe("Ephemeral State Reactivity", () => {
 
       tracked();
       delete container.record["key"];
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -157,7 +157,7 @@ describe("Ephemeral State Reactivity", () => {
 
       tracked();
       container.list.push("item");
-      expect(notify).toHaveBeenCalledTimes(0);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
     });
 
     it("modifying record does NOT notify set watcher", () => {
@@ -166,7 +166,7 @@ describe("Ephemeral State Reactivity", () => {
 
       tracked();
       container.record["key"] = "value";
-      expect(notify).toHaveBeenCalledTimes(0);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
     });
   });
 });
@@ -189,10 +189,10 @@ describe("Materialized State Reactivity", () => {
       const tracked = createTrackedFunction(notify, () => container.val);
 
       tracked();
-      expect(notify).toHaveBeenCalledTimes(0);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
 
       container.val = "changed";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -203,7 +203,7 @@ describe("Materialized State Reactivity", () => {
 
       tracked();
       container.list.push("item");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when list element is modified", () => {
@@ -214,7 +214,7 @@ describe("Materialized State Reactivity", () => {
 
       tracked();
       container.list[0] = "changed";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies on pop", () => {
@@ -225,7 +225,7 @@ describe("Materialized State Reactivity", () => {
 
       tracked();
       container.list.pop();
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies on splice", () => {
@@ -236,7 +236,7 @@ describe("Materialized State Reactivity", () => {
 
       tracked();
       container.list.splice(1, 1);
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -247,7 +247,7 @@ describe("Materialized State Reactivity", () => {
 
       tracked();
       container.set.add("item");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when set.delete() is called (tracking via iteration)", () => {
@@ -258,7 +258,7 @@ describe("Materialized State Reactivity", () => {
 
       tracked();
       container.set.delete("item");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when set.add() is called (tracking via has)", () => {
@@ -267,7 +267,7 @@ describe("Materialized State Reactivity", () => {
 
       tracked();
       container.set.add("item");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when set.add() is called (tracking via size)", () => {
@@ -275,9 +275,9 @@ describe("Materialized State Reactivity", () => {
       const tracked = createTrackedFunction(notify, () => container.set.size);
 
       tracked();
-      expect(container.set.size).toBe(0);
+      expect(container.set.size).to.equal(0);
       container.set.add("item");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when set.delete() is called (tracking via size)", () => {
@@ -287,9 +287,9 @@ describe("Materialized State Reactivity", () => {
       const tracked = createTrackedFunction(notify, () => container.set.size);
 
       tracked();
-      expect(container.set.size).toBe(1);
+      expect(container.set.size).to.equal(1);
       container.set.delete("item");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -300,7 +300,7 @@ describe("Materialized State Reactivity", () => {
 
       tracked();
       container.record["key"] = "value";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when record key is deleted", () => {
@@ -311,7 +311,7 @@ describe("Materialized State Reactivity", () => {
 
       tracked();
       delete container.record["key"];
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -322,7 +322,7 @@ describe("Materialized State Reactivity", () => {
 
       tracked();
       container.map.set("key", "value");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when map.delete() is called", () => {
@@ -333,7 +333,7 @@ describe("Materialized State Reactivity", () => {
 
       tracked();
       container.map.delete("key");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies on map keys iteration", () => {
@@ -342,7 +342,7 @@ describe("Materialized State Reactivity", () => {
 
       tracked();
       container.map.set("newKey", "value");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 });
@@ -366,7 +366,7 @@ describe("Child Field Reactivity", () => {
 
       tracked();
       container.childVal = new Item({ name: "new" });
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when child property is modified", () => {
@@ -377,7 +377,7 @@ describe("Child Field Reactivity", () => {
 
       tracked();
       container.childVal!.name = "changed";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -388,7 +388,7 @@ describe("Child Field Reactivity", () => {
 
       tracked();
       container.childList.push(new Item({ name: "new" }));
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when child entity property is modified", () => {
@@ -400,7 +400,7 @@ describe("Child Field Reactivity", () => {
 
       tracked();
       container.childList[0].name = "changed";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when child is removed", () => {
@@ -411,7 +411,7 @@ describe("Child Field Reactivity", () => {
 
       tracked();
       container.childList.pop();
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -423,7 +423,7 @@ describe("Child Field Reactivity", () => {
 
       tracked();
       container.childSet.add(new Item({ name: "new" }));
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when child entity property is modified", () => {
@@ -436,7 +436,7 @@ describe("Child Field Reactivity", () => {
       tracked();
       // Modify through the container's reference to trigger reactivity
       [...container.childSet][0].name = "changed";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -447,7 +447,7 @@ describe("Child Field Reactivity", () => {
 
       tracked();
       container.childRecord["key"] = new Item({ name: "new" });
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when child entity property is modified", () => {
@@ -458,7 +458,7 @@ describe("Child Field Reactivity", () => {
 
       tracked();
       container.childRecord["key"].name = "changed";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 });
@@ -483,12 +483,12 @@ describe("Cross-Entity Reactivity", () => {
     const tracked = createTrackedFunction(notify, () => container.childVal?.name);
 
     tracked();
-    expect(notify).toHaveBeenCalledTimes(0);
+    expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
 
     // Modify the child's property
     container.childVal!.name = "changed";
 
-    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
   });
 
   it("modifying child in list notifies watcher of that child", () => {
@@ -498,12 +498,12 @@ describe("Cross-Entity Reactivity", () => {
     const tracked = createTrackedFunction(notify, () => container.childList[0]?.name);
 
     tracked();
-    expect(notify).toHaveBeenCalledTimes(0);
+    expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
 
     // Modify child's property through the list
     container.childList[0].name = "modified";
 
-    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
   });
 
   it("non-child reference: modifying entity notifies reference watcher", () => {
@@ -518,6 +518,6 @@ describe("Cross-Entity Reactivity", () => {
     // Modify through the container's child reference
     container.childVal!.name = "changed";
 
-    expect(notify).toHaveBeenCalled();
+    expect(notify).to.have.property("mock").with.property("calls").with.lengthOf.above(0);
   });
 });

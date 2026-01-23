@@ -37,20 +37,21 @@ describe("Cyclic Parentship", () => {
       root.primary = A;
       A.child = B;
 
-      expect(A.child).toBe(B);
-      expect(B.parent).toBe(A);
+      expect([A.child === B, B.parent === A]).to.have.ordered.members([true, true]);
 
       // Try to make B adopt A (would create cycle)
       // Expected: Should throw to prevent the cycle
       expect(() => {
         B.child = A;
-      }).toThrow(/cycle/i);
+      }).to.throw(/cycle/i);
 
       // A should still be B's parent (cycle prevented)
-      expect(A.child).toBe(B);
-      expect(B.child).toBeNull(); // Cycle prevented
-      expect(A.parent).toBe(root);
-      expect(B.parent).toBe(A);
+      expect([A.child === B, B.child, A.parent === root, B.parent === A]).to.have.ordered.members([
+        true,
+        null,
+        true,
+        true,
+      ]);
     });
   });
 
@@ -67,18 +68,15 @@ describe("Cyclic Parentship", () => {
       A.child = B;
       B.child = C;
 
-      expect(C.parent).toBe(B);
-      expect(B.parent).toBe(A);
-      expect(A.parent).toBe(root);
+      expect([C.parent === B, B.parent === A, A.parent === root]).to.have.ordered.members([true, true, true]);
 
       // Try to make C adopt A (would create cycle through chain)
       expect(() => {
         C.child = A;
-      }).toThrow(/cycle/i);
+      }).to.throw(/cycle/i);
 
       // Cycle should be prevented
-      expect(C.child).toBeNull();
-      expect(A.parent).toBe(root); // Still connected to root
+      expect([C.child, A.parent === root]).to.have.ordered.members([null, true]);
     });
   });
 
@@ -92,11 +90,10 @@ describe("Cyclic Parentship", () => {
       // Try self-adoption
       expect(() => {
         A.child = A;
-      }).toThrow(/self/i);
+      }).to.throw(/self/i);
 
       // Self-adoption should be prevented
-      expect(A.child).toBeNull();
-      expect(A.parent).toBe(root);
+      expect([A.child, A.parent === root]).to.have.ordered.members([null, true]);
     });
   });
 
@@ -113,14 +110,16 @@ describe("Cyclic Parentship", () => {
       // Try to create cycle - should throw
       expect(() => {
         B.child = A;
-      }).toThrow(/cycle/i);
+      }).to.throw(/cycle/i);
 
       // Everything remains connected to root
-      expect(root.primary).toBe(A);
-      expect(A.parent).toBe(root);
-      expect(A.child).toBe(B);
-      expect(B.parent).toBe(A);
-      expect(B.child).toBeNull();
+      expect([root.primary === A, A.parent === root, A.child === B, B.parent === A, B.child]).to.have.ordered.members([
+        true,
+        true,
+        true,
+        true,
+        null,
+      ]);
     });
   });
 });

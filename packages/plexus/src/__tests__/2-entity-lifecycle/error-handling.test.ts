@@ -39,13 +39,13 @@ describe("Runtime Error Handling", () => {
 
       // Get reference to the materialized child
       const materializedChild = root.child!;
-      expect(materializedChild.name).toBe("test");
+      expect(materializedChild.name).to.equal("test");
 
       // Remove child (orphans it)
       root.child = null;
 
       // Orphaned model is still readable
-      expect(materializedChild.name).toBe("test");
+      expect(materializedChild.name).to.equal("test");
     });
 
     it("orphaned model can still be modified", () => {
@@ -58,7 +58,7 @@ describe("Runtime Error Handling", () => {
 
       // Orphaned model can be modified
       materializedChild.name = "changed";
-      expect(materializedChild.name).toBe("changed");
+      expect(materializedChild.name).to.equal("changed");
     });
 
     it("orphaned model from list remains accessible", () => {
@@ -66,13 +66,13 @@ describe("Runtime Error Handling", () => {
       root.children.push(new Item({ name: "item1" }));
 
       const item = root.children[0];
-      expect(item.name).toBe("item1");
+      expect(item.name).to.equal("item1");
 
       // Remove from list
       root.children.pop();
 
       // Orphaned model is still accessible
-      expect(item.name).toBe("item1");
+      expect(item.name).to.equal("item1");
     });
 
     it("orphaned model can be re-adopted by another parent", () => {
@@ -85,7 +85,7 @@ describe("Runtime Error Handling", () => {
 
       // Re-adopt into different field
       root.child = orphan;
-      expect(root.child!.name).toBe("movable");
+      expect(root.child!.name).to.equal("movable");
     });
   });
 
@@ -103,23 +103,22 @@ describe("Runtime Error Handling", () => {
       setRoot.items.add("a");
 
       // Removing non-existent item should return false, not throw
-      expect(setRoot.items.delete("nonexistent")).toBe(false);
-      expect(setRoot.items.size).toBe(1);
+      expect([setRoot.items.delete("nonexistent"), setRoot.items.size]).to.have.ordered.members([false, 1]);
     });
 
     it("handles clearing empty collection gracefully", () => {
       const { root } = initTestPlexus(new Container());
 
       // Clear empty list - should not throw
-      expect(() => (root.children.length = 0)).not.toThrow();
-      expect(root.children.length).toBe(0);
+      expect(() => (root.children.length = 0)).to.not.throw();
+      expect(root.children).to.have.lengthOf(0);
 
       // Clear empty record - should work via assign
       expect(() => {
         for (const key of Object.keys(root.childRecord)) {
           delete root.childRecord[key];
         }
-      }).not.toThrow();
+      }).to.not.throw();
     });
 
     it("handles pop on empty array gracefully", () => {
@@ -127,14 +126,14 @@ describe("Runtime Error Handling", () => {
 
       // Pop on empty array should return undefined, not throw
       const result = root.children.pop();
-      expect(result).toBeUndefined();
+      expect(result).to.eq(undefined);
     });
 
     it("handles shift on empty array gracefully", () => {
       const { root } = initTestPlexus(new Container());
 
       const result = root.children.shift();
-      expect(result).toBeUndefined();
+      expect(result).to.eq(undefined);
     });
   });
 
@@ -145,7 +144,7 @@ describe("Runtime Error Handling", () => {
 
       expect(() => {
         root.children.push(item, item);
-      }).toThrow();
+      }).to.throw();
     });
 
     it("throws when splicing same child twice", () => {
@@ -154,7 +153,7 @@ describe("Runtime Error Handling", () => {
 
       expect(() => {
         root.children.splice(0, 0, item, item);
-      }).toThrow();
+      }).to.throw();
     });
 
     it("throws when unshifting same child twice", () => {
@@ -163,7 +162,7 @@ describe("Runtime Error Handling", () => {
 
       expect(() => {
         root.children.unshift(item, item);
-      }).toThrow();
+      }).to.throw();
     });
 
     it("throws when assign contains duplicates", () => {
@@ -172,7 +171,7 @@ describe("Runtime Error Handling", () => {
 
       expect(() => {
         (root.children as any).assign([item, item]);
-      }).toThrow();
+      }).to.throw();
     });
   });
 
@@ -182,7 +181,7 @@ describe("Runtime Error Handling", () => {
       const { root, plexus } = initTestPlexus(container);
 
       root.val = "before";
-      expect(root.val).toBe("before");
+      expect(root.val).to.equal("before");
 
       // Destroy the underlying doc
       plexus.doc.destroy();
@@ -191,7 +190,7 @@ describe("Runtime Error Handling", () => {
         // Operations after destroy - behavior depends on implementation
         // At minimum, should not cause unhandled exceptions
         root.val = "after";
-      }).not.toThrow();
+      }).to.not.throw();
     });
   });
 
@@ -203,10 +202,10 @@ describe("Runtime Error Handling", () => {
       // Negative index throws (proxy returns false from set trap)
       expect(() => {
         (root.children as any)[-1] = new Item({ name: "negative" });
-      }).toThrow();
+      }).to.throw();
 
       // Array should be unchanged
-      expect(root.children.length).toBe(1);
+      expect(root.children).to.have.lengthOf(1);
     });
 
     it("handles out-of-bounds read gracefully", () => {
@@ -214,8 +213,7 @@ describe("Runtime Error Handling", () => {
       root.children.push(new Item({ name: "item" }));
 
       // Out of bounds read should return undefined
-      expect(root.children[100]).toBeUndefined();
-      expect(root.children[-1]).toBeUndefined();
+      expect([root.children[100], root.children[-1]]).to.have.ordered.members([undefined, undefined]);
     });
 
     it("handles sparse array creation via index assignment", () => {
@@ -224,10 +222,9 @@ describe("Runtime Error Handling", () => {
       // Setting index 4 on empty array creates sparse array with nulls
       root.children[4] = new Item({ name: "sparse" });
 
-      expect(root.children.length).toBe(5);
-      expect(root.children[0]).toBeNull();
-      expect(root.children[3]).toBeNull();
-      expect(root.children[4].name).toBe("sparse");
+      expect([root.children.length, root.children[0], root.children[3], root.children[4].name]).to.have.ordered.members(
+        [5, null, null, "sparse"],
+      );
     });
 
     it("fills holes with null when extending array", () => {
@@ -237,10 +234,12 @@ describe("Runtime Error Handling", () => {
       // Setting index 2 creates hole at 1
       root.children[2] = new Item({ name: "third" });
 
-      expect(root.children.length).toBe(3);
-      expect(root.children[0].name).toBe("first");
-      expect(root.children[1]).toBeNull();
-      expect(root.children[2].name).toBe("third");
+      expect([
+        root.children.length,
+        root.children[0].name,
+        root.children[1],
+        root.children[2].name,
+      ]).to.have.ordered.members([3, "first", null, "third"]);
     });
   });
 });

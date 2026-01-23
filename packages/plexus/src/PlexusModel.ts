@@ -635,14 +635,14 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
         } else if (key === YJS_GLOBALS.models.recordFields.parent) {
           // Update runtime parent when Y.js changes
           // todo this may cause problems on batch undo (when both parent and child are removed from tree) - needs revision
-          const parentReference = internals.yjsModel!.get(YJS_GLOBALS.models.recordFields.parent) as
+          const newParentRef = internals.yjsModel!.get(YJS_GLOBALS.models.recordFields.parent) as
             | ParentReference
             | undefined;
           const previousParent = this.parent;
-          if (parentReference) {
-            internals.parent = deref(this.__doc__!, [parentReference[0]]) as Parent;
-            internals.parentKey = parentReference[1];
-            internals.parentMetadata = parentReference[2] ?? null;
+          if (newParentRef) {
+            internals.parent = deref(this.__doc__!, [newParentRef[0]]) as Parent;
+            internals.parentKey = newParentRef[1];
+            internals.parentMetadata = newParentRef[2] ?? null;
           } else {
             internals.parent = null;
             internals.parentKey = null;
@@ -680,7 +680,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     currentlyEmancipating.add(this);
 
     const parent = this.parent;
-    const [_, parentKey, extraParentMetadata] = internals.yjsModel
+    const [, parentKey, extraParentMetadata] = internals.yjsModel
       ? (internals.yjsModel.get(YJS_GLOBALS.models.recordFields.parent) as ParentReference)
       : [null, internals.parentKey!, internals.parentMetadata];
     // avoiding circular dependencies

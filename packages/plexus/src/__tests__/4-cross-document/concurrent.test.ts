@@ -116,16 +116,17 @@ describe("Concurrent Mutation Races", () => {
     syncDocs(doc1, doc2);
 
     // Both documents should have the children now
-    expect(comp1_doc1.children.length).toBe(2);
-    expect(comp1_doc2.children.length).toBe(2);
+    expect([comp1_doc1.children.length, comp1_doc2.children.length]).to.have.ordered.members([2, 2]);
 
     // Names may be resolved by CRDT (last write wins or merge)
-    expect(comp1_doc1.name).toBe(comp1_doc2.name); // Should be identical after sync
+    expect(comp1_doc1.name).to.equal(comp1_doc2.name); // Should be identical after sync
 
     // Verify children are present in both
     const childNames1 = comp1_doc1.children.map((c) => c.name).sort();
     const childNames2 = comp1_doc2.children.map((c) => c.name).sort();
-    expect(childNames1).toEqual(["Child1", "Child2"]);
-    expect(childNames2).toEqual(["Child1", "Child2"]);
+    expect([childNames1, childNames2]).to.deep.equal([
+      ["Child1", "Child2"],
+      ["Child1", "Child2"],
+    ]);
   });
 });

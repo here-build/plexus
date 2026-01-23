@@ -78,6 +78,98 @@ class SuperProject extends Project {
 
 Note that `undefined` is not supported and will be turned into `null`.
 
+## Model Definition Patterns
+
+### Constructor Shape
+
+Extending classes should accept empty constructor args internally (used by Plexus rehydration), but only expose the
+props-based API publicly:
+
+```typescript
+@syncing
+class MyModel extends PlexusModel {
+  @syncing accessor name!: string;
+
+  // Internal shape: constructor(props: Props | undefined)
+  // But only expose: constructor(props: Props)
+  constructor(props: { name: string }) {
+    super(props); // PlexusInit<this> | undefined
+  }
+}
+```
+
+> `PlexusInit` type cannot extract `@syncing` fields specifically, so define init structs manually for complex
+> constructors.
+
+### Omittable Fields
+
+Nullable fields and structs (collections) can be omitted from constructors:
+
+```typescript
+@syncing
+class Project extends PlexusModel {
+  @syncing accessor title!: string;           // Required
+  @syncing accessor description!: string | null;  // Omittable (nullable)
+  @syncing.list accessor tags!: string[];     // Omittable (struct spawns empty)
+}
+
+// Only title is required
+new Project({ title: "Hello" });
+```
+
+### Accessor Syntax
+
+Use `!: Type | null` for nullable fields. The `= null` initializer is optional:
+
+```typescript
+// Both are equivalent:
+@syncing
+accessor
+owner!
+:
+User | null;
+@syncing
+accessor
+owner: User | null = null;
+```
+
+### Nested Declarations
+
+Nested models can be declared in both default initializers and constructor args:
+
+```typescript
+
+@syncing
+class Container extends PlexusModel {
+  // Default initializer
+  @syncing.child accessor config: Config = new Config();
+
+  // Or via constructor
+  @syncing.child accessor settings!: Settings;
+}
+
+// Both work:
+new Container();
+new Container({ settings: new Settings({ theme: "dark" }) });
+```
+
+### Type Narrowing with `declare`
+
+The `declare` keyword provides type narrowing without adding syncing behavior (cannot be used with accessors):
+
+```typescript
+
+@syncing
+abstract class AbstractGroup extends PlexusModel {
+  abstract accessor items: Item[];
+}
+
+@syncing
+class ConcreteGroup extends AbstractGroup {
+  declare items: SpecificItem[];  // Narrows type, no decorator needed
+}
+```
+
 ## Using Models
 
 ```typescript jsx

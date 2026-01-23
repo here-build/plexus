@@ -35,7 +35,7 @@ describe("Tracking Edge Cases", () => {
 
       // Modifying existing key's value should notify values() subscribers
       root.map.set("key", "updated");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies values() subscribers when new key-value added", () => {
@@ -47,7 +47,7 @@ describe("Tracking Edge Cases", () => {
       tracked();
 
       root.map.set("new", "newValue");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies values() subscribers when value is deleted", () => {
@@ -59,7 +59,7 @@ describe("Tracking Edge Cases", () => {
       tracked();
 
       root.map.delete("key");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -73,7 +73,7 @@ describe("Tracking Edge Cases", () => {
 
       // Extending array via index assignment should notify length subscribers
       root.items[0] = new Item({ name: "first" });
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies length subscribers when array extended with gaps", () => {
@@ -85,7 +85,7 @@ describe("Tracking Edge Cases", () => {
 
       // Creating sparse array via index should notify
       root.items[5] = new Item({ name: "at-five" });
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("does NOT notify length subscribers when replacing existing element", () => {
@@ -98,7 +98,7 @@ describe("Tracking Edge Cases", () => {
 
       // Replacing existing element should NOT notify length (length unchanged)
       root.items[0] = new Item({ name: "replaced" });
-      expect(notify).not.toHaveBeenCalled();
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
     });
   });
 
@@ -112,7 +112,7 @@ describe("Tracking Edge Cases", () => {
       tracked();
 
       root.record["new"] = "newValue";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies Object.values() subscribers when value changed", () => {
@@ -124,7 +124,7 @@ describe("Tracking Edge Cases", () => {
       tracked();
 
       root.record["key"] = "updated";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies Object.keys() subscribers when key removed", () => {
@@ -136,7 +136,7 @@ describe("Tracking Edge Cases", () => {
       tracked();
 
       delete root.record["key"];
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -152,7 +152,7 @@ describe("Tracking Edge Cases", () => {
 
       // Only the tracked key should trigger notification
       root.map.set("tracked", "updated");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("does NOT notify get(key) subscribers when different key changes", () => {
@@ -166,7 +166,7 @@ describe("Tracking Edge Cases", () => {
 
       // Changing a different key should NOT notify
       root.map.set("other", "updated");
-      expect(notify).not.toHaveBeenCalled();
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
     });
   });
 
@@ -179,7 +179,7 @@ describe("Tracking Edge Cases", () => {
       tracked();
 
       root.map.set("key", "value");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies has() subscribers when key is deleted", () => {
@@ -191,7 +191,7 @@ describe("Tracking Edge Cases", () => {
       tracked();
 
       root.map.delete("key");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("does NOT notify has() subscribers when value changes (key still exists)", () => {
@@ -204,7 +204,7 @@ describe("Tracking Edge Cases", () => {
 
       // Value change should NOT notify has() (key presence unchanged)
       root.map.set("key", "updated");
-      expect(notify).not.toHaveBeenCalled();
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
     });
   });
 
@@ -217,7 +217,7 @@ describe("Tracking Edge Cases", () => {
       tracked();
 
       root.map.set("key", "value");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies size subscribers when key is deleted", () => {
@@ -229,7 +229,7 @@ describe("Tracking Edge Cases", () => {
       tracked();
 
       root.map.delete("key");
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("does NOT notify size subscribers when value changes (size unchanged)", () => {
@@ -242,7 +242,7 @@ describe("Tracking Edge Cases", () => {
 
       // Value change should NOT notify size (size unchanged)
       root.map.set("key", "updated");
-      expect(notify).not.toHaveBeenCalled();
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
     });
   });
 });

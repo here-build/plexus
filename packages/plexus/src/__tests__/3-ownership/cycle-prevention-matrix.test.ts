@@ -63,16 +63,16 @@ function tryAddChild(parent: Node, child: Node, via: ContainerType): Error | nul
 function verifyChildNotIn(parent: Node, child: Node, via: ContainerType): void {
   switch (via) {
     case "val":
-      expect(parent.childVal).not.toBe(child);
+      expect(parent.childVal !== child).to.eq(true);
       break;
     case "list":
-      expect(parent.childList).not.toContain(child);
+      expect(parent.childList.includes(child)).to.eq(false);
       break;
     case "record":
-      expect(Object.values(parent.childRecord)).not.toContain(child);
+      expect(Object.values(parent.childRecord).includes(child)).to.eq(false);
       break;
     case "set":
-      expect(parent.childSet.has(child)).toBe(false);
+      expect(parent.childSet.has(child)).to.eq(false);
       break;
   }
 }
@@ -81,16 +81,16 @@ function verifyChildNotIn(parent: Node, child: Node, via: ContainerType): void {
 function verifyChildIn(parent: Node, child: Node, via: ContainerType): void {
   switch (via) {
     case "val":
-      expect(parent.childVal).toBe(child);
+      expect(parent.childVal === child).to.eq(true);
       break;
     case "list":
-      expect(parent.childList).toContain(child);
+      expect(parent.childList.includes(child)).to.eq(true);
       break;
     case "record":
-      expect(Object.values(parent.childRecord)).toContain(child);
+      expect(Object.values(parent.childRecord).includes(child)).to.eq(true);
       break;
     case "set":
-      expect(parent.childSet.has(child)).toBe(true);
+      expect(parent.childSet.has(child)).to.eq(true);
       break;
   }
 }
@@ -111,20 +111,18 @@ describe("Cycle Prevention Matrix", () => {
           addChild(A, B, sourceType);
 
           // Verify setup
-          expect(A.parent).toBe(root);
-          expect(B.parent).toBe(A);
+          expect([A.parent === root, B.parent === A]).to.have.ordered.members([true, true]);
           verifyChildIn(A, B, sourceType);
 
           // Attempt cycle: B -> A (via targetType)
           const error = tryAddChild(B, A, targetType);
 
           // Should throw cycle error
-          expect(error).not.toBeNull();
-          expect(error!.message).toMatch(/cycle/i);
+          expect(error).to.not.eq(null);
+          expect(error!.message).to.match(/cycle/i);
 
           // Verify no cycle was created
-          expect(A.parent).toBe(root);
-          expect(B.parent).toBe(A);
+          expect([A.parent === root, B.parent === A]).to.have.ordered.members([true, true]);
           verifyChildIn(A, B, sourceType);
           verifyChildNotIn(B, A, targetType);
         });
@@ -159,21 +157,17 @@ describe("Cycle Prevention Matrix", () => {
         addChild(B, C, bcType);
 
         // Verify setup
-        expect(A.parent).toBe(root);
-        expect(B.parent).toBe(A);
-        expect(C.parent).toBe(B);
+        expect([A.parent === root, B.parent === A, C.parent === B]).to.have.ordered.members([true, true, true]);
 
         // Attempt transitive cycle: C -> A
         const error = tryAddChild(C, A, caType);
 
         // Should throw cycle error
-        expect(error).not.toBeNull();
-        expect(error!.message).toMatch(/cycle/i);
+        expect(error).to.not.eq(null);
+        expect(error!.message).to.match(/cycle/i);
 
         // Verify no cycle was created
-        expect(A.parent).toBe(root);
-        expect(B.parent).toBe(A);
-        expect(C.parent).toBe(B);
+        expect([A.parent === root, B.parent === A, C.parent === B]).to.have.ordered.members([true, true, true]);
         verifyChildNotIn(C, A, caType);
       });
     }
@@ -191,12 +185,12 @@ describe("Cycle Prevention Matrix", () => {
         const error = tryAddChild(A, A, containerType);
 
         // Should throw self/cycle error
-        expect(error).not.toBeNull();
-        expect(error!.message).toMatch(/self|cycle/i);
+        expect(error).to.not.eq(null);
+        expect(error!.message).to.match(/self|cycle/i);
 
         // Verify no self-reference
         verifyChildNotIn(A, A, containerType);
-        expect(A.parent).toBe(root);
+        expect(A.parent === root).to.eq(true);
       });
     }
   });
@@ -218,7 +212,7 @@ describe("Cycle Prevention Matrix", () => {
         // C is not in the parent chain of A, so A can adopt C
         const error = tryAddChild(A, C, containerType === "val" ? "list" : "val");
 
-        expect(error).toBeNull();
+        expect(error).to.eq(null);
       });
     }
   });

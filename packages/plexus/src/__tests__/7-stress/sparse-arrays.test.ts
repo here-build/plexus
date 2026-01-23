@@ -87,13 +87,13 @@ describe("Array Holes and Sparse Operations", () => {
     site.components["parent"] = parent;
 
     // Verify sparse array structure
-    expect(parent.children.length).toBe(101);
-    expect(parent.children[0].name).toBe("Child1");
-    expect(parent.children[100].name).toBe("Child100");
+    expect(parent.children).to.have.lengthOf(101);
+    expect(parent.children[0].name).to.equal("Child1");
+    expect(parent.children[100].name).to.equal("Child100");
 
     // Holes should be null or undefined
     for (let i = 1; i < 100; i++) {
-      expect(parent.children[i]).toBeNull();
+      expect(parent.children[i]).to.eq(null);
     }
   });
 
@@ -111,12 +111,12 @@ describe("Array Holes and Sparse Operations", () => {
     const parent2 = site2.components["parent"];
 
     // Verify sparse structure is preserved
-    expect(parent2.children.length).toBe(51);
-    expect(parent2.children[50].name).toBe("SparseChild");
+    expect(parent2.children).to.have.lengthOf(51);
+    expect(parent2.children[50].name).to.equal("SparseChild");
 
     // Verify holes are preserved
     for (let i = 0; i < 50; i++) {
-      expect(parent2.children[i]).toBeNull();
+      expect(parent2.children[i]).to.eq(null);
     }
   });
 });

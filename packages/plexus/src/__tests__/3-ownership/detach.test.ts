@@ -32,12 +32,12 @@ describe("Detach Method", () => {
       const node = new Node({ name: "A" });
 
       root.primary = node;
-      expect(node.parent).toBe(root);
+      expect(node.parent).to.equal(root);
 
       const wasAttached = node.detach();
 
-      expect(wasAttached).toBe(true);
-      expect(node.parent).toBeNull();
+      expect(wasAttached).to.eq(true);
+      expect(node.parent).to.eq(null);
     });
 
     it("returns false when entity was already detached", () => {
@@ -45,12 +45,12 @@ describe("Detach Method", () => {
       const node = new Node({ name: "A" });
 
       // Node created but never attached
-      expect(node.parent).toBeNull();
+      expect(node.parent).to.eq(null);
 
       const wasAttached = node.detach();
 
-      expect(wasAttached).toBe(false);
-      expect(node.parent).toBeNull();
+      expect(wasAttached).to.eq(false);
+      expect(node.parent).to.eq(null);
     });
 
     it("returns false on second detach call", () => {
@@ -61,11 +61,11 @@ describe("Detach Method", () => {
 
       // First detach
       const firstResult = node.detach();
-      expect(firstResult).toBe(true);
+      expect(firstResult).to.eq(true);
 
       // Second detach on already detached node
       const secondResult = node.detach();
-      expect(secondResult).toBe(false);
+      expect(secondResult).to.eq(false);
     });
   });
 
@@ -78,13 +78,13 @@ describe("Detach Method", () => {
       root.primary = parent;
       parent.childVal = child;
 
-      expect(parent.childVal).toBe(child);
-      expect(child.parent).toBe(parent);
+      expect(parent.childVal).to.equal(child);
+      expect(child.parent).to.equal(parent);
 
       child.detach();
 
-      expect(parent.childVal).toBeNull();
-      expect(child.parent).toBeNull();
+      expect(parent.childVal).to.eq(null);
+      expect(child.parent).to.eq(null);
     });
 
     it("removes from child-list field", () => {
@@ -95,14 +95,13 @@ describe("Detach Method", () => {
       root.primary = parent;
       parent.childList.push(child);
 
-      expect(parent.childList).toContain(child);
-      expect(child.parent).toBe(parent);
+      expect(parent.childList).to.include(child);
+      expect(child.parent).to.equal(parent);
 
       child.detach();
 
-      expect(parent.childList).not.toContain(child);
-      expect(parent.childList.length).toBe(0);
-      expect(child.parent).toBeNull();
+      expect(parent.childList).to.have.lengthOf(0).and.not.include(child);
+      expect(child.parent).to.eq(null);
     });
 
     it("removes from child-record field", () => {
@@ -113,14 +112,14 @@ describe("Detach Method", () => {
       root.primary = parent;
       parent.childRecord["key"] = child;
 
-      expect(parent.childRecord["key"]).toBe(child);
-      expect(child.parent).toBe(parent);
+      expect(parent.childRecord["key"]).to.equal(child);
+      expect(child.parent).to.equal(parent);
 
       child.detach();
 
-      expect(parent.childRecord["key"]).toBeUndefined();
-      expect(Object.keys(parent.childRecord).length).toBe(0);
-      expect(child.parent).toBeNull();
+      expect(parent.childRecord["key"]).to.eq(undefined);
+      expect(Object.keys(parent.childRecord)).to.have.lengthOf(0);
+      expect(child.parent).to.eq(null);
     });
 
     it("removes from child-set field", () => {
@@ -131,14 +130,14 @@ describe("Detach Method", () => {
       root.primary = parent;
       parent.childSet.add(child);
 
-      expect(parent.childSet.has(child)).toBe(true);
-      expect(child.parent).toBe(parent);
+      expect(parent.childSet.has(child)).to.eq(true);
+      expect(child.parent).to.equal(parent);
 
       child.detach();
 
-      expect(parent.childSet.has(child)).toBe(false);
-      expect(parent.childSet.size).toBe(0);
-      expect(child.parent).toBeNull();
+      expect(parent.childSet.has(child)).to.eq(false);
+      expect(parent.childSet.size).to.equal(0);
+      expect(child.parent).to.eq(null);
     });
   });
 
@@ -156,13 +155,13 @@ describe("Detach Method", () => {
       nodeA.detach();
       parent.childVal = nodeB;
 
-      expect(parent.childVal).toBe(nodeB);
-      expect(nodeA.parent).toBeNull();
-      expect(nodeB.parent).toBe(parent);
+      expect(parent.childVal).to.equal(nodeB);
+      expect(nodeA.parent).to.eq(null);
+      expect(nodeB.parent).to.equal(parent);
 
       // Can now attach A elsewhere or to same parent
       parent.childList.push(nodeA);
-      expect(nodeA.parent).toBe(parent);
+      expect(nodeA.parent).to.equal(parent);
     });
 
     it("enables safe node relocation", () => {
@@ -179,12 +178,12 @@ describe("Detach Method", () => {
       // Without detach, this would remove from parentA's list automatically
       // But detach makes the operation explicit
       const wasInList = child.detach();
-      expect(wasInList).toBe(true);
-      expect(parentA.childList).not.toContain(child);
+      expect(wasInList).to.eq(true);
+      expect(parentA.childList).to.not.include(child);
 
       parentB.childList.push(child);
-      expect(child.parent).toBe(parentB);
-      expect(parentB.childList).toContain(child);
+      expect(child.parent).to.equal(parentB);
+      expect(parentB.childList).to.include(child);
     });
 
     it("can be used for conditional detachment", () => {
@@ -200,17 +199,17 @@ describe("Detach Method", () => {
       }
 
       // First call - not attached yet
-      expect(ensureDetached(child)).toBe(false);
+      expect(ensureDetached(child)).to.eq(false);
 
       // Attach it
       parent.childVal = child;
 
       // Second call - attached, will detach
-      expect(ensureDetached(child)).toBe(true);
-      expect(child.parent).toBeNull();
+      expect(ensureDetached(child)).to.eq(true);
+      expect(child.parent).to.eq(null);
 
       // Third call - already detached
-      expect(ensureDetached(child)).toBe(false);
+      expect(ensureDetached(child)).to.eq(false);
     });
   });
 
@@ -228,24 +227,24 @@ describe("Detach Method", () => {
       level3.childVal = level4;
 
       // Verify deep nesting
-      expect(level4.parent).toBe(level3);
-      expect(level3.parent).toBe(level2);
-      expect(level2.parent).toBe(level1);
-      expect(level1.parent).toBe(root);
+      expect(level4.parent).to.equal(level3);
+      expect(level3.parent).to.equal(level2);
+      expect(level2.parent).to.equal(level1);
+      expect(level1.parent).to.equal(root);
 
       // Detach from middle
       const wasAttached = level3.detach();
 
-      expect(wasAttached).toBe(true);
-      expect(level2.childVal).toBeNull();
-      expect(level3.parent).toBeNull();
+      expect(wasAttached).to.eq(true);
+      expect(level2.childVal).to.eq(null);
+      expect(level3.parent).to.eq(null);
 
       // Upper levels unchanged
-      expect(level2.parent).toBe(level1);
-      expect(level1.parent).toBe(root);
+      expect(level2.parent).to.equal(level1);
+      expect(level1.parent).to.equal(root);
 
       // Lower level still attached to level3
-      expect(level4.parent).toBe(level3);
+      expect(level4.parent).to.equal(level3);
     });
   });
 
@@ -260,21 +259,18 @@ describe("Detach Method", () => {
       root.primary = parent;
       parent.childList.push(child1, child2, child3);
 
-      expect(parent.childList.length).toBe(3);
+      expect(parent.childList).to.have.lengthOf(3);
 
       // Detach middle child
       child2.detach();
 
-      expect(parent.childList.length).toBe(2);
-      expect(parent.childList).toContain(child1);
-      expect(parent.childList).not.toContain(child2);
-      expect(parent.childList).toContain(child3);
+      expect(parent.childList).to.have.lengthOf(2).and.include(child1).and.include(child3).and.not.include(child2);
 
       // Detach all remaining
       child1.detach();
       child3.detach();
 
-      expect(parent.childList.length).toBe(0);
+      expect(parent.childList).to.have.lengthOf(0);
     });
   });
 
@@ -288,12 +284,12 @@ describe("Detach Method", () => {
       parent.childVal = child;
 
       child.detach();
-      expect(parent.childVal).toBeNull();
+      expect(parent.childVal).to.eq(null);
 
       // Reattach to same parent
       parent.childVal = child;
-      expect(parent.childVal).toBe(child);
-      expect(child.parent).toBe(parent);
+      expect(parent.childVal).to.equal(child);
+      expect(child.parent).to.equal(parent);
     });
 
     it("can detach and attach to different field of same parent", () => {
@@ -308,22 +304,22 @@ describe("Detach Method", () => {
 
       // Attach to different field of same parent
       parent.childList.push(child);
-      expect(child.parent).toBe(parent);
-      expect(parent.childVal).toBeNull();
-      expect(parent.childList).toContain(child);
+      expect(child.parent).to.equal(parent);
+      expect(parent.childVal).to.eq(null);
+      expect(parent.childList).to.include(child);
     });
 
     it("no-op on root entity", () => {
       const { root } = initTestPlexus(new Root());
 
       // Root has null parent (special case)
-      expect(root.parent).toBeNull();
+      expect(root.parent).to.eq(null);
 
       const wasAttached = root.detach();
 
       // Returns false because root has no parent
-      expect(wasAttached).toBe(false);
-      expect(root.parent).toBeNull();
+      expect(wasAttached).to.eq(false);
+      expect(root.parent).to.eq(null);
     });
   });
 });

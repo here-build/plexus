@@ -34,22 +34,25 @@ describe("Null Handling Edge Cases", () => {
     it("initializes nullable fields as null", () => {
       const { root } = initTestPlexus(new NullableContainer());
 
-      expect(root.nullableString).toBeNull();
-      expect(root.nullableNumber).toBeNull();
-      expect(root.nullableBoolean).toBeNull();
+      expect([root.nullableString, root.nullableNumber, root.nullableBoolean]).to.have.ordered.members([
+        null,
+        null,
+        null,
+      ]);
     });
 
     it("can set nullable field from null to value", () => {
       const { root } = initTestPlexus(new NullableContainer());
 
       root.nullableString = "hello";
-      expect(root.nullableString).toBe("hello");
-
       root.nullableNumber = 42;
-      expect(root.nullableNumber).toBe(42);
-
       root.nullableBoolean = true;
-      expect(root.nullableBoolean).toBe(true);
+
+      expect([root.nullableString, root.nullableNumber, root.nullableBoolean]).to.have.ordered.members([
+        "hello",
+        42,
+        true,
+      ]);
     });
 
     it("can set nullable field from value back to null", () => {
@@ -57,31 +60,30 @@ describe("Null Handling Edge Cases", () => {
 
       root.nullableString = "hello";
       root.nullableString = null;
-      expect(root.nullableString).toBeNull();
-
       root.nullableNumber = 42;
       root.nullableNumber = null;
-      expect(root.nullableNumber).toBeNull();
+
+      expect([root.nullableString, root.nullableNumber]).to.have.ordered.members([null, null]);
     });
 
     it("distinguishes null from undefined in nullable fields", () => {
       const { root } = initTestPlexus(new NullableContainer());
 
       // Null is the explicit empty value
-      expect(root.nullableString).toBeNull();
-      expect(root.nullableString).not.toBeUndefined();
+      expect(root.nullableString).to.eq(null);
+      expect(root.nullableString).to.not.eq(undefined);
 
       // Setting a value and then null
       root.nullableString = "test";
       root.nullableString = null;
-      expect(root.nullableString).toBeNull();
+      expect(root.nullableString).to.eq(null);
     });
   });
 
   describe("nullable child references", () => {
     it("initializes nullable child as null", () => {
       const { root } = initTestPlexus(new NullableContainer());
-      expect(root.nullableChild).toBeNull();
+      expect(root.nullableChild).to.eq(null);
     });
 
     it("can assign child to nullable field", () => {
@@ -89,8 +91,7 @@ describe("Null Handling Edge Cases", () => {
       const child = new Item({ name: "test" });
 
       root.nullableChild = child;
-      expect(root.nullableChild).not.toBeNull();
-      expect(root.nullableChild!.name).toBe("test");
+      expect([root.nullableChild !== null, root.nullableChild!.name]).to.have.ordered.members([true, "test"]);
     });
 
     it("can clear child back to null", () => {
@@ -99,7 +100,7 @@ describe("Null Handling Edge Cases", () => {
 
       root.nullableChild = child;
       root.nullableChild = null;
-      expect(root.nullableChild).toBeNull();
+      expect(root.nullableChild).to.eq(null);
     });
 
     it("can replace one child with another", () => {
@@ -108,10 +109,10 @@ describe("Null Handling Edge Cases", () => {
       const child2 = new Item({ name: "second" });
 
       root.nullableChild = child1;
-      expect(root.nullableChild!.name).toBe("first");
+      const firstName = root.nullableChild!.name;
 
       root.nullableChild = child2;
-      expect(root.nullableChild!.name).toBe("second");
+      expect([firstName, root.nullableChild!.name]).to.have.ordered.members(["first", "second"]);
     });
   });
 
@@ -120,8 +121,7 @@ describe("Null Handling Edge Cases", () => {
       const { root } = initTestPlexus(new NullableContainer());
 
       root.children.push(null);
-      expect(root.children.length).toBe(1);
-      expect(root.children[0]).toBeNull();
+      expect([root.children.length, root.children[0]]).to.have.ordered.members([1, null]);
     });
 
     it("can have mixed null and non-null entries", () => {
@@ -131,30 +131,32 @@ describe("Null Handling Edge Cases", () => {
       root.children.push(null);
       root.children.push(new Item({ name: "third" }));
 
-      expect(root.children.length).toBe(3);
-      expect(root.children[0]!.name).toBe("first");
-      expect(root.children[1]).toBeNull();
-      expect(root.children[2]!.name).toBe("third");
+      expect([
+        root.children.length,
+        root.children[0]!.name,
+        root.children[1],
+        root.children[2]!.name,
+      ]).to.have.ordered.members([3, "first", null, "third"]);
     });
 
     it("can set array element to null", () => {
       const { root } = initTestPlexus(new NullableContainer());
 
       root.children.push(new Item({ name: "will-be-nulled" }));
-      expect(root.children[0]!.name).toBe("will-be-nulled");
+      const beforeNull = root.children[0]!.name;
 
       root.children[0] = null;
-      expect(root.children[0]).toBeNull();
+      expect([beforeNull, root.children[0]]).to.have.ordered.members(["will-be-nulled", null]);
     });
 
     it("can set null element to non-null", () => {
       const { root } = initTestPlexus(new NullableContainer());
 
       root.children.push(null);
-      expect(root.children[0]).toBeNull();
+      const wasNull = root.children[0];
 
       root.children[0] = new Item({ name: "was-null" });
-      expect(root.children[0]!.name).toBe("was-null");
+      expect([wasNull, root.children[0]!.name]).to.have.ordered.members([null, "was-null"]);
     });
 
     it("handles splice with null values", () => {
@@ -166,10 +168,12 @@ describe("Null Handling Edge Cases", () => {
       // Insert null in the middle
       root.children.splice(1, 0, null);
 
-      expect(root.children.length).toBe(3);
-      expect(root.children[0]!.name).toBe("first");
-      expect(root.children[1]).toBeNull();
-      expect(root.children[2]!.name).toBe("second");
+      expect([
+        root.children.length,
+        root.children[0]!.name,
+        root.children[1],
+        root.children[2]!.name,
+      ]).to.have.ordered.members([3, "first", null, "second"]);
     });
 
     it("handles unshift with null values", () => {
@@ -178,9 +182,11 @@ describe("Null Handling Edge Cases", () => {
       root.children.push(new Item({ name: "existing" }));
       root.children.unshift(null);
 
-      expect(root.children.length).toBe(2);
-      expect(root.children[0]).toBeNull();
-      expect(root.children[1]!.name).toBe("existing");
+      expect([root.children.length, root.children[0], root.children[1]!.name]).to.have.ordered.members([
+        2,
+        null,
+        "existing",
+      ]);
     });
   });
 
@@ -190,27 +196,27 @@ describe("Null Handling Edge Cases", () => {
 
       root.childRecord["empty"] = null;
       // Null values are treated as deletion in records
-      expect("empty" in root.childRecord).toBe(false);
+      expect("empty" in root.childRecord).to.eq(false);
     });
 
     it("setting to null removes the key", () => {
       const { root } = initTestPlexus(new NullableContainer());
 
       root.childRecord["key"] = new Item({ name: "will-be-removed" });
-      expect("key" in root.childRecord).toBe(true);
+      const beforeRemove = "key" in root.childRecord;
 
       root.childRecord["key"] = null;
-      expect("key" in root.childRecord).toBe(false);
+      expect([beforeRemove, "key" in root.childRecord]).to.have.ordered.members([true, false]);
     });
 
     it("delete removes key just like setting to null", () => {
       const { root } = initTestPlexus(new NullableContainer());
 
       root.childRecord["key"] = new Item({ name: "to-delete" });
-      expect("key" in root.childRecord).toBe(true);
+      const beforeDelete = "key" in root.childRecord;
 
       delete root.childRecord["key"];
-      expect("key" in root.childRecord).toBe(false);
+      expect([beforeDelete, "key" in root.childRecord]).to.have.ordered.members([true, false]);
     });
   });
 
@@ -224,7 +230,7 @@ describe("Null Handling Edge Cases", () => {
       tracked();
 
       root.nullableString = null;
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when nullable field changes from null", () => {
@@ -235,7 +241,7 @@ describe("Null Handling Edge Cases", () => {
       tracked();
 
       root.nullableString = "set-from-null";
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when nullable child cleared", () => {
@@ -247,7 +253,7 @@ describe("Null Handling Edge Cases", () => {
       tracked();
 
       root.nullableChild = null;
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("notifies when array element set to null", () => {
@@ -259,7 +265,7 @@ describe("Null Handling Edge Cases", () => {
       tracked();
 
       root.children[0] = null;
-      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -269,8 +275,7 @@ describe("Null Handling Edge Cases", () => {
 
       // Multiple nulls are allowed (unlike child duplicates)
       root.children.push(null, null, null);
-      expect(root.children.length).toBe(3);
-      expect(root.children.every((c) => c === null)).toBe(true);
+      expect([root.children.length, root.children.every((c) => c === null)]).to.have.ordered.members([3, true]);
     });
 
     it("can filter out nulls from array", () => {
@@ -282,9 +287,7 @@ describe("Null Handling Edge Cases", () => {
       root.children.push(null);
 
       const nonNull = root.children.filter((c): c is Item => c !== null);
-      expect(nonNull.length).toBe(2);
-      expect(nonNull[0].name).toBe("first");
-      expect(nonNull[1].name).toBe("third");
+      expect([nonNull.length, nonNull[0].name, nonNull[1].name]).to.have.ordered.members([2, "first", "third"]);
     });
 
     it("assigns array with mixed null values", () => {
@@ -294,11 +297,13 @@ describe("Null Handling Edge Cases", () => {
 
       (root.children as any).assign([item1, null, item2, null]);
 
-      expect(root.children.length).toBe(4);
-      expect(root.children[0]!.name).toBe("a");
-      expect(root.children[1]).toBeNull();
-      expect(root.children[2]!.name).toBe("b");
-      expect(root.children[3]).toBeNull();
+      expect([
+        root.children.length,
+        root.children[0]!.name,
+        root.children[1],
+        root.children[2]!.name,
+        root.children[3],
+      ]).to.have.ordered.members([4, "a", null, "b", null]);
     });
   });
 });

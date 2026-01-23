@@ -73,8 +73,8 @@ describe("Plexus Transactions", () => {
         executed = true;
       });
 
-      expect(executed).toBe(true);
-      expect(yjsTransactSpy).toHaveBeenCalledTimes(1);
+      expect(executed).to.eq(true);
+      expect(yjsTransactSpy).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("should return the result of the function", () => {
@@ -82,7 +82,7 @@ describe("Plexus Transactions", () => {
         return { data: "test" };
       });
 
-      expect(result).toEqual({ data: "test" });
+      expect(result).to.deep.equal({ data: "test" });
     });
 
     it("should propagate errors from the function", () => {
@@ -90,7 +90,7 @@ describe("Plexus Transactions", () => {
         plexus.transact(() => {
           throw new Error("Test error");
         });
-      }).toThrow("Test error");
+      }).to.throw("Test error");
     });
 
     it("should set isTransacting during transaction", () => {
@@ -100,8 +100,8 @@ describe("Plexus Transactions", () => {
         wasTransacting = isTransacting;
       });
 
-      expect(wasTransacting).toBe(true);
-      expect(isTransacting).toBe(false); // Should be reset after
+      expect(wasTransacting).to.eq(true);
+      expect(isTransacting).to.eq(false); // Should be reset after
     });
 
     it("should reset isTransacting even on error", () => {
@@ -109,9 +109,9 @@ describe("Plexus Transactions", () => {
         plexus.transact(() => {
           throw new Error("Test error");
         });
-      }).toThrow();
+      }).to.throw();
 
-      expect(isTransacting).toBe(false);
+      expect(isTransacting).to.eq(false);
     });
   });
 
@@ -142,7 +142,7 @@ describe("Plexus Transactions", () => {
 
       // Execute to register tracking
       const initialValue = tracked();
-      expect(initialValue).toBe("initial");
+      expect(initialValue).to.equal("initial");
 
       // Clear any initial calls
       callback.mockClear();
@@ -152,15 +152,15 @@ describe("Plexus Transactions", () => {
         root.value = "modified";
 
         // Callback should not be called yet
-        expect(callback).not.toHaveBeenCalled();
+        expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(0);
 
         // Should be queued
-        expect(pendingNotifications.size).toBeGreaterThan(0);
+        expect(pendingNotifications.size).to.be.above(0);
       });
 
       // After transaction, callback should be called
-      expect(callback).toHaveBeenCalledTimes(1);
-      expect(pendingNotifications.size).toBe(0);
+      expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(pendingNotifications.size).to.equal(0);
     });
 
     it("should batch multiple notifications for same callback", () => {
@@ -182,11 +182,11 @@ describe("Plexus Transactions", () => {
         root.count = 2;
 
         // Still not called during transaction
-        expect(callback).not.toHaveBeenCalled();
+        expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(0);
       });
 
       // Should be called exactly once after transaction
-      expect(callback).toHaveBeenCalledTimes(1);
+      expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("should handle multiple different callbacks", () => {
@@ -209,15 +209,15 @@ describe("Plexus Transactions", () => {
         root.value = "modified";
         root.count = 42;
 
-        expect(callback1).not.toHaveBeenCalled();
-        expect(callback2).not.toHaveBeenCalled();
-        expect(callback3).not.toHaveBeenCalled();
+        expect(callback1).to.have.property("mock").with.property("calls").with.lengthOf(0);
+        expect(callback2).to.have.property("mock").with.property("calls").with.lengthOf(0);
+        expect(callback3).to.have.property("mock").with.property("calls").with.lengthOf(0);
       });
 
       // All should be called after transaction
-      expect(callback1).toHaveBeenCalledTimes(1);
-      expect(callback2).toHaveBeenCalledTimes(1);
-      expect(callback3).toHaveBeenCalledTimes(1);
+      expect(callback1).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(callback2).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(callback3).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("should clear pending notifications even on error", () => {
@@ -230,15 +230,15 @@ describe("Plexus Transactions", () => {
       expect(() => {
         plexus.transact(() => {
           root.value = "will fail";
-          expect(pendingNotifications.size).toBeGreaterThan(0);
+          expect(pendingNotifications.size).to.be.above(0);
           throw new Error("Test error");
         });
-      }).toThrow();
+      }).to.throw();
 
       // Notifications should not be fired on error
-      expect(callback).not.toHaveBeenCalled();
+      expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(0);
       // But queue should be cleared
-      expect(pendingNotifications.size).toBe(0);
+      expect(pendingNotifications.size).to.equal(0);
     });
   });
 
@@ -271,7 +271,7 @@ describe("Plexus Transactions", () => {
       });
 
       // Only one YJS transaction for the outermost call
-      expect(yjsTransactSpy).toHaveBeenCalledTimes(1);
+      expect(yjsTransactSpy).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
 
     it("should maintain isTransacting throughout nested calls", () => {
@@ -294,9 +294,9 @@ describe("Plexus Transactions", () => {
       });
 
       // Should be true throughout
-      expect(states).toEqual([true, true, true, true, true]);
+      expect(states).to.deep.equal([true, true, true, true, true]);
       // And false after
-      expect(isTransacting).toBe(false);
+      expect(isTransacting).to.eq(false);
     });
 
     it("should return nested results correctly", () => {
@@ -310,7 +310,7 @@ describe("Plexus Transactions", () => {
         return `outer: ${inner1}`;
       });
 
-      expect(result).toBe("outer: inner: deepest");
+      expect(result).to.equal("outer: inner: deepest");
     });
 
     it("should propagate nested errors", () => {
@@ -322,7 +322,7 @@ describe("Plexus Transactions", () => {
             });
           });
         });
-      }).toThrow("Nested error");
+      }).to.throw("Nested error");
     });
 
     it("should queue all notifications until outermost transaction completes", () => {
@@ -343,29 +343,29 @@ describe("Plexus Transactions", () => {
 
       plexus.transact(() => {
         root.value = "first";
-        expect(callback1).not.toHaveBeenCalled();
+        expect(callback1).to.have.property("mock").with.property("calls").with.lengthOf(0);
 
         plexus.transact(() => {
           root.count = 10;
-          expect(callback2).not.toHaveBeenCalled();
+          expect(callback2).to.have.property("mock").with.property("calls").with.lengthOf(0);
 
           plexus.transact(() => {
             root.value = "nested";
-            expect(callback3).not.toHaveBeenCalled();
+            expect(callback3).to.have.property("mock").with.property("calls").with.lengthOf(0);
           });
 
           // Still not called after inner transaction
-          expect(callback3).not.toHaveBeenCalled();
+          expect(callback3).to.have.property("mock").with.property("calls").with.lengthOf(0);
         });
 
         // Still not called after middle transaction
-        expect(callback2).not.toHaveBeenCalled();
+        expect(callback2).to.have.property("mock").with.property("calls").with.lengthOf(0);
       });
 
       // All called after outermost transaction
-      expect(callback1).toHaveBeenCalledTimes(1);
-      expect(callback2).toHaveBeenCalledTimes(1);
-      expect(callback3).toHaveBeenCalledTimes(1);
+      expect(callback1).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(callback2).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(callback3).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -394,7 +394,7 @@ describe("Plexus Transactions", () => {
             root.count = 999;
             return "nested during flush";
           });
-          expect(result).toBe("nested during flush");
+          expect(result).to.equal("nested during flush");
         }
       });
 
@@ -406,7 +406,7 @@ describe("Plexus Transactions", () => {
         root.value = "trigger";
       });
 
-      expect(callback).toHaveBeenCalled();
+      expect(callback).to.have.property("mock").with.property("calls").with.lengthOf.above(0);
     });
 
     it("should handle empty transactions", () => {
@@ -414,8 +414,8 @@ describe("Plexus Transactions", () => {
         // Do nothing
       });
 
-      expect(result).toBeUndefined();
-      expect(isTransacting).toBe(false);
+      expect(result).to.eq(undefined);
+      expect(isTransacting).to.eq(false);
     });
 
     it("should handle transactions that only contain shadow sub-transactions", () => {
@@ -431,7 +431,7 @@ describe("Plexus Transactions", () => {
       });
 
       // No modifications, so no notifications
-      expect(callback).not.toHaveBeenCalled();
+      expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(0);
     });
 
     it("should maintain correct state with concurrent tracking", () => {
@@ -464,13 +464,13 @@ describe("Plexus Transactions", () => {
 
         // None should be called yet
         callbacks.forEach((cb) => {
-          expect(cb).not.toHaveBeenCalled();
+          expect(cb).to.have.property("mock").with.property("calls").with.lengthOf(0);
         });
       });
 
       // All should be called after
       callbacks.forEach((cb) => {
-        expect(cb).toHaveBeenCalledTimes(1);
+        expect(cb).to.have.property("mock").with.property("calls").with.lengthOf(1);
       });
     });
 
@@ -499,12 +499,12 @@ describe("Plexus Transactions", () => {
           root.value = "modified";
           root.count = 42;
         });
-      }).not.toThrow();
+      }).to.not.throw();
 
       // Good callbacks should still be called
-      expect(goodCallback).toHaveBeenCalledTimes(1);
-      expect(badCallback).toHaveBeenCalledTimes(1);
-      expect(anotherGoodCallback).toHaveBeenCalledTimes(1);
+      expect(goodCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(badCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(anotherGoodCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -539,7 +539,7 @@ describe("Plexus Transactions", () => {
       });
 
       // Should result in a single update event due to transaction
-      expect(updates.length).toBe(1);
+      expect(updates).to.have.lengthOf(1);
     });
 
     it("should maintain YJS transaction semantics with nested calls", () => {
@@ -564,12 +564,12 @@ describe("Plexus Transactions", () => {
       });
 
       // Still just one YJS update
-      expect(updates.length).toBe(1);
+      expect(updates).to.have.lengthOf(1);
 
       // All values should be set
-      expect(doc.getMap("test").get("outer")).toBe("end");
-      expect(doc.getMap("test").get("middle")).toBe("value");
-      expect(doc.getMap("test").get("inner")).toBe("deep");
+      expect(doc.getMap("test").get("outer")).to.equal("end");
+      expect(doc.getMap("test").get("middle")).to.equal("value");
+      expect(doc.getMap("test").get("inner")).to.equal("deep");
     });
   });
 });
@@ -633,20 +633,20 @@ describe("Transaction Integration Tests", () => {
       todoList.tags.add("work");
 
       // Should not trigger any callbacks yet
-      expect(callback).not.toHaveBeenCalled();
+      expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(0);
     });
 
     // After transaction, should be called exactly once
-    expect(callback).toHaveBeenCalledTimes(1);
-    expect(changeLog).toEqual(["Changed: Today's Tasks, items: 2"]);
+    expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+    expect(changeLog).to.deep.equal(["Changed: Today's Tasks, items: 2"]);
 
     // Verify final state
-    expect(todoList.name).toBe("Today's Tasks");
-    expect(todoList.items.length).toBe(2);
+    expect(todoList.name).to.equal("Today's Tasks");
+    expect(todoList.items).to.have.lengthOf(2);
     // Items are proxy entities, accessing them properly requires deref
     // For now just verify count
-    expect(Array.from(todoList.tags)).toContain("urgent");
-    expect(Array.from(todoList.tags)).toContain("work");
+    expect(Array.from(todoList.tags)).to.include("urgent");
+    expect(Array.from(todoList.tags)).to.include("work");
   });
 
   it("should handle nested transactions with complex operations", () => {
@@ -685,12 +685,12 @@ describe("Transaction Integration Tests", () => {
       });
 
       // No notifications yet
-      expect(notifications.length).toBe(0);
+      expect(notifications).to.have.lengthOf(0);
     });
 
     // Single notification after all operations
-    expect(notifications).toEqual(["notified"]);
-    expect(todoList.items.length).toBe(2);
+    expect(notifications).to.deep.equal(["notified"]);
+    expect(todoList.items).to.have.lengthOf(2);
   });
 
   it("should rollback on error and not notify", () => {
@@ -709,16 +709,16 @@ describe("Transaction Integration Tests", () => {
         // This should rollback the change
         throw new Error("Intentional error");
       });
-    }).toThrow("Intentional error");
+    }).to.throw("Intentional error");
 
     // No notification on error
-    expect(callback).not.toHaveBeenCalled();
+    expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(0);
 
     // State should be rolled back (YJS handles this)
     // Note: YJS actually doesn't rollback automatically, so the name will be changed
     // This is expected behavior - the transaction completes the YJS operations
     // but our notification system doesn't fire on error
-    expect(todoList.name).toBe("Modified name"); // YJS doesn't rollback
+    expect(todoList.name).to.equal("Modified name"); // YJS doesn't rollback
   });
 
   it("should handle concurrent tracked functions efficiently", () => {
@@ -772,19 +772,19 @@ describe("Transaction Integration Tests", () => {
 
       // No callbacks during transaction
       [...nameCallbacks, ...itemCallbacks, ...tagCallbacks].forEach((cb) => {
-        expect(cb).not.toHaveBeenCalled();
+        expect(cb).to.have.property("mock").with.property("calls").with.lengthOf(0);
       });
     });
 
     // Each group should fire exactly once
     nameCallbacks.forEach((cb) => {
-      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
     itemCallbacks.forEach((cb) => {
-      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
     tagCallbacks.forEach((cb) => {
-      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 });

@@ -51,7 +51,7 @@ describe("Plexus Basic Functionality", () => {
     const { plexus, root, doc } = initTestPlexus<Post>(post);
 
     // Verify Plexus is properly initialized
-    expect(plexus).to.not.be.undefined;
+    expect(plexus).to.not.eq(undefined);
     expect(doc).to.be.instanceOf(Y.Doc);
 
     // Verify entity data is properly loaded
@@ -63,7 +63,7 @@ describe("Plexus Basic Functionality", () => {
       root.tags.length,
       root.tags[0],
     ]).to.have.ordered.members(["Test Post", "Test content", root.author, "John Doe", 2, "test"]);
-    expect(root.author).to.not.be.null;
+    expect(root.author).to.not.eq(null);
 
     // Verify mutations work
     root.title = "Updated Title";
@@ -116,7 +116,7 @@ describe("Plexus Basic Functionality", () => {
     const { root } = initTestPlexus<Post>(post);
 
     // Verify relationship integrity
-    expect(root.author).to.not.be.null;
+    expect(root.author).to.not.eq(null);
     expect([root.author!.name, root.author!.email]).to.have.ordered.members(["Author Name", "author@example.com"]);
 
     // Verify relationship is maintained through mutations

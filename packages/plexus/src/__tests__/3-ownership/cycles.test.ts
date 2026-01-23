@@ -51,7 +51,7 @@ function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
 // Helper to create materialized site as root
 async function createTestSite(name: string): Promise<{ site: Site; entityId: string; doc: Y.Doc }> {
   const ephemeralSite = new Site({ name, components: {} });
-  const { doc, root: site } = await initTestPlexus<Site>(ephemeralSite);
+  const { doc, root: site } = initTestPlexus<Site>(ephemeralSite);
   return { site, entityId: site.uuid, doc };
 }
 
@@ -104,14 +104,14 @@ describe("Circular References", () => {
     // This should materialize all without infinite recursion
     site.components["a"] = componentA;
 
-    // Verify structure integrity
-    expect(site.components["a"].name).toBe("A");
-    expect(site.components["a"].children[0].name).toBe("B");
-    expect(site.components["a"].children[0].children[0].name).toBe("C");
-    expect(site.components["a"].children[0].children[0].children[0].name).toBe("A");
-
-    // Critical: Verify circular identity is preserved
-    expect(site.components["a"]).toBe(site.components["a"].children[0].children[0].children[0]);
+    // Verify structure integrity and circular identity
+    expect([
+      site.components["a"].name,
+      site.components["a"].children[0].name,
+      site.components["a"].children[0].children[0].name,
+      site.components["a"].children[0].children[0].children[0].name,
+      site.components["a"] === site.components["a"].children[0].children[0].children[0],
+    ]).to.have.ordered.members(["A", "B", "C", "A", true]);
   });
 
   it("should handle self-references correctly", async () => {
@@ -131,9 +131,11 @@ describe("Circular References", () => {
     site.components["recursive"] = component;
 
     // Verify self-identity is preserved
-    expect(site.components["recursive"]).toBe(site.components["recursive"].children[0]);
-    expect(site.components["recursive"].name).toBe("Recursive");
-    expect(site.components["recursive"].children[0].name).toBe("Recursive");
+    expect([
+      site.components["recursive"] === site.components["recursive"].children[0],
+      site.components["recursive"].name,
+      site.components["recursive"].children[0].name,
+    ]).to.have.ordered.members([true, "Recursive", "Recursive"]);
   });
 
   it("should sync circular references across documents", async () => {
@@ -152,15 +154,15 @@ describe("Circular References", () => {
     syncDocs(doc1, doc2);
 
     // Access from doc2
-    const { root: site2 } = await connectTestPlexus<Site>(doc2);
+    const { root: site2 } = connectTestPlexus<Site>(doc2);
     const compA2 = site2.components["a"];
 
-    // Verify circular structure is preserved across documents
-    expect(compA2.name).toBe("A");
-    expect(compA2.children[0].name).toBe("B");
-    expect(compA2.children[0].children[0].name).toBe("A");
-
-    // Critical: Verify circular identity across documents
-    expect(compA2).toBe(compA2.children[0].children[0]);
+    // Verify circular structure and identity preserved across documents
+    expect([
+      compA2.name,
+      compA2.children[0].name,
+      compA2.children[0].children[0].name,
+      compA2 === compA2.children[0].children[0],
+    ]).to.have.ordered.members(["A", "B", "A", true]);
   });
 });

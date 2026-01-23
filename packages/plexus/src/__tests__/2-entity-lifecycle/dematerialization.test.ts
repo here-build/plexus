@@ -67,15 +67,13 @@ describe("Ephemeral model undo/redo behavior", () => {
         root.globals.push(item);
       });
 
-      expect(root.globals).toContain(item);
-      expect(item.name).toBe("ephemeral");
+      expect([root.globals.includes(item), item.name]).to.have.ordered.members([true, "ephemeral"]);
 
       plexus.undo();
 
-      expect(root.globals).not.toContain(item);
+      expect([root.globals.includes(item), item.__internals__.isDematerialized]).to.have.ordered.members([false, true]);
       // Dematerialized model throws on access
-      expect(item.__internals__.isDematerialized).toBe(true);
-      expect(() => item.name).toThrow("dematerialized");
+      expect(() => item.name).to.throw("dematerialized");
     });
 
     it("should handle add ephemeral → undo → redo", () => {
@@ -86,19 +84,19 @@ describe("Ephemeral model undo/redo behavior", () => {
         item.name = "modified";
       });
 
-      expect(root.globals).toContain(item);
-      expect(item.name).toBe("modified");
+      expect([root.globals.includes(item), item.name]).to.have.ordered.members([true, "modified"]);
 
       plexus.undo();
 
-      expect(root.globals).not.toContain(item);
-      expect(item.__internals__.isDematerialized).toBe(true);
+      expect([root.globals.includes(item), item.__internals__.isDematerialized]).to.have.ordered.members([false, true]);
 
       plexus.redo();
 
-      expect(root.globals).toContain(item);
-      expect(item.__internals__.isDematerialized).toBeFalsy();
-      expect(item.name).toBe("modified");
+      expect([root.globals.includes(item), item.__internals__.isDematerialized, item.name]).to.have.ordered.members([
+        true,
+        false,
+        "modified",
+      ]);
     });
 
     it("should handle add ephemeral → undo → add again", () => {
@@ -110,17 +108,18 @@ describe("Ephemeral model undo/redo behavior", () => {
 
       plexus.undo();
 
-      expect(root.globals).not.toContain(item);
-      expect(item.__internals__.isDematerialized).toBe(true);
+      expect([root.globals.includes(item), item.__internals__.isDematerialized]).to.have.ordered.members([false, true]);
 
       // Add the same item again (re-materialize)
       plexus.transact(() => {
         root.globals.push(item);
       });
 
-      expect(root.globals).toContain(item);
-      expect(item.__internals__.isDematerialized).toBeFalsy();
-      expect(item.name).toBe("first");
+      expect([root.globals.includes(item), item.__internals__.isDematerialized, item.name]).to.have.ordered.members([
+        true,
+        false,
+        "first",
+      ]);
     });
 
     it("should handle add ephemeral → undo → add different → redo", () => {
@@ -137,16 +136,14 @@ describe("Ephemeral model undo/redo behavior", () => {
         root.globals.push(item2);
       });
 
-      expect(root.globals).toContain(item2);
-      expect(root.globals).not.toContain(item1);
+      expect([root.globals.includes(item2), root.globals.includes(item1)]).to.have.ordered.members([true, false]);
 
       // Redo should be cleared by the new operation
       // This is standard undo/redo semantics
       plexus.redo();
 
       // Should not have changed
-      expect(root.globals).toContain(item2);
-      expect(root.globals).not.toContain(item1);
+      expect([root.globals.includes(item2), root.globals.includes(item1)]).to.have.ordered.members([true, false]);
     });
   });
 
@@ -167,19 +164,20 @@ describe("Ephemeral model undo/redo behavior", () => {
         item.name = "end";
       });
 
-      expect(item.name).toBe("end");
+      expect(item.name).to.equal("end");
 
       // All three transactions merged into one undo frame
       // Single undo reverts everything - item is dematerialized
       plexus.undo();
-      expect(root.globals).not.toContain(item);
-      expect(item.__internals__.isDematerialized).toBe(true);
+      expect([root.globals.includes(item), item.__internals__.isDematerialized]).to.have.ordered.members([false, true]);
 
       // Single redo restores everything
       plexus.redo();
-      expect(root.globals).toContain(item);
-      expect(item.__internals__.isDematerialized).toBeFalsy();
-      expect(item.name).toBe("end");
+      expect([root.globals.includes(item), item.__internals__.isDematerialized, item.name]).to.have.ordered.members([
+        true,
+        false,
+        "end",
+      ]);
     });
   });
 
@@ -193,18 +191,22 @@ describe("Ephemeral model undo/redo behavior", () => {
         container.item = item;
       });
 
-      expect(root.containers).toContain(container);
-      expect(container.item).toBe(item);
-      expect(item.parent).toBe(container);
+      expect([root.containers.includes(container), container.item, item.parent]).to.have.ordered.members([
+        true,
+        item,
+        container,
+      ]);
 
       plexus.undo();
 
-      expect(root.containers).not.toContain(container);
       // Both container and item are dematerialized - access throws
-      expect(container.__internals__.isDematerialized).toBe(true);
-      expect(item.__internals__.isDematerialized).toBe(true);
-      expect(() => container.name).toThrow("dematerialized");
-      expect(() => item.name).toThrow("dematerialized");
+      expect([
+        root.containers.includes(container),
+        container.__internals__.isDematerialized,
+        item.__internals__.isDematerialized,
+      ]).to.have.ordered.members([false, true, true]);
+      expect(() => container.name).to.throw("dematerialized");
+      expect(() => item.name).to.throw("dematerialized");
     });
 
     it("should dematerialize all in merged undo frame", () => {
@@ -219,26 +221,26 @@ describe("Ephemeral model undo/redo behavior", () => {
         container1.item = item;
       });
 
-      expect(container1.item).toBe(item);
-      expect(container2.item).toBe(null);
+      expect([container1.item, container2.item]).to.have.ordered.members([item, null]);
 
       // Reparent item (merges into same undo frame due to captureTimeout)
       plexus.transact(() => {
         container2.item = item;
       });
 
-      expect(container1.item).toBe(null);
-      expect(container2.item).toBe(item);
+      expect([container1.item, container2.item]).to.have.ordered.members([null, item]);
 
       // Undo reverts both operations (merged frame)
       plexus.undo();
 
       // All dematerialized
-      expect(root.containers).not.toContain(container1);
-      expect(root.containers).not.toContain(container2);
-      expect(container1.__internals__.isDematerialized).toBe(true);
-      expect(container2.__internals__.isDematerialized).toBe(true);
-      expect(item.__internals__.isDematerialized).toBe(true);
+      expect([
+        root.containers.includes(container1),
+        root.containers.includes(container2),
+        container1.__internals__.isDematerialized,
+        container2.__internals__.isDematerialized,
+        item.__internals__.isDematerialized,
+      ]).to.have.ordered.members([false, false, true, true, true]);
     });
   });
 
@@ -259,14 +261,15 @@ describe("Ephemeral model undo/redo behavior", () => {
         container.ref = item; // ref field, not child
       });
 
-      expect(container.ref).toBe(item);
-      expect(item.parent).toBe(root); // Still parented to root via globals
+      expect([container.ref, item.parent]).to.have.ordered.members([item, root]); // Still parented to root via globals
 
       plexus.undo();
 
       // Both transactions undone together (merged frame)
-      expect(root.containers).not.toContain(container);
-      expect(root.globals).not.toContain(item);
+      expect([root.containers.includes(container), root.globals.includes(item)]).to.have.ordered.members([
+        false,
+        false,
+      ]);
     });
 
     it("should demonstrate reference field semantics in single transaction", () => {
@@ -289,12 +292,13 @@ describe("Ephemeral model undo/redo behavior", () => {
 
       // Item is parented to root (via globals child field)
       // Container.ref is just a reference, doesn't change parent
-      expect(item.parent).toBe(root);
-      expect(container.ref).toBe(item);
-
       // Test passes - demonstrates reference semantics work
-      expect(root.globals).toContain(item);
-      expect(root.containers).toContain(container);
+      expect([
+        item.parent,
+        container.ref,
+        root.globals.includes(item),
+        root.containers.includes(container),
+      ]).to.have.ordered.members([root, item, true, true]);
     });
   });
 
@@ -309,10 +313,10 @@ describe("Ephemeral model undo/redo behavior", () => {
       plexus.undo();
 
       // Both read and write should throw - use fresh models via root path
-      expect(() => item.name).toThrow("dematerialized by undo");
+      expect(() => item.name).to.throw("dematerialized by undo");
       expect(() => {
         item.name = "new value";
-      }).toThrow("dematerialized by undo");
+      }).to.throw("dematerialized by undo");
     });
 
     it("should throw when accessing child list on dematerialized model", () => {
@@ -330,7 +334,7 @@ describe("Ephemeral model undo/redo behavior", () => {
 
       plexus.undo();
 
-      expect(() => container.items).toThrow("dematerialized by undo");
+      expect(() => container.items).to.throw("dematerialized by undo");
     });
 
     it("should throw when accessing child val on dematerialized model", () => {
@@ -348,7 +352,7 @@ describe("Ephemeral model undo/redo behavior", () => {
 
       plexus.undo();
 
-      expect(() => container.item).toThrow("dematerialized by undo");
+      expect(() => container.item).to.throw("dematerialized by undo");
     });
 
     it("should allow checking isDematerialized without throwing", () => {
@@ -358,12 +362,12 @@ describe("Ephemeral model undo/redo behavior", () => {
         root.globals.push(item);
       });
 
-      expect(item.__internals__.isDematerialized).toBeFalsy();
+      expect(item.__internals__.isDematerialized).to.not.be.ok;
 
       plexus.undo();
 
       // Can check dematerialization status without throwing
-      expect(item.__internals__.isDematerialized).toBe(true);
+      expect(item.__internals__.isDematerialized).to.eq(true);
     });
   });
 
@@ -389,15 +393,16 @@ describe("Ephemeral model undo/redo behavior", () => {
         container2.items.push(item); // Auto-removes from c1
       });
 
-      expect(container1.items).not.toContain(item);
-      expect(container2.items).toContain(item);
+      expect([container1.items.includes(item), container2.items.includes(item)]).to.have.ordered.members([false, true]);
 
       // Single undo reverts everything (merged frame)
       plexus.undo();
 
       // All three transactions undone: containers removed, item dematerialized
-      expect(root.containers).not.toContain(container1);
-      expect(root.containers).not.toContain(container2);
+      expect([root.containers.includes(container1), root.containers.includes(container2)]).to.have.ordered.members([
+        false,
+        false,
+      ]);
     });
 
     it("should correctly track parent after move within same transaction", () => {
@@ -413,15 +418,19 @@ describe("Ephemeral model undo/redo behavior", () => {
       });
 
       // After transaction, item is only in c2
-      expect(container1.items).not.toContain(item);
-      expect(container2.items).toContain(item);
-      expect(item.parent).toBe(container2);
+      expect([container1.items.includes(item), container2.items.includes(item), item.parent]).to.have.ordered.members([
+        false,
+        true,
+        container2,
+      ]);
 
       // Undo reverts entire transaction
       plexus.undo();
 
-      expect(root.containers).not.toContain(container1);
-      expect(root.containers).not.toContain(container2);
+      expect([root.containers.includes(container1), root.containers.includes(container2)]).to.have.ordered.members([
+        false,
+        false,
+      ]);
     });
   });
 });

@@ -134,18 +134,11 @@ describe("Entity Identity", () => {
       // Second instance should be allowed but will share dependency mappings
       const { plexus: plexus2, root: root2 } = connectTestPlexus<Root>(doc);
 
-      // Both should exist
-      expect(plexus1).toBeDefined();
-      expect(plexus2).toBeDefined();
-
-      // They are different instances
-      expect(plexus1).toBe(plexus2);
-
-      // But they share the same doc
-      expect(plexus2.doc).toBe(doc);
-
-      // Both should return the exact same root entity instance
-      expect(root2).toBe(root1);
+      // Both should exist, be the same instance, share doc, and return same root
+      expect([plexus1, plexus2, plexus1 === plexus2, plexus2.doc, root2]).to.satisfy(
+        ([p1, p2, same, doc2, r2]: any[]) =>
+          p1 !== undefined && p2 !== undefined && same === true && doc2 === doc && r2 === root1,
+      );
     });
   });
 
@@ -197,41 +190,41 @@ describe("Entity Identity", () => {
 
     describe("basic loading", () => {
       it("should load entities through Plexus root", () => {
-        expect(user).not.toBeNull();
-        expect(user.name).toBe("John Doe");
-        expect(user.email).toBe("john@example.com");
-        expect(user.age).toBe(30);
-        expect(user.uuid).toBeDefined();
+        expect([user, user.name, user.email, user.age, user.uuid]).to.satisfy(
+          ([u, name, email, age, uuid]: any[]) =>
+            u !== null && name === "John Doe" && email === "john@example.com" && age === 30 && uuid !== undefined,
+        );
       });
 
       it("should load entities with different types", () => {
-        expect(post).not.toBeNull();
-        expect(post.title).toBe("Test Post");
-        expect(post.content).toBe("This is a test post");
-
-        expect(comment).not.toBeNull();
-        expect(comment.text).toBe("Great post!");
+        expect([post, post.title, post.content, comment, comment.text]).to.satisfy(
+          ([p, title, content, c, text]: any[]) =>
+            p !== null &&
+            title === "Test Post" &&
+            content === "This is a test post" &&
+            c !== null &&
+            text === "Great post!",
+        );
       });
 
       it("should handle entity collections", () => {
-        expect(root.users).toHaveLength(1);
-        expect(root.posts).toHaveLength(1);
-        expect(root.users[0].name).toBe("John Doe");
-        expect(root.posts[0].title).toBe("Test Post");
+        expect([root.users.length, root.posts.length, root.users[0].name, root.posts[0].title]).to.have.ordered.members(
+          [1, 1, "John Doe", "Test Post"],
+        );
       });
     });
 
     describe("loading with relationships", () => {
       it("should load entity with references to other entities", () => {
-        expect(post.author).not.toBeNull();
-        expect(post.author!.name).toBe("John Doe");
-        expect(post.author!.uuid).toBe(user.uuid);
+        expect([post.author !== null, post.author!.name, post.author!.uuid]).to.have.ordered.members([
+          true,
+          "John Doe",
+          user.uuid,
+        ]);
       });
 
       it("should load entity with collection fields", () => {
-        expect(post.tags).toHaveLength(2);
-        expect(post.tags[0]).toBe("test");
-        expect(post.tags[1]).toBe("plexus");
+        expect([post.tags.length, post.tags[0], post.tags[1]]).to.have.ordered.members([2, "test", "plexus"]);
       });
 
       it("should handle null references correctly", () => {
@@ -248,15 +241,13 @@ describe("Entity Identity", () => {
 
         // Verify it's accessible through root
         const orphan = root.posts.find((p) => p.title === "Orphan Post")!;
-        expect(orphan).not.toBeNull();
-        expect(orphan.author).toBeNull();
-        expect(orphan.tags).toHaveLength(0);
+        expect([orphan !== null, orphan.author, orphan.tags.length]).to.have.ordered.members([true, null, 0]);
       });
     });
 
     describe("entity mutations after loading", () => {
       it("should reflect mutations made to loaded entity", () => {
-        expect(user.name).toBe("John Doe");
+        expect(user.name).to.equal("John Doe");
 
         // Mutate the loaded entity
         user.name = "Jane Doe";
@@ -275,23 +266,22 @@ describe("Entity Identity", () => {
           posts: [],
         });
         const { root: reloadedRoot } = initTestPlexus<TestRoot>(freshTestRoot);
-        expect(reloadedRoot.user!.name).toBe("Jane Doe");
-        expect(reloadedRoot.user!.age).toBe(31);
+        expect([reloadedRoot.user!.name, reloadedRoot.user!.age]).to.have.ordered.members(["Jane Doe", 31]);
       });
 
       it("should handle mutations to collection fields", () => {
-        expect(post.tags).toHaveLength(2);
+        expect(post.tags).to.have.lengthOf(2);
 
         // Mutate the tags array
         post.tags.push("new-tag");
 
-        // Verify mutation is immediately reflected
-        expect(post.tags).toHaveLength(3);
-        expect(post.tags[2]).toBe("new-tag");
-
-        // Also verify through root reference
-        expect(root.post!.tags).toHaveLength(3);
-        expect(root.post!.tags[2]).toBe("new-tag");
+        // Verify mutation is immediately reflected and through root reference
+        expect([post.tags.length, post.tags[2], root.post!.tags.length, root.post!.tags[2]]).to.have.ordered.members([
+          3,
+          "new-tag",
+          3,
+          "new-tag",
+        ]);
       });
     });
 
@@ -311,7 +301,7 @@ describe("Entity Identity", () => {
         const _commentAuthor: User | null = comment.author;
         const _commentPost: Post | null = comment.post;
 
-        expect(true).toBe(true); // Just to have an assertion
+        expect(true).to.eq(true); // Just to have an assertion
       });
     });
 
@@ -336,21 +326,23 @@ describe("Entity Identity", () => {
         const { root: secondLoad } = initTestPlexus<TestRoot>(testRoot2);
 
         // Should have same data structure
-        expect(root.user!.name).toBe(secondLoad.user!.name);
-        expect(root.user!.email).toBe(secondLoad.user!.email);
-        expect(root.user!.age).toBe(secondLoad.user!.age);
+        expect([root.user!.name, root.user!.email, root.user!.age]).to.have.ordered.members([
+          secondLoad.user!.name,
+          secondLoad.user!.email,
+          secondLoad.user!.age,
+        ]);
       });
 
       it("should handle empty document", () => {
         const emptyDoc = new Y.Doc();
 
         // Should throw when trying to connect Plexus without root
-        expect(() => connectTestPlexus<TestRoot>(emptyDoc)).toThrow();
+        expect(() => connectTestPlexus<TestRoot>(emptyDoc)).to.throw();
       });
 
       it("should handle loading after entity deletion", () => {
         // First verify entity exists
-        expect(user.name).toBe("John Doe");
+        expect(user.name).to.equal("John Doe");
 
         // Delete the entity from the document
         doc.getMap(YJS_GLOBALS.models.key).delete(user.uuid);
@@ -358,26 +350,25 @@ describe("Entity Identity", () => {
         // Create a new Plexus instance (allowed with new behavior)
         const { plexus: newPlexus, root: newRoot } = connectTestPlexus<TestRoot>(doc);
 
-        // The root should still be loaded from cache
-        expect(newRoot).toBe(root); // Same instance due to caching
-
-        // But the deleted entity should no longer be in the doc's models
-        expect(doc.getMap(YJS_GLOBALS.models.key).has(user.uuid)).toBe(false);
-
-        // The entity still exists in memory due to caching
-        expect(user.name).toBe("John Doe");
+        // The root should still be loaded from cache, deleted entity not in doc, but still in memory
+        expect([
+          newRoot === root,
+          doc.getMap(YJS_GLOBALS.models.key).has(user.uuid),
+          user.name,
+        ]).to.have.ordered.members([true, false, "John Doe"]);
       });
     });
 
     describe("circular references", () => {
       it("should handle circular references between entities", () => {
         // Verify existing circular reference (comment -> post -> author -> comment's post)
-        expect(comment.post).toBe(post);
-        expect(post.author).toBe(user);
-        expect(comment.author).toBe(user);
-
         // The circular reference is: comment.post.author === comment.author
-        expect(comment.post!.author).toBe(comment.author);
+        expect([comment.post, post.author, comment.author, comment.post!.author]).to.have.ordered.members([
+          post,
+          user,
+          user,
+          comment.author,
+        ]);
       });
     });
   });
@@ -394,8 +385,7 @@ describe("Entity Identity", () => {
       // This should not throw or cause infinite loops
       const json = JSON.stringify(component);
       const parsed = JSON.parse(json);
-      expect(parsed.name).toBe("Test");
-      expect(parsed.metadata.key).toBe("value");
+      expect([parsed.name, parsed.metadata.key]).to.have.ordered.members(["Test", "value"]);
     });
 
     it("should handle JSON.stringify on materialized entities", async () => {
@@ -411,15 +401,13 @@ describe("Entity Identity", () => {
       site.components["test"] = component; // Materialize
 
       // Direct property access should work
-      expect(component.name).toBe("Materialized");
-      expect(component.metadata.serialized).toBe("true");
+      expect([component.name, component.metadata.serialized]).to.have.ordered.members(["Materialized", "true"]);
 
       // JSON serialization is expected to have limitations with proxies
       // Test that it doesn't crash and captures basic structure
       const json = JSON.stringify(component);
       const parsed = JSON.parse(json);
-      expect(parsed.name).toBe("Materialized");
-      expect(parsed.type).toBe("component");
+      expect([parsed.name, parsed.type]).to.have.ordered.members(["Materialized", "component"]);
       // Note: proxy maps may not serialize properly, which is expected
     });
 
@@ -433,7 +421,7 @@ describe("Entity Identity", () => {
       // JSON.stringify should handle circular references gracefully
       expect(() => {
         JSON.stringify(compA);
-      }).toThrow(/circular|cyclic/i); // Should throw expected circular reference error
+      }).to.throw(/circular|cyclic/i); // Should throw expected circular reference error
     });
   });
 
@@ -447,7 +435,7 @@ describe("Entity Identity", () => {
       });
 
       const descriptor = Object.getOwnPropertyDescriptor(component, "name");
-      expect(descriptor).toBeTruthy();
+      expect(descriptor).to.be.ok;
     });
   });
 });

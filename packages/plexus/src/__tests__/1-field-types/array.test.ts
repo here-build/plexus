@@ -90,11 +90,10 @@ describe("array field (@syncing.list)", () => {
       // Test negative indices (should warn and throw TypeError for invalid index)
       expect(() => {
         parent.children[-1] = child;
-      }).toThrow();
+      }).to.throw();
 
       // Should still have only one child
-      expect(parent.children.length).toBe(1);
-      expect(parent.children[0].name).toBe("Child");
+      expect([parent.children.length, parent.children[0].name]).to.have.ordered.members([1, "Child"]);
     });
 
     it("should handle array length manipulation", () => {
@@ -120,15 +119,17 @@ describe("array field (@syncing.list)", () => {
       }
 
       site.components["parent"] = parent;
-      expect(parent.children.length).toBe(5);
+      expect(parent.children).to.have.lengthOf(5);
 
       // Truncate by setting length
       parent.children.length = 2;
 
-      expect(parent.children.length).toBe(2);
-      expect(parent.children[0].name).toBe("Child0");
-      expect(parent.children[1].name).toBe("Child1");
-      expect(parent.children[2]).toBeUndefined();
+      expect([
+        parent.children.length,
+        parent.children[0].name,
+        parent.children[1].name,
+        parent.children[2],
+      ]).to.have.ordered.members([2, "Child0", "Child1", undefined]);
     });
 
     it("should handle assignment at arr[length] like normal arrays", () => {
@@ -148,7 +149,7 @@ describe("array field (@syncing.list)", () => {
         new Component({ name: "Child1", type: "child", children: [], metadata: {} }),
       );
 
-      expect(parent.children.length).toBe(2);
+      expect(parent.children).to.have.lengthOf(2);
 
       // Compare with normal JS array behavior
       const jsArray: (Component | null)[] = [
@@ -164,8 +165,8 @@ describe("array field (@syncing.list)", () => {
       jsArray[jsArray.length] = jsNewChild;
 
       // Both should append successfully
-      expect(parent.children).toMatchObject([{ name: "Child0" }, { name: "Child1" }, { name: "Child2" }]);
-      expect(jsArray.map((c) => c?.name)).toMatchObject(["JSChild0", "JSChild1", "JSChild2"]);
+      expect(parent.children.map((c: Component | null) => c?.name)).to.deep.equal(["Child0", "Child1", "Child2"]);
+      expect(jsArray.map((c) => c?.name)).to.deep.equal(["JSChild0", "JSChild1", "JSChild2"]);
     });
 
     it("should handle assignment at arr[length + 1] like normal arrays", () => {
@@ -185,7 +186,7 @@ describe("array field (@syncing.list)", () => {
         new Component({ name: "Child1", type: "child", children: [], metadata: {} }),
       );
 
-      expect(parent.children.length).toBe(2);
+      expect(parent.children).to.have.lengthOf(2);
 
       // Compare with normal JS array behavior
       const jsArray: (Component | null)[] = [
@@ -194,15 +195,23 @@ describe("array field (@syncing.list)", () => {
       ];
 
       // Assign at [length + 1] - should create a hole at [length]
-      const newChild = new Component({ name: "Child3", type: "child", children: [], metadata: {} });
-      parent.children[parent.children.length + 1] = newChild;
+      parent.children[parent.children.length + 1] = new Component({
+        name: "Child3",
+        type: "child",
+        children: [],
+        metadata: {},
+      });
 
-      const jsNewChild = new Component({ name: "JSChild3", type: "child", children: [], metadata: {} });
-      jsArray[jsArray.length + 1] = jsNewChild;
+      jsArray[jsArray.length + 1] = new Component({ name: "JSChild3", type: "child", children: [], metadata: {} });
 
       // Both should create same structure with one hole: [item0, item1, null, item3]
-      expect(parent.children).toMatchObject([{ name: "Child0" }, { name: "Child1" }, null, { name: "Child3" }]);
-      expect(jsArray.map((c) => c?.name)).toMatchObject(["JSChild0", "JSChild1", undefined, "JSChild3"]);
+      expect(parent.children.map((c: Component | null) => c?.name)).to.deep.equal([
+        "Child0",
+        "Child1",
+        undefined,
+        "Child3",
+      ]);
+      expect(jsArray.map((c) => c?.name)).to.deep.equal(["JSChild0", "JSChild1", undefined, "JSChild3"]);
     });
 
     it("should handle assignment at arr[length + 5] like normal arrays", () => {
@@ -222,7 +231,7 @@ describe("array field (@syncing.list)", () => {
         new Component({ name: "Child1", type: "child", children: [], metadata: {} }),
       );
 
-      expect(parent.children.length).toBe(2);
+      expect(parent.children).to.have.lengthOf(2);
 
       // Compare with normal JS array behavior
       const jsArray: (Component | null)[] = [
@@ -231,30 +240,33 @@ describe("array field (@syncing.list)", () => {
       ];
 
       // Assign at [length + 5] - should create multiple holes
-      const newChild = new Component({ name: "Child7", type: "child", children: [], metadata: {} });
-      parent.children[parent.children.length + 5] = newChild;
+      parent.children[parent.children.length + 5] = new Component({
+        name: "Child7",
+        type: "child",
+        children: [],
+        metadata: {},
+      });
 
-      const jsNewChild = new Component({ name: "JSChild7", type: "child", children: [], metadata: {} });
-      jsArray[jsArray.length + 5] = jsNewChild;
+      jsArray[jsArray.length + 5] = new Component({ name: "JSChild7", type: "child", children: [], metadata: {} });
 
       // Both should have same length with holes
-      expect(parent.children.length).toBe(8);
-      expect(jsArray.length).toBe(8);
+      expect(parent.children).to.have.lengthOf(8);
+      expect(jsArray).to.have.lengthOf(8);
 
       // Validate final structure: [child0, child1, null, null, null, null, null, child7]
-      expect(parent.children).toMatchObject([
-        { name: "Child0" },
-        { name: "Child1" },
-        null,
-        null,
-        null,
-        null,
-        null,
-        { name: "Child7" },
+      expect(parent.children.map((c: Component | null) => c?.name)).to.deep.equal([
+        "Child0",
+        "Child1",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "Child7",
       ]);
 
       // JS array should match same pattern with its items
-      expect(jsArray.map((c) => c?.name)).toMatchObject([
+      expect(jsArray.map((c) => c?.name)).to.deep.equal([
         "JSChild0",
         "JSChild1",
         undefined,
@@ -283,7 +295,7 @@ describe("array field (@syncing.list)", () => {
       const child2 = new Component({ name: "Child2", type: "child", children: [], metadata: {} });
 
       parent.children.push(child0, child1, child2);
-      expect(parent.children.length).toBe(3);
+      expect(parent.children).to.have.lengthOf(3);
 
       // CHILD field behavior (splice semantics, not hole-preservation):
       // arr[3] = child0 (where child0 is at index 0)
@@ -295,8 +307,8 @@ describe("array field (@syncing.list)", () => {
       parent.children[lengthBeforeAssign] = child0;
 
       // Expected: [child1, child2, child0] - child0 moved to end
-      expect(parent.children).toMatchObject([child1, child2, child0]);
-      expect(parent.children.filter((c) => c === child0).length).toBe(1);
+      expect(parent.children).to.deep.equal([child1, child2, child0]);
+      expect(parent.children.filter((c) => c === child0)).to.have.lengthOf(1);
     });
 
     it("should handle assignment at arr[2] when length=2 - child field", () => {
@@ -323,8 +335,8 @@ describe("array field (@syncing.list)", () => {
       jsChildArray[2] = child0; // JS: creates duplicate
 
       // JS behavior: [child0, child1, child0] - length 3, child0 appears twice
-      expect(jsChildArray).toMatchObject([child0, child1, child0]);
-      expect(jsChildArray.filter((c) => c === child0).length).toBe(2); // 2 instances
+      expect(jsChildArray).to.deep.equal([child0, child1, child0]);
+      expect(jsChildArray.filter((c) => c === child0)).to.have.lengthOf(2); // 2 instances
 
       // CHILD field behavior (splice semantics):
       // arr[2] = child0 (where child0 is at index 0)
@@ -332,8 +344,8 @@ describe("array field (@syncing.list)", () => {
       // 2. splice(0, 1) → [child1] (length 1)
       // 3. Adjust target: 2 - 1 = 1 (since existingIndex < parsedElementKey)
       // 4. Set arr[1] = child0 → [child1, child0]
-      expect(parent.children).toMatchObject([child1, child0]);
-      expect(parent.children.filter((c) => c === child0).length).toBe(1); // Only 1 instance
+      expect(parent.children).to.deep.equal([child1, child0]);
+      expect(parent.children.filter((c) => c === child0)).to.have.lengthOf(1); // Only 1 instance
     });
 
     it("should handle assignment at arr[length + n] with holes - child field", () => {
@@ -357,7 +369,7 @@ describe("array field (@syncing.list)", () => {
       parent.children[5] = child5;
 
       // Initial state: [child0, child1, null, null, null, child5]
-      expect(parent.children).toMatchObject([child0, child1, null, null, null, child5]);
+      expect(parent.children).to.deep.equal([child0, child1, null, null, null, child5]);
 
       // CHILD field behavior (splice semantics):
       // arr[3] = child0 (where child0 is at index 0)
@@ -369,8 +381,8 @@ describe("array field (@syncing.list)", () => {
       parent.children[3] = child0;
 
       // Expected: [child1, null, child0, null, child5] - length 5
-      expect(parent.children).toMatchObject([child1, null, child0, null, child5]);
-      expect(parent.children.filter((c) => c === child0).length).toBe(1);
+      expect(parent.children).to.deep.equal([child1, null, child0, null, child5]);
+      expect(parent.children.filter((c) => c === child0)).to.have.lengthOf(1);
     });
   });
 
@@ -403,26 +415,26 @@ describe("array field (@syncing.list)", () => {
 
       // Test complex operations
       const popped = parent.children.pop();
-      expect(popped?.name).toBe("Child4");
-      expect(parent.children.length).toBe(4);
+      expect(popped?.name).to.equal("Child4");
+      expect(parent.children).to.have.lengthOf(4);
 
       const shifted = parent.children.shift();
-      expect(shifted?.name).toBe("Child0");
-      expect(parent.children.length).toBe(3);
+      expect(shifted?.name).to.equal("Child0");
+      expect(parent.children).to.have.lengthOf(3);
 
       // Splice operation
       const newChild = new Component({ name: "NewChild", type: "child", children: [], metadata: {} });
       const spliced = parent.children.splice(1, 1, newChild);
-      expect(spliced.length).toBe(1);
-      expect(spliced[0].name).toBe("Child2");
-      expect(parent.children.length).toBe(3);
-      expect(parent.children[1].name).toBe("NewChild");
+      expect(spliced).to.have.lengthOf(1);
+      expect(spliced[0].name).to.equal("Child2");
+      expect(parent.children).to.have.lengthOf(3);
+      expect(parent.children[1].name).to.equal("NewChild");
 
       // Reverse
       parent.children.reverse();
-      expect(parent.children[0].name).toBe("Child3");
-      expect(parent.children[1].name).toBe("NewChild");
-      expect(parent.children[2].name).toBe("Child1");
+      expect(parent.children[0].name).to.equal("Child3");
+      expect(parent.children[1].name).to.equal("NewChild");
+      expect(parent.children[2].name).to.equal("Child1");
     });
 
     it("should sync complex array operations across documents", () => {
@@ -465,9 +477,9 @@ describe("array field (@syncing.list)", () => {
 
       // Verify doc2 reflects changes
       // Expected: reverse() [Child2, Child1, Child0] then pop() removes Child0 -> [Child2, Child1]
-      expect(parent2.children.length).toBe(2);
-      expect(parent2.children[0].name).toBe("Child2");
-      expect(parent2.children[1].name).toBe("Child1");
+      expect(parent2.children).to.have.lengthOf(2);
+      expect(parent2.children[0].name).to.equal("Child2");
+      expect(parent2.children[1].name).to.equal("Child1");
     });
   });
 
@@ -489,7 +501,7 @@ describe("array field (@syncing.list)", () => {
       { index: 2, item: "d", desc: "d from later position (3)", expected: ["a", "b", "d", "e"] },
     ])("should handle arr[$index] = $item ($desc)", ({ index, item, expected }) => {
       parent.children[index] = indexed[item];
-      expect(parent.children).toMatchObject(expected.map((name) => indexed[name]));
+      expect(parent.children).to.deep.equal(expected.map((name) => indexed[name]));
     });
   });
 
@@ -511,7 +523,7 @@ describe("array field (@syncing.list)", () => {
       { item: "e", desc: "e from last position (4) - no-op", expected: ["a", "b", "c", "d", "e"] },
     ])("should handle push($item) - $desc", ({ item, expected }) => {
       parent.children.push(indexed[item]);
-      expect(parent.children).toMatchObject(expected.map((name) => indexed[name]));
+      expect(parent.children).to.deep.equal(expected.map((name) => indexed[name]));
     });
   });
 
@@ -533,7 +545,7 @@ describe("array field (@syncing.list)", () => {
       { item: "a", desc: "a from first position (0) - no-op", expected: ["a", "b", "c", "d", "e"] },
     ])("should handle unshift($item) - $desc", ({ item, expected }) => {
       parent.children.unshift(indexed[item]);
-      expect(parent.children).toMatchObject(expected.map((name) => indexed[name]));
+      expect(parent.children).to.deep.equal(expected.map((name) => indexed[name]));
     });
   });
 
@@ -561,7 +573,7 @@ describe("array field (@syncing.list)", () => {
         { insert: ["d", "e"], desc: "[d,e] both from later", expected: ["a", "b", "d", "e"] },
       ])("should handle splice(2, 1, $insert) - $desc", ({ insert, expected }) => {
         parent.children.splice(2, 1, ...insert.map((name) => indexed[name]));
-        expect(parent.children).toMatchObject(expected.map((name) => indexed[name]));
+        expect(parent.children).to.deep.equal(expected.map((name) => indexed[name]));
       });
     });
 
@@ -577,13 +589,13 @@ describe("array field (@syncing.list)", () => {
         { insert: ["a", "b", "c", "d"], desc: "[a,b,c,d] all removed items", expected: ["a", "b", "c", "d", "e"] },
       ])("should handle splice(1, 3, $insert) - $desc", ({ insert, expected }) => {
         parent.children.splice(1, 3, ...insert.map((name) => indexed[name]));
-        expect(parent.children).toMatchObject(expected.map((name) => indexed[name]));
+        expect(parent.children).to.deep.equal(expected.map((name) => indexed[name]));
       });
     });
 
     it("should handle splice(1, 4, b, c, d, e) - replace all with same (no-op)", () => {
       parent.children.splice(1, 4, indexed.b, indexed.c, indexed.d, indexed.e);
-      expect(parent.children).toMatchObject([indexed.a, indexed.b, indexed.c, indexed.d, indexed.e]);
+      expect(parent.children).to.deep.equal([indexed.a, indexed.b, indexed.c, indexed.d, indexed.e]);
     });
   });
 
@@ -626,22 +638,22 @@ describe("array field (@syncing.list)", () => {
         parent.children.copyWithin(...(args as [number, number, number]));
       }).toThrow("copyWithin cannot insert the same child multiple times");
       // Array should remain unchanged after error
-      expect(parent.children).toMatchObject([indexed.a, indexed.b, indexed.c, indexed.d, indexed.e]);
+      expect(parent.children).to.deep.equal([indexed.a, indexed.b, indexed.c, indexed.d, indexed.e]);
     });
 
     it("should handle copyWithin when no duplicates created (no-op case)", () => {
       // copyWithin(0, 0, 5) copies items to their own positions - no duplicates
       parent.children.copyWithin(0, 0, 5);
-      expect(parent.children).toMatchObject([indexed.a, indexed.b, indexed.c, indexed.d, indexed.e]);
+      expect(parent.children).to.deep.equal([indexed.a, indexed.b, indexed.c, indexed.d, indexed.e]);
       for (const child of parent.children) {
-        expect(child.parent).toBe(parent);
+        expect(child.parent).to.equal(parent);
       }
     });
 
     it("should handle copyWithin when no duplicates created (non-overlapping empty range)", () => {
       // copyWithin(2, 2, 2) copies nothing - no-op
       parent.children.copyWithin(2, 2, 2);
-      expect(parent.children).toMatchObject([indexed.a, indexed.b, indexed.c, indexed.d, indexed.e]);
+      expect(parent.children).to.deep.equal([indexed.a, indexed.b, indexed.c, indexed.d, indexed.e]);
     });
   });
 
@@ -663,7 +675,7 @@ describe("array field (@syncing.list)", () => {
       const item = parent.children[0];
       parent.children[0] = item;
 
-      expect(modificationCount).toBe(0);
+      expect(modificationCount).to.equal(0);
       expect(parent.children).toHaveLength(2);
     });
 
@@ -699,7 +711,7 @@ describe("array field (@syncing.list)", () => {
 
       // After deduplication, should be same length (moved from end to end = no-op)
       expect(parent.children).toHaveLength(lengthBefore);
-      expect(parent.children.at(-1)).toBe(lastItem);
+      expect(parent.children.at(-1)).to.equal(lastItem);
     });
 
     it("should trigger modifications for actual changes", () => {
@@ -716,11 +728,11 @@ describe("array field (@syncing.list)", () => {
       // Real change: pushing new item
       parent.children.push(c);
       expect(parent.children).toHaveLength(3);
-      expect(parent.children[2]).toBe(c);
+      expect(parent.children[2]).to.equal(c);
 
       // Real change: moving item
       parent.children[0] = b;
-      expect(parent.children).toMatchObject([b, c]);
+      expect(parent.children).to.deep.equal([b, c]);
       expect(parent.children).toHaveLength(2);
     });
 
@@ -740,7 +752,7 @@ describe("array field (@syncing.list)", () => {
 
       // After deduplication, should be same length (moved from start to start = no-op)
       expect(parent.children).toHaveLength(lengthBefore);
-      expect(parent.children[0]).toBe(firstItem);
+      expect(parent.children[0]).to.equal(firstItem);
     });
 
     it("should track parent relationships correctly during operations", () => {
@@ -750,19 +762,19 @@ describe("array field (@syncing.list)", () => {
       const item = new Component({ name: "item", type: "child", children: [], metadata: {} });
 
       // Initially no parent
-      expect(item.parent).toBe(null);
+      expect(item.parent).to.eq(null);
 
       // Push sets parent
       parent.children.push(item);
-      expect(item.parent).toBe(parent);
+      expect(item.parent).to.equal(parent);
 
       // Move within same array maintains parent
       parent.children[1] = item;
-      expect(item.parent).toBe(parent);
+      expect(item.parent).to.equal(parent);
 
       // Splice out removes parent
       parent.children.splice(0, parent.children.length);
-      expect(item.parent).toBe(null);
+      expect(item.parent).to.eq(null);
     });
   });
 
@@ -780,9 +792,9 @@ describe("array field (@syncing.list)", () => {
       // The old item 'a' should be orphanized before 'b' is adopted
       parent.children[0] = b;
 
-      expect(parent.children).toMatchObject([b]);
-      expect(a.parent).toBe(null);
-      expect(b.parent).toBe(parent);
+      expect(parent.children).to.deep.equal([b]);
+      expect(a.parent).to.eq(null);
+      expect(b.parent).to.equal(parent);
     });
 
     it("should handle adoption order when moving child within same array", () => {
@@ -801,10 +813,10 @@ describe("array field (@syncing.list)", () => {
       // - Inconsistent parent state
       parent.children[1] = a;
 
-      expect(parent.children).toMatchObject([a, c]);
-      expect(a.parent).toBe(parent);
-      expect(b.parent).toBe(null);
-      expect(c.parent).toBe(parent);
+      expect(parent.children).to.deep.equal([a, c]);
+      expect(a.parent).to.equal(parent);
+      expect(b.parent).to.eq(null);
+      expect(c.parent).to.equal(parent);
     });
 
     it("should handle adoption order with nested validation checks", () => {
@@ -818,18 +830,18 @@ describe("array field (@syncing.list)", () => {
       parent.children.push(child);
 
       // Verify initial hierarchy
-      expect(grandparent.children).toMatchObject([parent]);
-      expect(parent.children).toMatchObject([child]);
-      expect(child.parent).toBe(parent);
-      expect(parent.parent).toBe(grandparent);
+      expect(grandparent.children).to.deep.equal([parent]);
+      expect(parent.children).to.deep.equal([child]);
+      expect(child.parent).to.equal(parent);
+      expect(parent.parent).to.equal(grandparent);
 
       // Moving child to grandparent should not cause validation loops
       // Even though validation might traverse the tree
       grandparent.children[1] = child;
 
-      expect(grandparent.children).toMatchObject([parent, child]);
-      expect(parent.children).toMatchObject([]);
-      expect(child.parent).toBe(grandparent);
+      expect(grandparent.children).to.deep.equal([parent, child]);
+      expect(parent.children).to.deep.equal([]);
+      expect(child.parent).to.equal(grandparent);
     });
 
     it("should handle adoption order when child validates parent relationship", () => {
@@ -842,7 +854,7 @@ describe("array field (@syncing.list)", () => {
       site.components.parent2 = parent2;
 
       parent1.children.push(child);
-      expect(child.parent).toBe(parent1);
+      expect(child.parent).to.equal(parent1);
 
       // Moving child to parent2 should:
       // 1. Orphanize from parent1
@@ -852,9 +864,9 @@ describe("array field (@syncing.list)", () => {
       // validation might see child still in parent1.children
       parent2.children[0] = child;
 
-      expect(parent1.children).toMatchObject([]);
-      expect(parent2.children).toMatchObject([child]);
-      expect(child.parent).toBe(parent2);
+      expect(parent1.children).to.deep.equal([]);
+      expect(parent2.children).to.deep.equal([child]);
+      expect(child.parent).to.equal(parent2);
     });
 
     it("should handle adoption order with observer/reactivity during assignment", () => {
@@ -878,14 +890,14 @@ describe("array field (@syncing.list)", () => {
       parent.children[1] = a; // Should remove a from 0, then set at 1
 
       // After assignment, should be consistent
-      expect(parent.children).toMatchObject([a, c]);
+      expect(parent.children).to.deep.equal([a, c]);
 
       // Verify no duplicates exist at any point
       const aCount = parent.children.filter((x) => x === a).length;
-      expect(aCount).toBe(1);
+      expect(aCount).to.equal(1);
 
       // Verify b was properly orphanized
-      expect(originalB.parent).toBe(null);
+      expect(originalB.parent).to.eq(null);
     });
   });
 
@@ -911,12 +923,12 @@ describe("array field (@syncing.list)", () => {
       // Simplified: grandchild's array trying to push childNode (its ancestor)
       expect(() => {
         grandchildNode.children.push(childNode);
-      }).toThrow(/would create cycle/i);
+      }).to.throw(/would create cycle/i);
 
       // Hierarchy should be unchanged
-      expect(childNode.parent).toBe(root);
-      expect(grandchildNode.parent).toBe(childNode);
-      expect(childNode.children[0]).toBe(grandchildNode);
+      expect(childNode.parent).to.equal(root);
+      expect(grandchildNode.parent).to.equal(childNode);
+      expect(childNode.children[0]).to.equal(grandchildNode);
     });
 
     it("push: should preserve array state when pushing cycle-causing element with reused element", () => {
@@ -944,13 +956,13 @@ describe("array field (@syncing.list)", () => {
       // child tries to push parent (its ancestor) - would create cycle
       expect(() => {
         childNode.children.push(parentNode);
-      }).toThrow(/would create cycle/i);
+      }).to.throw(/would create cycle/i);
 
       // All items should still be properly parented
-      expect(item1Node.parent).toBe(parentNode);
-      expect(item2Node.parent).toBe(parentNode);
-      expect(childNode.parent).toBe(parentNode);
-      expect(parentNode.children.length).toBe(4);
+      expect(item1Node.parent).to.equal(parentNode);
+      expect(item2Node.parent).to.equal(parentNode);
+      expect(childNode.parent).to.equal(parentNode);
+      expect(parentNode.children).to.have.lengthOf(4);
     });
 
     it("unshift: should not corrupt array when adoption fails", () => {
@@ -971,12 +983,12 @@ describe("array field (@syncing.list)", () => {
       // grandchild tries to unshift childNode (its ancestor)
       expect(() => {
         grandchildNode.children.unshift(childNode);
-      }).toThrow(/would create cycle/i);
+      }).to.throw(/would create cycle/i);
 
       // Hierarchy should be unchanged
-      expect(childNode.parent).toBe(root);
-      expect(grandchildNode.parent).toBe(childNode);
-      expect(grandchildNode.children.length).toBe(0);
+      expect(childNode.parent).to.equal(root);
+      expect(grandchildNode.parent).to.equal(childNode);
+      expect(grandchildNode.children).to.have.lengthOf(0);
     });
 
     it("assign: should not orphan existing items when new items adoption fails", () => {
@@ -1003,18 +1015,16 @@ describe("array field (@syncing.list)", () => {
       // grandchild tries to assign array including child (its ancestor) - would create cycle
       expect(() => {
         grandchildNode.children = [newItem, childNode];
-      }).toThrow(/would create cycle/i);
+      }).to.throw(/would create cycle/i);
 
       // Original items should still be properly parented to grandchild
-      expect(item1Node.parent).toBe(grandchildNode);
-      expect(item2Node.parent).toBe(grandchildNode);
-      expect(grandchildNode.children.length).toBe(2);
-      expect(grandchildNode.children[0]).toBe(item1Node);
-      expect(grandchildNode.children[1]).toBe(item2Node);
+      expect(item1Node.parent).to.equal(grandchildNode);
+      expect(item2Node.parent).to.equal(grandchildNode);
+      expect(grandchildNode.children).to.have.ordered.members([item1Node, item2Node]);
       // newItem should not have been adopted
-      expect(newItem.parent).toBeNull();
+      expect(newItem.parent).to.eq(null);
       // childNode should still be parented to root
-      expect(childNode.parent).toBe(root);
+      expect(childNode.parent).to.equal(root);
     });
 
     it("index assignment: should not orphan existing item when replacement adoption fails", () => {
@@ -1037,12 +1047,12 @@ describe("array field (@syncing.list)", () => {
       // Try to replace existingChild with childNode (ancestor) - would create cycle
       expect(() => {
         grandchildNode.children[0] = childNode;
-      }).toThrow(/would create cycle/i);
+      }).to.throw(/would create cycle/i);
 
       // existingChild should still be in place
-      expect(grandchildNode.children[0]).toBe(existingNode);
-      expect(existingNode.parent).toBe(grandchildNode);
-      expect(grandchildNode.parent).toBe(childNode);
+      expect(grandchildNode.children[0]).to.equal(existingNode);
+      expect(existingNode.parent).to.equal(grandchildNode);
+      expect(grandchildNode.parent).to.equal(childNode);
     });
   });
 });

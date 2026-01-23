@@ -1,12 +1,18 @@
-import { ConcretePlexusConstructor, PlexusModel } from "./PlexusModel.js";
-import { __untracked__, ACCESS_ALL_SYMBOL, trackAccess } from "./tracking.js";
 import invariant from "tiny-invariant";
-import { AllowedYJSMapKey, AllowedYJSValue } from "./proxy-runtime-types.js";
+
+import type { ConcretePlexusConstructor } from "./PlexusModel.js";
+import { PlexusModel } from "./PlexusModel.js";
+import type { AllowedYJSMapKey, AllowedYJSValue } from "./proxy-runtime-types.js";
+import { __untracked__, ACCESS_ALL_SYMBOL, trackAccess } from "./tracking.js";
 
 // Global clone transaction mapping for handling cycles and deduplication
 let cloneTransactionMapping: WeakMap<any, any> | null = null;
 
 const postMappingFill = new Set<() => void>();
+
+// Temporary storage for child-map entries during clone transaction
+// Keys are kept as originals in phase 1, then remapped in phase 2 (postMappingFill)
+let childMapTempEntries: Map<string, [AllowedYJSMapKey, AllowedYJSValue][]> | null = null;
 
 /**
  * Cloning is following the behavior from many other libraries.
@@ -35,6 +41,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
   const isTopLevel = cloneTransactionMapping === null;
   if (isTopLevel) {
     postMappingFill.clear();
+    childMapTempEntries = new Map();
   }
   cloneTransactionMapping ??= new WeakMap();
   if (cloneTransactionMapping.has(source)) {
@@ -51,7 +58,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
     );
     cloneTransactionMapping.set(source, clonedModel);
     // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
-    for (const [fieldKey, type] of Object.entries(source.__schema__)) {
+    for (const fieldKey of Object.keys(source.__schema__)) {
       const fieldValue = fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
       // this is a shortcut - "hey, entity, we're going to clone you in full".
       // this is needed as we will be doing __untracked__ access next
@@ -64,10 +71,10 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
       const fieldValue = fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
       __untracked__(() => {
         // we need to spawn children first to fill the tracking cache
+        // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- non-child types handled in postMappingFill
         switch (type) {
           case "child-val":
-            const clonedValue = fieldValue instanceof PlexusModel ? fieldValue.clone() : fieldValue;
-            clonedModel[fieldKey] = clonedValue;
+            clonedModel[fieldKey] = fieldValue instanceof PlexusModel ? fieldValue.clone() : fieldValue;
             break;
           case "child-list":
             clonedModel[fieldKey] = (fieldValue as any as any[]).map((item) =>
@@ -88,21 +95,20 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
             );
             break;
           case "child-map": {
+            // Phase 1: Clone VALUES only (they're owned children).
+            // Keep ORIGINAL keys - they'll be remapped in postMappingFill
+            // after all child entities are cloned and in cloneTransactionMapping.
             const sourceMap = fieldValue as Map<AllowedYJSMapKey, AllowedYJSValue>;
-            const clonedEntries: [AllowedYJSMapKey, AllowedYJSValue][] = [];
+            const tempEntries: [AllowedYJSMapKey, AllowedYJSValue][] = [];
             for (const [key, value] of sourceMap.entries()) {
               const clonedValue = value instanceof PlexusModel ? value.clone() : value;
-              let clonedKey: AllowedYJSMapKey;
-              if (key instanceof Set) {
-                clonedKey = new Set([...key].map((item) => (item instanceof PlexusModel ? item.clone() : item)));
-              } else if (Array.isArray(key)) {
-                clonedKey = key.map((item) => (item instanceof PlexusModel ? item.clone() : item));
-              } else {
-                clonedKey = key instanceof PlexusModel ? key.clone() : key;
-              }
-              clonedEntries.push([clonedKey, clonedValue]);
+              tempEntries.push([key, clonedValue]); // Original key, cloned value
             }
-            clonedModel[fieldKey] = new Map(clonedEntries);
+            // Store for phase 2 processing, keyed by model UUID + field name
+            const storageKey = `${clonedModel.uuid}:${fieldKey}`;
+            childMapTempEntries!.set(storageKey, tempEntries);
+            // Set empty map for now - will be filled in postMappingFill
+            clonedModel[fieldKey] = new Map();
             break;
           }
         }
@@ -113,6 +119,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
       for (const [fieldKey, type] of Object.entries(source.__schema__)) {
         const fieldValue = fieldKey in newProps ? newProps[fieldKey] : source[fieldKey];
         __untracked__(() => {
+          // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- child-* types (except child-map) handled in first switch
           switch (type) {
             case "val":
               clonedModel[fieldKey] = cloneTransactionMapping!.get(fieldValue) ?? fieldValue;
@@ -154,6 +161,29 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
                 }),
               );
               break;
+            case "child-map": {
+              // Phase 2: Now that all child entities are cloned, remap keys.
+              // Keys that were cloned (as values elsewhere) get remapped to the clone.
+              // Keys that were NOT cloned stay as the original reference.
+              const storageKey = `${clonedModel.uuid}:${fieldKey}`;
+              const tempEntries = childMapTempEntries!.get(storageKey);
+              if (tempEntries) {
+                const finalEntries: [AllowedYJSMapKey, AllowedYJSValue][] = tempEntries.map(([key, value]) => {
+                  let remappedKey: AllowedYJSMapKey;
+                  if (key instanceof Set) {
+                    remappedKey = new Set([...key].map((item) => cloneTransactionMapping!.get(item) ?? item));
+                  } else if (Array.isArray(key)) {
+                    remappedKey = key.map((item) => cloneTransactionMapping!.get(item) ?? item);
+                  } else {
+                    remappedKey = cloneTransactionMapping!.get(key) ?? key;
+                  }
+                  return [remappedKey, value]; // Value already cloned in phase 1
+                });
+                clonedModel[fieldKey] = new Map(finalEntries);
+                childMapTempEntries!.delete(storageKey);
+              }
+              break;
+            }
           }
         });
       }
@@ -169,6 +199,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
     if (isTopLevel) {
       postMappingFill.clear();
       cloneTransactionMapping = null;
+      childMapTempEntries = null;
     }
   }
 }

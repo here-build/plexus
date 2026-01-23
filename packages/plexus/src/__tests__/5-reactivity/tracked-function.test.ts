@@ -102,16 +102,16 @@ describe("Cross-Document Notifications", () => {
       syncDocs(doc1, doc2);
       const plexus2 = TestPlexus.connect(doc2);
       const user2 = plexus2.loadEntity<User>(entityId)!;
-      expect(user2.name).toBe("Alice");
+      expect(user2.name).to.equal("Alice");
       const notifyCallback = vi.fn();
       const trackedFunction = createTrackedFunction(notifyCallback, () => user2.name);
-      expect(trackedFunction()).toBe("Alice");
-      expect(notifyCallback).not.toHaveBeenCalled();
+      expect(trackedFunction()).to.equal("Alice");
+      expect(notifyCallback).to.have.property("mock").with.property("calls").with.lengthOf(0);
       // magic starts here
       user1.name = "Alice Smith";
       syncDocs(doc1, doc2);
-      expect(notifyCallback).toHaveBeenCalledTimes(1);
-      expect(user2.name).toBe("Alice Smith");
+      expect(notifyCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(user2.name).to.equal("Alice Smith");
     });
 
     it("should notify when multiple fields change in same transaction", async () => {
@@ -128,7 +128,7 @@ describe("Cross-Document Notifications", () => {
       });
 
       // Establish tracking
-      expect(trackedFunction()).toEqual({ name: "Bob", email: "bob@test.com" });
+      expect(trackedFunction()).to.deep.equal({ name: "Bob", email: "bob@test.com" });
 
       // Doc1: Change both fields in single transaction
       doc1.transact(() => {
@@ -140,9 +140,9 @@ describe("Cross-Document Notifications", () => {
       await new Promise((resolve) => setImmediate(resolve));
 
       // Should only notify once for the batch
-      expect(notifyCallback).toHaveBeenCalledTimes(1);
-      expect(user2.name).toBe("Robert");
-      expect(user2.email).toBe("robert@test.com");
+      expect(notifyCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(user2.name).to.equal("Robert");
+      expect(user2.email).to.equal("robert@test.com");
     });
 
     it("should not notify when untracked fields change", async () => {
@@ -158,7 +158,7 @@ describe("Cross-Document Notifications", () => {
         return user2.name; // Only track name on doc2, not email
       });
 
-      expect(trackedFunction()).toBe("Carol");
+      expect(trackedFunction()).to.equal("Carol");
 
       // Doc1: Change only untracked field
       user1.email = "carol.new@test.com";
@@ -167,8 +167,8 @@ describe("Cross-Document Notifications", () => {
       await new Promise((resolve) => setImmediate(resolve));
 
       // Should not notify
-      expect(notifyCallback).not.toHaveBeenCalled();
-      expect(user2.email).toBe("carol.new@test.com"); // Change still applies
+      expect(notifyCallback).to.have.property("mock").with.property("calls").with.lengthOf(0);
+      expect(user2.email).to.equal("carol.new@test.com"); // Change still applies
     });
   });
 
@@ -186,7 +186,7 @@ describe("Cross-Document Notifications", () => {
         return Object.keys(user2.posts).length; // Track record changes on doc2
       });
 
-      expect(trackedFunction()).toBe(0);
+      expect(trackedFunction()).to.equal(0);
 
       // Doc1: Add a post
       const post = new Post({
@@ -207,9 +207,9 @@ describe("Cross-Document Notifications", () => {
 
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(notifyCallback).toHaveBeenCalledTimes(1);
-      expect(Object.keys(user2.posts).length).toBe(1);
-      expect(user2.posts["post1"].title).toBe("New Post");
+      expect(notifyCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(Object.keys(user2.posts)).to.have.lengthOf(1);
+      expect(user2.posts["post1"].title).to.equal("New Post");
     });
 
     it("should notify when record property is removed", async () => {
@@ -235,7 +235,7 @@ describe("Cross-Document Notifications", () => {
         return "initial" in user2.posts; // Track specific key existence on doc2
       });
 
-      expect(trackedFunction()).toBe(true);
+      expect(trackedFunction()).to.eq(true);
 
       // Doc1: Remove the post
       delete user1.posts["initial"];
@@ -243,8 +243,8 @@ describe("Cross-Document Notifications", () => {
       syncDocs(doc1, doc2);
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(notifyCallback).toHaveBeenCalledTimes(1);
-      expect("initial" in user2.posts).toBe(false);
+      expect(notifyCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect("initial" in user2.posts).to.eq(false);
     });
 
     it("should notify when specific record property is accessed", async () => {
@@ -270,7 +270,7 @@ describe("Cross-Document Notifications", () => {
         return user2.posts["tracked-post"]?.title; // Track specific post's title on doc2
       });
 
-      expect(trackedFunction()).toBe("Original Title");
+      expect(trackedFunction()).to.equal("Original Title");
 
       // Doc1: Change the specific post's title
       user1.posts["tracked-post"].title = "Updated Title";
@@ -278,8 +278,8 @@ describe("Cross-Document Notifications", () => {
       syncDocs(doc1, doc2);
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(notifyCallback).toHaveBeenCalledTimes(1);
-      expect(user2.posts["tracked-post"].title).toBe("Updated Title");
+      expect(notifyCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(user2.posts["tracked-post"].title).to.equal("Updated Title");
     });
   });
 
@@ -306,7 +306,7 @@ describe("Cross-Document Notifications", () => {
         return post2.comments.length; // Track array length on doc2
       });
 
-      expect(trackedFunction()).toBe(0);
+      expect(trackedFunction()).to.equal(0);
 
       // Doc1: Add comment (will be materialized via contagion)
       const comment = new Post({
@@ -320,9 +320,9 @@ describe("Cross-Document Notifications", () => {
       syncDocs(doc1, doc2);
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(notifyCallback).toHaveBeenCalledTimes(1);
-      expect(post2.comments.length).toBe(1);
-      expect(post2.comments[0].title).toBe("Comment");
+      expect(notifyCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(post2.comments).to.have.lengthOf(1);
+      expect(post2.comments[0].title).to.equal("Comment");
     });
 
     it("should notify when array items are removed", async () => {
@@ -356,7 +356,7 @@ describe("Cross-Document Notifications", () => {
         return post2.comments.length; // Track array length on doc2
       });
 
-      expect(trackedFunction()).toBe(1);
+      expect(trackedFunction()).to.equal(1);
 
       // Doc1: Remove comment
       post1.comments.pop();
@@ -364,8 +364,8 @@ describe("Cross-Document Notifications", () => {
       syncDocs(doc1, doc2);
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(notifyCallback).toHaveBeenCalledTimes(1);
-      expect(post2.comments.length).toBe(0);
+      expect(notifyCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(post2.comments).to.have.lengthOf(0);
     });
 
     it("should notify when specific array index is accessed", async () => {
@@ -399,7 +399,7 @@ describe("Cross-Document Notifications", () => {
         return post2.comments[0]?.title; // Track specific index on doc2
       });
 
-      expect(trackedFunction()).toBe("Original Comment");
+      expect(trackedFunction()).to.equal("Original Comment");
 
       // Doc1: Modify comment at index 0
       post1.comments[0].title = "Modified Comment";
@@ -407,8 +407,8 @@ describe("Cross-Document Notifications", () => {
       syncDocs(doc1, doc2);
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(notifyCallback).toHaveBeenCalledTimes(1);
-      expect(post2.comments[0].title).toBe("Modified Comment");
+      expect(notifyCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(post2.comments[0].title).to.equal("Modified Comment");
     });
   });
 
@@ -426,7 +426,7 @@ describe("Cross-Document Notifications", () => {
         return Array.from(user2.tags).sort(); // Track set contents on doc2
       });
 
-      expect(trackedFunction()).toEqual([]);
+      expect(trackedFunction()).to.deep.equal([]);
 
       // Doc1: Add tags
       user1.tags.add("javascript");
@@ -435,8 +435,8 @@ describe("Cross-Document Notifications", () => {
       syncDocs(doc1, doc2);
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(notifyCallback).toHaveBeenCalledTimes(1);
-      expect(Array.from(user2.tags).sort()).toEqual(["javascript", "react"]);
+      expect(notifyCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(Array.from(user2.tags).sort()).to.deep.equal(["javascript", "react"]);
     });
   });
 
@@ -456,8 +456,8 @@ describe("Cross-Document Notifications", () => {
       const tracker2 = createTrackedFunction(callback2, () => user2.email);
 
       // Establish tracking
-      expect(tracker1()).toBe("Henry");
-      expect(tracker2()).toBe("henry@test.com");
+      expect(tracker1()).to.equal("Henry");
+      expect(tracker2()).to.equal("henry@test.com");
 
       // Doc1: Change name (should only notify tracker1)
       user1.name = "Henry Jr";
@@ -465,8 +465,8 @@ describe("Cross-Document Notifications", () => {
       syncDocs(doc1, doc2);
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(callback1).toHaveBeenCalledTimes(1);
-      expect(callback2).not.toHaveBeenCalled();
+      expect(callback1).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(callback2).to.have.property("mock").with.property("calls").with.lengthOf(0);
 
       // Doc1: Change email (should only notify tracker2)
       user1.email = "henry.jr@test.com";
@@ -474,8 +474,8 @@ describe("Cross-Document Notifications", () => {
       syncDocs(doc1, doc2);
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(callback1).toHaveBeenCalledTimes(1);
-      expect(callback2).toHaveBeenCalledTimes(1);
+      expect(callback1).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(callback2).to.have.property("mock").with.property("calls").with.lengthOf(1);
     });
   });
 
@@ -503,7 +503,7 @@ describe("Cross-Document Notifications", () => {
         return user2.posts["main"]?.author?.name; // Track nested entity property on doc2
       });
 
-      expect(trackedFunction()).toBe("Iris");
+      expect(trackedFunction()).to.equal("Iris");
 
       // Doc1: Change the author's name (should trigger notification)
       user1.name = "Iris Johnson";
@@ -511,8 +511,8 @@ describe("Cross-Document Notifications", () => {
       syncDocs(doc1, doc2);
       await new Promise((resolve) => setImmediate(resolve));
 
-      expect(notifyCallback).toHaveBeenCalledTimes(1);
-      expect(user2.posts["main"].author?.name).toBe("Iris Johnson");
+      expect(notifyCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(user2.posts["main"].author?.name).to.equal("Iris Johnson");
     });
   });
 
@@ -533,7 +533,7 @@ describe("Cross-Document Notifications", () => {
       for (let i = 0; i < 10; i++) {
         result = trackedFunction();
       }
-      expect(result).toBe("Jack");
+      expect(result).to.equal("Jack");
 
       // Change should only notify once, not 10 times
       user1.name = "Jack Updated";
@@ -542,7 +542,7 @@ describe("Cross-Document Notifications", () => {
       await new Promise((resolve) => setImmediate(resolve));
 
       // Each trackedFunction() call registers for notifications independently
-      expect(callback).toHaveBeenCalledTimes(10);
+      expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(10);
     });
 
     it("should handle rapid successive changes efficiently", async () => {
@@ -556,7 +556,7 @@ describe("Cross-Document Notifications", () => {
       const callback = vi.fn();
       const trackedFunction = createTrackedFunction(callback, () => user2.name);
 
-      expect(trackedFunction()).toBe("Kate");
+      expect(trackedFunction()).to.equal("Kate");
 
       // Multiple rapid changes in same tick
       user1.name = "Kate 1";
@@ -567,8 +567,8 @@ describe("Cross-Document Notifications", () => {
       await new Promise((resolve) => setImmediate(resolve));
 
       // Should batch notifications
-      expect(callback).toHaveBeenCalledTimes(1);
-      expect(user2.name).toBe("Kate 3");
+      expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      expect(user2.name).to.equal("Kate 3");
     });
   });
 });

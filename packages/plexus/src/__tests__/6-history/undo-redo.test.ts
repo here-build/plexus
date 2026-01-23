@@ -43,17 +43,17 @@ describe("Y.UndoManager tracking", () => {
     testPlexus.undo();
 
     // Model is dematerialized - root.ref is null
-    expect(root.ref).toBe(null);
+    expect(root.ref).to.eq(null);
     // Accessing dematerialized model throws
-    expect(ref.__internals__.isDematerialized).toBe(true);
-    expect(() => ref.name).toThrow("dematerialized by undo");
+    expect(ref.__internals__.isDematerialized).to.eq(true);
+    expect(() => ref.name).to.throw("dematerialized by undo");
 
     testPlexus.redo();
 
     // Model is rematerialized
-    expect(root.ref).toBe(ref);
-    expect(ref.__internals__.isDematerialized).toBeFalsy();
-    expect(ref.name).toBe("second");
+    expect(root.ref).to.equal(ref);
+    expect(ref.__internals__.isDematerialized).to.not.be.ok;
+    expect(ref.name).to.equal("second");
   });
 
   it("should track modifications from normal operations", () => {
@@ -72,8 +72,8 @@ describe("Y.UndoManager tracking", () => {
 
     // Initial run
     const result1 = trackedFn();
-    expect(result1).toBe("initial");
-    expect(notificationCount).toBe(0); // No notifications yet
+    expect(result1).to.equal("initial");
+    expect(notificationCount).to.equal(0); // No notifications yet
 
     // Modify the field
     testPlexus.transact(() => {
@@ -81,7 +81,7 @@ describe("Y.UndoManager tracking", () => {
     });
 
     // Should trigger notification
-    expect(notificationCount).toBe(1);
+    expect(notificationCount).to.equal(1);
     console.log("✓ Normal modification test PASSED");
   });
 
@@ -101,16 +101,16 @@ describe("Y.UndoManager tracking", () => {
 
     // Initial run to establish tracking
     const result1 = trackedFn();
-    expect(result1).toBe("initial");
-    expect(notificationCount).toBe(0);
+    expect(result1).to.equal("initial");
+    expect(notificationCount).to.equal(0);
 
     // Make a change (this creates an undo stack item)
     root.name = "modified";
-    expect(notificationCount).toBe(1);
+    expect(notificationCount).to.equal(1);
 
     // Re-run tracked function to reset tracking on new value
     const result2 = trackedFn();
-    expect(result2).toBe("modified");
+    expect(result2).to.equal("modified");
 
     // Now undo - this should trigger tracking notification
     console.log("About to undo...");
@@ -125,11 +125,11 @@ describe("Y.UndoManager tracking", () => {
       console.log("✓ Undo modification test PASSED");
     }
 
-    expect(notificationCount).toBe(2); // Should have been notified about undo
+    expect(notificationCount).to.equal(2); // Should have been notified about undo
 
     // Verify the value actually changed
     const result3 = trackedFn();
-    expect(result3).toBe("initial");
+    expect(result3).to.equal("initial");
   });
 
   it("should track modifications from UndoManager.redo()", () => {
@@ -147,20 +147,20 @@ describe("Y.UndoManager tracking", () => {
 
     // Initial run
     trackedFn();
-    expect(notificationCount).toBe(0);
+    expect(notificationCount).to.equal(0);
 
     // Make a change
     testPlexus.transact(() => {
       root.name = "modified";
     });
-    expect(notificationCount).toBe(1);
+    expect(notificationCount).to.equal(1);
 
     // Re-run to reset tracking
     trackedFn();
 
     // Undo
     testPlexus.undo();
-    expect(notificationCount).toBe(2);
+    expect(notificationCount).to.equal(2);
 
     // Re-run to reset tracking
     trackedFn();
@@ -178,11 +178,11 @@ describe("Y.UndoManager tracking", () => {
       console.log("✓ Redo modification test PASSED");
     }
 
-    expect(notificationCount).toBe(3);
+    expect(notificationCount).to.equal(3);
 
     // Verify the value
     const result = trackedFn();
-    expect(result).toBe("modified");
+    expect(result).to.equal("modified");
   });
 
   it("should track modifications from UndoManager for multiple fields", () => {
@@ -213,8 +213,8 @@ describe("Y.UndoManager tracking", () => {
       root.count = 42;
     });
 
-    expect(nameNotifications).toBe(1);
-    expect(countNotifications).toBe(1);
+    expect(nameNotifications).to.equal(1);
+    expect(countNotifications).to.equal(1);
 
     // Re-run to reset tracking
     trackedNameFn();
@@ -226,7 +226,7 @@ describe("Y.UndoManager tracking", () => {
     console.log("Name notifications:", nameNotifications);
     console.log("Count notifications:", countNotifications);
 
-    expect(nameNotifications).toBe(2);
-    expect(countNotifications).toBe(2);
+    expect(nameNotifications).to.equal(2);
+    expect(countNotifications).to.equal(2);
   });
 });

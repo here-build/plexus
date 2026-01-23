@@ -94,19 +94,19 @@ describe("Map", () => {
 
       // Set
       component.metadataByName.set("default", metadata);
-      expect(component.metadataByName.size).toBe(1);
+      expect(component.metadataByName.size).to.equal(1);
 
       // Get
-      expect(component.metadataByName.get("default")).toBe(metadata);
+      expect(component.metadataByName.get("default")).to.equal(metadata);
 
       // Has
-      expect(component.metadataByName.has("default")).toBe(true);
-      expect(component.metadataByName.has("nonexistent")).toBe(false);
+      expect(component.metadataByName.has("default")).to.eq(true);
+      expect(component.metadataByName.has("nonexistent")).to.eq(false);
 
       // Delete
-      expect(component.metadataByName.delete("default")).toBe(true);
-      expect(component.metadataByName.size).toBe(0);
-      expect(component.metadataByName.delete("nonexistent")).toBe(false);
+      expect(component.metadataByName.delete("default")).to.eq(true);
+      expect(component.metadataByName.size).to.equal(0);
+      expect(component.metadataByName.delete("nonexistent")).to.eq(false);
     });
 
     it("should support clear", () => {
@@ -120,10 +120,10 @@ describe("Map", () => {
 
       component.metadataByName.set("a", new FrameMetadata({ width: 1, height: 1 }));
       component.metadataByName.set("b", new FrameMetadata({ width: 2, height: 2 }));
-      expect(component.metadataByName.size).toBe(2);
+      expect(component.metadataByName.size).to.equal(2);
 
       component.metadataByName.clear();
-      expect(component.metadataByName.size).toBe(0);
+      expect(component.metadataByName.size).to.equal(0);
     });
   });
 
@@ -149,25 +149,22 @@ describe("Map", () => {
 
       // keys()
       const keys = [...component.metadataByName.keys()];
-      expect(keys).toContain("first");
-      expect(keys).toContain("second");
+      expect(keys).to.include.members(["first", "second"]);
 
       // values()
       const values = [...component.metadataByName.values()];
-      expect(values).toContain(meta1);
-      expect(values).toContain(meta2);
+      expect(values).to.include.members([meta1, meta2]);
 
       // entries()
       const entries = [...component.metadataByName.entries()];
-      expect(entries.length).toBe(2);
+      expect(entries).to.have.lengthOf(2);
 
       // forEach
       const collected: string[] = [];
       component.metadataByName.forEach((val, key) => {
         collected.push(key as string);
       });
-      expect(collected).toContain("first");
-      expect(collected).toContain("second");
+      expect(collected).to.include.members(["first", "second"]);
     });
   });
 
@@ -192,14 +189,14 @@ describe("Map", () => {
 
       // Set with key [v1, v2]
       component.framesByCombo.set(new Set([v1, v2]), metadata);
-      expect(component.framesByCombo.size).toBe(1);
+      expect(component.framesByCombo.size).to.equal(1);
 
       // Get with key [v2, v1] - should find the same entry!
       const retrieved = component.framesByCombo.get(new Set([v2, v1]));
-      expect(retrieved).toBe(metadata);
+      expect(retrieved).to.equal(metadata);
 
       // Has with different order
-      expect(component.framesByCombo.has(new Set([v2, v1]))).toBe(true);
+      expect(component.framesByCombo.has(new Set([v2, v1]))).to.eq(true);
     });
 
     it("should distinguish different sets", () => {
@@ -221,9 +218,9 @@ describe("Map", () => {
       component.framesByCombo.set(new Set([v1, v2]), meta1);
       component.framesByCombo.set(new Set([v1, v3]), meta2);
 
-      expect(component.framesByCombo.size).toBe(2);
-      expect(component.framesByCombo.get(new Set([v1, v2]))).toBe(meta1);
-      expect(component.framesByCombo.get(new Set([v1, v3]))).toBe(meta2);
+      expect(component.framesByCombo.size).to.equal(2);
+      expect(component.framesByCombo.get(new Set([v1, v2]))).to.equal(meta1);
+      expect(component.framesByCombo.get(new Set([v1, v3]))).to.equal(meta2);
     });
 
     it("handles empty Set as key", () => {
@@ -248,9 +245,9 @@ describe("Map", () => {
       const value = new ValueModel({ data: "empty-set-value" });
 
       container.mapBySet.set(emptySet, value);
-      expect(container.mapBySet.size).toBe(1);
-      expect(container.mapBySet.get(new Set())?.data).toBe("empty-set-value");
-      expect(container.mapBySet.has(new Set())).toBe(true);
+      expect(container.mapBySet.size).to.equal(1);
+      expect(container.mapBySet.get(new Set())?.data).to.equal("empty-set-value");
+      expect(container.mapBySet.has(new Set())).to.eq(true);
     });
 
     it("should handle Set keys with same canonical form - last wins on assign", () => {
@@ -284,8 +281,8 @@ describe("Map", () => {
         [new Set([k2, k1]), val2], // Same canonical form!
       ]);
 
-      expect(container.mapBySet.size).toBe(1);
-      expect(container.mapBySet.get(new Set([k1, k2]))?.data).toBe("second");
+      expect(container.mapBySet.size).to.equal(1);
+      expect(container.mapBySet.get(new Set([k1, k2]))?.data).to.equal("second");
     });
   });
 
@@ -313,7 +310,7 @@ describe("Map", () => {
       component.framesByOrderedCombo.set([v2, v1], meta2);
 
       // Different order = different entries
-      expect(component.framesByOrderedCombo.size).toBe(2);
+      expect(component.framesByOrderedCombo.size).to.equal(2);
     });
 
     it("handles empty Array as key", () => {
@@ -338,9 +335,9 @@ describe("Map", () => {
       const value = new ValueModel({ data: "empty-array-value" });
 
       container.mapByArray.set(emptyArray, value);
-      expect(container.mapByArray.size).toBe(1);
-      expect(container.mapByArray.get([])?.data).toBe("empty-array-value");
-      expect(container.mapByArray.has([])).toBe(true);
+      expect(container.mapByArray.size).to.equal(1);
+      expect(container.mapByArray.get([])?.data).to.equal("empty-array-value");
+      expect(container.mapByArray.has([])).to.eq(true);
     });
 
     it("should distinguish Array keys with different order", () => {
@@ -374,9 +371,9 @@ describe("Map", () => {
         [[k2, k1], val2],
       ]);
 
-      expect(container.mapByArray.size).toBe(2);
-      expect(container.mapByArray.get([k1, k2])?.data).toBe("first");
-      expect(container.mapByArray.get([k2, k1])?.data).toBe("second");
+      expect(container.mapByArray.size).to.equal(2);
+      expect(container.mapByArray.get([k1, k2])?.data).to.equal("first");
+      expect(container.mapByArray.get([k2, k1])?.data).to.equal("second");
     });
   });
 
@@ -403,9 +400,9 @@ describe("Map", () => {
       component.metadataByVariant.set(v1, meta1);
       component.metadataByVariant.set(v2, meta2);
 
-      expect(component.metadataByVariant.size).toBe(2);
-      expect(component.metadataByVariant.get(v1)).toBe(meta1);
-      expect(component.metadataByVariant.get(v2)).toBe(meta2);
+      expect(component.metadataByVariant.size).to.equal(2);
+      expect(component.metadataByVariant.get(v1)).to.equal(meta1);
+      expect(component.metadataByVariant.get(v2)).to.equal(meta2);
     });
 
     it("should use model identity - same model = same key", () => {
@@ -426,8 +423,8 @@ describe("Map", () => {
       // eslint-disable-next-line sonarjs/no-element-overwrite
       component.metadataByVariant.set(v1, meta2); // Same key, update value
 
-      expect(component.metadataByVariant.size).toBe(1);
-      expect(component.metadataByVariant.get(v1)).toBe(meta2);
+      expect(component.metadataByVariant.size).to.equal(1);
+      expect(component.metadataByVariant.get(v1)).to.equal(meta2);
     });
 
     it("should distinguish different models with same data", () => {
@@ -450,9 +447,9 @@ describe("Map", () => {
       component.metadataByVariant.set(v2, meta2);
 
       // Different model instances = different keys
-      expect(component.metadataByVariant.size).toBe(2);
-      expect(component.metadataByVariant.get(v1)).toBe(meta1);
-      expect(component.metadataByVariant.get(v2)).toBe(meta2);
+      expect(component.metadataByVariant.size).to.equal(2);
+      expect(component.metadataByVariant.get(v1)).to.equal(meta1);
+      expect(component.metadataByVariant.get(v2)).to.equal(meta2);
     });
 
     it("should support delete with model key", () => {
@@ -470,10 +467,10 @@ describe("Map", () => {
       component.metadataByVariant.set(v1, new FrameMetadata({ width: 100, height: 100 }));
       component.metadataByVariant.set(v2, new FrameMetadata({ width: 200, height: 200 }));
 
-      expect(component.metadataByVariant.delete(v1)).toBe(true);
-      expect(component.metadataByVariant.size).toBe(1);
-      expect(component.metadataByVariant.has(v1)).toBe(false);
-      expect(component.metadataByVariant.has(v2)).toBe(true);
+      expect(component.metadataByVariant.delete(v1)).to.eq(true);
+      expect(component.metadataByVariant).to.satisfy(
+        (m: Map<unknown, unknown>) => m.size === 1 && !m.has(v1) && m.has(v2),
+      );
     });
 
     it("should iterate over model keys", () => {
@@ -492,9 +489,7 @@ describe("Map", () => {
       component.metadataByVariant.set(v2, new FrameMetadata({ width: 200, height: 200 }));
 
       const keys = [...component.metadataByVariant.keys()];
-      expect(keys).toHaveLength(2);
-      expect(keys).toContain(v1);
-      expect(keys).toContain(v2);
+      expect(keys).to.have.members([v1, v2]);
     });
 
     it("should handle model used as both key and value", () => {
@@ -523,8 +518,8 @@ describe("Map", () => {
       const value = new ValueModel({ data: "test" });
       container.mapByModel = new Map([[model, value]]);
 
-      expect(container.mapByModel.size).toBe(1);
-      expect(container.mapByModel.get(model)).toBe(value);
+      expect(container.mapByModel.size).to.equal(1);
+      expect(container.mapByModel.get(model)).to.equal(value);
     });
   });
 
@@ -555,13 +550,13 @@ describe("Map", () => {
       const value = new ValueModel({ data: "newline-key-value" });
 
       container.mapByString.set(keyWithNewline, value);
-      expect(container.mapByString.size).toBe(1);
-      expect(container.mapByString.get("hello\nworld")?.data).toBe("newline-key-value");
-      expect(container.mapByString.has("hello\nworld")).toBe(true);
+      expect(container.mapByString.size).to.equal(1);
+      expect(container.mapByString.get("hello\nworld")?.data).to.equal("newline-key-value");
+      expect(container.mapByString.has("hello\nworld")).to.eq(true);
 
       // Different string should not match
-      expect(container.mapByString.has("helloworld")).toBe(false);
-      expect(container.mapByString.has("hello")).toBe(false);
+      expect(container.mapByString.has("helloworld")).to.eq(false);
+      expect(container.mapByString.has("hello")).to.eq(false);
     });
 
     it("should handle entries with duplicate string keys - last wins", () => {
@@ -593,8 +588,8 @@ describe("Map", () => {
         ["key", val3],
       ]);
 
-      expect(container.mapByString.size).toBe(1);
-      expect(container.mapByString.get("key")?.data).toBe("third");
+      expect(container.mapByString.size).to.equal(1);
+      expect(container.mapByString.get("key")?.data).to.equal("third");
     });
   });
 
@@ -650,8 +645,7 @@ describe("Map", () => {
         const keys1 = [...container.mapByString.keys()];
         const keys2 = [...container.mapByString.keys()];
 
-        expect(keys1).toEqual(keys2);
-        expect(keys1.length).toBe(3);
+        expect(keys1).to.deep.equal(keys2).and.have.lengthOf(3);
       });
 
       it("should maintain insertion order after assign", () => {
@@ -665,7 +659,7 @@ describe("Map", () => {
         ]);
 
         const keys = [...container.mapByString.keys()];
-        expect(keys).toEqual(["first", "second", "third"]);
+        expect(keys).to.deep.equal(["first", "second", "third"]);
       });
     });
 
@@ -698,8 +692,8 @@ describe("Map", () => {
           container2.mapByString = new Map(entries);
         }, Plexus);
 
-        expect(container1.mapByString.size).toBe(container2.mapByString.size);
-        expect([...container1.mapByString.keys()]).toEqual([...container2.mapByString.keys()]);
+        expect(container1.mapByString.size).to.equal(container2.mapByString.size);
+        expect([...container1.mapByString.keys()]).to.deep.equal([...container2.mapByString.keys()]);
       });
 
       it("should batch YJS updates within transaction", () => {
@@ -731,7 +725,7 @@ describe("Map", () => {
         const container = createContainer();
         container.mapByString.set("existing", new ValueModel({ data: "old" }));
         container.mapByString = new Map();
-        expect(container.mapByString.size).toBe(0);
+        expect(container.mapByString.size).to.equal(0);
       });
     });
 
@@ -753,10 +747,10 @@ describe("Map", () => {
           [new Set([k1, k2]), v1], // Combination
         ]);
 
-        expect(container.mapBySet.size).toBe(3);
-        expect(container.mapBySet.get(new Set([k1]))).toBe(v1);
-        expect(container.mapBySet.get(new Set([k2]))).toBe(v2);
-        expect(container.mapBySet.get(new Set([k1, k2]))).toBe(v1);
+        expect(container.mapBySet.size).to.equal(3);
+        expect(container.mapBySet.get(new Set([k1]))).to.equal(v1);
+        expect(container.mapBySet.get(new Set([k2]))).to.equal(v2);
+        expect(container.mapBySet.get(new Set([k1, k2]))).to.equal(v1);
       });
     });
   });
@@ -816,12 +810,10 @@ describe("Map", () => {
         // BUG: The new key "d" might or might not be visited depending on
         // the iteration state when it was added
         // This documents current behavior - may not visit "d"
-        expect(visited).toContain("a");
-        expect(visited).toContain("b");
-        expect(visited).toContain("c");
+        expect(visited).to.include.members(["a", "b", "c"]);
 
         // The key was added regardless
-        expect(container.mapByString.has("d")).toBe(true);
+        expect(container.mapByString.has("d")).to.eq(true);
       });
 
       it("BUG: deletion during forEach may skip entries", () => {
@@ -845,11 +837,10 @@ describe("Map", () => {
 
         // BUG: "c" may or may not be visited depending on iteration order
         // and internal implementation
-        expect(visited).toContain("a");
-        expect(visited).toContain("b");
+        expect(visited).to.include.members(["a", "b"]);
         // We can't make strong assertions about "c" - behavior is undefined
 
-        expect(container.mapByString.has("c")).toBe(false);
+        expect(container.mapByString.has("c")).to.eq(false);
       });
 
       it("should handle clear during forEach", () => {
@@ -873,7 +864,7 @@ describe("Map", () => {
         // After clear, iteration should stop (no more entries)
         // But "a" was already being visited
         expect(visited.length).toBeGreaterThanOrEqual(1);
-        expect(container.mapByString.size).toBe(0);
+        expect(container.mapByString.size).to.equal(0);
       });
     });
 
@@ -894,7 +885,7 @@ describe("Map", () => {
               throw new Error("Callback explosion!");
             }
           });
-        }).toThrow("Callback explosion!");
+        }).to.throw("Callback explosion!");
 
         // Should have visited at least "a" and "b" before throwing
         // (exact order depends on iteration)
@@ -912,13 +903,13 @@ describe("Map", () => {
           container.mapByString.forEach(() => {
             throw new Error("fail");
           });
-        }).toThrow();
+        }).to.throw();
 
         // Map should be unchanged
-        expect(container.mapByString.size).toBe(3);
-        expect(container.mapByString.get("a")?.data).toBe("a");
-        expect(container.mapByString.get("b")?.data).toBe("b");
-        expect(container.mapByString.get("c")?.data).toBe("c");
+        expect(container.mapByString.size).to.equal(3);
+        expect(container.mapByString.get("a")?.data).to.equal("a");
+        expect(container.mapByString.get("b")?.data).to.equal("b");
+        expect(container.mapByString.get("c")?.data).to.equal("c");
       });
     });
 
@@ -933,7 +924,7 @@ describe("Map", () => {
         this.captured = true;
       }, context);
 
-      expect(context.captured).toBe(true);
+      expect(context.captured).to.eq(true);
     });
   });
 
@@ -972,20 +963,20 @@ describe("Map", () => {
 
       container.mapByString.set("a", new ValueModel({ data: "a" }));
       container.mapByString.set("b", new ValueModel({ data: "b" }));
-      expect(container.mapByString.size).toBe(2);
+      expect(container.mapByString.size).to.equal(2);
 
       container.mapByString.delete("a");
-      expect(container.mapByString.size).toBe(1);
+      expect(container.mapByString.size).to.equal(1);
 
       // entries() only yields remaining entries
       const entries = [...container.mapByString.entries()];
-      expect(entries.length).toBe(1);
-      expect(entries[0][0]).toBe("b");
-      expect(entries[0][1].data).toBe("b");
+      expect(entries).to.have.lengthOf(1);
+      expect(entries[0][0]).to.equal("b");
+      expect(entries[0][1].data).to.equal("b");
 
       // Verify accessors
-      expect(container.mapByString.get("b")?.data).toBe("b");
-      expect(container.mapByString.has("a")).toBe(false);
+      expect(container.mapByString.get("b")?.data).to.equal("b");
+      expect(container.mapByString.has("a")).to.eq(false);
     });
 
     it("keys() iterator excludes deleted keys", () => {
@@ -996,9 +987,7 @@ describe("Map", () => {
       container.mapByString.delete("a");
 
       const keys = [...container.mapByString.keys()];
-      expect(keys.length).toBe(1);
-      expect(keys).not.toContain("a");
-      expect(keys).toContain("b");
+      expect(keys).to.have.lengthOf(1).and.include("b").and.not.include("a");
     });
 
     it("values() iterator excludes deleted entries", () => {
@@ -1009,9 +998,9 @@ describe("Map", () => {
       container.mapByString.delete("a");
 
       const values = [...container.mapByString.values()];
-      expect(values.length).toBe(1);
-      expect(values[0].data).toBe("b");
-      expect(values).not.toContain(undefined);
+      expect(values).to.have.lengthOf(1);
+      expect(values[0].data).to.equal("b");
+      expect(values).not.to.include(undefined);
     });
   });
 
@@ -1056,18 +1045,18 @@ describe("Map", () => {
       const site2 = plexus2.root;
       const comp2 = site2.components[0];
 
-      expect(comp2.metadataByName.size).toBe(1);
-      expect(comp2.metadataByName.get("default")?.width).toBe(400);
+      expect(comp2.metadataByName.size).to.equal(1);
+      expect(comp2.metadataByName.get("default")?.width).to.equal(400);
 
       // Note: Set keys are serialized to UUIDs, so we need to reconstruct
       // the lookup using the synced variant objects
       const v1Synced = site2.variants[0];
       const v2Synced = site2.variants[1];
-      expect(comp2.framesByCombo.size).toBe(1);
+      expect(comp2.framesByCombo.size).to.equal(1);
 
       // The key lookup works with the synced variants
       const combo = comp2.framesByCombo.get(new Set([v1Synced, v2Synced]));
-      expect(combo?.width).toBe(500);
+      expect(combo?.width).to.equal(500);
     });
   });
 });

@@ -68,9 +68,9 @@ describe("Resource Exhaustion Edge Cases", () => {
     parent.children.push(...children);
     site.components["large"] = parent; // Materialize everything
 
-    expect(parent.children.length).toBe(1000);
-    expect(parent.children[0].name).toBe("Child0");
-    expect(parent.children[999].name).toBe("Child999");
+    expect(parent.children).to.have.lengthOf(1000);
+    expect(parent.children[0].name).to.equal("Child0");
+    expect(parent.children[999].name).to.equal("Child999");
   });
 
   it("should handle deep nesting without stack overflow", async () => {
@@ -102,7 +102,7 @@ describe("Resource Exhaustion Edge Cases", () => {
     // Verify deep access works
     let node = site.components["deep"];
     for (let i = 1; i < 100; i++) {
-      expect(node.children[0].name).toBe(`Level${i}`);
+      expect(node.children[0].name).to.equal(`Level${i}`);
       node = node.children[0];
     }
   });

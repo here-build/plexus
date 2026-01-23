@@ -100,7 +100,7 @@ async function createTestSiteWithStringish(
   name: string,
 ): Promise<{ site: SiteWithStringish; entityId: string; doc: Y.Doc }> {
   const ephemeralSite = new SiteWithStringish({ name });
-  const { doc, root: site } = await initTestPlexus<SiteWithStringish>(ephemeralSite);
+  const { doc, root: site } = initTestPlexus<SiteWithStringish>(ephemeralSite);
   return { site, entityId: site.uuid, doc };
 }
 
@@ -113,30 +113,33 @@ describe("Plexus Inheritance and Default Values", () => {
         concreteField: "concrete-value",
       });
 
-      const { plexus, root, doc } = await initTestPlexus(entity);
+      const { plexus, root, doc } = initTestPlexus(entity);
 
       // Verify all inherited fields are accessible
-      expect(root.baseField).toBe("base-value");
-      expect(root.middleField).toBe("middle-value");
-      expect(root.concreteField).toBe("concrete-value");
+      expect([root.baseField, root.middleField, root.concreteField]).to.have.ordered.members([
+        "base-value",
+        "middle-value",
+        "concrete-value",
+      ]);
 
       // Modify inherited fields and verify sync
       root.baseField = "updated-base";
       root.middleField = "updated-middle";
 
-      expect(root.baseField).toBe("updated-base");
-      expect(root.middleField).toBe("updated-middle");
+      expect([root.baseField, root.middleField]).to.have.ordered.members(["updated-base", "updated-middle"]);
 
       // Create another doc synced with the first
       const doc2 = new Y.Doc();
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc));
 
-      const { root: root2 } = await connectTestPlexus<ConcreteEntity>(doc2);
+      const { root: root2 } = connectTestPlexus<ConcreteEntity>(doc2);
 
       // Verify inherited fields synced to second doc
-      expect(root2.baseField).toBe("updated-base");
-      expect(root2.middleField).toBe("updated-middle");
-      expect(root2.concreteField).toBe("concrete-value");
+      expect([root2.baseField, root2.middleField, root2.concreteField]).to.have.ordered.members([
+        "updated-base",
+        "updated-middle",
+        "concrete-value",
+      ]);
     });
 
     it("should sync inherited collection fields properly", async () => {
@@ -146,21 +149,21 @@ describe("Plexus Inheritance and Default Values", () => {
         concreteField: "concrete",
       });
 
-      const { root } = await initTestPlexus(entity);
+      const { root } = initTestPlexus(entity);
 
       // Inherited list should have defaults
-      expect(root.middleList).toEqual(["default1", "default2"]);
+      expect(root.middleList).to.deep.equal(["default1", "default2"]);
 
       // Modify inherited list
       root.middleList.push("new-item");
-      expect(root.middleList).toEqual(["default1", "default2", "new-item"]);
+      expect(root.middleList).to.deep.equal(["default1", "default2", "new-item"]);
 
       // Inherited map should have defaults
-      expect(root.middleMap).toEqual({ defaultKey: 100 });
+      expect(root.middleMap).to.deep.equal({ defaultKey: 100 });
 
       // Modify inherited map
       root.middleMap.newKey = 200;
-      expect(root.middleMap.newKey).toBe(200);
+      expect(root.middleMap.newKey).to.equal(200);
     });
   });
 
@@ -173,11 +176,10 @@ describe("Plexus Inheritance and Default Values", () => {
         // Not providing values for fields with defaults
       });
 
-      const { root } = await initTestPlexus(entity);
+      const { root } = initTestPlexus(entity);
 
       // Check default primitive values
-      expect(root.baseNumber).toBe(42); // Default from BaseEntity
-      expect(root.baseOptional).toBe(null); // Default null
+      expect([root.baseNumber, root.baseOptional]).to.have.ordered.members([42, null]); // Default from BaseEntity
     });
 
     it("should apply default collection values", async () => {
@@ -188,23 +190,21 @@ describe("Plexus Inheritance and Default Values", () => {
         // Not providing collection values
       });
 
-      const { root } = await initTestPlexus(entity);
+      const { root } = initTestPlexus(entity);
 
       // Check default array
-      expect(root.middleList).toEqual(["default1", "default2"]);
-      expect(root.middleList).toBeInstanceOf(Array);
+      expect(root.middleList).to.deep.equal(["default1", "default2"]).and.be.instanceOf(Array);
 
       // Check default map
-      expect(root.middleMap).toEqual({ defaultKey: 100 });
-      expect(typeof root.middleMap).toBe("object");
+      expect(root.middleMap).to.deep.equal({ defaultKey: 100 });
+      expect(typeof root.middleMap).to.equal("object");
 
       // Check default set
-      expect(root.concreteSet).toBeInstanceOf(Set);
-      expect(Array.from(root.concreteSet)).toEqual(["item1", "item2"]);
+      expect(root.concreteSet).to.be.instanceOf(Set);
+      expect(Array.from(root.concreteSet)).to.deep.equal(["item1", "item2"]);
 
       // Check default empty child list
-      expect(root.children).toEqual([]);
-      expect(root.children).toBeInstanceOf(Array);
+      expect(root.children).to.deep.equal([]).and.be.instanceOf(Array);
     });
 
     it("should apply defaults to inherited fields in different concrete classes", async () => {
@@ -219,21 +219,21 @@ describe("Plexus Inheritance and Default Values", () => {
         middleField: "middle2",
       });
 
-      const { root: root1 } = await initTestPlexus(entity1);
-      const { root: root2 } = await initTestPlexus(entity2);
+      const { root: root1 } = initTestPlexus(entity1);
+      const { root: root2 } = initTestPlexus(entity2);
 
       // Both should have the same inherited defaults
-      expect(root1.baseNumber).toBe(42);
-      expect(root2.baseNumber).toBe(42);
+      expect([root1.baseNumber, root2.baseNumber]).to.have.ordered.members([42, 42]);
 
-      expect(root1.middleList).toEqual(["default1", "default2"]);
-      expect(root2.middleList).toEqual(["default1", "default2"]);
+      expect([root1.middleList, root2.middleList]).to.deep.equal([
+        ["default1", "default2"],
+        ["default1", "default2"],
+      ]);
 
-      expect(root1.middleMap).toEqual({ defaultKey: 100 });
-      expect(root2.middleMap).toEqual({ defaultKey: 100 });
+      expect([root1.middleMap, root2.middleMap]).to.deep.equal([{ defaultKey: 100 }, { defaultKey: 100 }]);
 
       // But AnotherConcreteEntity has its own specific default
-      expect(root2.specificField).toBe("specific-default");
+      expect(root2.specificField).to.equal("specific-default");
     });
 
     it("should allow overriding default values during construction", async () => {
@@ -247,13 +247,15 @@ describe("Plexus Inheritance and Default Values", () => {
         concreteSet: new Set(["custom"]), // Override default set
       });
 
-      const { root } = await initTestPlexus(entity);
+      const { root } = initTestPlexus(entity);
 
       // Verify overridden values
-      expect(root.baseNumber).toBe(999);
-      expect(root.middleList).toEqual(["custom1"]);
-      expect(root.middleMap).toEqual({ customKey: 500 });
-      expect(Array.from(root.concreteSet)).toEqual(["custom"]);
+      expect([root.baseNumber, root.middleList, root.middleMap, Array.from(root.concreteSet)]).to.deep.equal([
+        999,
+        ["custom1"],
+        { customKey: 500 },
+        ["custom"],
+      ]);
     });
   });
 
@@ -269,7 +271,7 @@ describe("Plexus Inheritance and Default Values", () => {
         middleMap: { customKey: 789 },
       });
 
-      const { doc: doc1 } = await initTestPlexus(entity1);
+      const { doc: doc1 } = initTestPlexus(entity1);
 
       // Create second doc and sync
       const doc2 = new Y.Doc();
@@ -286,12 +288,14 @@ describe("Plexus Inheritance and Default Values", () => {
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
 
       // Create plexus on second doc - this should NOT reset to defaults
-      const { root: root2 } = await connectTestPlexus<ConcreteEntity>(doc2);
+      const { root: root2 } = connectTestPlexus<ConcreteEntity>(doc2);
 
       // Values should be from doc1, NOT defaults
-      expect(root2.baseNumber).toBe(123); // NOT default 42
-      expect(root2.middleList).toEqual(["custom1", "custom2"]); // NOT default ["default1", "default2"]
-      expect(root2.middleMap).toEqual({ customKey: 789 }); // NOT default { defaultKey: 100 }
+      expect([root2.baseNumber, root2.middleList, root2.middleMap]).to.deep.equal([
+        123,
+        ["custom1", "custom2"],
+        { customKey: 789 },
+      ]); // NOT defaults
     });
 
     it("should preserve child entity values during cross-doc sync", async () => {
@@ -307,7 +311,7 @@ describe("Plexus Inheritance and Default Values", () => {
         children: [child1],
       });
 
-      const { doc: doc1, root: root1 } = await initTestPlexus(entity);
+      const { doc: doc1, root: root1 } = initTestPlexus(entity);
 
       // Add another child after initialization
       const child2 = new ChildEntity({
@@ -320,14 +324,16 @@ describe("Plexus Inheritance and Default Values", () => {
       const doc2 = new Y.Doc();
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
 
-      const { root: root2 } = await connectTestPlexus<ConcreteEntity>(doc2);
+      const { root: root2 } = connectTestPlexus<ConcreteEntity>(doc2);
 
       // Check children are preserved with their custom values
-      expect(root2.children).toHaveLength(2);
-      expect(root2.children[0].name).toBe("child1");
-      expect(root2.children[0].value).toBe(555); // NOT default 999
-      expect(root2.children[1].name).toBe("child2");
-      expect(root2.children[1].value).toBe(777); // NOT default 999
+      expect([
+        root2.children.length,
+        root2.children[0].name,
+        root2.children[0].value,
+        root2.children[1].name,
+        root2.children[1].value,
+      ]).to.have.ordered.members([2, "child1", 555, "child2", 777]); // NOT default 999
     });
 
     it("should handle real-time sync without resetting to defaults", async () => {
@@ -338,7 +344,7 @@ describe("Plexus Inheritance and Default Values", () => {
         baseNumber: 100,
       });
 
-      const { doc: doc1, root: root1 } = await initTestPlexus(entity);
+      const { doc: doc1, root: root1 } = initTestPlexus(entity);
 
       // Create second doc
       const doc2 = new Y.Doc();
@@ -354,28 +360,27 @@ describe("Plexus Inheritance and Default Values", () => {
         Y.applyUpdate(doc1, update);
       });
 
-      const { root: root2 } = await connectTestPlexus<ConcreteEntity>(doc2);
+      const { root: root2 } = connectTestPlexus<ConcreteEntity>(doc2);
 
       // Verify initial sync
-      expect(root2.baseNumber).toBe(100);
+      expect(root2.baseNumber).to.equal(100);
 
       // Make changes on doc1
       root1.baseNumber = 200;
       root1.middleList = ["realtime1", "realtime2"];
 
       // Changes should sync to doc2 without resetting to defaults
-      expect(root2.baseNumber).toBe(200);
-      expect(root2.middleList).toEqual(["realtime1", "realtime2"]);
+      expect([root2.baseNumber, root2.middleList]).to.deep.equal([200, ["realtime1", "realtime2"]]);
 
       // Make changes on doc2
       root2.middleMap.realtimeKey = 999;
 
-      // Changes should sync back to doc1
-      expect(root1.middleMap.realtimeKey).toBe(999);
-
-      // Original values should not be reset to defaults
-      expect(root1.baseNumber).toBe(200);
-      expect(root1.middleList).toEqual(["realtime1", "realtime2"]);
+      // Changes should sync back to doc1, original values should not be reset
+      expect([root1.middleMap.realtimeKey, root1.baseNumber, root1.middleList]).to.deep.equal([
+        999,
+        200,
+        ["realtime1", "realtime2"],
+      ]);
     });
   });
 
@@ -402,13 +407,10 @@ describe("Plexus Inheritance and Default Values", () => {
       }
 
       const entity = new DeepConcrete({});
-      const { root } = await initTestPlexus(entity);
+      const { root } = initTestPlexus(entity);
 
       // All defaults from all layers should be applied
-      expect(root.l1).toBe("layer1-default");
-      expect(root.l2).toBe(222);
-      expect(root.l3).toEqual(["l3-default"]);
-      expect(root.concrete).toBe(true);
+      expect([root.l1, root.l2, root.l3, root.concrete]).to.deep.equal(["layer1-default", 222, ["l3-default"], true]);
 
       // All fields should be modifiable and sync
       root.l1 = "modified-l1";
@@ -416,10 +418,12 @@ describe("Plexus Inheritance and Default Values", () => {
       root.l3.push("new-item");
       root.concrete = false;
 
-      expect(root.l1).toBe("modified-l1");
-      expect(root.l2).toBe(333);
-      expect(root.l3).toEqual(["l3-default", "new-item"]);
-      expect(root.concrete).toBe(false);
+      expect([root.l1, root.l2, root.l3, root.concrete]).to.deep.equal([
+        "modified-l1",
+        333,
+        ["l3-default", "new-item"],
+        false,
+      ]);
     });
 
     it("should handle multiple concrete classes from same abstract base", async () => {
@@ -453,20 +457,24 @@ describe("Plexus Inheritance and Default Values", () => {
         duration: 120,
       });
 
-      const { root: bookRoot } = await initTestPlexus(book);
-      const { root: movieRoot } = await initTestPlexus(movie);
+      const { root: bookRoot } = initTestPlexus(book);
+      const { root: movieRoot } = initTestPlexus(movie);
 
       // Both should have inherited defaults
-      expect(bookRoot.price).toBe(0);
-      expect(bookRoot.tags).toEqual(["product"]);
-      expect(movieRoot.price).toBe(0);
-      expect(movieRoot.tags).toEqual(["product"]);
+      expect([bookRoot.price, bookRoot.tags, movieRoot.price, movieRoot.tags]).to.deep.equal([
+        0,
+        ["product"],
+        0,
+        ["product"],
+      ]);
 
       // Each should have their own specific fields
-      expect(bookRoot.isbn).toBe("123-456");
-      expect(bookRoot.pages).toBe(300);
-      expect(movieRoot.duration).toBe(120);
-      expect(movieRoot.rating).toBe("PG");
+      expect([bookRoot.isbn, bookRoot.pages, movieRoot.duration, movieRoot.rating]).to.have.ordered.members([
+        "123-456",
+        300,
+        120,
+        "PG",
+      ]);
     });
   });
 
@@ -489,30 +497,30 @@ describe("Plexus Inheritance and Default Values", () => {
         stringish: "stringishPassed",
         stringishWithDefault: "stringishWithDefaultPassed",
       });
-      expect(site1.defined).toMatchObject({
-        stringish: "stringishPassed",
-        stringishWithDefault: "stringishWithDefaultPassed",
-      });
-      expect(site1.inherited).toMatchObject({
-        stringish: "stringish",
-        stringishWithDefault: "stringishWithDefaultOverride",
-      });
+      expect([site1.defined!.stringish, site1.defined!.stringishWithDefault]).to.have.ordered.members([
+        "stringishPassed",
+        "stringishWithDefaultPassed",
+      ]);
+      expect([site1.inherited.stringish, site1.inherited.stringishWithDefault]).to.have.ordered.members([
+        "stringish",
+        "stringishWithDefaultOverride",
+      ]);
       site1.inherited.stringish = "updatedStringish";
       site1.inherited.stringishWithDefault = "updatedStringishWithDefault";
 
       syncDocs(doc1, doc2);
 
       // Access from doc2
-      const { root: site2 } = await connectTestPlexus<SiteWithStringish>(doc2);
+      const { root: site2 } = connectTestPlexus<SiteWithStringish>(doc2);
 
-      expect(site2.defined).toMatchObject({
-        stringish: "stringishPassed",
-        stringishWithDefault: "stringishWithDefaultPassed",
-      });
-      expect(site2.inherited).toMatchObject({
-        stringish: "updatedStringish",
-        stringishWithDefault: "updatedStringishWithDefault",
-      });
+      expect([site2.defined!.stringish, site2.defined!.stringishWithDefault]).to.have.ordered.members([
+        "stringishPassed",
+        "stringishWithDefaultPassed",
+      ]);
+      expect([site2.inherited.stringish, site2.inherited.stringishWithDefault]).to.have.ordered.members([
+        "updatedStringish",
+        "updatedStringishWithDefault",
+      ]);
     });
   });
 
@@ -547,13 +555,12 @@ describe("Plexus Inheritance and Default Values", () => {
         id: "parent",
         arg: sharedArg,
       });
-      const { root: parentRoot } = await initTestPlexus(parent);
-      expect(parentRoot.arg.name).toBe("shared");
-      expect(parentRoot.arg.value).toBe(100);
+      const { root: parentRoot } = initTestPlexus(parent);
+      expect([parentRoot.arg.name, parentRoot.arg.value]).to.have.ordered.members(["shared", 100]);
 
       // Modifying through parent should affect shared instance
       parentRoot.arg.value = 200;
-      expect(sharedArg.value).toBe(200);
+      expect(sharedArg.value).to.equal(200);
 
       // Test 2: Child should own the arg
       const ownedArg = new SharedArg({
@@ -565,12 +572,12 @@ describe("Plexus Inheritance and Default Values", () => {
         id: "child",
         arg: ownedArg,
       });
-      const { root: childRoot } = await initTestPlexus(child);
-      expect(childRoot.arg.name).toBe("owned");
-      expect(childRoot.arg.value).toBe(300);
-
-      // Check parent relationship is established for owned version
-      expect(childRoot.arg.parent).toBe(childRoot);
+      const { root: childRoot } = initTestPlexus(child);
+      expect([childRoot.arg.name, childRoot.arg.value, childRoot.arg.parent]).to.have.ordered.members([
+        "owned",
+        300,
+        childRoot,
+      ]);
     });
 
     it("should handle list to child.list override", async () => {
@@ -596,18 +603,19 @@ describe("Plexus Inheritance and Default Values", () => {
       const parent = new ListParent({
         items: [item1, item2],
       });
-      const { root: parentRoot } = await initTestPlexus(parent);
-      expect(parentRoot.items).toHaveLength(2);
-      expect(parentRoot.items[0].parent).toBeNull(); // Not owned
+      const { root: parentRoot } = initTestPlexus(parent);
+      expect([parentRoot.items.length, parentRoot.items[0].parent]).to.have.ordered.members([2, null]); // Not owned
 
       // Child version - items are owned
       const child = new ChildListVersion({
         items: [new Item({ name: "owned1" }), new Item({ name: "owned2" })],
       });
-      const { root: childRoot } = await initTestPlexus(child);
-      expect(childRoot.items).toHaveLength(2);
-      expect(childRoot.items[0].parent).toBe(childRoot); // Owned
-      expect(childRoot.items[1].parent).toBe(childRoot); // Owned
+      const { root: childRoot } = initTestPlexus(child);
+      expect([childRoot.items.length, childRoot.items[0].parent, childRoot.items[1].parent]).to.have.ordered.members([
+        2,
+        childRoot,
+        childRoot,
+      ]); // Owned
     });
 
     it("should handle map to child.map override", async () => {
@@ -633,9 +641,8 @@ describe("Plexus Inheritance and Default Values", () => {
       const parent = new MapParent({
         configs: { first: config1 },
       });
-      const { root: parentRoot } = await initTestPlexus(parent);
-      expect(parentRoot.configs.first.key).toBe("k1");
-      expect(parentRoot.configs.first.parent).toBeNull(); // Not owned
+      const { root: parentRoot } = initTestPlexus(parent);
+      expect([parentRoot.configs.first.key, parentRoot.configs.first.parent]).to.have.ordered.members(["k1", null]); // Not owned
 
       // Child version - configs are owned
       const child = new ChildMapVersion({
@@ -643,9 +650,8 @@ describe("Plexus Inheritance and Default Values", () => {
           owned: new Config({ key: "k2", value: "v2" }),
         },
       });
-      const { root: childRoot } = await initTestPlexus(child);
-      expect(childRoot.configs.owned.key).toBe("k2");
-      expect(childRoot.configs.owned.parent).toBe(childRoot); // Owned
+      const { root: childRoot } = initTestPlexus(child);
+      expect([childRoot.configs.owned.key, childRoot.configs.owned.parent]).to.have.ordered.members(["k2", childRoot]); // Owned
     });
 
     it("should handle complex override chain with mixed ownership", async () => {
@@ -683,21 +689,25 @@ describe("Plexus Inheritance and Default Values", () => {
         nodes: [node1, node2],
       });
 
-      const { root: graphRoot, doc } = await initTestPlexus(graph);
+      const { root: graphRoot, doc } = initTestPlexus(graph);
 
       // Both root and nodes should be owned
-      expect(graphRoot.root.parent).toBe(graphRoot);
-      expect(graphRoot.nodes[0].parent).toBe(graphRoot);
-      expect(graphRoot.nodes[1].parent).toBe(graphRoot);
+      expect([graphRoot.root.parent, graphRoot.nodes[0].parent, graphRoot.nodes[1].parent]).to.have.ordered.members([
+        graphRoot,
+        graphRoot,
+        graphRoot,
+      ]);
 
       // Test cross-doc sync preserves ownership
       const doc2 = new Y.Doc();
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc));
 
-      const { root: graphRoot2 } = await connectTestPlexus<FullyOwnedGraph>(doc2);
-      expect(graphRoot2.root.parent).toBe(graphRoot2);
-      expect(graphRoot2.nodes[0].parent).toBe(graphRoot2);
-      expect(graphRoot2.nodes[1].parent).toBe(graphRoot2);
+      const { root: graphRoot2 } = connectTestPlexus<FullyOwnedGraph>(doc2);
+      expect([graphRoot2.root.parent, graphRoot2.nodes[0].parent, graphRoot2.nodes[1].parent]).to.have.ordered.members([
+        graphRoot2,
+        graphRoot2,
+        graphRoot2,
+      ]);
     });
 
     it("should handle field type override with default values", async () => {
@@ -720,23 +730,24 @@ describe("Plexus Inheritance and Default Values", () => {
 
       // Parent uses null default
       const parent = new WeakParent({});
-      const { root: parentRoot } = await initTestPlexus(parent);
-      expect(parentRoot.value).toBeNull();
+      const { root: parentRoot } = initTestPlexus(parent);
+      expect(parentRoot.value).to.eq(null);
 
       // Child uses instance default and owns it
       const child = new OwnedChild();
-      const { root: childRoot } = await initTestPlexus(child);
-      expect(childRoot.value).not.toBeNull();
-      expect(childRoot.value.data).toBe("child-default");
-      expect(childRoot.value.parent).toBe(childRoot); // Owned
+      const { root: childRoot } = initTestPlexus(child);
+      expect([childRoot.value !== null, childRoot.value.data, childRoot.value.parent]).to.have.ordered.members([
+        true,
+        "child-default",
+        childRoot,
+      ]); // Owned
 
       // Can override the default
       const childWithOverride = new OwnedChild({
         value: new Value({ data: "override" }),
       });
-      const { root: overrideRoot } = await initTestPlexus(childWithOverride);
-      expect(overrideRoot.value.data).toBe("override");
-      expect(overrideRoot.value.parent).toBe(overrideRoot); // Still owned
+      const { root: overrideRoot } = initTestPlexus(childWithOverride);
+      expect([overrideRoot.value.data, overrideRoot.value.parent]).to.have.ordered.members(["override", overrideRoot]); // Still owned
     });
   });
 });

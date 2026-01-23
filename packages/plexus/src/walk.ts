@@ -64,6 +64,7 @@ export function walk<Models extends Record<string, PlexusModel>, State = unknown
     // Run type-specific visitor
     if (specific) {
       specific(node, context);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stopped is set via context.stop() callback
       if (stopped) return;
     }
 
@@ -81,6 +82,7 @@ export function walk<Models extends Record<string, PlexusModel>, State = unknown
   visitNode(node, [], state);
 }
 
+// eslint-disable-next-line sonarjs/cognitive-complexity -- simple repeated pattern across field types
 export function walkChildren<State>(
   node: PlexusModel,
   path: PlexusModel[],
@@ -96,6 +98,7 @@ export function walkChildren<State>(
     const value = node[key];
     if (value == null) continue;
 
+    // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- filtered by startsWith("child-") above
     switch (fieldType) {
       case "child-val":
         if (isPlexusModel(value)) {

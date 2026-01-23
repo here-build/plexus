@@ -43,9 +43,9 @@ describe("Lifecycle Transition Chains", () => {
       root.primary = parent;
 
       // All nodes should be materialized (have uuid)
-      expect(root.primary!.uuid).toBeDefined();
-      expect(root.primary!.child!.uuid).toBeDefined();
-      expect(root.primary!.child!.child!.uuid).toBeDefined();
+      expect([root.primary!.uuid, root.primary!.child!.uuid, root.primary!.child!.child!.uuid]).to.satisfy(
+        (uuids: any[]) => uuids.every((u) => u !== undefined),
+      );
     });
 
     it("materializes array of ephemeral children", () => {
@@ -58,11 +58,9 @@ describe("Lifecycle Transition Chains", () => {
       (root.nodes as any).assign(nodes);
 
       // All should be materialized
-      expect(root.nodes.length).toBe(3);
-      root.nodes.forEach((node, i) => {
-        expect(node.uuid).toBeDefined();
-        expect(node.name).toBe(["a", "b", "c"][i]);
-      });
+      expect(root.nodes).to.have.lengthOf(3);
+      expect(root.nodes.map((n) => n.name)).to.have.ordered.members(["a", "b", "c"]);
+      expect(root.nodes.every((n) => n.uuid !== undefined)).to.eq(true);
     });
 
     it("materializes record of ephemeral children", () => {
@@ -71,8 +69,10 @@ describe("Lifecycle Transition Chains", () => {
       root.namedNodes["x"] = new Node({ name: "X" });
       root.namedNodes["y"] = new Node({ name: "Y" });
 
-      expect(root.namedNodes["x"].uuid).toBeDefined();
-      expect(root.namedNodes["y"].uuid).toBeDefined();
+      expect([
+        root.namedNodes["x"].uuid !== undefined,
+        root.namedNodes["y"].uuid !== undefined,
+      ]).to.have.ordered.members([true, true]);
     });
   });
 
@@ -89,10 +89,12 @@ describe("Lifecycle Transition Chains", () => {
       root.secondary = root.primary;
       root.primary = null;
 
-      expect(root.primary).toBeNull();
-      expect(root.secondary!.name).toBe("movable");
       // Same entity, same uuid
-      expect(root.secondary!.uuid).toBe(uuid);
+      expect([root.primary, root.secondary!.name, root.secondary!.uuid]).to.have.ordered.members([
+        null,
+        "movable",
+        uuid,
+      ]);
     });
 
     it("moves child from field to array", () => {
@@ -105,9 +107,7 @@ describe("Lifecycle Transition Chains", () => {
       root.nodes.push(ref);
       root.primary = null;
 
-      expect(root.primary).toBeNull();
-      expect(root.nodes.length).toBe(1);
-      expect(root.nodes[0].name).toBe("to-array");
+      expect([root.primary, root.nodes.length, root.nodes[0].name]).to.have.ordered.members([null, 1, "to-array"]);
     });
 
     it("moves child from array to field", () => {
@@ -119,8 +119,7 @@ describe("Lifecycle Transition Chains", () => {
       root.primary = ref;
       root.nodes.pop();
 
-      expect(root.nodes.length).toBe(0);
-      expect(root.primary!.name).toBe("from-array");
+      expect([root.nodes.length, root.primary!.name]).to.have.ordered.members([0, "from-array"]);
     });
 
     it("moves child from array to record", () => {
@@ -132,8 +131,7 @@ describe("Lifecycle Transition Chains", () => {
       root.namedNodes["moved"] = ref;
       root.nodes.pop();
 
-      expect(root.nodes.length).toBe(0);
-      expect(root.namedNodes["moved"].name).toBe("to-record");
+      expect([root.nodes.length, root.namedNodes["moved"].name]).to.have.ordered.members([0, "to-record"]);
     });
   });
 
@@ -152,16 +150,13 @@ describe("Lifecycle Transition Chains", () => {
 
       // Get reference to deepest node
       const deep = root.primary!.child!.child!;
-      expect(deep.name).toBe("level3");
+      expect(deep.name).to.equal("level3");
 
       // Move to root level
       root.secondary = deep;
 
-      // Original path should be cleared
-      expect(root.primary!.child!.child).toBeNull();
-
-      // Node should be at new location
-      expect(root.secondary!.name).toBe("level3");
+      // Original path should be cleared, node should be at new location
+      expect([root.primary!.child!.child, root.secondary!.name]).to.have.ordered.members([null, "level3"]);
     });
 
     it("handles swapping children at different levels", () => {
@@ -187,8 +182,7 @@ describe("Lifecycle Transition Chains", () => {
       root.secondary = childRef;
       root.primary!.child = secondaryRef;
 
-      expect(root.primary!.child!.name).toBe("other");
-      expect(root.secondary!.name).toBe("child");
+      expect([root.primary!.child!.name, root.secondary!.name]).to.have.ordered.members(["other", "child"]);
     });
   });
 
@@ -203,9 +197,7 @@ describe("Lifecycle Transition Chains", () => {
       // Sort by name
       root.nodes.sort((a, b) => a.name.localeCompare(b.name));
 
-      expect(root.nodes[0].name).toBe("a");
-      expect(root.nodes[1].name).toBe("b");
-      expect(root.nodes[2].name).toBe("c");
+      expect(root.nodes.map((n) => n.name)).to.have.ordered.members(["a", "b", "c"]);
     });
 
     it("handles reversing children in array", () => {
@@ -219,12 +211,10 @@ describe("Lifecycle Transition Chains", () => {
 
       root.nodes.reverse();
 
-      expect(root.nodes[0].name).toBe("third");
-      expect(root.nodes[1].name).toBe("second");
-      expect(root.nodes[2].name).toBe("first");
+      expect(root.nodes.map((n) => n.name)).to.have.ordered.members(["third", "second", "first"]);
 
       // Same entities, just reordered
-      expect(root.nodes.map((n) => n.uuid)).toEqual(uuids.reverse());
+      expect(root.nodes.map((n) => n.uuid)).to.deep.equal(uuids.reverse());
     });
   });
 
@@ -242,8 +232,7 @@ describe("Lifecycle Transition Chains", () => {
       const { root: root2 } = connectTestPlexus<Root>(doc2);
 
       // Same entity should exist in both docs
-      expect(root2.primary!.uuid).toBe(originalUuid);
-      expect(root2.primary!.name).toBe("synced");
+      expect([root2.primary!.uuid, root2.primary!.name]).to.have.ordered.members([originalUuid, "synced"]);
 
       doc2.destroy();
     });
@@ -263,14 +252,15 @@ describe("Lifecycle Transition Chains", () => {
 
       // Sync to doc2
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(plexus1.doc));
-      expect(root2.primary!.name).toBe("modified-in-doc1");
+      const afterDoc1Sync = root2.primary!.name;
 
       // Modify in doc2
       root2.primary!.name = "modified-in-doc2";
 
       // Sync back to doc1
       Y.applyUpdate(plexus1.doc, Y.encodeStateAsUpdate(doc2));
-      expect(root1.primary!.name).toBe("modified-in-doc2");
+
+      expect([afterDoc1Sync, root1.primary!.name]).to.have.ordered.members(["modified-in-doc1", "modified-in-doc2"]);
 
       doc2.destroy();
     });
@@ -293,8 +283,7 @@ describe("Lifecycle Transition Chains", () => {
       // Re-adopt
       root.secondary = subtree;
 
-      expect(root.secondary!.name).toBe("parent");
-      expect(root.secondary!.child!.name).toBe("child");
+      expect([root.secondary!.name, root.secondary!.child!.name]).to.have.ordered.members(["parent", "child"]);
     });
 
     it("orphaned child remains modifiable", () => {
@@ -310,7 +299,7 @@ describe("Lifecycle Transition Chains", () => {
 
       // Re-adopt and verify modification persisted
       root.primary = orphan;
-      expect(root.primary!.name).toBe("orphan-modified");
+      expect(root.primary!.name).to.equal("orphan-modified");
     });
   });
 });

@@ -9,6 +9,7 @@
  */
 
 import * as Y from "yjs";
+
 import { syncing } from "../../decorators.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";

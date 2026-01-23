@@ -21,13 +21,13 @@ describe("PathMap", () => {
       const sorted = [...items].sort(canonicalSort);
 
       // Expected order: booleans (false, true), null, numbers (1,2,3), strings (a,b)
-      expect(sorted).toEqual([false, true, null, 1, 2, 3, "a", "b"]);
+      expect(sorted).to.have.ordered.members([false, true, null, 1, 2, 3, "a", "b"]);
     });
 
     it("should handle BigInt values", () => {
       const items = [3n, 1n, 2n];
       const sorted = [...items].sort(canonicalSort);
-      expect(sorted).toEqual([1n, 2n, 3n]);
+      expect(sorted).to.have.ordered.members([1n, 2n, 3n]);
     });
 
     it("should sort mixed numeric types separately", () => {
@@ -35,17 +35,14 @@ describe("PathMap", () => {
       const sorted = [...items].sort(canonicalSort);
 
       // BigInt and number are different types
-      expect(sorted[0]).toBe(1n);
-      expect(sorted[1]).toBe(2n);
-      expect(sorted[2]).toBe(1);
-      expect(sorted[3]).toBe(2);
+      expect(sorted).to.have.ordered.members([1n, 2n, 1, 2]);
     });
 
     it("should handle negative numbers correctly", () => {
       const items = [3, -1, 0, -2, 2];
       const sorted = [...items].sort(canonicalSort);
       // String comparison: "-1" < "-2" < "0" < "2" < "3"
-      expect(sorted).toEqual([-1, -2, 0, 2, 3]);
+      expect(sorted).to.have.ordered.members([-1, -2, 0, 2, 3]);
     });
   });
 
@@ -56,24 +53,26 @@ describe("PathMap", () => {
       map.set("a", 1);
       map.set("b", 2);
 
-      expect(map.size).toBe(2);
-      expect(map.get("a")).toBe(1);
-      expect(map.get("b")).toBe(2);
-      expect(map.has("a")).toBe(true);
-      expect(map.has("c")).toBe(false);
+      expect([map.size, map.get("a"), map.get("b"), map.has("a"), map.has("c")]).to.have.ordered.members([
+        2,
+        1,
+        2,
+        true,
+        false,
+      ]);
 
-      expect(map.delete("a")).toBe(true);
-      expect(map.delete("a")).toBe(false); // Already deleted
-      expect(map.size).toBe(1);
+      expect([map.delete("a"), map.delete("a"), map.size]).to.have.ordered.members([true, false, 1]); // First delete succeeds, second fails
 
       map.clear();
-      expect(map.size).toBe(0);
+      expect(map).to.have.property("size", 0);
     });
 
     it("should have correct Symbol.toStringTag", () => {
       const map = new PathMap<string, number>();
-      expect(map[Symbol.toStringTag]).toBe("PathMap");
-      expect(Object.prototype.toString.call(map)).toBe("[object PathMap]");
+      expect([map[Symbol.toStringTag], Object.prototype.toString.call(map)]).to.have.ordered.members([
+        "PathMap",
+        "[object PathMap]",
+      ]);
     });
   });
 
@@ -86,10 +85,7 @@ describe("PathMap", () => {
       map.set(new Set(["a"]), 2);
       map.set(["a"], 3);
 
-      expect(map.size).toBe(3);
-      expect(map.get("a")).toBe(1);
-      expect(map.get(new Set(["a"]))).toBe(2);
-      expect(map.get(["a"])).toBe(3);
+      expect([map.size, map.get("a"), map.get(new Set(["a"])), map.get(["a"])]).to.have.ordered.members([3, 1, 2, 3]);
     });
 
     it("should not confuse empty containers with each other", () => {
@@ -98,9 +94,7 @@ describe("PathMap", () => {
       map.set(new Set(), 1);
       map.set([], 2);
 
-      expect(map.size).toBe(2);
-      expect(map.get(new Set())).toBe(1);
-      expect(map.get([])).toBe(2);
+      expect([map.size, map.get(new Set()), map.get([])]).to.have.ordered.members([2, 1, 2]);
     });
   });
 
@@ -111,9 +105,11 @@ describe("PathMap", () => {
       map.set(new Set(["a", "b", "c"]), 1);
 
       // Different insertion order, same canonical form
-      expect(map.get(new Set(["c", "b", "a"]))).toBe(1);
-      expect(map.get(new Set(["b", "a", "c"]))).toBe(1);
-      expect(map.has(new Set(["a", "c", "b"]))).toBe(true);
+      expect([
+        map.get(new Set(["c", "b", "a"])),
+        map.get(new Set(["b", "a", "c"])),
+        map.has(new Set(["a", "c", "b"])),
+      ]).to.have.ordered.members([1, 1, true]);
     });
 
     it("should distinguish Sets with different elements", () => {
@@ -122,9 +118,7 @@ describe("PathMap", () => {
       map.set(new Set(["a", "b"]), 1);
       map.set(new Set(["a", "c"]), 2);
 
-      expect(map.size).toBe(2);
-      expect(map.get(new Set(["a", "b"]))).toBe(1);
-      expect(map.get(new Set(["a", "c"]))).toBe(2);
+      expect([map.size, map.get(new Set(["a", "b"])), map.get(new Set(["a", "c"]))]).to.have.ordered.members([2, 1, 2]);
     });
   });
 
@@ -135,9 +129,7 @@ describe("PathMap", () => {
       map.set(["a", "b"], 1);
       map.set(["b", "a"], 2);
 
-      expect(map.size).toBe(2);
-      expect(map.get(["a", "b"])).toBe(1);
-      expect(map.get(["b", "a"])).toBe(2);
+      expect([map.size, map.get(["a", "b"]), map.get(["b", "a"])]).to.have.ordered.members([2, 1, 2]);
     });
 
     it("should treat identical Arrays as equal", () => {
@@ -145,8 +137,7 @@ describe("PathMap", () => {
 
       map.set([1, 2, 3], "first");
 
-      expect(map.get([1, 2, 3])).toBe("first");
-      expect(map.has([1, 2, 3])).toBe(true);
+      expect([map.get([1, 2, 3]), map.has([1, 2, 3])]).to.have.ordered.members(["first", true]);
     });
   });
 
@@ -161,7 +152,7 @@ describe("PathMap", () => {
       const canonical2 = map.getCanonicalKey(new Set(["b", "a"]));
 
       // Same canonical key object
-      expect(canonical1).toBe(canonical2);
+      expect(canonical1).to.equal(canonical2);
     });
 
     it("should return stable canonical key for Array keys", () => {
@@ -172,15 +163,15 @@ describe("PathMap", () => {
       const canonical1 = map.getCanonicalKey([1, 2]);
       const canonical2 = map.getCanonicalKey([1, 2]);
 
-      expect(canonical1).toBe(canonical2);
-      // Array canonical keys are frozen
-      expect(Object.isFrozen(canonical1)).toBe(true);
+      // Same canonical key object and frozen
+      expect(canonical1).to.equal(canonical2);
+      expect(Object.isFrozen(canonical1)).to.eq(true);
     });
 
     it("should return undefined for maybeGetCanonicalKey on missing key", () => {
       const map = new PathMap<string, number>();
 
-      expect(map.maybeGetCanonicalKey("missing")).toBeUndefined();
+      expect(map.maybeGetCanonicalKey("missing")).to.eq(undefined);
     });
 
     it("should create canonical key on getCanonicalKey even for missing keys", () => {
@@ -189,8 +180,8 @@ describe("PathMap", () => {
       // Key doesn't exist but getCanonicalKey creates canonical form
       const canonical = map.getCanonicalKey(new Set(["x", "y"]));
 
-      expect(canonical).toBeInstanceOf(Set);
-      expect([...canonical]).toEqual(["x", "y"]);
+      expect(canonical).to.be.instanceOf(Set);
+      expect([...canonical]).to.have.ordered.members(["x", "y"]);
     });
   });
 
@@ -206,7 +197,7 @@ describe("PathMap", () => {
 
       // After delete, canonical key should still be resolvable if original is alive
       const canonicalAfter = map.maybeGetCanonicalKey(key);
-      expect(canonicalAfter).toBe(canonicalBefore);
+      expect(canonicalAfter).to.equal(canonicalBefore);
     });
 
     it("should remove from iteration after delete", () => {
@@ -219,10 +210,7 @@ describe("PathMap", () => {
       map.delete("b");
 
       const keys = [...map.keys()];
-      expect(keys).toHaveLength(2);
-      expect(keys).toContain("a");
-      expect(keys).toContain("c");
-      expect(keys).not.toContain("b");
+      expect(keys).to.have.lengthOf(2).and.include.members(["a", "c"]).and.not.include("b");
     });
 
     it("should update size correctly on delete", () => {
@@ -230,13 +218,15 @@ describe("PathMap", () => {
 
       map.set("a", 1);
       map.set("b", 2);
-      expect(map.size).toBe(2);
+      const sizeBefore = map.size;
 
       map.delete("a");
-      expect(map.size).toBe(1);
+      const sizeAfterDelete = map.size;
 
       map.delete("nonexistent");
-      expect(map.size).toBe(1); // No change
+      const sizeAfterNoOp = map.size;
+
+      expect([sizeBefore, sizeAfterDelete, sizeAfterNoOp]).to.have.ordered.members([2, 1, 1]);
     });
   });
 
@@ -248,7 +238,7 @@ describe("PathMap", () => {
       map.set("a", 1);
       map.set("b", 2);
 
-      expect([...map.keys()]).toEqual(["c", "a", "b"]);
+      expect([...map.keys()]).to.have.ordered.members(["c", "a", "b"]);
     });
 
     it("should preserve insertion order in values()", () => {
@@ -258,7 +248,7 @@ describe("PathMap", () => {
       map.set("a", 1);
       map.set("b", 2);
 
-      expect([...map.values()]).toEqual([3, 1, 2]);
+      expect([...map.values()]).to.have.ordered.members([3, 1, 2]);
     });
 
     it("should preserve insertion order in entries()", () => {
@@ -268,7 +258,7 @@ describe("PathMap", () => {
       map.set("a", 1);
       map.set("b", 2);
 
-      expect([...map.entries()]).toEqual([
+      expect([...map.entries()]).to.deep.equal([
         ["c", 3],
         ["a", 1],
         ["b", 2],
@@ -282,11 +272,11 @@ describe("PathMap", () => {
       map.set("y", 20);
 
       const collected: [string, number][] = [];
-      map.forEach((value, key) => {
+      for (const [key, value] of map.entries()) {
         collected.push([key, value]);
-      });
+      }
 
-      expect(collected).toEqual([
+      expect(collected).to.deep.equal([
         ["x", 10],
         ["y", 20],
       ]);
@@ -299,7 +289,7 @@ describe("PathMap", () => {
       map.set("b", 2);
 
       const entries = [...map];
-      expect(entries).toEqual([
+      expect(entries).to.deep.equal([
         ["a", 1],
         ["b", 2],
       ]);
@@ -311,11 +301,11 @@ describe("PathMap", () => {
       const map = new PathMap<string, number>();
 
       map.set("key", 1);
-      expect(map.size).toBe(1);
+      const sizeBefore = map.size;
 
       map.set("key", 2);
-      expect(map.size).toBe(1);
-      expect(map.get("key")).toBe(2);
+
+      expect([sizeBefore, map.size, map.get("key")]).to.have.ordered.members([1, 1, 2]);
     });
 
     it("should keep same canonical key on update", () => {
@@ -328,8 +318,8 @@ describe("PathMap", () => {
       map.set(new Set(["b", "a"]), 2);
       const canonical2 = map.getCanonicalKey(key);
 
-      expect(canonical1).toBe(canonical2);
-      expect(map.get(key)).toBe(2);
+      expect(canonical1).to.equal(canonical2);
+      expect(map.get(key)).to.equal(2);
     });
   });
 
@@ -341,7 +331,7 @@ describe("PathMap", () => {
       map.set(key, "mixed");
 
       // Same elements, different object
-      expect(map.get(new Set([true, "a", 1]))).toBe("mixed");
+      expect(map.get(new Set([true, "a", 1]))).to.equal("mixed");
     });
 
     it("should handle Array with mixed primitive types", () => {
@@ -349,9 +339,8 @@ describe("PathMap", () => {
 
       map.set(["a", 1, null], "mixed");
 
-      expect(map.get(["a", 1, null])).toBe("mixed");
-      // Different order = different key
-      expect(map.get([1, "a", null])).toBeUndefined();
+      // Same order = same key, different order = different key
+      expect([map.get(["a", 1, null]), map.get([1, "a", null])]).to.have.ordered.members(["mixed", undefined]);
     });
   });
 
@@ -362,9 +351,7 @@ describe("PathMap", () => {
       map.set(null, 1);
       map.set("null", 2); // String "null" is different
 
-      expect(map.size).toBe(2);
-      expect(map.get(null)).toBe(1);
-      expect(map.get("null")).toBe(2);
+      expect([map.size, map.get(null), map.get("null")]).to.have.ordered.members([2, 1, 2]);
     });
 
     it("should support null in Set keys", () => {
@@ -372,7 +359,7 @@ describe("PathMap", () => {
 
       map.set(new Set([null, "a"]), 1);
 
-      expect(map.get(new Set(["a", null]))).toBe(1);
+      expect(map.get(new Set(["a", null]))).to.equal(1);
     });
   });
 
@@ -383,30 +370,29 @@ describe("PathMap", () => {
       map.set(Infinity, "pos");
       map.set(-Infinity, "neg");
 
-      expect(map.size).toBe(2);
-      expect(map.get(Infinity)).toBe("pos");
-      expect(map.get(-Infinity)).toBe("neg");
+      expect([map.size, map.get(Infinity), map.get(-Infinity)]).to.have.ordered.members([2, "pos", "neg"]);
     });
 
     it("should handle NaN as key (same identity)", () => {
       const map = new PathMap<number, string>();
 
-      map.set(NaN, "first");
-      map.set(NaN, "second"); // Same key
+      map.set(Number.NaN, "first");
+      map.set(Number.NaN, "second"); // Same key
 
-      expect(map.size).toBe(1);
-      expect(map.get(NaN)).toBe("second");
+      expect([map.size, map.get(Number.NaN)]).to.have.ordered.members([1, "second"]);
     });
 
     it("should handle BigInt as key", () => {
       const map = new PathMap<bigint, string>();
 
       map.set(123n, "small");
-      map.set(999999999999999999999999n, "large");
+      map.set(999_999_999_999_999_999_999_999n, "large");
 
-      expect(map.size).toBe(2);
-      expect(map.get(123n)).toBe("small");
-      expect(map.get(999999999999999999999999n)).toBe("large");
+      expect([map.size, map.get(123n), map.get(999_999_999_999_999_999_999_999n)]).to.have.ordered.members([
+        2,
+        "small",
+        "large",
+      ]);
     });
   });
 });

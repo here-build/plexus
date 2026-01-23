@@ -538,7 +538,7 @@ type DiscriminateValue<
 > =
   PreDiscriminateValue<MappingType, T, Parent> extends never
     ? Mapping<AllowedPrimitive | PlexusModel<Parent>>[MappingType]
-    : PreDiscriminateValue<MappingType, T, Parent>;
+    : T;
 
 /** separate function here is done only for better types debugging; no other purpose intended */
 const buildDiscriminatingDecorator = <MappingType extends keyof Mapping<any>>(kind: GenericRecordSchema[string]) =>
@@ -553,8 +553,8 @@ const buildDiscriminatingDecorator = <MappingType extends keyof Mapping<any>>(ki
      */
     Value extends Mapping<AllowedYJSValue>[MappingType],
   >(
-    target: ClassAccessorDecoratorTarget<Model, Value>,
-    context: ClassAccessorDecoratorContext<Model, DiscriminateValue<MappingType, Value, Model>> & { name: string },
+    target: ClassAccessorDecoratorTarget<Model, DiscriminateValue<MappingType, Value, Model>>,
+    context: ClassAccessorDecoratorContext<Model, Value> & { name: string },
   ) {
     if (!Object.hasOwn(context.metadata, "schema")) {
       context.metadata.schema = {
@@ -562,7 +562,7 @@ const buildDiscriminatingDecorator = <MappingType extends keyof Mapping<any>>(ki
       };
     }
     (context.metadata.schema as GenericRecordSchema)[context.name] = kind;
-    return createHandlers<Model, DiscriminateValue<MappingType, Value, Model>>(context);
+    return createHandlers<Model, Value, ClassAccessorDecoratorContext<Model, Value> & { name: string }>(context);
   };
 
 interface Mapping<T> {

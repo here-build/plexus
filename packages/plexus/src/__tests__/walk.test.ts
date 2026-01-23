@@ -60,7 +60,7 @@ describe("walk", () => {
       },
     );
 
-    expect(visited).toEqual(["Tree", "Branch:b1", "Leaf:l1", "Branch:b2", "Leaf:l2"]);
+    expect(visited).to.deep.equal(["Tree", "Branch:b1", "Leaf:l1", "Branch:b2", "Leaf:l2"]);
   });
 
   it("inherits state through next()", () => {
@@ -91,7 +91,7 @@ describe("walk", () => {
       },
     );
 
-    expect(depths).toEqual([0, 1, 2]);
+    expect(depths).to.deep.equal([0, 1, 2]);
   });
 
   it("stop() halts traversal", () => {
@@ -115,7 +115,7 @@ describe("walk", () => {
       },
     );
 
-    expect(visited).toEqual(["b1", "b2"]);
+    expect(visited).to.deep.equal(["b1", "b2"]);
   });
 
   it("skips children if next() not called", () => {
@@ -150,7 +150,7 @@ describe("walk", () => {
       },
     );
 
-    expect(visited).toEqual(["Tree"]);
+    expect(visited).to.deep.equal(["Tree"]);
   });
 });
 
@@ -183,7 +183,7 @@ describe("buildVisitor", () => {
     });
 
     const result = visit(tree);
-    expect(result).toBe("Tree(Branch:b1(Leaf:l1), Branch:b2(null))");
+    expect(result).to.equal("Tree(Branch:b1(Leaf:l1), Branch:b2(null))");
   });
 
   it("works for codegen-style string building", () => {
@@ -215,7 +215,7 @@ describe("buildVisitor", () => {
 
     const code = visit(tree);
 
-    expect(code).toBe(`<Tree>
+    expect(code).to.equal(`<Tree>
 <Branch name="main">
   <Leaf value="hello" />
   <Leaf value="world" />

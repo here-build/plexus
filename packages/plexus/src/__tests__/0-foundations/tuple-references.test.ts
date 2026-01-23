@@ -9,8 +9,9 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { PlexusModel } from "../../PlexusModel.js";
+
 import { syncing } from "../../decorators.js";
+import { PlexusModel } from "../../PlexusModel.js";
 import { referenceSymbol } from "../../proxy-runtime-types.js";
 import { isTupleReference } from "../../utils/utils.js";
 import * as YJS_GLOBALS from "../../YJS_GLOBALS.js";
@@ -39,15 +40,6 @@ class TestPost extends PlexusModel {
   accessor comments!: any[];
 }
 
-@syncing
-class TestComment extends PlexusModel {
-  @syncing
-  accessor text!: string;
-
-  @syncing
-  accessor author!: any;
-}
-
 // Minimal model (no collections) to avoid resolver shape issues in this test
 @syncing
 class Shallow extends PlexusModel {
@@ -59,16 +51,20 @@ describe("Tuple Reference Format", () => {
   describe("Core Functionality", () => {
     it("should identify tuple references correctly", () => {
       // Valid tuple references
-      expect(isTupleReference(["entity123"])).toBe(true);
-      expect(isTupleReference(["entity123", "project456"])).toBe(true);
+      expect([isTupleReference(["entity123"]), isTupleReference(["entity123", "project456"])]).to.have.ordered.members([
+        true,
+        true,
+      ]);
 
       // Invalid formats
-      expect(isTupleReference([])).toBe(false);
-      expect(isTupleReference(["entity", "project", "extra"])).toBe(false);
-      expect(isTupleReference([123])).toBe(false);
-      expect(isTupleReference({ __ref: "entity123" })).toBe(false);
-      expect(isTupleReference("not-array")).toBe(false);
-      expect(isTupleReference(null)).toBe(false);
+      expect([
+        isTupleReference([]),
+        isTupleReference(["entity", "project", "extra"]),
+        isTupleReference([123]),
+        isTupleReference({ __ref: "entity123" }),
+        isTupleReference("not-array"),
+        isTupleReference(null),
+      ]).to.have.ordered.members([false, false, false, false, false, false]);
     });
 
     it("should demonstrate memory efficiency gains", () => {
@@ -93,8 +89,10 @@ describe("Tuple Reference Format", () => {
       });
 
       // Tuple format should be more compact
-      expect(tupleLocalSize).toBeLessThan(legacyLocalSize);
-      expect(tupleCrossSize).toBeLessThan(legacyCrossSize);
+      expect([tupleLocalSize < legacyLocalSize, tupleCrossSize < legacyCrossSize]).to.have.ordered.members([
+        true,
+        true,
+      ]);
     });
   });
 
@@ -113,12 +111,11 @@ describe("Tuple Reference Format", () => {
       map.set("arrayRefs", array);
 
       // Verify storage
-      expect(map.get("localRef")).toEqual(["entity123"]);
-      expect(map.get("crossRef")).toEqual(["entity123", "project456"]);
+      expect(map.get("localRef")).to.deep.equal(["entity123"]);
+      expect(map.get("crossRef")).to.deep.equal(["entity123", "project456"]);
 
       const storedArray = map.get("arrayRefs") as Y.Array<any>;
-      expect(storedArray.get(0)).toEqual(["entity789"]);
-      expect(storedArray.get(1)).toEqual(["entity789", "project999"]);
+      expect([storedArray.get(0), storedArray.get(1)]).to.deep.equal([["entity789"], ["entity789", "project999"]]);
     });
 
     it("should work with real YJS document synchronization", () => {
@@ -138,14 +135,15 @@ describe("Tuple Reference Format", () => {
 
       // Verify data arrived correctly
       const models2 = doc2.getMap("models");
-      expect(models2.get("user.name")).toBe("Alice");
-
       const userPosts = models2.get("user.posts") as Y.Array<any>;
-      expect(userPosts.get(0)).toEqual(["post1"]);
-      expect(userPosts.get(1)).toEqual(["post2"]);
 
-      expect(models2.get("post1.author")).toEqual(["user"]);
-      expect(models2.get("post1.title")).toBe("Hello World");
+      expect([
+        models2.get("user.name"),
+        userPosts.get(0),
+        userPosts.get(1),
+        models2.get("post1.author"),
+        models2.get("post1.title"),
+      ]).to.deep.equal(["Alice", ["post1"], ["post2"], ["user"], "Hello World"]);
     });
 
     it("should handle arrays of tuple references efficiently", () => {
@@ -159,10 +157,12 @@ describe("Tuple Reference Format", () => {
 
       // Verify retrieval
       const retrievedChildren = models.get("component.children") as Y.Array<any>;
-      expect(retrievedChildren.length).toBe(3);
-      expect(retrievedChildren.get(0)).toEqual(["child1"]);
-      expect(retrievedChildren.get(1)).toEqual(["child2"]);
-      expect(retrievedChildren.get(2)).toEqual(["child3", "external-project"]);
+      expect(retrievedChildren).to.have.property("length", 3);
+      expect([retrievedChildren.get(0), retrievedChildren.get(1), retrievedChildren.get(2)]).to.deep.equal([
+        ["child1"],
+        ["child2"],
+        ["child3", "external-project"],
+      ]);
     });
   });
 
@@ -177,37 +177,37 @@ describe("Tuple Reference Format", () => {
     it("should create local references as single-element tuples", async () => {
       // Create a user
       const user = new TestUser({ name: "Alice", posts: [] });
-      const { plexus } = await initTestPlexus(user);
+      const { plexus } = initTestPlexus(user);
       const userRef = user[referenceSymbol](plexus.doc as any);
 
       // Debug what we're actually getting
       console.log("userRef:", userRef, "type:", typeof userRef, "isArray:", Array.isArray(userRef));
 
       // Should be a tuple with just entity ID
-      expect(Array.isArray(userRef)).toBe(true);
-      expect(userRef).toHaveLength(1);
-      expect(typeof userRef[0]).toBe("string");
+      expect([Array.isArray(userRef), userRef.length, typeof userRef[0]]).to.have.ordered.members([true, 1, "string"]);
     });
 
     it("should create cross-project references as two-element tuples", async () => {
       // Dep project
       const depEntity = new Shallow({ name: "Alice" });
-      const { doc: depDoc } = await initTestPlexus(depEntity);
+      initTestPlexus(depEntity);
       const depEntityId = (depEntity as any).uuid as string;
 
       // Root project with dependency - simplified to focus on tuple format testing
       const root = new Shallow({ name: "Root" });
-      const { plexus: rootPlexus } = await initTestPlexus(root);
+      initTestPlexus(root);
 
       // For this test, we'll create a manual cross-project reference tuple
       // since the test is about the tuple format, not the resolver mechanism
       const crossRef = [depEntityId, "dep"];
 
-      expect(Array.isArray(crossRef)).toBe(true);
-      expect(crossRef).toHaveLength(2);
-      expect(typeof crossRef[0]).toBe("string"); // entity ID
-      expect(typeof crossRef[1]).toBe("string"); // package ID
-      expect(crossRef[1]).toBe("dep");
+      expect([
+        Array.isArray(crossRef),
+        crossRef.length,
+        typeof crossRef[0],
+        typeof crossRef[1],
+        crossRef[1],
+      ]).to.have.ordered.members([true, 2, "string", "string", "dep"]);
     });
 
     it("should store tuple references in YJS arrays efficiently", async () => {
@@ -220,7 +220,7 @@ describe("Tuple Reference Format", () => {
       });
 
       // Initialize with Plexus
-      const { doc, plexus } = await initTestPlexus(user);
+      const { doc } = initTestPlexus(user);
 
       // Now add the post reference into the user's posts list (materializes post too)
       post[referenceSymbol](doc);
@@ -236,12 +236,11 @@ describe("Tuple Reference Format", () => {
       const userPosts = userFields.get("posts") as Y.Array<any>;
       const postAuthor = postFields.get("author");
 
-      expect(Array.isArray(userPosts.get(0))).toBe(true);
-      expect(userPosts.get(0)).toEqual([postId]);
-      expect(postAuthor).toEqual([userId]);
+      expect([Array.isArray(userPosts.get(0)), userPosts.get(0), postAuthor]).to.deep.equal([true, [postId], [userId]]);
     });
   });
 });
 
 // Export the helper for use in other tests
-export { isTupleReference };
+
+export { isTupleReference } from "../../utils/utils.js";

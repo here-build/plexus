@@ -54,10 +54,9 @@ describe("Dependency system", () => {
 
       const depRoot = plexus.addDependency(depVector);
 
-      expect(depRoot).toBeDefined();
-      expect(depRoot.items).toHaveLength(2);
-      expect(depRoot.items[0].name).toBe("item-a");
-      expect(depRoot.items[1].name).toBe("item-b");
+      expect(depRoot).to.not.eq(undefined);
+      expect(depRoot.items).to.have.lengthOf(2);
+      expect([depRoot.items[0].name, depRoot.items[1].name]).to.have.ordered.members(["item-a", "item-b"]);
     });
 
     it("should make dependency models read-only", () => {
@@ -70,14 +69,14 @@ describe("Dependency system", () => {
 
       // Dependency models should be read-only
       const item = depRoot.items[0];
-      expect(item.name).toBe("original");
+      expect(item.name).to.equal("original");
 
       // Writing to dependency models should throw
       expect(() => {
         (item as any).name = "modified";
-      }).toThrow("dependencies are handled via special flow");
+      }).to.throw("dependencies are handled via special flow");
 
-      expect(item.name).toBe("original"); // Value unchanged
+      expect(item.name).to.equal("original"); // Value unchanged
     });
 
     it("should mark dependency models with isDependency flag", () => {
@@ -88,8 +87,9 @@ describe("Dependency system", () => {
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
       const depRoot = plexus.addDependency(depVector);
 
-      expect(depRoot.__internals__.isDependency).toBe(true);
-      expect(depRoot.items[0].__internals__.isDependency).toBe(true);
+      expect([depRoot.__internals__.isDependency, depRoot.items[0].__internals__.isDependency]).to.have.ordered.members(
+        [true, true],
+      );
     });
 
     it("should prevent adding duplicate dependencies", () => {
@@ -101,7 +101,7 @@ describe("Dependency system", () => {
 
       plexus.addDependency(depVector);
 
-      expect(() => plexus.addDependency(depVector)).toThrow("already exists");
+      expect(() => plexus.addDependency(depVector)).to.throw("already exists");
     });
   });
 
@@ -117,11 +117,11 @@ describe("Dependency system", () => {
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
       const depRoot = plexus.addDependency(depVector);
 
-      expect(depRoot.containers).toHaveLength(1);
+      expect(depRoot.containers).to.have.lengthOf(1);
       const container = depRoot.containers[0];
-      expect(container.name).toBe("parent");
-      expect(container.item).not.toBeNull();
-      expect(container.item!.name).toBe("child");
+      expect(container.name).to.equal("parent");
+      expect(container.item).to.not.eq(null);
+      expect(container.item!.name).to.equal("child");
     });
 
     it("should resolve child lists within dependency", () => {
@@ -137,10 +137,12 @@ describe("Dependency system", () => {
       const depRoot = plexus.addDependency(depVector);
 
       const container = depRoot.containers[0];
-      expect(container.items).toHaveLength(3);
-      expect(container.items[0].name).toBe("first");
-      expect(container.items[1].name).toBe("second");
-      expect(container.items[2].name).toBe("third");
+      expect(container.items).to.have.lengthOf(3);
+      expect([container.items[0].name, container.items[1].name, container.items[2].name]).to.have.ordered.members([
+        "first",
+        "second",
+        "third",
+      ]);
     });
 
     it("should track parent references within dependency", () => {
@@ -157,8 +159,7 @@ describe("Dependency system", () => {
       const item = container.item!;
 
       // Parent tracking should work within dependency
-      expect(item.parent).toBe(container);
-      expect(container.parent).toBe(depRoot);
+      expect([item.parent === container, container.parent === depRoot]).to.have.ordered.members([true, true]);
     });
 
     it("should handle deeply nested structures", () => {
@@ -175,10 +176,12 @@ describe("Dependency system", () => {
       const depRoot = plexus.addDependency(depVector);
 
       const outer = depRoot.containers[0];
-      expect(outer.name).toBe("outer");
-      expect(outer.item!.name).toBe("single-child");
-      expect(outer.items[0].name).toBe("deep-1");
-      expect(outer.items[1].name).toBe("deep-2");
+      expect([outer.name, outer.item!.name, outer.items[0].name, outer.items[1].name]).to.have.ordered.members([
+        "outer",
+        "single-child",
+        "deep-1",
+        "deep-2",
+      ]);
     });
   });
 
@@ -198,10 +201,9 @@ describe("Dependency system", () => {
 
       const deps = plexus.rootDependenciesRepresentation;
 
-      expect(deps["dep-a"]).toBeDefined();
-      expect(deps["dep-b"]).toBeDefined();
-      expect(deps["dep-a"].items[0].name).toBe("from-a");
-      expect(deps["dep-b"].items[0].name).toBe("from-b");
+      expect(deps["dep-a"]).to.not.eq(undefined);
+      expect(deps["dep-b"]).to.not.eq(undefined);
+      expect([deps["dep-a"].items[0].name, deps["dep-b"].items[0].name]).to.have.ordered.members(["from-a", "from-b"]);
     });
 
     it("should list dependency keys via ownKeys", () => {
@@ -218,8 +220,7 @@ describe("Dependency system", () => {
       plexus.addDependency(depVector2);
 
       const keys = Reflect.ownKeys(plexus.rootDependenciesRepresentation);
-      expect(keys).toContain("pkg-x");
-      expect(keys).toContain("pkg-y");
+      expect(keys).to.include("pkg-x").and.include("pkg-y");
     });
   });
 
@@ -238,13 +239,13 @@ describe("Dependency system", () => {
 
       // Should be able to retrieve via getDependencyNode
       const retrieved = plexus.__getDependencyNode__("pkg-get", itemUuid);
-      expect(retrieved).toBe(item); // Same cached instance
+      expect(retrieved === item).to.eq(true); // Same cached instance
     });
 
     it("should throw for unknown dependency", () => {
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
 
-      expect(() => plexus.__getDependencyNode__("unknown-pkg", "some-uuid")).toThrow("cannot resolve dependency");
+      expect(() => plexus.__getDependencyNode__("unknown-pkg", "some-uuid")).to.throw("cannot resolve dependency");
     });
   });
 });

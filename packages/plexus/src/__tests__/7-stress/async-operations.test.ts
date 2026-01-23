@@ -67,7 +67,7 @@ describe("Async Operations Edge Cases", () => {
     await asyncModification;
 
     // Both sync and async changes should be preserved
-    expect(component.name).toBe("Modified Async");
+    expect(component.name).to.equal("Modified Async");
   });
 
   it("should handle Promise resolution accessing proxy entities", async () => {
@@ -85,12 +85,12 @@ describe("Async Operations Edge Cases", () => {
     // Promise accessing materialized entity
     await new Promise((resolve) => {
       setTimeout(() => {
-        expect(component.name).toBe("Promise");
+        expect(component.name).to.equal("Promise");
         component.metadata["accessed"] = "true";
         resolve(void 0);
       }, 1);
     });
 
-    expect(component.metadata["accessed"]).toBe("true");
+    expect(component.metadata["accessed"]).to.equal("true");
   });
 });

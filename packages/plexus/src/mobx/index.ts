@@ -1,7 +1,7 @@
+import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
 import { createAtom } from "mobx";
 
 import { ACCESS_ALL_SYMBOL, type Tracker, trackingHook } from "../tracking.js";
-import { DefaultedMap, DefaultedWeakMap } from "../utils/defaulted-collections.js";
 
 /**
  * Flag to track if global MobX integration is enabled

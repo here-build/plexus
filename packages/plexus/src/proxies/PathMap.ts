@@ -1,6 +1,6 @@
 import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue } from "../proxy-runtime-types.js";
-import { DefaultedMap } from "../utils/defaulted-collections.js";
+import { DefaultedMap } from "@here.build/collections";
 
 /**
  * Validate that a value is an allowed type for map keys.

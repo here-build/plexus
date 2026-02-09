@@ -19,7 +19,7 @@ import {
   validateAdoptionSymbol,
 } from "./proxy-runtime-types.js";
 import { __untracked__, trackAccess, trackModification } from "./tracking.js";
-import { DefaultedMap, DefaultedWeakMap } from "./utils/defaulted-collections.js";
+import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
 import { maybeReference, maybeTransacting } from "./utils/utils.js";
 
 const argsAreClassDecoratorArgs = <Model extends PlexusModel, T extends AllowedYJSValue>(

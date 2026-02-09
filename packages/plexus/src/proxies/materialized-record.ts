@@ -190,7 +190,11 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
       if (typeof elementKey === "string") {
         maybeTransacting(owner.__doc__, () => {
           trackModification(self, elementKey);
-          if ((elementKey in proxyTarget && value == null) || (!(elementKey in proxyTarget) && value != null)) {
+          // Track key changes: key added (wasn't present, now has value) or removed (was present, now undefined)
+          if (
+            (elementKey in proxyTarget && value === undefined) ||
+            (!(elementKey in proxyTarget) && value !== undefined)
+          ) {
             trackModification(self, KEYS_SYMBOL);
             trackModification(self, ENTRIES_LENGTH_SYMBOL);
           }
@@ -201,12 +205,13 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
             proxyTarget[elementKey]?.[requestOrphanizationSymbol]?.();
             value?.[requestAdoptionSymbol]?.(owner, key, elementKey);
           }
-          if (value == null) {
+          // undefined = delete key, null = explicit "nothing" value
+          if (value === undefined) {
             delete proxyTarget[elementKey];
           } else {
             proxyTarget[elementKey] = value;
           }
-          if (value == null) {
+          if (value === undefined) {
             getYjsMap()?.delete(elementKey);
           } else {
             getYjsMap()?.set(elementKey, maybeReference(value, owner.__doc__!));

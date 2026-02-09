@@ -10,8 +10,8 @@
  * (and with few cool features - parent-child tracking, maps with structural access and dependency management)
  */
 
-// this import should go first
-export * from "./utils/defaulted-collections.js";
+// Re-export collections for backwards compatibility
+export { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
 export * from "./proxy-runtime-types.js";
 
 export { PlexusModel, type PlexusInit, type PlexusConstructor } from "./PlexusModel.js";

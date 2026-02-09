@@ -10,18 +10,19 @@ import * as Y from "yjs";
 import { UndoManager } from "yjs";
 
 import { deref } from "./deref.js";
-import { DefaultedWeakMap, documentEntityCaches } from "./entity-cache.js";
+import { DefaultedWeakMap } from "@here.build/collections";
+import { documentEntityCaches } from "./entity-cache.js";
 import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
 import { PlexusModel } from "./PlexusModel.js";
 import type { AllowedYValue, ParentReference, Storageable } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
-import { DefaultedMap } from "./utils/defaulted-collections.js";
+import { DefaultedMap } from "@here.build/collections";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { maybeTransacting } from "./utils/utils.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 
-export class Plexus<Root extends PlexusModel<null> & { dependencies?: ReadonlyDeep<Record<string, Root>> }> {
+export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<string, Root> }> {
   protected readonly yModels: Y.Map<Y.Map<Y.Map<Storageable> | string | ParentReference>>;
   protected readonly yDependencies: Y.Map<Y.Map<Uint8Array>>;
   protected readonly dependencyReverseId = new WeakMap<Y.Map<Uint8Array>, string>();

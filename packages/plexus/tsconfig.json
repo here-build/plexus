@@ -3,10 +3,6 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
-    "declaration": true,
-    "declarationMap": true,
-    "inlineSourceMap": true,
-    "inlineSources": true
   },
   "include": ["src/**/*"],
   "exclude": [

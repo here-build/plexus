@@ -50,8 +50,8 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
-    "@here.build/collections": "workspace:^",
     "@here.build/arrival-env": "workspace:^",
+    "@here.build/collections": "workspace:^",
     "lib0": "^0.2.114",
     "nanoid": "^5.1.5",
     "tiny-invariant": "^1.3.3",
@@ -66,7 +66,7 @@
     "mobx": "^6.15.0",
     "prettier": "^3.6.2",
     "tslib": "^2.8.1",
-    "typescript": "5.9",
+    "typescript": "^5.9.3",
     "vitest": "^4.0.14",
     "yjs": "^13.6.27"
   },

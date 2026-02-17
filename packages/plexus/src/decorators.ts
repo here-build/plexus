@@ -2,7 +2,7 @@ import invariant from "tiny-invariant";
 
 import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
-import { type PlexusConstructor, PlexusModel } from "./PlexusModel.js";
+import { getInternals, type PlexusConstructor, PlexusModel } from "./PlexusModel.js";
 import { buildArrayProxy } from "./proxies/materialized-array.js";
 import { buildMapProxy } from "./proxies/materialized-map.js";
 import { buildRecordProxy } from "./proxies/materialized-record.js";
@@ -21,6 +21,7 @@ import {
 import { __untracked__, trackAccess, trackModification } from "./tracking.js";
 import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
 import { maybeReference, maybeTransacting } from "./utils/utils.js";
+import { DiscriminateMap, DiscriminateValue, Mapping } from "./decorator-types.js";
 
 const argsAreClassDecoratorArgs = <Model extends PlexusModel, T extends AllowedYJSValue>(
   args:
@@ -119,13 +120,7 @@ function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
       ClassAccessorDecoratorTarget<Model, T>,
       ClassAccessorDecoratorContext<Model, T> & { name: string },
     ];
-    if (!Object.hasOwn(context.metadata, "schema")) {
-      context.metadata.schema = {
-        // it may be coming from inherited state and we need to use the inheritance here too
-        __proto__: context.metadata.schema ?? {},
-      };
-    }
-    (context.metadata.schema as GenericRecordSchema)[context.name] = "val";
+    ensureSchema(context)[context.name] = "val";
     return createHandlers(context) as ClassAccessorDecoratorResult<Model, T>;
   }
 }
@@ -139,7 +134,7 @@ const set = <
   object: Model,
   value: T,
 ) => {
-  const internals = object.__internals__;
+  const internals = getInternals(object);
   invariant(
     !internals.isDependency,
     `Plexus<${object.__type__}#${object.uuid}.${context.name}>: dependencies are readonly`,
@@ -171,7 +166,7 @@ const setChild = <
   object: Model,
   value: T,
 ) => {
-  const internals = object.__internals__;
+  const internals = getInternals(object);
   invariant(
     !internals.isDependency,
     `Plexus<${object.__type__}#${object.uuid}.${context.name}>: dependencies are readonly`,
@@ -273,8 +268,9 @@ const createHandlers = <
   const backingStructures = createBackingStructuresMap.get(context.name);
   return {
     get(this: Model): T {
+      const internals = getInternals(this);
       invariant(
-        !this.__internals__.isDependency,
+        !internals.isDependency,
         `Plexus<${this.__type__}#${this.uuid}.${context.name}>: dependencies are handled via special flow overriding this getter. This error should not happen`,
       );
       if (context.name === "dependencies" && this.uuid === "root") {
@@ -285,7 +281,7 @@ const createHandlers = <
         }
       }
       invariant(
-        !this.__internals__.isDematerialized,
+        !internals.isDematerialized,
         `Plexus<${this.__type__}#${this.uuid}.${context.name}>: model was dematerialized by undo; check whether you are using fresh models directly vs via path from root`,
       );
       // Dematerialized models can still be read (returns presync state)
@@ -293,19 +289,20 @@ const createHandlers = <
       switch (this.__schema__[context.name]) {
         case "val":
         case "child-val":
-          return this.__internals__.backingStorage.get(context.name) ?? null;
+          return internals.backingStorage.get(context.name) ?? null;
         default:
           /** see "We are doing dynamic schema retrieval..." comment below in init()*/
           return backingStructures[this.__schema__[context.name]].get(this);
       }
     },
     set(this: Model, value: T) {
+      const internals = getInternals(this);
       invariant(
-        !this.__internals__.isDependency,
+        !internals.isDependency,
         `Plexus<${this.__type__}#${this.uuid}.${context.name}>: dependencies are handled via special flow overriding this setter. This error should not happen`,
       );
       invariant(
-        !this.__internals__.isDematerialized,
+        !internals.isDematerialized,
         `Plexus<${this.__type__}#${this.uuid}.${context.name}>: model was dematerialized by undo; check whether you are using fresh models directly vs via path from root`,
       );
       if (this.__schema__[context.name] === "val") {
@@ -401,7 +398,7 @@ const createHandlers = <
       if (PlexusModel.__isMaterializingRaw__) {
         return undefined as any;
       }
-      const internals = this.__internals__;
+      const internals = getInternals(this);
       if (internals.isDependency) {
         return null as any;
       }
@@ -476,194 +473,140 @@ const createHandlers = <
   };
 };
 
+const ensureSchema = (context: ClassAccessorDecoratorContext<PlexusModel, any>): GenericRecordSchema => {
+  /**
+   * in inheriting classes, first decorator sees that we HAVE context.metadata.schema,
+   * but not own one - it is inherited from parent class.
+   * Parent class definition expected to be complete at the moment of another declaration,
+   * so schema will not change unless dev is some kind of genuine madman
+   * (there _are_ ways to declare class mid-declaration of another class).
+   * This skill level is respected but not appreciated here.
+   *
+   * However, to increase soundness (and solve even those cases, because who knows what hacks devs can actually do),
+   * we use parent schema as prototype, not simply clone it.
+   */
+  if (!Object.hasOwn(context.metadata, "schema")) {
+    context.metadata.schema = {
+      __proto__: context.metadata.schema ?? {},
+    };
+  }
+  return context.metadata.schema as GenericRecordSchema;
+};
+
 const buildDecorator = <MappingType extends keyof Mapping<any>>(kind: GenericRecordSchema[string]) =>
-  function plexusDynamicDecorator<
-    Model extends PlexusModel,
-    FieldValue extends AllowedPrimitive | PlexusModel,
-    Struct extends Mapping<FieldValue>[MappingType],
-  >(
-    target: ClassAccessorDecoratorTarget<Model, Struct>,
-    context: ClassAccessorDecoratorContext<Model, Struct> & { name: string },
-  ) {
-    if (!Object.hasOwn(context.metadata, "schema")) {
-      /**
-       * in inheriting classes, first decorator sees that we HAVE context.metadata.schema,
-       * but not own one - it is inherited from parent class.
-       * Parent class definition expected to be complete at the moment of another declaration,
-       * so schema will not change unless dev is some kind of genuine madman
-       * (there _are_ ways to declare class mid-declaration of another class).
-       * This skill level is respected but not appreciated here.
-       *
-       * However, to increase soundness (and solve even those cases, because who knows what hacks devs can actually do),
-       * we use parent schema as prototype, not simply clone it.
-       */
-      context.metadata.schema = {
-        __proto__: context.metadata.schema ?? {},
-      };
-    }
-    (context.metadata.schema as GenericRecordSchema)[context.name] = kind;
-    return createHandlers<Model, Struct>(context);
-  };
-
-/**
- * This type basically says: (types logic is inverted, obviously)
- * "If you're using child field - you know what the hell you are doing".
- * Its logic is following:
- * - if it's primitives only, you do not need children
- * - if it's mixed primitives and models, it's ok, let's extract models specifically to look at them
- * - now let's look who's parent of field you passed
- * - if it's default value (any), then it's allowed value. We're not forcing for children declaration hard - sometimes it's not needed
- * - but if you decided to annotate the parent, you better make sure that it's including this specific parent
- *
- * this enables optional type-level schema validation of child-parent relations
- */
-type PreDiscriminateValue<
-  MappingType extends keyof Mapping<any>,
-  T extends Mapping<AllowedPrimitive | PlexusModel>[MappingType],
-  Parent extends PlexusModel,
-> = T extends Mapping<infer Value>[MappingType]
-  ? Extract<Value, PlexusModel> extends PlexusModel<infer ActualParent extends PlexusModel>
-    ? any extends ActualParent
-      ? T
-      : Parent extends Extract<ActualParent, Parent>
-        ? T
-        : never
-    : never
-  : never;
-
-type DiscriminateValue<
-  MappingType extends keyof Mapping<any>,
-  T extends Mapping<AllowedPrimitive | PlexusModel>[MappingType],
-  Parent extends PlexusModel,
-> =
-  PreDiscriminateValue<MappingType, T, Parent> extends never
-    ? Mapping<AllowedPrimitive | PlexusModel<Parent>>[MappingType]
-    : T;
+  Object.assign(
+    function plexusDynamicDecorator<
+      Model extends PlexusModel,
+      FieldValue extends AllowedPrimitive | PlexusModel,
+      Struct extends Mapping<FieldValue>[MappingType],
+    >(
+      target: ClassAccessorDecoratorTarget<Model, Struct>,
+      context: ClassAccessorDecoratorContext<Model, Struct> & { name: string },
+    ) {
+      ensureSchema(context)[context.name] = kind;
+      return createHandlers<Model, Struct>(context);
+    },
+    {
+      declare<Out extends Mapping<AllowedPrimitive | PlexusModel>[MappingType], In extends Out>() {
+        return function plexusDynamicDecorator<Model extends PlexusModel>(
+          target: ClassAccessorDecoratorTarget<Model, Out>,
+          context: ClassAccessorDecoratorContext<Model, Out> & { name: string },
+        ) {
+          ensureSchema(context)[context.name] = kind;
+          return createHandlers<Model, Out>(context) as {
+            get?(this: Model): Out;
+            set?(this: Model, value: In): void;
+            init?(this: Model, value: In): In;
+          };
+        };
+      },
+    },
+  );
 
 /** separate function here is done only for better types debugging; no other purpose intended */
 const buildDiscriminatingDecorator = <MappingType extends keyof Mapping<any>>(kind: GenericRecordSchema[string]) =>
-  function plexusDynamicDecorator<
-    Model extends PlexusModel,
-    /**
-     * The problem we're solving here is that PlexusModel<A | B> is not matching PlexusModel<B>;
-     * yet we cannot just generalize types. So, we infer two types - FieldValue, that is produced from usage,
-     * and discriminator, that defines what FieldValue is allowed to be. Since we have 2 args, we can make first one
-     * produce FieldValue, and second one to act as discriminator. (decorators are weird; maybe there's more efficient
-     * way to solve it, but it's very hard to debug decorator types)
-     */
-    Value extends Mapping<AllowedYJSValue>[MappingType],
-  >(
-    target: ClassAccessorDecoratorTarget<Model, DiscriminateValue<MappingType, Value, Model>>,
-    context: ClassAccessorDecoratorContext<Model, Value> & { name: string },
-  ) {
-    if (!Object.hasOwn(context.metadata, "schema")) {
-      context.metadata.schema = {
-        __proto__: context.metadata.schema ?? {},
-      };
-    }
-    (context.metadata.schema as GenericRecordSchema)[context.name] = kind;
-    return createHandlers<Model, Value, ClassAccessorDecoratorContext<Model, Value> & { name: string }>(context);
-  };
-
-interface Mapping<T> {
-  identity: T;
-  record: Record<string, T>;
-  set: Set<T>;
-  list: T[];
-}
-
-/**
- * Specialized decorator for Map fields that preserves both key and value types.
- * Returns PlexusMap which extends Map with bulk operations like assign().
- */
-function plexusMapDecorator<
-  Model extends PlexusModel,
-  FieldValueKey extends AllowedYJSMapKey,
-  FieldValue extends AllowedYJSValue,
->(
-  target: ClassAccessorDecoratorTarget<Model, Map<FieldValueKey, FieldValue>>,
-  context: ClassAccessorDecoratorContext<Model, Map<FieldValueKey, FieldValue>> & { name: string },
-) {
-  if (!Object.hasOwn(context.metadata, "schema")) {
-    context.metadata.schema = {
-      __proto__: context.metadata.schema ?? {},
-    };
-  }
-  (context.metadata.schema as GenericRecordSchema)[context.name] = "map";
-  return createHandlers<Model, Map<FieldValueKey, FieldValue>>(context);
-}
-
-/**
- * Pre-discrimination for map values.
- * Checks if V can be a child of Parent - returns V if valid, never if not.
- *
- * Logic (same as PreDiscriminateValue but for raw value type, not Mapping):
- * - Extract PlexusModel from V (might be V itself or part of union)
- * - If no PlexusModel in V, return never (child fields require model values)
- * - If PlexusModel has `any` parent (unspecified), allow it
- * - If PlexusModel's declared parent includes this Parent, allow it
- * - Otherwise, return never
- */
-type PreDiscriminateMapValue<V extends AllowedYJSValue, Parent extends PlexusModel> =
-  Extract<V, PlexusModel> extends PlexusModel<infer ActualParent extends PlexusModel>
-    ? any extends ActualParent
-      ? V
-      : Parent extends Extract<ActualParent, Parent>
-        ? V
-        : never
-    : never;
-
-/**
- * Full discrimination for map values with fallback.
- * If PreDiscriminateMapValue returns never (invalid parent relationship),
- * falls back to a correctly-constrained type instead of just failing.
- */
-type DiscriminateMapValue<V extends AllowedYJSValue, Parent extends PlexusModel> =
-  PreDiscriminateMapValue<V, Parent> extends never
-    ? AllowedPrimitive | PlexusModel<Parent>
-    : PreDiscriminateMapValue<V, Parent>;
-
-type MapKey<T extends Map<any, any>> =
-  T extends Map<infer K, any>
-    ?
-        | (Extract<K, Set<AllowedYJSValue>> extends Set<AllowedYJSValue> ? K : never)
-        | (Extract<K, Array<AllowedYJSValue>> extends Array<AllowedYJSValue> ? K : never)
-        | (Extract<K, AllowedYJSValue> extends AllowedYJSValue ? K : never)
-    : never;
-
-type MapValue<T extends Map<any, any>> = T extends Map<any, infer K> ? Extract<K, AllowedYJSValue> : never;
-type DiscriminateMap<Field extends Map<any, any>, Parent extends PlexusModel> = Map<
-  MapKey<Field>,
-  DiscriminateMapValue<MapValue<Field>, Parent>
->;
-/**
- * Specialized decorator for Map fields where values are tracked as children.
- * Provides parent-child ownership tracking for map values.
- */
-function plexusChildMapDecorator<Model extends PlexusModel, Field extends Map<any, any>>(
-  target: ClassAccessorDecoratorTarget<Model, Field>,
-  context: ClassAccessorDecoratorContext<Model, DiscriminateMap<Field, Model>> & {
-    name: string;
-  },
-) {
-  if (!Object.hasOwn(context.metadata, "schema")) {
-    context.metadata.schema = {
-      __proto__: context.metadata.schema ?? {},
-    };
-  }
-  (context.metadata.schema as GenericRecordSchema)[context.name] = "child-map";
-  return createHandlers<Model, DiscriminateMap<Field, Model>>(context);
-}
+  Object.assign(
+    function plexusDynamicDecorator<
+      Model extends PlexusModel,
+      /**
+       * The problem we're solving here is that PlexusModel<A | B> is not matching PlexusModel<B>;
+       * yet we cannot just generalize types. So, we infer two types - FieldValue, that is produced from usage,
+       * and discriminator, that defines what FieldValue is allowed to be. Since we have 2 args, we can make first one
+       * produce FieldValue, and second one to act as discriminator. (decorators are weird; maybe there's more efficient
+       * way to solve it, but it's very hard to debug decorator types)
+       */
+      Value extends Mapping<AllowedYJSValue>[MappingType],
+    >(
+      target: ClassAccessorDecoratorTarget<Model, DiscriminateValue<MappingType, Value, Model>>,
+      context: ClassAccessorDecoratorContext<Model, Value> & { name: string },
+    ) {
+      ensureSchema(context)[context.name] = kind;
+      return createHandlers<Model, Value>(context);
+    },
+    {
+      // todo narrow down
+      declare<Out extends Mapping<AllowedPrimitive | PlexusModel>[MappingType], In extends Out>() {
+        return function plexusDynamicDecorator<Model extends PlexusModel>(
+          target: ClassAccessorDecoratorTarget<PlexusModel, Out>,
+          context: ClassAccessorDecoratorContext<PlexusModel, Out> & { name: string },
+        ) {
+          ensureSchema(context)[context.name] = kind;
+          return createHandlers<Model, Out>(context) as {
+            get?(this: Model): Out;
+            set?(this: Model, value: In): void;
+            init?(this: Model, value: In): In;
+          };
+        };
+      },
+    },
+  );
 
 export const syncing = Object.assign(syncingDecorator, {
   child: Object.assign(buildDiscriminatingDecorator<"identity">("child-val"), {
     record: buildDiscriminatingDecorator<"record">("child-record"),
     set: buildDiscriminatingDecorator<"set">("child-set"),
     list: buildDiscriminatingDecorator<"list">("child-list"),
-    map: plexusChildMapDecorator,
+    /**
+     * Specialized decorator for Map fields where values are tracked as children.
+     * Provides parent-child ownership tracking for map values.
+     */
+    map<Model extends PlexusModel, Field extends Map<any, any>>(
+      target: ClassAccessorDecoratorTarget<Model, Field>,
+      context: ClassAccessorDecoratorContext<Model, DiscriminateMap<Field, Model>> & {
+        name: string;
+      },
+    ) {
+      ensureSchema(context)[context.name] = "child-map";
+      return createHandlers<Model, DiscriminateMap<Field, Model>>(context);
+    },
   }),
   record: buildDecorator<"record">("record"),
   set: buildDecorator<"set">("set"),
   list: buildDecorator<"list">("list"),
-  map: plexusMapDecorator,
+
+  /**
+   * Specialized decorator for Map fields that preserves both key and value types.
+   * Returns PlexusMap which extends Map with bulk operations like assign().
+   */
+  map<Model extends PlexusModel, FieldValueKey extends AllowedYJSMapKey, FieldValue extends AllowedYJSValue>(
+    target: ClassAccessorDecoratorTarget<Model, Map<FieldValueKey, FieldValue>>,
+    context: ClassAccessorDecoratorContext<Model, Map<FieldValueKey, FieldValue>> & { name: string },
+  ) {
+    ensureSchema(context)[context.name] = "map";
+    return createHandlers<Model, Map<FieldValueKey, FieldValue>>(context);
+  },
+
+  declare<Out extends AllowedPrimitive | PlexusModel, In extends Out>() {
+    return function plexusDynamicDecorator<Model extends PlexusModel>(
+      target: ClassAccessorDecoratorTarget<Model, Out>,
+      context: ClassAccessorDecoratorContext<Model, Out> & { name: string },
+    ) {
+      ensureSchema(context)[context.name] = "val";
+      return createHandlers<Model, Out>(context) as {
+        get?(this: Model): Out;
+        set?(this: Model, value: In): void;
+        init?(this: Model, value: In): In;
+      };
+    };
+  },
 });

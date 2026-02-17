@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
-import { PlexusModel } from "../../PlexusModel.js";
+import { getInternals, PlexusModel } from "../../PlexusModel.js";
 import { createTrackedFunction } from "../../tracking.js";
 import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
@@ -45,14 +45,14 @@ describe("Y.UndoManager tracking", () => {
     // Model is dematerialized - root.ref is null
     expect(root.ref).to.eq(null);
     // Accessing dematerialized model throws
-    expect(ref.__internals__.isDematerialized).to.eq(true);
+    expect(getInternals(ref).isDematerialized).to.eq(true);
     expect(() => ref.name).to.throw("dematerialized by undo");
 
     testPlexus.redo();
 
     // Model is rematerialized
     expect(root.ref).to.equal(ref);
-    expect(ref.__internals__.isDematerialized).to.not.be.ok;
+    expect(getInternals(ref).isDematerialized).to.not.be.ok;
     expect(ref.name).to.equal("second");
   });
 

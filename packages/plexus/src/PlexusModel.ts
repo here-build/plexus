@@ -55,6 +55,17 @@ export type ConcretePlexusConstructor<T extends PlexusModel = PlexusModel> = (ne
 
 const currentlyEmancipating = new WeakSet<PlexusModel>();
 
+const internalsStore = new WeakMap<PlexusModel, Internals<any>>();
+
+/**
+ * Access internals for a PlexusModel instance.
+ * Parent type is recovered from the model's generic parameter.
+ * Module-internal — not re-exported from index.ts.
+ */
+export function getInternals<Parent extends PlexusModel | null = any>(model: PlexusModel<Parent>): Internals<Parent> {
+  return internalsStore.get(model) as Internals<Parent>;
+}
+
 // Helper type to detect if a property is readonly (getter)
 type IfEquals<X, Y, A, B> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B;
 type WritableKeys<T> = {
@@ -89,40 +100,30 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   // eslint-disable-next-line sonarjs/public-static-readonly
   static __isMaterializingRaw__ = false;
   // eslint-disable-next-line sonarjs/public-static-readonly
-  static __forcedInternals__: PlexusModel["__internals__"] | null = null;
+  static __forcedInternals__: Internals<any> | null = null;
   // eslint-disable-next-line sonarjs/public-static-readonly
   static modelName: string;
-  // here and in other places we're using accessors only to remove elements from enumerable set
-  __internals__: Internals<Parent>;
   static readonly schema: GenericRecordSchema;
 
   constructor(init: unknown = {}) {
     // Use forced internals if provided (for dependency models), otherwise default
-    if (PlexusModel.__forcedInternals__) {
-      this.__internals__ = PlexusModel.__forcedInternals__;
-    } else {
-      this.__internals__ = {
-        parent: null,
-        parentKey: null,
-        parentMetadata: null,
-        initializationState: init as any,
-        isWithinYjsModelSeed: false,
-        yjsModel: undefined,
-        yjsFieldsMap: undefined,
-        backingStorage: new Map<string, any>(),
-      };
+    const internals: Internals<any> = PlexusModel.__forcedInternals__ ?? {
+      parent: null,
+      parentKey: null,
+      parentMetadata: null,
+      initializationState: init as any,
+      isWithinYjsModelSeed: false,
+      yjsModel: undefined,
+      yjsFieldsMap: undefined,
+      backingStorage: new Map<string, any>(),
+    };
+    internalsStore.set(this, internals);
+    if (!PlexusModel.__forcedInternals__) {
       setTimeout(() => {
         // @ts-expect-error after we're bootstrapped, initializationState is not needed anymore
-        this.__internals__.initializationState = null;
+        internals.initializationState = null;
       });
     }
-    // we're hiding internals from enumeration and serialization aggressively
-    Object.defineProperty(this, "__internals__", {
-      enumerable: false,
-      configurable: false,
-      writable: false,
-      value: this.__internals__,
-    });
     Object.defineProperties(
       this,
       Object.fromEntries(
@@ -154,6 +155,19 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       ),
     );
     return this as typeof this & PlexusTagContainer<this>;
+  }
+
+  get uuid(): PlexusUUID {
+    if (this.__internals__.uuid) {
+      return this.__internals__.uuid;
+    }
+    if (this.__internals__.isDependency) {
+      return this.__internals__.uuid;
+    }
+    this.__internals__.uuid = nanoid() as PlexusUUID;
+    this.__internals__.reference = [this.__internals__.uuid];
+    Object.freeze(this.__internals__.reference);
+    return this.__internals__.uuid;
   }
 
   static __materializeRaw__<T extends PlexusModel>(constructor: Constructor<T>) {
@@ -189,17 +203,30 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     return this.__internals__.yjsFieldsMap;
   }
 
-  get uuid(): PlexusUUID<string, this> {
-    if (this.__internals__.uuid) {
-      return this.__internals__.uuid as PlexusUUID<string, this>;
+  /**
+   * Walk up parent chain to find root.
+   * Returns root if reachable, null if detached or in cycle.
+   * For root entity, returns this.
+   */
+  get rootAncestor(): PlexusModel<null> | null {
+    if (this.isRoot) return this as unknown as PlexusModel<null>;
+    if (!this.__doc__) return null;
+    if (this.__internals__.isDependency) return null;
+
+    const visited = new Set<PlexusModel>();
+    let current: PlexusModel | null = this as PlexusModel;
+
+    while (current) {
+      if (visited.has(current)) return null; // Cycle detected
+      visited.add(current);
+
+      if (current.uuid === "root") {
+        return current as PlexusModel<null>;
+      }
+      current = getInternals(current).parent;
     }
-    if (this.__internals__.isDependency) {
-      return this.__internals__.uuid;
-    }
-    this.__internals__.uuid = nanoid() as PlexusUUID<string, this>;
-    this.__internals__.reference = [this.__internals__.uuid];
-    Object.freeze(this.__internals__.reference);
-    return this.__internals__.uuid as PlexusUUID<string, this>;
+
+    return null; // Orphan
   }
 
   get parent(): Parent | null {
@@ -226,30 +253,8 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     return this.rootAncestor === null;
   }
 
-  /**
-   * Walk up parent chain to find root.
-   * Returns root if reachable, null if detached or in cycle.
-   * For root entity, returns this.
-   */
-  get rootAncestor(): PlexusModel<null> | null {
-    if (this.isRoot) return this as unknown as PlexusModel<null>;
-    if (!this.__doc__) return null;
-    if (this.__internals__.isDependency) return null;
-
-    const visited = new Set<PlexusModel>();
-    let current: PlexusModel | null = this as PlexusModel;
-
-    while (current) {
-      if (visited.has(current)) return null; // Cycle detected
-      visited.add(current);
-
-      if (current.uuid === "root") {
-        return current as PlexusModel<null>;
-      }
-      current = current.__internals__.parent;
-    }
-
-    return null; // Orphan
+  private get __internals__() {
+    return getInternals(this);
   }
 
   get documentId(): string | undefined {
@@ -258,10 +263,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       | undefined;
   }
 
-  static __materializePredefined__<T extends PlexusModel>(
-    constructor: Constructor<T>,
-    internals: PlexusModel["__internals__"],
-  ) {
+  static __materializePredefined__<T extends PlexusModel>(constructor: Constructor<T>, internals: Internals<any>) {
     PlexusModel.__isMaterializingRaw__ = true;
     PlexusModel.__forcedInternals__ = internals;
     try {
@@ -297,7 +299,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     PlexusDependencyError.invariant(!internals.isDependency, this, "adopted");
     PlexusRootParentError.invariant(internals.uuid !== YJS_GLOBALS.models.wellKnown.root, this, newParent);
     PlexusSelfAdoptionError.invariant(newParent !== this, this, field);
-    for (let cur: PlexusModel | null = newParent; cur; cur = cur.__internals__.parent) {
+    for (let cur: PlexusModel | null = newParent; cur; cur = getInternals(cur).parent) {
       PlexusCycleError.invariant(cur !== this, this, newParent, field, cur);
     }
 
@@ -372,6 +374,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
 
   [informOrphanizationSymbol]() {
     const internals = this.__internals__;
+
     PlexusDependencyError.invariant(!internals.isDependency, this, "orphaned");
     internals.parent = null;
     internals.parentKey = null;

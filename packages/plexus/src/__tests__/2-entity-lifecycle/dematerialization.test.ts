@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
-import { PlexusModel } from "../../PlexusModel.js";
+import { getInternals, PlexusModel } from "../../PlexusModel.js";
 import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
@@ -71,7 +71,7 @@ describe("Ephemeral model undo/redo behavior", () => {
 
       plexus.undo();
 
-      expect([root.globals.includes(item), item.__internals__.isDematerialized]).to.have.ordered.members([false, true]);
+      expect([root.globals.includes(item), getInternals(item).isDematerialized]).to.have.ordered.members([false, true]);
       // Dematerialized model throws on access
       expect(() => item.name).to.throw("dematerialized");
     });
@@ -88,11 +88,11 @@ describe("Ephemeral model undo/redo behavior", () => {
 
       plexus.undo();
 
-      expect([root.globals.includes(item), item.__internals__.isDematerialized]).to.have.ordered.members([false, true]);
+      expect([root.globals.includes(item), getInternals(item).isDematerialized]).to.have.ordered.members([false, true]);
 
       plexus.redo();
 
-      expect([root.globals.includes(item), item.__internals__.isDematerialized, item.name]).to.have.ordered.members([
+      expect([root.globals.includes(item), getInternals(item).isDematerialized, item.name]).to.have.ordered.members([
         true,
         false,
         "modified",
@@ -108,14 +108,14 @@ describe("Ephemeral model undo/redo behavior", () => {
 
       plexus.undo();
 
-      expect([root.globals.includes(item), item.__internals__.isDematerialized]).to.have.ordered.members([false, true]);
+      expect([root.globals.includes(item), getInternals(item).isDematerialized]).to.have.ordered.members([false, true]);
 
       // Add the same item again (re-materialize)
       plexus.transact(() => {
         root.globals.push(item);
       });
 
-      expect([root.globals.includes(item), item.__internals__.isDematerialized, item.name]).to.have.ordered.members([
+      expect([root.globals.includes(item), getInternals(item).isDematerialized, item.name]).to.have.ordered.members([
         true,
         false,
         "first",
@@ -169,11 +169,11 @@ describe("Ephemeral model undo/redo behavior", () => {
       // All three transactions merged into one undo frame
       // Single undo reverts everything - item is dematerialized
       plexus.undo();
-      expect([root.globals.includes(item), item.__internals__.isDematerialized]).to.have.ordered.members([false, true]);
+      expect([root.globals.includes(item), getInternals(item).isDematerialized]).to.have.ordered.members([false, true]);
 
       // Single redo restores everything
       plexus.redo();
-      expect([root.globals.includes(item), item.__internals__.isDematerialized, item.name]).to.have.ordered.members([
+      expect([root.globals.includes(item), getInternals(item).isDematerialized, item.name]).to.have.ordered.members([
         true,
         false,
         "end",
@@ -202,8 +202,8 @@ describe("Ephemeral model undo/redo behavior", () => {
       // Both container and item are dematerialized - access throws
       expect([
         root.containers.includes(container),
-        container.__internals__.isDematerialized,
-        item.__internals__.isDematerialized,
+        getInternals(container).isDematerialized,
+        getInternals(item).isDematerialized,
       ]).to.have.ordered.members([false, true, true]);
       expect(() => container.name).to.throw("dematerialized");
       expect(() => item.name).to.throw("dematerialized");
@@ -237,9 +237,9 @@ describe("Ephemeral model undo/redo behavior", () => {
       expect([
         root.containers.includes(container1),
         root.containers.includes(container2),
-        container1.__internals__.isDematerialized,
-        container2.__internals__.isDematerialized,
-        item.__internals__.isDematerialized,
+        getInternals(container1).isDematerialized,
+        getInternals(container2).isDematerialized,
+        getInternals(item).isDematerialized,
       ]).to.have.ordered.members([false, false, true, true, true]);
     });
   });
@@ -362,12 +362,12 @@ describe("Ephemeral model undo/redo behavior", () => {
         root.globals.push(item);
       });
 
-      expect(item.__internals__.isDematerialized).to.not.be.ok;
+      expect(getInternals(item).isDematerialized).to.not.be.ok;
 
       plexus.undo();
 
       // Can check dematerialization status without throwing
-      expect(item.__internals__.isDematerialized).to.eq(true);
+      expect(getInternals(item).isDematerialized).to.eq(true);
     });
   });
 

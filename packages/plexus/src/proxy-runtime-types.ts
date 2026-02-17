@@ -45,7 +45,7 @@ export interface PlexusTagContainer<Token> {
   readonly [tag]?: Token;
 }
 
-export type PlexusUUID<Type, Model extends PlexusModel> = Type & PlexusTagContainer<{ model: Model }>;
+export type PlexusUUID = string & PlexusTagContainer<"plexus-uuid">;
 
 export type GenericRecordSchema = Record<string, `${"child-" | ""}${"val" | "record" | "set" | "list" | "map"}`>;
 
@@ -62,7 +62,7 @@ export type Internals<Parent extends PlexusModel | null> =
       isWithinYjsModelSeed: boolean;
       yjsModel?: Y.Map<Y.Map<Storageable> | string | ParentReference>;
       yjsFieldsMap?: Y.Map<Storageable>;
-      uuid?: string;
+      uuid?: PlexusUUID;
       reference?: ReferenceTuple;
       backingStorage: Map<string, any>;
       isDematerialized?: boolean;
@@ -72,7 +72,7 @@ export type Internals<Parent extends PlexusModel | null> =
       isDependency: true;
       isDematerialized?: false;
       documentId: string;
-      uuid: string;
+      uuid: PlexusUUID;
       parent: Parent;
       reference: [string, string];
       parentKey: null;

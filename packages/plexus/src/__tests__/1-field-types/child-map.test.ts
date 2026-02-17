@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
-import { PlexusModel } from "../../PlexusModel.js";
+import { getInternals, PlexusModel } from "../../PlexusModel.js";
 import { serializeKey } from "../../proxies/key-serialization.js";
 import { referenceSymbol } from "../../proxy-runtime-types.js";
 import { createTrackedFunction } from "../../tracking.js";
@@ -2535,7 +2535,7 @@ describe("child.map advanced edge cases", () => {
       expect(root.items.get("key1")).to.include({ name: "second" });
       // item1 is orphaned but NOT dematerialized - it still exists in memory
       expect(item1).to.have.property("parent", null);
-      expect(item1.__internals__.isDematerialized).to.not.be.ok;
+      expect(getInternals(item1).isDematerialized).to.not.be.ok;
 
       // item2 is adopted
       expect(item2).to.have.property("parent", root);

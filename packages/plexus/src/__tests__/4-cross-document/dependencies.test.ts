@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
-import { PlexusModel } from "../../PlexusModel.js";
+import { getInternals, PlexusModel } from "../../PlexusModel.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
 @syncing
@@ -87,7 +87,7 @@ describe("Dependency system", () => {
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
       const depRoot = plexus.addDependency(depVector);
 
-      expect([depRoot.__internals__.isDependency, depRoot.items[0].__internals__.isDependency]).to.have.ordered.members(
+      expect([getInternals(depRoot).isDependency, getInternals(depRoot.items[0]).isDependency]).to.have.ordered.members(
         [true, true],
       );
     });
@@ -235,7 +235,7 @@ describe("Dependency system", () => {
 
       // Get the item's uuid from the dependency
       const item = depRoot.items[0];
-      const itemUuid = item.__internals__.uuid!;
+      const itemUuid = getInternals(item).uuid!;
 
       // Should be able to retrieve via getDependencyNode
       const retrieved = plexus.__getDependencyNode__("pkg-get", itemUuid);

@@ -14,8 +14,8 @@ import { DefaultedWeakMap } from "@here.build/collections";
 import { documentEntityCaches } from "./entity-cache.js";
 import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
-import { PlexusModel } from "./PlexusModel.js";
-import type { AllowedYValue, ParentReference, Storageable } from "./proxy-runtime-types.js";
+import { getInternals, PlexusModel } from "./PlexusModel.js";
+import type { AllowedYValue, ParentReference, PlexusUUID, Storageable } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
 import { DefaultedMap } from "@here.build/collections";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
@@ -163,7 +163,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
 
     this.yModels = doc.getMap<Y.Map<Y.Map<Storageable> | string | ParentReference>>(YJS_GLOBALS.models.key);
     this.yDependencies = this.doc.getMap<Y.Map<Uint8Array>>(YJS_GLOBALS.dependencies.key);
-    root.__internals__.uuid = YJS_GLOBALS.models.wellKnown.root;
+    getInternals(root).uuid = YJS_GLOBALS.models.wellKnown.root as PlexusUUID;
     // materialization of root should be explicitly done before UndoManager is spawned - otherwise we may accidentally
     // drop root during undos
     root[referenceSymbol](doc);
@@ -186,7 +186,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
             for (const [id, change] of evt.changes.keys.entries()) {
               const model = documentEntityCaches.get(doc).get(id)?.deref();
               invariant(model, `Plexus<model#${id}>: undo event for unregistered model`);
-              const internals = model.__internals__;
+              const internals = getInternals(model);
               if (internals.isDependency) {
                 continue; // very likely we should not do anything; yet, this assumption is not 100%
               }

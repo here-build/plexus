@@ -6,8 +6,14 @@ import * as Y from "yjs";
 import { documentEntityCaches } from "./entity-cache.js";
 import { entityClasses } from "./globals.js";
 import type { ConcretePlexusConstructor } from "./PlexusModel.js";
-import { PlexusModel } from "./PlexusModel.js";
-import type { AllowedYJSValue, AllowedYValue, ParentReference, Storageable } from "./proxy-runtime-types.js";
+import { getInternals, PlexusModel } from "./PlexusModel.js";
+import type {
+  AllowedYJSValue,
+  AllowedYValue,
+  ParentReference,
+  PlexusUUID,
+  Storageable,
+} from "./proxy-runtime-types.js";
 import { isTupleReference } from "./utils/utils.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 import { docPlexus } from "./plexus-registry.js";
@@ -60,13 +66,14 @@ export function deref<T extends AllowedYJSValue>(
     return knownEntity as T;
   }
   const model = PlexusModel.__materializeRaw__(ModelConstructor);
+  const internals = getInternals(model);
   invariant(
-    !model.__internals__.isDependency,
+    !internals.isDependency,
     `Plexus<${targetType}#${entityId}>: somehow, raw materialization spawned dependency. This should never happen and is bug in Plexus itself`,
   );
-  model.__internals__.uuid = entityId;
-  model.__internals__.yjsModel = entityModel;
-  model.__internals__.yjsFieldsMap = fieldsMap;
+  internals.uuid = entityId as PlexusUUID;
+  internals.yjsModel = entityModel;
+  internals.yjsFieldsMap = fieldsMap;
   entityCache.set(entityId, new WeakRef(model));
   model.__bootstrapObservation__();
   return model as T;

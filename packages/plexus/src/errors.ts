@@ -1,4 +1,4 @@
-import { PlexusModel } from "./PlexusModel.js";
+import { getInternals, PlexusModel } from "./PlexusModel.js";
 
 abstract class PlexusError extends Error {
   name = this.constructor.name;
@@ -75,7 +75,7 @@ export class PlexusDependencyError extends PlexusError {
       {
         entity: `${entity.__type__}#${entity.uuid}`,
         operation,
-        isDependency: entity.__internals__.isDependency,
+        isDependency: getInternals(entity).isDependency,
       },
     );
   }

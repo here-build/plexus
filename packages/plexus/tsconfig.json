@@ -1,8 +1,11 @@
 {
-  "extends": "@here.build/tsconfig/library.json",
+  "extends": [
+    "@here.build/tsconfig/purpose/lib",
+    "@here.build/tsconfig/env/node"
+  ],
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": "./src"
   },
   "include": ["src/**/*"],
   "exclude": [

@@ -102,7 +102,7 @@ Type constraint options:
 Requires YJS type creation/management:
 
 1. On initialization, create the appropriate Y.Type
-2. Store in `__yjsFieldsMap__` like other fields
+2. Store in `yjsModel` like other fields
 3. Getter returns the Y.Type directly (no deref, no proxy)
 4. No setter - mutations go through the Y.Type API
 

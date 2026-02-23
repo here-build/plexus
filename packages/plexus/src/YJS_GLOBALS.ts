@@ -4,9 +4,7 @@ export const models = {
     root: "root",
   },
   recordFields: {
-    type: "type",
-    parent: "parent",
-    fields: "fields",
+    parent: "parent", // kept as constant for test assertions; actual storage is child XmlElement
   },
 } as const;
 

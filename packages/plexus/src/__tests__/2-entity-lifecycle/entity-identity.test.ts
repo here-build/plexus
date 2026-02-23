@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
-import * as YJS_GLOBALS from "../../YJS_GLOBALS.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
+import { getModelsMap } from "../../yjs/getModels.js";
 
 // Simple model for singleton tests
 @syncing
@@ -345,17 +345,17 @@ describe("Entity Identity", () => {
         expect(user.name).to.equal("John Doe");
 
         // Delete the entity from the document
-        doc.getMap(YJS_GLOBALS.models.key).delete(user.uuid);
+        getModelsMap(doc).delete(user.uuid);
 
         // Create a new Plexus instance (allowed with new behavior)
         const { plexus: newPlexus, root: newRoot } = connectTestPlexus<TestRoot>(doc);
 
         // The root should still be loaded from cache, deleted entity not in doc, but still in memory
-        expect([
-          newRoot === root,
-          doc.getMap(YJS_GLOBALS.models.key).has(user.uuid),
-          user.name,
-        ]).to.have.ordered.members([true, false, "John Doe"]);
+        expect([newRoot === root, getModelsMap(doc).has(user.uuid), user.name]).to.have.ordered.members([
+          true,
+          false,
+          "John Doe",
+        ]);
       });
     });
 

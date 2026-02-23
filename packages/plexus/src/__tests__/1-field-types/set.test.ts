@@ -5,10 +5,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
-import { Storageable } from "../../proxy-runtime-types.js";
 import * as Y from "yjs";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
-import * as YJS_GLOBALS from "../../YJS_GLOBALS.js";
+import { getModelsMap } from "../../yjs/getModels.js";
 
 // Test model with a set field
 @syncing
@@ -193,11 +192,9 @@ describe("Set Proxy Implementation", () => {
       ]);
 
       // Check that YJS arrays were created
-      const yprojectFields = plexusDoc.getMap<Y.Map<Storageable>>("models");
+      const yprojectFields = getModelsMap(plexusDoc);
       const entityId = root.uuid;
-      const tagsArray = (
-        yprojectFields.get(entityId)?.get(YJS_GLOBALS.models.recordFields.fields) as undefined | Y.Map<Y.Array<any>>
-      )?.get("tags") as Y.Array<any>;
+      const tagsArray = yprojectFields.get(entityId)?.getAttribute("tags") as Y.Array<any>;
 
       expect(tagsArray).to.be.instanceOf(Y.Array).and.have.property("length", 2);
       expect(tagsArray.toArray()).to.include.members(["tag1", "tag2"]);
@@ -221,9 +218,9 @@ describe("Set Proxy Implementation", () => {
       expect([root.tags.has("tag2"), root.tags.size]).to.have.ordered.members([true, 2]);
 
       // Check YJS backing
-      const yprojectFields = plexusDoc.getMap<Y.Map<Storageable>>("models");
+      const yprojectFields = getModelsMap(plexusDoc);
       const entityId = root.uuid;
-      const tagsArray = (yprojectFields.get(entityId)?.get("fields") as undefined | Y.Map<Y.Array<any>>)?.get("tags");
+      const tagsArray = yprojectFields.get(entityId)?.getAttribute("tags") as Y.Array<any> | undefined;
       expect(tagsArray).to.have.property("length", 2);
       expect(tagsArray?.toArray()).to.include.members(["tag1", "tag2"]);
     });

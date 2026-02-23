@@ -7,16 +7,11 @@ import { documentEntityCaches } from "./entity-cache.js";
 import { entityClasses } from "./globals.js";
 import type { ConcretePlexusConstructor } from "./PlexusModel.js";
 import { getInternals, PlexusModel } from "./PlexusModel.js";
-import type {
-  AllowedYJSValue,
-  AllowedYValue,
-  ParentReference,
-  PlexusUUID,
-  Storageable,
-} from "./proxy-runtime-types.js";
+import { PlexusWrapper } from "./PlexusWrapper.js";
+import type { AllowedYJSValue, AllowedYValue, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { isTupleReference } from "./utils/utils.js";
-import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 import { docPlexus } from "./plexus-registry.js";
+import { getModelsMap } from "./yjs/getModels.js";
 
 export function deref<T extends AllowedYJSValue>(
   doc: Y.Doc,
@@ -42,23 +37,16 @@ export function deref<T extends AllowedYJSValue>(
     return docPlexus.get(doc)!.__getDependencyNode__(alteredDocumentId, entityId) as T;
   }
 
-  const yModels = doc.getMap<Y.Map<Y.Map<Storageable> | string | ParentReference>>(YJS_GLOBALS.models.key);
+  const yModels = getModelsMap(doc);
 
   const entityModel = yModels?.get(entityId);
   invariant(entityModel, `Plexus<document#${doc.clientID}>: model #${entityId} not found`);
 
-  const targetType = entityModel?.get(YJS_GLOBALS.models.recordFields.type);
-  invariant(typeof targetType === "string", `Plexus<model#${entityId}>: missing type field`);
+  const targetType = entityModel.nodeName;
+  invariant(typeof targetType === "string", `Plexus<model#${entityId}>: missing type (nodeName)`);
 
   const ModelConstructor = entityClasses.get(targetType) as ConcretePlexusConstructor;
   invariant(ModelConstructor, `Plexus<${targetType}#${entityId}>: class not registered in entityClasses`);
-
-  const fieldsMap = entityModel.get(YJS_GLOBALS.models.recordFields.fields);
-  invariant(fieldsMap, `Plexus<${targetType}#${entityId}>: missing fields map`);
-  invariant(
-    fieldsMap instanceof Y.Map,
-    `Plexus<${targetType}#${entityId}>: fields map is ${fieldsMap.constructor.name}, expected Y.Map`,
-  );
 
   const entityCache = documentEntityCaches.get(doc);
   const knownEntity = entityCache.get(entityId)?.deref();
@@ -72,8 +60,7 @@ export function deref<T extends AllowedYJSValue>(
     `Plexus<${targetType}#${entityId}>: somehow, raw materialization spawned dependency. This should never happen and is bug in Plexus itself`,
   );
   internals.uuid = entityId as PlexusUUID;
-  internals.yjsModel = entityModel;
-  internals.yjsFieldsMap = fieldsMap;
+  internals.yjsModel = new PlexusWrapper(entityModel);
   entityCache.set(entityId, new WeakRef(model));
   model.__bootstrapObservation__();
   return model as T;

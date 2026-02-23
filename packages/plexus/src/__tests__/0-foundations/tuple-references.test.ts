@@ -17,6 +17,7 @@ import { isTupleReference } from "../../utils/utils.js";
 import * as YJS_GLOBALS from "../../YJS_GLOBALS.js";
 import { primeDoc } from "../_helpers/test-helpers.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
+import { getModelsMap } from "../../yjs/getModels.js";
 
 // Test model schemas
 @syncing
@@ -227,14 +228,14 @@ describe("Tuple Reference Format", () => {
       user.posts.push(post);
 
       // Verify storage format in YJS maps
-      const models = doc.getMap<Y.Map<any>>("models");
+      const models = getModelsMap(doc);
       const userId = (user as any).uuid as string;
       const postId = (post as any).uuid as string;
-      const userFields = models.get(userId)!.get(YJS_GLOBALS.models.recordFields.fields);
-      const postFields = models.get(postId)!.get(YJS_GLOBALS.models.recordFields.fields);
+      const userFields = models.get(userId);
+      const postFields = models.get(postId);
 
-      const userPosts = userFields.get("posts") as Y.Array<any>;
-      const postAuthor = postFields.get("author");
+      const userPosts = userFields?.getAttribute("posts") as Y.Array<any>;
+      const postAuthor = postFields?.getAttribute("author");
 
       expect([Array.isArray(userPosts.get(0)), userPosts.get(0), postAuthor]).to.deep.equal([true, [postId], [userId]]);
     });

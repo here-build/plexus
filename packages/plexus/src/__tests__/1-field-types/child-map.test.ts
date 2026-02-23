@@ -9,12 +9,21 @@ import * as Y from "yjs";
 import { syncing } from "../../decorators.js";
 import { getInternals, PlexusModel } from "../../PlexusModel.js";
 import { serializeKey } from "../../proxies/key-serialization.js";
-import { referenceSymbol } from "../../proxy-runtime-types.js";
+import { AllowedYValue, referenceSymbol, YPlexusNode } from "../../proxy-runtime-types.js";
 import { createTrackedFunction } from "../../tracking.js";
-import * as YJS_GLOBALS from "../../YJS_GLOBALS.js";
 import { primeDoc } from "../_helpers/test-helpers.js";
 import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
+import { getModelsMap } from "../../yjs/getModels.js";
+
+function getParentRef(element: YPlexusNode | undefined): string[] | undefined {
+  if (!element || element.length === 0) return undefined;
+  const result: string[] = [];
+  for (let i = 0; i < element.length; i++) {
+    result.push(element.get(i) as any as string);
+  }
+  return result;
+}
 
 // Test models
 @syncing
@@ -533,9 +542,9 @@ describe("child.map edge cases", () => {
       root.items.set("key1", item);
 
       // Verify YJS storage
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
+      const models = getModelsMap(doc);
       const itemFields = models.get(item.uuid);
-      const parentRef = itemFields?.get(YJS_GLOBALS.models.recordFields.parent);
+      const parentRef = getParentRef(itemFields);
 
       // Map keys are serialized with a prefix format
       const serializedKey = serializeKey("key1", doc);
@@ -550,14 +559,14 @@ describe("child.map edge cases", () => {
       root.items.set("key1", item);
 
       // Verify parent ref exists
-      const models = doc.getMap<Y.Map<any>>(YJS_GLOBALS.models.key);
-      expect(models.get(item.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeDefined();
+      const models = getModelsMap(doc);
+      expect(getParentRef(models.get(item.uuid))).toBeDefined();
 
       // Delete item
       root.items.delete("key1");
 
       // Parent ref should be cleared
-      expect(models.get(item.uuid)?.get(YJS_GLOBALS.models.recordFields.parent)).toBeUndefined();
+      expect(getParentRef(models.get(item.uuid))).toBeUndefined();
     });
   });
 

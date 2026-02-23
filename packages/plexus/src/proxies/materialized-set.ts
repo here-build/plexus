@@ -37,7 +37,6 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
     }
     return backingSet;
   };
-  // const getYjsSet = () => owner.__yjsFieldsMap__?.get(key) as Y.Array<AllowedYValue> | null;
   const getYjsSet = () => {
     const yjsArray = owner.__yjsFieldsMap__?.get(key) as Y.Array<AllowedYValue> | null;
     // todo this solves migration issues of adding new fields; yet, it do not generally help

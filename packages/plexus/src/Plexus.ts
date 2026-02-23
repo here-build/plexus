@@ -15,15 +15,17 @@ import { documentEntityCaches } from "./entity-cache.js";
 import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
 import { getInternals, PlexusModel } from "./PlexusModel.js";
-import type { AllowedYValue, ParentReference, PlexusUUID, Storageable } from "./proxy-runtime-types.js";
+import { PlexusWrapper } from "./PlexusWrapper.js";
+import type { AllowedYValue, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
 import { DefaultedMap } from "@here.build/collections";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { maybeTransacting } from "./utils/utils.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
+import { getModelsMap } from "./yjs/getModels.js";
 
 export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<string, Root> }> {
-  protected readonly yModels: Y.Map<Y.Map<Y.Map<Storageable> | string | ParentReference>>;
+  protected readonly yModels: Y.Map<YPlexusNode>;
   protected readonly yDependencies: Y.Map<Y.Map<Uint8Array>>;
   protected readonly dependencyReverseId = new WeakMap<Y.Map<Uint8Array>, string>();
   private readonly dependencyModels = new DefaultedWeakMap((map: Y.Map<Uint8Array>) => {
@@ -161,7 +163,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
 
     // Set up undo manager
 
-    this.yModels = doc.getMap<Y.Map<Y.Map<Storageable> | string | ParentReference>>(YJS_GLOBALS.models.key);
+    this.yModels = getModelsMap(doc).model;
     this.yDependencies = this.doc.getMap<Y.Map<Uint8Array>>(YJS_GLOBALS.dependencies.key);
     getInternals(root).uuid = YJS_GLOBALS.models.wellKnown.root as PlexusUUID;
     // materialization of root should be explicitly done before UndoManager is spawned - otherwise we may accidentally
@@ -197,18 +199,16 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
               notifiedTargets.add(model);
 
               if (change.action === "add") {
-                const newMap = this.yModels.get(id)!;
-                if (internals.yjsModel !== newMap) {
+                const newElement = this.yModels.get(id)!;
+                if (internals.yjsModel?.element !== newElement) {
                   internals.isDematerialized = false;
-                  // old maps are not preserved; we need to regenerate the component logic
-                  internals.yjsModel = this.yModels.get(id)!;
-                  internals.yjsFieldsMap = internals.yjsModel.get(
-                    YJS_GLOBALS.models.recordFields.fields,
-                  ) as Y.Map<Storageable>;
+                  // old elements are not preserved; we need to regenerate the component logic
+                  internals.yjsModel = new PlexusWrapper(newElement);
                   model.__bootstrapObservation__();
                   // we don't know what exactly changed due to transaction compression
-                  undoManagerNotifications.get(model.__yjsFieldsMap__!)?.({
-                    keysChanged: new Set(Object.keys(model.__schema__)),
+                  undoManagerNotifications.get(newElement)?.({
+                    attributesChanged: new Set(Object.keys(model.__schema__)),
+                    childListChanged: true,
                   } as any);
                 }
                 continue;
@@ -222,14 +222,13 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
                 }
                 internals.unobserve?.();
                 internals.yjsModel = undefined;
-                internals.yjsFieldsMap = undefined;
               }
               // todo we may need to process "update" too
             }
             continue;
           }
-          // model roots
-          const target = this.yModels.has(evt.target) ? evt.target.get("fields") : this.yModels.has(evt.target);
+          // Forward events to the target's notification handler
+          const target = evt.target;
 
           if (!notifiedTargets.has(target)) {
             notifiedTargets.add(target);
@@ -259,7 +258,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
       return existing;
     }
 
-    const yModels = doc.getMap(YJS_GLOBALS.models.key);
+    const yModels = getModelsMap(doc);
 
     invariant(
       yModels.has(YJS_GLOBALS.models.wellKnown.root),
@@ -342,7 +341,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     Y.applyUpdate(dependencyDoc, dependencyVector);
     const metadata = dependencyDoc.getMap(YJS_GLOBALS.metadata.key);
     const dependencyDocumentId = metadata.get(YJS_GLOBALS.metadata.wellKnown.documentId) as string;
-    const models = dependencyDoc.getMap<Y.Map<Y.Map<Storageable> | string | ParentReference>>(YJS_GLOBALS.models.key);
+    const models = getModelsMap(dependencyDoc);
     const dependencies = this.doc.getMap<Y.Map<Uint8Array>>(YJS_GLOBALS.dependencies.key);
     invariant(
       !dependencies.has(dependencyDocumentId),
@@ -355,11 +354,16 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
       dependencies.set(dependencyDocumentId, storage);
       for (const [key, model] of models.entries()) {
         const encoder = encoding.createEncoder();
-        encoding.writeVarString(encoder, model.get(YJS_GLOBALS.models.recordFields.type) as string);
-        encoding.writeAny(encoder, (model.get(YJS_GLOBALS.models.recordFields.fields) as Y.Map<Storageable>).toJSON());
-        const parentRef = model.get(YJS_GLOBALS.models.recordFields.parent);
-        if (parentRef) {
-          encoding.writeVarString(encoder, parentRef[0]);
+        encoding.writeVarString(encoder, model.nodeName);
+        // Serialize field attributes (flat storage — fields are directly on XmlElement)
+        const attributes = Object.fromEntries(
+          Object.entries(model.getAttributes()).map(([k, v]) => [k, v instanceof Y.AbstractType ? v.toJSON() : v]),
+        );
+        encoding.writeAny(encoder, attributes);
+        // Parent data is stored as a child XmlElement, not as an attribute
+        const wrapper = new PlexusWrapper(model);
+        if (wrapper.hasParent) {
+          encoding.writeVarString(encoder, wrapper.parent!);
         }
         storage.set(key, encoding.toUint8Array(encoder));
       }

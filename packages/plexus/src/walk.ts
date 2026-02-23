@@ -143,27 +143,21 @@ export function walkChildren<State>(
 
 export const buildVisitor =
   <Models extends Record<string, PlexusModel>>() =>
-  <
-    Visitors extends {
-      [key in keyof Models]?: (
-        node: Models[key],
-        context: {
-          path: Models[keyof Models][];
-        },
-      ) => unknown;
-    },
-  >(
-    handlers: Visitors,
-  ) =>
-    function visit<
-      Model extends Models[keyof Models & keyof Visitors],
-      key extends keyof Visitors,
-      Returns extends Visitors[key] extends (...args: any) => infer R ? R : never,
-    >(node: Model): Returns {
-      const typeName = node.__type__ as keyof Models & string;
+  <Visitors extends { [key in keyof Models]?: (node: Models[key]) => unknown }>(handlers: Visitors) =>
+    function visit<Key extends Extract<keyof Models, Extract<keyof Visitors, string>>, Model extends Models[Key]>(
+      node: Model,
+    ) {
+      const typeName = node.__type__ as Key;
       const handler = handlers[typeName];
 
       invariant(handler, `No handler for node type: ${typeName}`);
-      // @ts-expect-error black magic
-      return handler(node, {});
-    };
+      return handler(node);
+    } as <NodeArg extends Partial<Models>[Extract<keyof Models, keyof Visitors>]>(
+      node: NodeArg,
+    ) => {
+      [key in keyof Models]: Models[key] extends NodeArg
+        ? Visitors[key] extends (...args: any) => infer R
+          ? R
+          : any
+        : never;
+    }[keyof Models];;

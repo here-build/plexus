@@ -1,6 +1,7 @@
 import type * as Y from "yjs";
 
 import type { PlexusModel } from "./PlexusModel.js";
+import type { PlexusWrapper } from "./PlexusWrapper.js";
 import type { curryMaybeReference } from "./utils/utils.js";
 
 export const referenceSymbol = Symbol("reference");
@@ -12,7 +13,6 @@ export const requestAdoptionSymbol = Symbol("report parentship change");
 export const requestOrphanizationSymbol = Symbol("report orphanage");
 export const validateAdoptionSymbol = Symbol("validate adoption");
 
-export type ParentReference = [entityId: string, fieldName: string, metadata?: string];
 // New tuple-based references (memory optimized)
 type LocalReferenceeTuple = [entityId: string];
 export type CrossProjectReferenceTuple = [entityId: string, dependencyId: string];
@@ -27,6 +27,8 @@ export type AllowedYJSValueList = AllowedYJSValue[];
 export type AllowedYJSMapKey = AllowedYJSValue | Set<AllowedYJSValue> | AllowedYJSValue[];
 
 export type Storageable = AllowedYValue | Y.Map<AllowedYValue> | Y.Array<AllowedYValue>;
+
+export type YPlexusNode = Y.XmlElement<Record<string, Storageable>>;
 
 export declare class ReadonlyField<T> {
   assign(value: T): void;
@@ -60,8 +62,7 @@ export type Internals<Parent extends PlexusModel | null> =
         AllowedYJSValue | AllowedYJSValueSet | AllowedYJSValueMap | AllowedYJSValueList | undefined
       >;
       isWithinYjsModelSeed: boolean;
-      yjsModel?: Y.Map<Y.Map<Storageable> | string | ParentReference>;
-      yjsFieldsMap?: Y.Map<Storageable>;
+      yjsModel?: PlexusWrapper;
       uuid?: PlexusUUID;
       reference?: ReferenceTuple;
       backingStorage: Map<string, any>;

@@ -458,6 +458,14 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
         internals.yjsModel = new PlexusWrapper(yprojectObjectInstance);
         internals.isDematerialized = false; // Clear if re-materializing after undo
         documentEntityCaches.get(doc).set(this.uuid, new WeakRef(this));
+        // Type index: register this instance's type for getAllOfType queries
+        const typeIndex = doc.getMap<Y.Map<boolean>>(YJS_GLOBALS.typeIndex.key);
+        let typeMap = typeIndex.get(this.#type);
+        if (!typeMap) {
+          typeMap = new Y.Map<boolean>();
+          typeIndex.set(this.#type, typeMap);
+        }
+        typeMap.set(this.uuid, true);
         // there may be instantation loops where we need to have internals.yjsModel materialized in that flow
         if (internals.parent) {
           const parentReference = internals.parent[referenceSymbol](doc);

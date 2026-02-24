@@ -14,7 +14,7 @@ import { DefaultedWeakMap } from "@here.build/collections";
 import { documentEntityCaches } from "./entity-cache.js";
 import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
-import { getInternals, PlexusModel } from "./PlexusModel.js";
+import { getInternals, PlexusModel, type PlexusConstructor } from "./PlexusModel.js";
 import { PlexusWrapper } from "./PlexusWrapper.js";
 import type { AllowedYValue, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
@@ -323,6 +323,16 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
    */
   transact<T>(fn: () => T): T {
     return maybeTransacting(this.doc, fn);
+  }
+
+  /**
+   * Get all materialized instances of a given model type.
+   * Uses the type index (append-only Y.Map) for O(k) lookup where k = instances of that type.
+   */
+  getAllOfType<T extends PlexusModel>(constructor: PlexusConstructor<T>): T[] {
+    const typeMap = this.doc.getMap<Y.Map<boolean>>(YJS_GLOBALS.typeIndex.key).get(constructor.modelName);
+    if (!typeMap) return [];
+    return [...typeMap.keys()].map((uuid) => deref(this.doc, [uuid]) as T);
   }
 
   public __getDependencyNode__(dependencyId: string, elementUuid: string) {

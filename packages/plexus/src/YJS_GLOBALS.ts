@@ -8,6 +8,9 @@ export const models = {
   },
 } as const;
 
+export const typeIndex = {
+  key: "typeIndex",
+} as const;
 
 export const dependencies = {
   key: "dependencies",

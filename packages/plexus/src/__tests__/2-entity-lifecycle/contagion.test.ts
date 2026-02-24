@@ -9,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
-import { primeDoc } from "../_helpers/test-helpers.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 
 // Test schema definitions
@@ -71,8 +70,6 @@ describe("Contagion (Auto-materialization)", () => {
   beforeEach(() => {
     doc1 = new Y.Doc();
     doc2 = new Y.Doc();
-    primeDoc(doc1);
-    primeDoc(doc2);
   });
 
   afterEach(() => {

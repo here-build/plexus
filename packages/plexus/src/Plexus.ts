@@ -273,7 +273,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
    * Bootstrap a new Y.Doc with the provided root entity.
    * Returns existing instance if one exists for this class.
    */
-  static bootstrap(root: PlexusModel, documentId: string = nanoid(), doc: Y.Doc = new Y.Doc()) {
+  static bootstrap(root: PlexusModel, documentId: string = nanoid(), doc: Y.Doc = new Y.Doc({ guid: documentId })) {
     // Return existing instance if one exists for this class
     const existing = docPlexus.get(doc);
     if (existing) {
@@ -283,7 +283,6 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
       );
       return existing;
     }
-    doc.getMap(YJS_GLOBALS.metadata.key).set(YJS_GLOBALS.metadata.wellKnown.documentId, documentId);
     return new this(doc, root);
   }
 
@@ -332,15 +331,13 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     return this.dependencyModels.get(dependency).get(elementUuid);
   }
 
-  addDependency(dependencyVector: Uint8Array): Root {
+  addDependency(dependencyDocumentId: string, dependencyVector: Uint8Array): Root {
     invariant(
       Object.hasOwn(this.root, "dependencies"),
       `Plexus<document#${this.doc.clientID}>.addDependency: root model does not support dependencies`,
     );
-    const dependencyDoc = new Y.Doc();
+    const dependencyDoc = new Y.Doc({ guid: dependencyDocumentId });
     Y.applyUpdate(dependencyDoc, dependencyVector);
-    const metadata = dependencyDoc.getMap(YJS_GLOBALS.metadata.key);
-    const dependencyDocumentId = metadata.get(YJS_GLOBALS.metadata.wellKnown.documentId) as string;
     const models = getModelsMap(dependencyDoc);
     const dependencies = this.doc.getMap<Y.Map<Uint8Array>>(YJS_GLOBALS.dependencies.key);
     invariant(

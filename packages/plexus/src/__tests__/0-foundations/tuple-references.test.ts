@@ -15,7 +15,6 @@ import { PlexusModel } from "../../PlexusModel.js";
 import { referenceSymbol } from "../../proxy-runtime-types.js";
 import { isTupleReference } from "../../utils/utils.js";
 import * as YJS_GLOBALS from "../../YJS_GLOBALS.js";
-import { primeDoc } from "../_helpers/test-helpers.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 import { getModelsMap } from "../../yjs/getModels.js";
 
@@ -172,7 +171,6 @@ describe("Tuple Reference Format", () => {
 
     beforeEach(() => {
       doc = new Y.Doc();
-      primeDoc(doc);
     });
 
     it("should create local references as single-element tuples", async () => {

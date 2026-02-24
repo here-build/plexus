@@ -11,7 +11,6 @@ import { getInternals, PlexusModel } from "../../PlexusModel.js";
 import { serializeKey } from "../../proxies/key-serialization.js";
 import { AllowedYValue, referenceSymbol, YPlexusNode } from "../../proxy-runtime-types.js";
 import { createTrackedFunction } from "../../tracking.js";
-import { primeDoc } from "../_helpers/test-helpers.js";
 import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 import { getModelsMap } from "../../yjs/getModels.js";
@@ -154,8 +153,6 @@ describe("child.map edge cases", () => {
     beforeEach(() => {
       doc1 = new Y.Doc();
       doc2 = new Y.Doc();
-      primeDoc(doc1);
-      primeDoc(doc2);
     });
 
     afterEach(() => {
@@ -2572,8 +2569,6 @@ describe("child.map advanced edge cases", () => {
     beforeEach(() => {
       doc1 = new Y.Doc();
       doc2 = new Y.Doc();
-      primeDoc(doc1);
-      primeDoc(doc2);
     });
 
     afterEach(() => {

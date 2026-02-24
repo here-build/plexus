@@ -13,7 +13,6 @@ import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
 import { referenceSymbol } from "../../proxy-runtime-types.js";
 import { createTrackedFunction } from "../../tracking.js";
-import { primeDoc } from "../_helpers/test-helpers.js";
 import { initTestPlexus, TestPlexus } from "../_helpers/test-plexus.js";
 
 // Model classes
@@ -86,8 +85,6 @@ describe("Cross-Document Notifications", () => {
   beforeEach(() => {
     doc1 = new Y.Doc();
     doc2 = new Y.Doc();
-    primeDoc(doc1);
-    primeDoc(doc2);
   });
 
   afterEach(() => {
@@ -298,7 +295,7 @@ describe("Cross-Document Notifications", () => {
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      primeDoc(doc2);
+
       const post2 = plexus.loadEntity<Post>(entityId)!;
 
       const notifyCallback = vi.fn();
@@ -348,7 +345,7 @@ describe("Cross-Document Notifications", () => {
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      primeDoc(doc2);
+
       const post2 = plexus.loadEntity<Post>(entityId)!;
 
       const notifyCallback = vi.fn();
@@ -391,7 +388,7 @@ describe("Cross-Document Notifications", () => {
 
       // Sync to doc2
       syncDocs(doc1, doc2);
-      primeDoc(doc2);
+
       const post2 = plexus.loadEntity<Post>(entityId)!;
 
       const notifyCallback = vi.fn();

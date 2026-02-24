@@ -19,11 +19,11 @@ export function initTestPlexus<Root extends PlexusModel>(
   dependencies: Record<string, Y.Doc> = {},
   documentId: string = nanoid(),
 ): { doc: Y.Doc; plexus: TestPlexus<Root>; root: Root } {
-  const doc = new Y.Doc();
+  const doc = new Y.Doc({ guid: documentId });
 
   const plexus = TestPlexus.bootstrap(rootEntity, documentId, doc);
-  for (const dep of Object.values(dependencies)) {
-    plexus.addDependency(Y.encodeStateAsUpdate(dep));
+  for (const [depId, dep] of Object.entries(dependencies)) {
+    plexus.addDependency(depId, Y.encodeStateAsUpdate(dep));
   }
 
   return { doc, plexus, root: plexus.root as Root };
@@ -35,8 +35,8 @@ export function initTestPlexus<Root extends PlexusModel>(
  */
 export function connectTestPlexus<Root extends PlexusModel>(doc: Y.Doc, dependencies: Record<string, Y.Doc> = {}) {
   const plexus = TestPlexus.connect(doc) as TestPlexus<Root>;
-  for (const dep of Object.values(dependencies)) {
-    plexus.addDependency(Y.encodeStateAsUpdate(dep));
+  for (const [depId, dep] of Object.entries(dependencies)) {
+    plexus.addDependency(depId, Y.encodeStateAsUpdate(dep));
   }
 
   return { plexus, root: plexus.root };

@@ -10,7 +10,6 @@ import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
 import { PlexusModel } from "../../PlexusModel.js";
-import { primeDoc } from "../_helpers/test-helpers.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 
 // Test schema definitions
@@ -60,8 +59,6 @@ describe("Concurrent Mutation Races", () => {
   beforeEach(() => {
     doc1 = new Y.Doc();
     doc2 = new Y.Doc();
-    primeDoc(doc1);
-    primeDoc(doc2);
   });
 
   afterEach(() => {

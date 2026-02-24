@@ -39,20 +39,20 @@ function createDependencyDoc(documentId: string, setup: (plexus: ReturnType<type
     setup({ doc, plexus, root });
   });
 
-  return Y.encodeStateAsUpdate(doc);
+  return [documentId, Y.encodeStateAsUpdate(doc)] as const;
 }
 
 describe("Dependency system", () => {
   describe("Basic dependency loading", () => {
     it("should load a simple dependency with flat items", () => {
-      const depVector = createDependencyDoc("pkg-1", ({ root }) => {
+      const [depId, depVector] = createDependencyDoc("pkg-1", ({ root }) => {
         root.items.push(new Item({ name: "item-a" }));
         root.items.push(new Item({ name: "item-b" }));
       });
 
       const { plexus, root } = initTestPlexus(new Root({ containers: [], items: [] }));
 
-      const depRoot = plexus.addDependency(depVector);
+      const depRoot = plexus.addDependency(depId, depVector);
 
       expect(depRoot).to.not.eq(undefined);
       expect(depRoot.items).to.have.lengthOf(2);
@@ -60,12 +60,12 @@ describe("Dependency system", () => {
     });
 
     it("should make dependency models read-only", () => {
-      const depVector = createDependencyDoc("pkg-2", ({ root }) => {
+      const [depId, depVector] = createDependencyDoc("pkg-2", ({ root }) => {
         root.items.push(new Item({ name: "original" }));
       });
 
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
-      const depRoot = plexus.addDependency(depVector);
+      const depRoot = plexus.addDependency(depId, depVector);
 
       // Dependency models should be read-only
       const item = depRoot.items[0];
@@ -80,12 +80,12 @@ describe("Dependency system", () => {
     });
 
     it("should mark dependency models with isDependency flag", () => {
-      const depVector = createDependencyDoc("pkg-3", ({ root }) => {
+      const [depId, depVector] = createDependencyDoc("pkg-3", ({ root }) => {
         root.items.push(new Item({ name: "test" }));
       });
 
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
-      const depRoot = plexus.addDependency(depVector);
+      const depRoot = plexus.addDependency(depId, depVector);
 
       expect([getInternals(depRoot).isDependency, getInternals(depRoot.items[0]).isDependency]).to.have.ordered.members(
         [true, true],
@@ -93,21 +93,21 @@ describe("Dependency system", () => {
     });
 
     it("should prevent adding duplicate dependencies", () => {
-      const depVector = createDependencyDoc("pkg-dup", ({ root }) => {
+      const [depId, depVector] = createDependencyDoc("pkg-dup", ({ root }) => {
         root.items.push(new Item({ name: "test" }));
       });
 
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
 
-      plexus.addDependency(depVector);
+      plexus.addDependency(depId, depVector);
 
-      expect(() => plexus.addDependency(depVector)).to.throw("already exists");
+      expect(() => plexus.addDependency(depId, depVector)).to.throw("already exists");
     });
   });
 
   describe("Nested dependencies", () => {
     it("should resolve parent-child relationships within dependency", () => {
-      const depVector = createDependencyDoc("pkg-nested", ({ root }) => {
+      const [depId, depVector] = createDependencyDoc("pkg-nested", ({ root }) => {
         const container = new Container({ name: "parent", item: null, items: [] });
         const item = new Item({ name: "child" });
         container.item = item;
@@ -115,7 +115,7 @@ describe("Dependency system", () => {
       });
 
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
-      const depRoot = plexus.addDependency(depVector);
+      const depRoot = plexus.addDependency(depId, depVector);
 
       expect(depRoot.containers).to.have.lengthOf(1);
       const container = depRoot.containers[0];
@@ -125,7 +125,7 @@ describe("Dependency system", () => {
     });
 
     it("should resolve child lists within dependency", () => {
-      const depVector = createDependencyDoc("pkg-list", ({ root }) => {
+      const [depId, depVector] = createDependencyDoc("pkg-list", ({ root }) => {
         const container = new Container({ name: "holder", item: null, items: [] });
         container.items.push(new Item({ name: "first" }));
         container.items.push(new Item({ name: "second" }));
@@ -134,7 +134,7 @@ describe("Dependency system", () => {
       });
 
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
-      const depRoot = plexus.addDependency(depVector);
+      const depRoot = plexus.addDependency(depId, depVector);
 
       const container = depRoot.containers[0];
       expect(container.items).to.have.lengthOf(3);
@@ -146,14 +146,14 @@ describe("Dependency system", () => {
     });
 
     it("should track parent references within dependency", () => {
-      const depVector = createDependencyDoc("pkg-parent", ({ root }) => {
+      const [depId, depVector] = createDependencyDoc("pkg-parent", ({ root }) => {
         const container = new Container({ name: "parent", item: null, items: [] });
         container.item = new Item({ name: "child" });
         root.containers.push(container);
       });
 
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
-      const depRoot = plexus.addDependency(depVector);
+      const depRoot = plexus.addDependency(depId, depVector);
 
       const container = depRoot.containers[0];
       const item = container.item!;
@@ -163,7 +163,7 @@ describe("Dependency system", () => {
     });
 
     it("should handle deeply nested structures", () => {
-      const depVector = createDependencyDoc("pkg-deep", ({ root }) => {
+      const [depId, depVector] = createDependencyDoc("pkg-deep", ({ root }) => {
         const outer = new Container({ name: "outer", item: null, items: [] });
         // Note: Container can't nest Containers in this schema, so we test with items
         outer.items.push(new Item({ name: "deep-1" }));
@@ -173,7 +173,7 @@ describe("Dependency system", () => {
       });
 
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
-      const depRoot = plexus.addDependency(depVector);
+      const depRoot = plexus.addDependency(depId, depVector);
 
       const outer = depRoot.containers[0];
       expect([outer.name, outer.item!.name, outer.items[0].name, outer.items[1].name]).to.have.ordered.members([
@@ -187,17 +187,17 @@ describe("Dependency system", () => {
 
   describe("rootDependenciesRepresentation", () => {
     it("should expose dependencies via proxy", () => {
-      const depVector1 = createDependencyDoc("dep-a", ({ root }) => {
+      const [depId1, depVector1] = createDependencyDoc("dep-a", ({ root }) => {
         root.items.push(new Item({ name: "from-a" }));
       });
-      const depVector2 = createDependencyDoc("dep-b", ({ root }) => {
+      const [depId2, depVector2] = createDependencyDoc("dep-b", ({ root }) => {
         root.items.push(new Item({ name: "from-b" }));
       });
 
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
 
-      plexus.addDependency(depVector1);
-      plexus.addDependency(depVector2);
+      plexus.addDependency(depId1, depVector1);
+      plexus.addDependency(depId2, depVector2);
 
       const deps = plexus.rootDependenciesRepresentation;
 
@@ -207,17 +207,17 @@ describe("Dependency system", () => {
     });
 
     it("should list dependency keys via ownKeys", () => {
-      const depVector1 = createDependencyDoc("pkg-x", ({ root }) => {
+      const [depId1, depVector1] = createDependencyDoc("pkg-x", ({ root }) => {
         root.items.push(new Item({ name: "x" }));
       });
-      const depVector2 = createDependencyDoc("pkg-y", ({ root }) => {
+      const [depId2, depVector2] = createDependencyDoc("pkg-y", ({ root }) => {
         root.items.push(new Item({ name: "y" }));
       });
 
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
 
-      plexus.addDependency(depVector1);
-      plexus.addDependency(depVector2);
+      plexus.addDependency(depId1, depVector1);
+      plexus.addDependency(depId2, depVector2);
 
       const keys = Reflect.ownKeys(plexus.rootDependenciesRepresentation);
       expect(keys).to.include("pkg-x").and.include("pkg-y");
@@ -226,12 +226,12 @@ describe("Dependency system", () => {
 
   describe("getDependencyNode", () => {
     it("should retrieve specific nodes by id", () => {
-      const depVector = createDependencyDoc("pkg-get", ({ root }) => {
+      const [depId, depVector] = createDependencyDoc("pkg-get", ({ root }) => {
         root.items.push(new Item({ name: "findme" }));
       });
 
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
-      const depRoot = plexus.addDependency(depVector);
+      const depRoot = plexus.addDependency(depId, depVector);
 
       // Get the item's uuid from the dependency
       const item = depRoot.items[0];

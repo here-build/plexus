@@ -3,7 +3,7 @@ import * as Y from "yjs";
 import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
-import { primeDoc } from "../_helpers/test-helpers.js";
+
 
 // Sync helper function
 function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
@@ -483,7 +483,6 @@ describe("Plexus Inheritance and Default Values", () => {
 
     beforeEach(() => {
       doc2 = new Y.Doc();
-      primeDoc(doc2);
     });
 
     afterEach(() => {

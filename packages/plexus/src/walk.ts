@@ -147,7 +147,7 @@ export const buildVisitor =
     function visit<Key extends Extract<keyof Models, Extract<keyof Visitors, string>>, Model extends Models[Key]>(
       node: Model,
     ) {
-      const typeName = node.__type__ as Key;
+      const typeName = node.constructor.name as Key;
       const handler = handlers[typeName];
 
       invariant(handler, `No handler for node type: ${typeName}`);

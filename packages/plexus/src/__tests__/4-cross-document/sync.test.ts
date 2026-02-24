@@ -10,7 +10,7 @@ import * as Y from "yjs";
 import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
-import { primeDoc } from "../_helpers/test-helpers.js";
+
 
 // Extended Y.Doc type for testing
 type TestYDoc = Y.Doc;
@@ -80,8 +80,6 @@ describe("Cross-Document Orphaning Edge Cases", () => {
   beforeEach(() => {
     doc1 = new Y.Doc();
     doc2 = new Y.Doc();
-    primeDoc(doc1);
-    primeDoc(doc2);
   });
 
   afterEach(() => {
@@ -127,8 +125,6 @@ describe("Cross-Document Proxy Sync", () => {
   beforeEach(() => {
     doc1 = new Y.Doc();
     doc2 = new Y.Doc();
-    primeDoc(doc1);
-    primeDoc(doc2);
   });
 
   afterEach(() => {

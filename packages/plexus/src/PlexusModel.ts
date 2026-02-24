@@ -257,9 +257,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   }
 
   get documentId(): string | undefined {
-    return this.__doc__?.getMap(YJS_GLOBALS.metadata.key).get(YJS_GLOBALS.metadata.wellKnown.documentId) as
-      | string
-      | undefined;
+    return this.__doc__?.guid;
   }
 
   static __materializePredefined__<T extends PlexusModel>(constructor: Constructor<T>, internals: Internals<any>) {

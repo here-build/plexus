@@ -56,13 +56,14 @@
   },
   "devDependencies": {
     "@here.build/eslint-configs": "workspace:^",
-    "type-fest": "^5.4.4",
     "@here.build/tsconfig": "workspace:^",
     "@types/node": "24",
     "eslint": "^9.39.2",
+    "fast-check": "^4.5.3",
     "mobx": "^6.15.0",
     "prettier": "^3.8.1",
     "tslib": "^2.8.1",
+    "type-fest": "^5.4.4",
     "typescript": "^5.9.3",
     "vitest": "^4.0.14",
     "yjs": "^13.6.27"

@@ -165,6 +165,7 @@ describe("child.map edge cases", () => {
       const container = new Container({ items: new Map() });
       const { doc, root: root1 } = initTestPlexus(container);
       doc1 = doc;
+      doc2 = new Y.Doc({ guid: doc1.guid });
 
       const item = new Item({ name: "remote-item" });
       root1.items.set("key1", item);
@@ -184,6 +185,7 @@ describe("child.map edge cases", () => {
       const container = new Container({ items: new Map() });
       const { doc, root: root1 } = initTestPlexus(container);
       doc1 = doc;
+      doc2 = new Y.Doc({ guid: doc1.guid });
 
       const item = new Item({ name: "will-be-deleted" });
       root1.items.set("key1", item);
@@ -210,6 +212,7 @@ describe("child.map edge cases", () => {
       const container = new Container({ items: new Map() });
       const { doc, root: root1 } = initTestPlexus(container);
       doc1 = doc;
+      doc2 = new Y.Doc({ guid: doc1.guid });
 
       const item1 = new Item({ name: "original" });
       root1.items.set("key1", item1);
@@ -238,6 +241,7 @@ describe("child.map edge cases", () => {
       const container = new Container({ items: new Map() });
       const { doc, root: root1 } = initTestPlexus(container);
       doc1 = doc;
+      doc2 = new Y.Doc({ guid: doc1.guid });
 
       const item1 = new Item({ name: "item1" });
       const item2 = new Item({ name: "item2" });
@@ -273,7 +277,7 @@ describe("child.map edge cases", () => {
       root1.items.set("key1", item1);
 
       // Create doc2 and sync state
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
 
       // Connect to doc2 - children should be adopted during materialization
@@ -295,7 +299,7 @@ describe("child.map edge cases", () => {
       for (const [i, item] of items.entries()) root1.items.set(`key-${i}`, item);
 
       // Create doc2 and sync state
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
 
       // Connect to doc2
@@ -2581,6 +2585,7 @@ describe("child.map advanced edge cases", () => {
       const container = new Container({ items: new Map() });
       const { doc, root: root1 } = initTestPlexus(container);
       doc1 = doc;
+      doc2 = new Y.Doc({ guid: doc1.guid });
 
       // Sync to doc2
       syncDocs(doc1, doc2);
@@ -2605,6 +2610,7 @@ describe("child.map advanced edge cases", () => {
       const container = new Container({ items: new Map() });
       const { doc, root: root1 } = initTestPlexus(container);
       doc1 = doc;
+      doc2 = new Y.Doc({ guid: doc1.guid });
 
       // Add initial item
       root1.items.set("contested", new Item({ name: "original" }));
@@ -2628,6 +2634,7 @@ describe("child.map advanced edge cases", () => {
       const container = new Container({ items: new Map() });
       const { doc, root: root1 } = initTestPlexus(container);
       doc1 = doc;
+      doc2 = new Y.Doc({ guid: doc1.guid });
 
       const item = new Item({ name: "contested" });
       root1.items.set("key1", item);

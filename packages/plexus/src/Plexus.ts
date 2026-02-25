@@ -25,7 +25,23 @@ import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 import { getModelsMap } from "./yjs/getModels.js";
 
 export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<string, Root> }> {
-  protected readonly yModels: Y.Map<YPlexusNode>;
+  readonly rootDependenciesRepresentation: ReadonlyDeep<Record<string, Root>> = new Proxy(
+    {},
+    {
+      ownKeys: () => [...this.yDependencies.keys()],
+      get: (_, key: string) => {
+        const depMap = this.yDependencies.get(key);
+        if (!depMap) return undefined;
+        // Find root UUID from the dependency's meta map
+        const depDoc = new Y.Doc({ guid: key });
+        // Dependencies are serialized — root is stored under the "root" well-known key
+        // In old format, root was stored with key "root". In new format, we look in meta.
+        // For dependencies, the root UUID is stored as the "root" key in the dependency map itself.
+        const rootUuid = this.#findDependencyRoot(depMap);
+        return this.dependencyModels.get(depMap).get(rootUuid);
+      },
+    },
+  );
   protected readonly yDependencies: Y.Map<Y.Map<Uint8Array>>;
   protected readonly dependencyReverseId = new WeakMap<Y.Map<Uint8Array>, string>();
   private readonly dependencyModels = new DefaultedWeakMap((map: Y.Map<Uint8Array>) => {
@@ -142,14 +158,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     });
     return defaultedMap;
   });
-  readonly rootDependenciesRepresentation: ReadonlyDeep<Record<string, Root>> = new Proxy(
-    {},
-    {
-      ownKeys: () => [...this.yDependencies.keys()],
-      get: (_, key: string) =>
-        this.dependencyModels.get(this.yDependencies.get(key)!).get(YJS_GLOBALS.models.wellKnown.root),
-    },
-  );
+  protected readonly yTypes: Y.Map<Y.Map<YPlexusNode>>;
   private readonly __undoManager__: UndoManager;
   private __isUndoing__ = false;
 
@@ -161,15 +170,29 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     invariant(!docPlexus.has(doc), `Plexus<document#${doc.clientID}>: already initialized, singleton violation`);
     docPlexus.set(doc, this);
 
-    // Set up undo manager
-
-    this.yModels = getModelsMap(doc).model;
+    // Set up type-scoped storage
+    this.yTypes = getModelsMap(doc).raw;
     this.yDependencies = this.doc.getMap<Y.Map<Uint8Array>>(YJS_GLOBALS.dependencies.key);
-    getInternals(root).uuid = YJS_GLOBALS.models.wellKnown.root as PlexusUUID;
+
+    // Mark root and materialize
+    const rootInternals = getInternals(root);
+    rootInternals.isRoot = true;
     // materialization of root should be explicitly done before UndoManager is spawned - otherwise we may accidentally
     // drop root during undos
     root[referenceSymbol](doc);
-    this.__undoManager__ = new UndoManager(this.yModels, {
+    // Store root pointer in meta map for remote peer discovery
+    doc.getMap<string>(YJS_GLOBALS.meta.key).set(YJS_GLOBALS.meta.wellKnown.root, rootInternals.uuid!);
+
+    // Pre-create type sub-maps for ALL registered entity types.
+    // This ensures undo only removes entities from sub-maps (not the sub-maps themselves).
+    // Without this, if a type sub-map is created in the same undo frame as an entity addition,
+    // undo removes the entire sub-map, and the inner-map event never fires for dematerialization.
+    const typesHelper = getModelsMap(doc);
+    for (const typeName of entityClasses.keys()) {
+      typesHelper.getTypeMap(typeName);
+    }
+
+    this.__undoManager__ = new UndoManager(this.yTypes, {
       captureTimeout: 500,
       trackedOrigins: new Set([Plexus]),
     });
@@ -184,10 +207,15 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
         // we have very specific issue here: when we're undo-ing the changeset that was including model materialization,
         // we have it deleted, too, leading to funky state.
         for (const evt of yEvents) {
-          if (evt.target === this.yModels) {
+          // Skip outer types map events (type sub-map added/removed)
+          if (evt.target === this.yTypes) {
+            continue;
+          }
+          // Type sub-map event — entity added/deleted within a type
+          if (evt.target instanceof Y.Map && evt.target !== this.yTypes) {
             for (const [id, change] of evt.changes.keys.entries()) {
               const model = documentEntityCaches.get(doc).get(id)?.deref();
-              invariant(model, `Plexus<model#${id}>: undo event for unregistered model`);
+              if (!model) continue; // Entity may not be cached yet (e.g. from remote peer)
               const internals = getInternals(model);
               if (internals.isDependency) {
                 continue; // very likely we should not do anything; yet, this assumption is not 100%
@@ -199,7 +227,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
               notifiedTargets.add(model);
 
               if (change.action === "add") {
-                const newElement = this.yModels.get(id)!;
+                const newElement = (evt.target as Y.Map<YPlexusNode>).get(id)!;
                 if (internals.yjsModel?.element !== newElement) {
                   internals.isDematerialized = false;
                   // old elements are not preserved; we need to regenerate the component logic
@@ -258,15 +286,27 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
       return existing;
     }
 
-    const yModels = getModelsMap(doc);
+    const meta = doc.getMap<string>(YJS_GLOBALS.meta.key);
+    const rootUuid = meta.get(YJS_GLOBALS.meta.wellKnown.root);
 
     invariant(
-      yModels.has(YJS_GLOBALS.models.wellKnown.root),
+      rootUuid,
       `Plexus<document#${doc.clientID}>.connect: no root found, await sync first`,
     );
 
-    const root = deref(doc, [YJS_GLOBALS.models.wellKnown.root]) as PlexusModel;
+    const root = deref(doc, [rootUuid]) as PlexusModel;
+    getInternals(root).isRoot = true;
     return new this(doc, root);
+  }
+
+  /**
+   * Get all materialized instances of a given model type.
+   * Uses the types/{type} sub-map directly — no separate type index needed.
+   */
+  getAllOfType<T extends PlexusModel>(constructor: PlexusConstructor<T>): T[] {
+    const typeMap = this.yTypes.get(constructor.modelName);
+    if (!typeMap) return [];
+    return [...typeMap.keys()].map((uuid) => deref(this.doc, [uuid]) as T);
   }
 
   /**
@@ -326,19 +366,90 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
   }
 
   /**
-   * Get all materialized instances of a given model type.
-   * Uses the type index (append-only Y.Map) for O(k) lookup where k = instances of that type.
+   * Find all instances of ParentClass whose `field` references `node`.
+   * Supports all field types. Child fields early-return (ownership is exclusive).
+   * Reference fields use WeakSet dedup and yield all matches.
    */
-  getAllOfType<T extends PlexusModel>(constructor: PlexusConstructor<T>): T[] {
-    const typeMap = this.doc.getMap<Y.Map<boolean>>(YJS_GLOBALS.typeIndex.key).get(constructor.modelName);
-    if (!typeMap) return [];
-    return [...typeMap.keys()].map((uuid) => deref(this.doc, [uuid]) as T);
-  }
+  *parentsOf<P extends PlexusModel>(node: PlexusModel, parentClass: PlexusConstructor<P>, field: string): Generator<P> {
+    const fieldType = parentClass.schema[field];
+    invariant(fieldType, `parentsOf: field "${field}" does not exist on ${parentClass.modelName}`);
+    const candidates = this.getAllOfType(parentClass);
 
-  public __getDependencyNode__(dependencyId: string, elementUuid: string) {
-    const dependency = this.yDependencies.get(dependencyId);
-    invariant(dependency, `Plexus<doc#${dependencyId}> cannot resolve dependency by id`);
-    return this.dependencyModels.get(dependency).get(elementUuid);
+    switch (fieldType) {
+      // ── Child fields: ownership exclusive, at most one parent ──
+      case "child-val": {
+        for (const c of candidates) {
+          if ((c as any)[field] === node) { yield c; return; }
+        }
+        break;
+      }
+      case "child-list": {
+        for (const c of candidates) {
+          if (((c as any)[field] as any[]).includes(node)) { yield c; return; }
+        }
+        break;
+      }
+      case "child-set": {
+        for (const c of candidates) {
+          if (((c as any)[field] as Set<any>).has(node)) { yield c; return; }
+        }
+        break;
+      }
+      case "child-record": {
+        for (const c of candidates) {
+          if (Object.values((c as any)[field]).includes(node)) { yield c; return; }
+        }
+        break;
+      }
+      case "child-map": {
+        for (const c of candidates) {
+          for (const v of ((c as any)[field] as Map<any, any>).values()) {
+            if (v === node) { yield c; return; }
+          }
+        }
+        break;
+      }
+
+      // ── Reference fields: multiple parents possible, dedup via seen ──
+      case "val": {
+        const seen = new WeakSet<P>();
+        for (const c of candidates) {
+          if ((c as any)[field] === node && !seen.has(c)) { seen.add(c); yield c; }
+        }
+        break;
+      }
+      case "list": {
+        const seen = new WeakSet<P>();
+        for (const c of candidates) {
+          if (((c as any)[field] as any[]).includes(node) && !seen.has(c)) { seen.add(c); yield c; }
+        }
+        break;
+      }
+      case "set": {
+        const seen = new WeakSet<P>();
+        for (const c of candidates) {
+          if (((c as any)[field] as Set<any>).has(node) && !seen.has(c)) { seen.add(c); yield c; }
+        }
+        break;
+      }
+      case "record": {
+        const seen = new WeakSet<P>();
+        for (const c of candidates) {
+          if (Object.values((c as any)[field]).includes(node) && !seen.has(c)) { seen.add(c); yield c; }
+        }
+        break;
+      }
+      case "map": {
+        const seen = new WeakSet<P>();
+        for (const c of candidates) {
+          if (seen.has(c)) continue;
+          for (const v of ((c as any)[field] as Map<any, any>).values()) {
+            if (v === node) { seen.add(c); yield c; break; }
+          }
+        }
+        break;
+      }
+    }
   }
 
   addDependency(dependencyDocumentId: string, dependencyVector: Uint8Array): Root {
@@ -348,7 +459,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     );
     const dependencyDoc = new Y.Doc({ guid: dependencyDocumentId });
     Y.applyUpdate(dependencyDoc, dependencyVector);
-    const models = getModelsMap(dependencyDoc);
+    const depTypes = getModelsMap(dependencyDoc);
     const dependencies = this.doc.getMap<Y.Map<Uint8Array>>(YJS_GLOBALS.dependencies.key);
     invariant(
       !dependencies.has(dependencyDocumentId),
@@ -357,9 +468,15 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
 
     const storage = new Y.Map<Uint8Array>();
     this.dependencyReverseId.set(storage, dependencyDocumentId);
+
+    // Find root UUID from the dependency doc's meta map
+    const depMeta = dependencyDoc.getMap<string>(YJS_GLOBALS.meta.key);
+    const depRootUuid = depMeta.get(YJS_GLOBALS.meta.wellKnown.root);
+    invariant(depRootUuid, `Plexus: dependency ${dependencyDocumentId} has no root in meta map`);
+
     this.doc.transact(() => {
       dependencies.set(dependencyDocumentId, storage);
-      for (const [key, model] of models.entries()) {
+      for (const [key, model] of depTypes.allEntries()) {
         const encoder = encoding.createEncoder();
         encoding.writeVarString(encoder, model.nodeName);
         // Serialize field attributes (flat storage — fields are directly on XmlElement)
@@ -376,6 +493,27 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
       }
     });
 
-    return this.dependencyModels.get(storage).get(YJS_GLOBALS.models.wellKnown.root) as Root;
+    return this.dependencyModels.get(storage).get(depRootUuid) as Root;
+  }
+
+  public __getDependencyNode__(dependencyId: string, elementUuid: string) {
+    const dependency = this.yDependencies.get(dependencyId);
+    invariant(dependency, `Plexus<doc#${dependencyId}> cannot resolve dependency by id`);
+    return this.dependencyModels.get(dependency).get(elementUuid);
+  }
+
+  #findDependencyRoot(depMap: Y.Map<Uint8Array>): string {
+    // Dependencies store entities as uuid→serialized. The root is the one whose
+    // parent field is absent. For backwards compat, try "root" key first.
+    if (depMap.has("root")) return "root";
+    // Otherwise scan for the entry with no parent
+    for (const [uuid] of depMap.entries()) {
+      const decoder = decoding.createDecoder(depMap.get(uuid)!);
+      decoding.readVarString(decoder); // modelType
+      decoding.readAny(decoder); // storage
+      const hasParent = decoding.hasContent(decoder);
+      if (!hasParent) return uuid;
+    }
+    invariant(false, "Plexus: dependency has no root entity");
   }
 }

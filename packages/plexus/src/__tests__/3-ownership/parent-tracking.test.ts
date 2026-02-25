@@ -822,7 +822,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children.filter((c) => c === first)).to.have.lengthOf(1);
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
@@ -861,7 +861,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children.filter((ch) => ch === b)).to.have.lengthOf(1);
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
@@ -898,7 +898,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children.filter((ch) => ch === d)).to.have.lengthOf(1);
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
@@ -944,7 +944,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children.filter((ch) => ch === b)).to.have.lengthOf(1);
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
@@ -991,7 +991,7 @@ describe("Parent Tracking", () => {
       expect(c.parent).to.eq(null);
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
@@ -1030,7 +1030,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children.filter((ch) => ch === c)).to.have.lengthOf(1);
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
@@ -1074,7 +1074,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children.filter((ch) => ch === e)).to.have.lengthOf(1);
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
@@ -1119,7 +1119,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children.filter((ch) => ch === d)).to.have.lengthOf(1);
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
@@ -1151,7 +1151,7 @@ describe("Parent Tracking", () => {
       expect(c.parent).to.eq(null); // orphaned
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
@@ -1183,7 +1183,7 @@ describe("Parent Tracking", () => {
       expect(a.parent).to.eq(null); // orphaned
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
@@ -1213,7 +1213,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children).to.have.ordered.members([c, b, a]);
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
@@ -1246,7 +1246,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children[2].name).to.equal("charlie");
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
@@ -1319,7 +1319,7 @@ describe("Parent Tracking", () => {
       expect(materializedParent.children).to.deep.equal([a, b, c, d, e, f]); // Unchanged
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
@@ -1366,7 +1366,7 @@ describe("Parent Tracking", () => {
       expect(d.parent).to.equal(materializedParent);
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;
@@ -1522,7 +1522,7 @@ describe("Parent Tracking", () => {
       expect(c.parent).to.eq(null);
 
       // Verify YJS sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
       const { plexus: plexus2 } = connectTestPlexus<Parent>(doc2);
       const syncedParent = plexus2.loadEntity<Parent>(materializedParent.uuid)!;

@@ -1,4 +1,4 @@
-import { getInternals, PlexusModel } from "./PlexusModel.js";
+import { getInternals, PlexusModel, safeUuid } from "./PlexusModel.js";
 
 abstract class PlexusError extends Error {
   name = this.constructor.name;
@@ -32,12 +32,12 @@ export class PlexusSelfAdoptionError extends PlexusError {
     public readonly field: string,
   ) {
     super(
-      `Plexus<${entity.__type__}#${entity.uuid}>: cannot adopt self (via ${field})`,
+      `Plexus<${entity.__type__}#${safeUuid(entity)}>: cannot adopt self (via ${field})`,
       "Self-adoption attempt detected:",
       {
-        entity: `${entity.__type__}#${entity.uuid}`,
+        entity: `${entity.__type__}#${safeUuid(entity)}`,
         field,
-        currentParent: entity.parent ? `${entity.parent.__type__}#${entity.parent.uuid}` : null,
+        currentParent: entity.parent ? `${entity.parent.__type__}#${safeUuid(entity.parent)}` : null,
       },
     );
   }
@@ -51,14 +51,14 @@ export class PlexusCycleError extends PlexusError {
     public readonly cycleNode: PlexusModel,
   ) {
     super(
-      `Plexus<${child.__type__}#${child.uuid}>: cannot be adopted by descendant ${newParent.__type__}#${newParent.uuid} (would create cycle via ${field})`,
+      `Plexus<${child.__type__}#${safeUuid(child)}>: cannot be adopted by descendant ${newParent.__type__}#${safeUuid(newParent)} (would create cycle via ${field})`,
       "Cycle detected during adoption:",
       {
-        child: `${child.__type__}#${child.uuid}`,
-        newParent: `${newParent.__type__}#${newParent.uuid}`,
+        child: `${child.__type__}#${safeUuid(child)}`,
+        newParent: `${newParent.__type__}#${safeUuid(newParent)}`,
         field,
-        cycleNode: `${cycleNode.__type__}#${cycleNode.uuid}`,
-        currentParent: child.parent ? `${child.parent.__type__}#${child.parent.uuid}` : null,
+        cycleNode: `${cycleNode.__type__}#${safeUuid(cycleNode)}`,
+        currentParent: child.parent ? `${child.parent.__type__}#${safeUuid(child.parent)}` : null,
       },
     );
   }
@@ -70,10 +70,10 @@ export class PlexusDependencyError extends PlexusError {
     public readonly operation: "adopted" | "edited" | "orphaned" | "emancipated" | "accessed",
   ) {
     super(
-      `Plexus<${entity.__type__}#${entity.uuid}>: dependency cannot be ${operation}`,
+      `Plexus<${entity.__type__}#${safeUuid(entity)}>: dependency cannot be ${operation}`,
       "Dependency modification attempt:",
       {
-        entity: `${entity.__type__}#${entity.uuid}`,
+        entity: `${entity.__type__}#${safeUuid(entity)}`,
         operation,
         isDependency: getInternals(entity).isDependency,
       },
@@ -90,9 +90,9 @@ export class PlexusRootParentError extends PlexusError {
       `Plexus<${rootEntity.__type__}#root>: root entity cannot have a parent`,
       "Root entity parent assignment attempt:",
       {
-        rootEntity: `${rootEntity.__type__}#${rootEntity.uuid}`,
-        attemptedParent: `${attemptedParent.__type__}#${attemptedParent.uuid}`,
-        isRoot: rootEntity.uuid === "root",
+        rootEntity: `${rootEntity.__type__}#${safeUuid(rootEntity)}`,
+        attemptedParent: `${attemptedParent.__type__}#${safeUuid(attemptedParent)}`,
+        isRoot: rootEntity.isRoot,
       },
     );
   }
@@ -104,12 +104,12 @@ export class PlexusDocMismatchError extends PlexusError {
     public readonly newParent: PlexusModel,
   ) {
     super(
-      `Plexus<${child.__type__}#${child.uuid}>: cannot adopt entity from different doc`,
+      `Plexus<${child.__type__}#${safeUuid(child)}>: cannot adopt entity from different doc`,
       "Document mismatch during adoption:",
       {
-        child: `${child.__type__}#${child.uuid}`,
+        child: `${child.__type__}#${safeUuid(child)}`,
         childDoc: child.__doc__?.clientID,
-        newParent: `${newParent.__type__}#${newParent.uuid}`,
+        newParent: `${newParent.__type__}#${safeUuid(newParent)}`,
         parentDoc: newParent.__doc__?.clientID,
       },
     );
@@ -124,14 +124,14 @@ export class PlexusDuplicateChildError extends PlexusError {
     public readonly operation: string,
   ) {
     super(
-      `Plexus<${parent.__type__}#${parent.uuid}.${field}>: ${operation} cannot insert the same child multiple times`,
+      `Plexus<${parent.__type__}#${safeUuid(parent)}.${field}>: ${operation} cannot insert the same child multiple times`,
       "Duplicate child insertion attempt:",
       {
-        parent: `${parent.__type__}#${parent.uuid}`,
+        parent: `${parent.__type__}#${safeUuid(parent)}`,
         field,
-        child: `${child.__type__}#${child.uuid}`,
+        child: `${child.__type__}#${safeUuid(child)}`,
         operation,
-        childCurrentParent: child.parent ? `${child.parent.__type__}#${child.parent.uuid}` : null,
+        childCurrentParent: child.parent ? `${child.parent.__type__}#${safeUuid(child.parent)}` : null,
       },
     );
   }

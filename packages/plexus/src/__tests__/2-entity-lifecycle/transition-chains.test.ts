@@ -226,7 +226,7 @@ describe("Lifecycle Transition Chains", () => {
       const originalUuid = root1.primary!.uuid;
 
       // Create second document and sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: plexus1.doc.guid });
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(plexus1.doc));
 
       const { root: root2 } = connectTestPlexus<Root>(doc2);
@@ -243,7 +243,7 @@ describe("Lifecycle Transition Chains", () => {
       root1.primary = new Node({ name: "original" });
 
       // Create and sync doc2
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: plexus1.doc.guid });
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(plexus1.doc));
       const { root: root2 } = connectTestPlexus<Root>(doc2);
 

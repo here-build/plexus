@@ -11,10 +11,6 @@ import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 
-
-// Extended Y.Doc type for testing
-type TestYDoc = Y.Doc;
-
 // Test schema definitions
 @syncing
 class TplTag extends PlexusModel {
@@ -74,21 +70,10 @@ function createTestSite(name: string): { site: Site; entityId: string; doc: Y.Do
 }
 
 describe("Cross-Document Orphaning Edge Cases", () => {
-  let doc1: TestYDoc;
-  let doc2: TestYDoc;
-
-  beforeEach(() => {
-    doc1 = new Y.Doc();
-    doc2 = new Y.Doc();
-  });
-
-  afterEach(() => {
-    doc1.destroy();
-    doc2.destroy();
-  });
-
   it("should handle references to destroyed documents", () => {
     const { site: site1, doc: doc1 } = createTestSite("Orphaning Test");
+    // doc2 shares guid so CRDT-native UUIDs decode correctly on both peers
+    const doc2 = new Y.Doc({ guid: doc1.guid });
 
     const component = new Component({
       name: "Will Be Orphaned",
@@ -119,19 +104,6 @@ describe("Cross-Document Orphaning Edge Cases", () => {
 });
 
 describe("Cross-Document Proxy Sync", () => {
-  let doc1: TestYDoc;
-  let doc2: TestYDoc;
-
-  beforeEach(() => {
-    doc1 = new Y.Doc();
-    doc2 = new Y.Doc();
-  });
-
-  afterEach(() => {
-    doc1.destroy();
-    doc2.destroy();
-  });
-
   it("should sync bidirectional changes across documents", async () => {
     // Doc1: Setup initial state using Plexus
     const ephemeralSite = new Site({
@@ -139,6 +111,8 @@ describe("Cross-Document Proxy Sync", () => {
       components: {},
     });
     const { doc: doc1, root: site1 } = initTestPlexus<Site>(ephemeralSite);
+    // doc2 shares guid so CRDT-native UUIDs decode correctly on both peers
+    const doc2 = new Y.Doc({ guid: doc1.guid });
     const component1 = new Component({
       name: "Original",
       type: "component",
@@ -199,6 +173,7 @@ describe("Cross-Document Proxy Sync", () => {
       components: {},
     });
     const { doc: doc1, root: site1 } = initTestPlexus<Site>(ephemeralSite2);
+    const doc2 = new Y.Doc({ guid: doc1.guid });
 
     const parentComponent = new Component({
       name: "Parent",
@@ -276,6 +251,7 @@ describe("Cross-Document Proxy Sync", () => {
       components: {},
     });
     const { doc: doc1, root: site1 } = initTestPlexus<Site>(ephemeralSite3);
+    const doc2 = new Y.Doc({ guid: doc1.guid });
     const parent = new Component({
       name: "Parent",
       type: "container",
@@ -385,6 +361,7 @@ describe("Cross-Document Proxy Sync", () => {
       components: {},
     });
     const { doc: doc1, root: site1 } = initTestPlexus<Site>(ephemeralSite4);
+    const doc2 = new Y.Doc({ guid: doc1.guid });
 
     const comp1 = new Component({
       name: "Component1",

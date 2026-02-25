@@ -14,7 +14,6 @@ import { syncing } from "../../decorators.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { referenceSymbol } from "../../proxy-runtime-types.js";
 import { isTupleReference } from "../../utils/utils.js";
-import * as YJS_GLOBALS from "../../YJS_GLOBALS.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 import { getModelsMap } from "../../yjs/getModels.js";
 

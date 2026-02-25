@@ -200,7 +200,8 @@ describe("Transaction Batching", () => {
   describe("cross-document sync within transactions", () => {
     it("syncs transacted changes atomically", () => {
       const { root: root1, plexus: plexus1 } = initTestPlexus(new Container());
-      const doc2 = new Y.Doc();
+      // doc2 shares guid so CRDT-native UUIDs decode correctly on both peers
+      const doc2 = new Y.Doc({ guid: plexus1.doc.guid });
 
       // Initial sync
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(plexus1.doc));

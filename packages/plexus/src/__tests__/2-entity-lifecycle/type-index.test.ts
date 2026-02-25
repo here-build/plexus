@@ -75,7 +75,7 @@ describe("Type Index", () => {
     const { plexus: plexus1, root, doc: doc1 } = initTestPlexus(new TypeIndexRoot());
     root.alphas.push(new Alpha({ name: "from-doc1" }));
 
-    const doc2 = new Y.Doc();
+    const doc2 = new Y.Doc({ guid: doc1.guid });
     syncDocs(doc1, doc2);
 
     const { plexus: plexus2 } = connectTestPlexus<TypeIndexRoot>(doc2);

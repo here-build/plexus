@@ -1,7 +1,7 @@
 import invariant from "tiny-invariant";
 
 import type { ConcretePlexusConstructor } from "./PlexusModel.js";
-import { PlexusModel } from "./PlexusModel.js";
+import { PlexusModel, safeUuid } from "./PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue } from "./proxy-runtime-types.js";
 import { __untracked__, ACCESS_ALL_SYMBOL, trackAccess } from "./tracking.js";
 
@@ -11,8 +11,8 @@ let cloneTransactionMapping: WeakMap<any, any> | null = null;
 const postMappingFill = new Set<() => void>();
 
 // Temporary storage for child-map entries during clone transaction
-// Keys are kept as originals in phase 1, then remapped in phase 2 (postMappingFill)
-let childMapTempEntries: Map<string, [AllowedYJSMapKey, AllowedYJSValue][]> | null = null;
+// Keyed by object identity (WeakMap<model, Map<fieldKey, entries>>) instead of UUID strings
+let childMapTempEntries: WeakMap<PlexusModel, Map<string, [AllowedYJSMapKey, AllowedYJSValue][]>> | null = null;
 
 /**
  * Cloning is following the behavior from many other libraries.
@@ -41,7 +41,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
   const isTopLevel = cloneTransactionMapping === null;
   if (isTopLevel) {
     postMappingFill.clear();
-    childMapTempEntries = new Map();
+    childMapTempEntries = new WeakMap();
   }
   cloneTransactionMapping ??= new WeakMap();
   if (cloneTransactionMapping.has(source)) {
@@ -54,7 +54,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
     const clonedModel = PlexusModel.__materializeRaw__(source.constructor as ConcretePlexusConstructor<Model>);
     invariant(
       !cloneTransactionMapping.has(source),
-      `Plexus<${source.__type__}#${source.uuid}.clone>: source already in clone mapping`,
+      `Plexus<${source.__type__}#${safeUuid(source)}.clone>: source already in clone mapping`,
     );
     cloneTransactionMapping.set(source, clonedModel);
     // it is important to not reuse the existing primitives: we have different logic based on child/non-child fields
@@ -104,9 +104,13 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
               const clonedValue = value instanceof PlexusModel ? value.clone() : value;
               tempEntries.push([key, clonedValue]); // Original key, cloned value
             }
-            // Store for phase 2 processing, keyed by model UUID + field name
-            const storageKey = `${clonedModel.uuid}:${fieldKey}`;
-            childMapTempEntries!.set(storageKey, tempEntries);
+            // Store for phase 2 processing, keyed by object identity + field name
+            let modelEntries = childMapTempEntries!.get(clonedModel);
+            if (!modelEntries) {
+              modelEntries = new Map();
+              childMapTempEntries!.set(clonedModel, modelEntries);
+            }
+            modelEntries.set(fieldKey, tempEntries);
             // Set empty map for now - will be filled in postMappingFill
             clonedModel[fieldKey] = new Map();
             break;
@@ -165,8 +169,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
               // Phase 2: Now that all child entities are cloned, remap keys.
               // Keys that were cloned (as values elsewhere) get remapped to the clone.
               // Keys that were NOT cloned stay as the original reference.
-              const storageKey = `${clonedModel.uuid}:${fieldKey}`;
-              const tempEntries = childMapTempEntries!.get(storageKey);
+              const tempEntries = childMapTempEntries!.get(clonedModel)?.get(fieldKey);
               if (tempEntries) {
                 const finalEntries: [AllowedYJSMapKey, AllowedYJSValue][] = tempEntries.map(([key, value]) => {
                   let remappedKey: AllowedYJSMapKey;
@@ -180,7 +183,7 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
                   return [remappedKey, value]; // Value already cloned in phase 1
                 });
                 clonedModel[fieldKey] = new Map(finalEntries);
-                childMapTempEntries!.delete(storageKey);
+                childMapTempEntries!.get(clonedModel)?.delete(fieldKey);
               }
               break;
             }

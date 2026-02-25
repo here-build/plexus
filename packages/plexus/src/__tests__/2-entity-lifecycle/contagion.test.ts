@@ -82,6 +82,7 @@ describe("Contagion (Auto-materialization)", () => {
     const ephemeralSite = new Site({ name: "Test Site", components: {} });
     const { doc: testDoc1, root: site1 } = initTestPlexus<Site>(ephemeralSite);
     doc1 = testDoc1;
+    doc2 = new Y.Doc({ guid: doc1.guid });
 
     // Create ephemeral component
     const ephemeralComponent = new Component({

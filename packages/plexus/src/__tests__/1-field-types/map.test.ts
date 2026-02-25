@@ -1010,7 +1010,7 @@ describe("Map", () => {
 
   describe("Persistence via Plexus", () => {
     it("should persist Map data across document sync", () => {
-      const doc1 = new Y.Doc();
+      const doc1 = new Y.Doc({ guid: "test-site" });
       const site1 = new TestSite({
         components: [],
         variants: [],
@@ -1037,7 +1037,7 @@ describe("Map", () => {
       component.framesByCombo.set(new Set([v1, v2]), new FrameMetadata({ width: 500, height: 400 }));
 
       // Sync to another doc
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
       const plexus2 = Plexus.connect(doc2) as Plexus<TestSite>;
 

@@ -1,10 +1,10 @@
 import "@here.build/arrival-env";
-import { nanoid } from "nanoid";
 import invariant from "tiny-invariant";
 import type { Constructor, ReadonlyDeep } from "type-fest";
 import * as Y from "yjs";
 
 import { clone } from "./clone.js";
+import { encode } from "./crdt-uuid.js";
 import { deref } from "./deref.js";
 import { documentEntityCaches } from "./entity-cache.js";
 import {
@@ -41,7 +41,6 @@ import {
 import { trackAccess, trackModification } from "./tracking.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { curryMaybeReference, maybeTransacting, never } from "./utils/utils.js";
-import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 import { getModelsMap } from "./yjs/getModels.js";
 
 export type PlexusConstructor<T extends PlexusModel = PlexusModel> = (abstract new (...args: any) => T) & {
@@ -64,6 +63,11 @@ const internalsStore = new WeakMap<PlexusModel, Internals<any>>();
  */
 export function getInternals<Parent extends PlexusModel | null = any>(model: PlexusModel<Parent>): Internals<Parent> {
   return internalsStore.get(model) as Internals<Parent>;
+}
+
+/** Safe UUID accessor for error messages — never throws. */
+export function safeUuid(entity: PlexusModel): string {
+  return getInternals(entity).uuid ?? "<virtual>";
 }
 
 // Helper type to detect if a property is readonly (getter)
@@ -115,6 +119,8 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       isWithinYjsModelSeed: false,
       yjsModel: undefined,
       backingStorage: new Map<string, any>(),
+      // No UUID until materialization — virtual nodes are ephemeral.
+      // CRDT-native UUID is assigned at [referenceSymbol] via encode().
     };
     internalsStore.set(this, internals);
     if (!PlexusModel.__forcedInternals__) {
@@ -157,16 +163,15 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   }
 
   get uuid(): PlexusUUID {
-    if (this.__internals__.uuid) {
-      return this.__internals__.uuid;
+    const internals = this.__internals__;
+    if (internals.uuid) return internals.uuid;
+    // Connected to a doc → trigger materialization to assign CRDT-native UUID
+    const doc = !internals.isDependency && internals.yjsModel?.doc;
+    if (doc) {
+      this[referenceSymbol](doc);
+      return internals.uuid!;
     }
-    if (this.__internals__.isDependency) {
-      return this.__internals__.uuid;
-    }
-    this.__internals__.uuid = nanoid() as PlexusUUID;
-    this.__internals__.reference = [this.__internals__.uuid];
-    Object.freeze(this.__internals__.reference);
-    return this.__internals__.uuid;
+    throw new Error(`Plexus<${this.__type__}>: .uuid accessed before materialization`);
   }
 
   static __materializeRaw__<T extends PlexusModel>(constructor: Constructor<T>) {
@@ -181,7 +186,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   get __doc__(): Y.Doc | null {
     invariant(
       !this.__internals__.isDependency,
-      `Plexus<${this.__type__}#${this.uuid}>: dependency do not have __doc__`,
+      `Plexus<${this.__type__}#${safeUuid(this)}>: dependency do not have __doc__`,
     );
     return this.__internals__.yjsModel?.doc ?? null;
   }
@@ -197,7 +202,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   get __yjsFieldsMap__(): PlexusWrapper | undefined {
     invariant(
       !this.__internals__.isDependency,
-      `Plexus<${this.__type__}#${this.uuid}>: dependency do not have __wrapper__`,
+      `Plexus<${this.__type__}#${safeUuid(this)}>: dependency do not have __wrapper__`,
     );
     return this.__internals__.yjsModel;
   }
@@ -219,7 +224,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       if (visited.has(current)) return null; // Cycle detected
       visited.add(current);
 
-      if (current.uuid === "root") {
+      if (current.isRoot) {
         return current as PlexusModel<null>;
       }
       current = getInternals(current).parent;
@@ -234,10 +239,10 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   }
 
   /**
-   * True if this is the root entity (uuid === "root")
+   * True if this is the root entity (flagged at Plexus construction time).
    */
   get isRoot(): boolean {
-    return this.uuid === "root";
+    return this.__internals__.isRoot === true;
   }
 
   /**
@@ -294,7 +299,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     const internals = this.__internals__;
 
     PlexusDependencyError.invariant(!internals.isDependency, this, "adopted");
-    PlexusRootParentError.invariant(internals.uuid !== YJS_GLOBALS.models.wellKnown.root, this, newParent);
+    PlexusRootParentError.invariant(!internals.isRoot, this, newParent);
     PlexusSelfAdoptionError.invariant(newParent !== this, this, field);
     for (let cur: PlexusModel | null = newParent; cur; cur = getInternals(cur).parent) {
       PlexusCycleError.invariant(cur !== this, this, newParent, field, cur);
@@ -424,23 +429,23 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       return internals.reference;
     }
     invariant(docPlexus.has(doc), `Plexus<document#${doc.clientID}>: not registered as Plexus root`);
-    const yModels = getModelsMap(doc);
+    const yTypes = getModelsMap(doc);
 
     if (internals.yjsModel?.doc) {
       invariant(
         doc === internals.yjsModel.doc,
-        `Plexus<${this.__type__}#${this.uuid}>: cannot cross-reference between docs`,
+        `Plexus<${this.__type__}#${internals.uuid ?? "<virtual>"}>: cannot cross-reference between docs`,
       );
-      if (yModels.has(this.uuid)) {
+      if (yTypes.has(this.uuid)) {
         // you never know what kinds of interesting states you can get in with CRDT
         invariant(
-          yModels.get(this.uuid) === internals.yjsModel.element,
-          `Plexus<${this.__type__}#${this.uuid}>: uuid conflict, already taken by different model`,
+          yTypes.get(this.uuid) === internals.yjsModel.element,
+          `Plexus<${this.__type__}#${this.uuid}>: impossible case. uuid conflict, already taken by different model`,
         );
       } else {
         // this MAY and is allowed to happen during the undo operations that are removing some class from model;
         // this is weird situation where Y.XmlElement technically belongs to doc, but exists in pre-GC limbo.
-        yModels.set(this.uuid, internals.yjsModel.element);
+        yTypes.set(this.#type, this.uuid, internals.yjsModel.element);
         internals.isDematerialized = false;
       }
       return this.#reference;
@@ -448,24 +453,25 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     const boundMaybeReference = curryMaybeReference(doc);
 
     return maybeTransacting(doc, () => {
-      let yprojectObjectInstance = yModels.get(this.uuid);
       internals.isWithinYjsModelSeed = true;
+      // Ensure the type sub-map exists (pre-created, no clock consumed)
+      const typeMap = yTypes.getTypeMap(this.#type);
+
+      // Check if entity is already stored (re-entry or re-materialization guard).
+      let yprojectObjectInstance = internals.uuid ? typeMap.get(internals.uuid) : undefined;
       if (!yprojectObjectInstance) {
+        // CRDT-native UUID: encode {clientId, clock} at materialization.
+        // The next clock tick will be consumed by typeMap.set — predict it now.
+        const predictedClock = Y.getState(doc.store, doc.clientID);
+        internals.uuid = encode(doc.guid, doc.clientID, predictedClock) as PlexusUUID;
         // type is encoded in XmlElement nodeName; fields stored directly as attributes (flat)
         yprojectObjectInstance = new Y.XmlElement(this.#type);
-        yModels.set(this.uuid, yprojectObjectInstance);
+        typeMap.set(internals.uuid, yprojectObjectInstance); // consumes predictedClock
         // yjsModel must be set before schema iteration to avoid circular self-reference issues
         internals.yjsModel = new PlexusWrapper(yprojectObjectInstance);
         internals.isDematerialized = false; // Clear if re-materializing after undo
         documentEntityCaches.get(doc).set(this.uuid, new WeakRef(this));
-        // Type index: register this instance's type for getAllOfType queries
-        const typeIndex = doc.getMap<Y.Map<boolean>>(YJS_GLOBALS.typeIndex.key);
-        let typeMap = typeIndex.get(this.#type);
-        if (!typeMap) {
-          typeMap = new Y.Map<boolean>();
-          typeIndex.set(this.#type, typeMap);
-        }
-        typeMap.set(this.uuid, true);
+        // Storage layout IS the type index — no separate typeIndex map needed
         // there may be instantation loops where we need to have internals.yjsModel materialized in that flow
         if (internals.parent) {
           const parentReference = internals.parent[referenceSymbol](doc);
@@ -560,7 +566,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     }
     invariant(
       internals.yjsModel,
-      `Plexus<${this.__type__}#${this.uuid}>: cannot bootstrap observation without wrapper`,
+      `Plexus<${this.__type__}#${safeUuid(this)}>: cannot bootstrap observation without wrapper`,
     );
     const element = internals.yjsModel.element;
     if (undoManagerNotifications.has(element)) {
@@ -575,7 +581,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     }
 
     for (const [key, type] of Object.entries(this.__schema__)) {
-      if (this.uuid === "root" && key === "dependencies") {
+      if (this.isRoot && key === "dependencies") {
         continue;
       }
       switch (type) {

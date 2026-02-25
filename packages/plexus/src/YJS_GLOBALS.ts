@@ -1,15 +1,10 @@
-export const models = {
-  key: "models",
-  wellKnown: {
-    root: "root",
-  },
-  recordFields: {
-    parent: "parent", // kept as constant for test assertions; actual storage is child XmlElement
-  },
+export const types = {
+  key: "types",
 } as const;
 
-export const typeIndex = {
-  key: "typeIndex",
+export const meta = {
+  key: "meta",
+  wellKnown: { root: "root" },
 } as const;
 
 export const dependencies = {

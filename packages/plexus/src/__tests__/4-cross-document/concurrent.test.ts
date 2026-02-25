@@ -53,21 +53,10 @@ async function createTestSite(name: string): Promise<{ site: Site; entityId: str
 }
 
 describe("Concurrent Mutation Races", () => {
-  let doc1: Y.Doc;
-  let doc2: Y.Doc;
-
-  beforeEach(() => {
-    doc1 = new Y.Doc();
-    doc2 = new Y.Doc();
-  });
-
-  afterEach(() => {
-    doc1.destroy();
-    doc2.destroy();
-  });
-
   it("should handle concurrent cross-document mutations", async () => {
     const { site: site1, doc: doc1 } = await createTestSite("Race Test");
+    // doc2 shares guid so CRDT-native UUIDs decode correctly on both peers
+    const doc2 = new Y.Doc({ guid: doc1.guid });
     const comp1 = new Component({
       name: "Original",
       type: "component",

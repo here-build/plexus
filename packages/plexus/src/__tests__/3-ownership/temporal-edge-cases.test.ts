@@ -234,11 +234,10 @@ describe("Clone with default values", () => {
 
     const cloned = root.clone();
 
-    // Cloned should have different UUID
-    expect(cloned.uuid).to.not.equal(root.uuid);
+    // Cloned should be a different object
+    expect(cloned).to.not.equal(root);
     // Cloned rs should be different instance
     expect(cloned.rs).to.not.equal(root.rs);
-    expect(cloned.rs.uuid).to.not.equal(root.rs.uuid);
     // But same values
     expect(cloned.rs.values).to.deep.equal({ default: "true" });
     // And correct parent
@@ -267,11 +266,11 @@ describe("Clone with default values", () => {
     const cloned = root.clone();
 
     // All nested entities should be cloned
-    expect(cloned.defaultStyle.uuid).to.not.equal(root.defaultStyle.uuid);
-    expect(cloned.defaultStyle.rs.uuid).to.not.equal(root.defaultStyle.rs.uuid);
-    expect(cloned.styles[0].uuid).to.not.equal(root.styles[0].uuid);
-    expect(cloned.styles[0].style.uuid).to.not.equal(root.styles[0].style.uuid);
-    expect(cloned.styles[0].style.rs.uuid).to.not.equal(root.styles[0].style.rs.uuid);
+    expect(cloned.defaultStyle).to.not.equal(root.defaultStyle);
+    expect(cloned.defaultStyle.rs).to.not.equal(root.defaultStyle.rs);
+    expect(cloned.styles[0]).to.not.equal(root.styles[0]);
+    expect(cloned.styles[0].style).to.not.equal(root.styles[0].style);
+    expect(cloned.styles[0].style.rs).to.not.equal(root.styles[0].style.rs);
 
     // Parent chains should be correct
     expect(cloned.defaultStyle.parent).to.equal(cloned);
@@ -294,8 +293,8 @@ describe("Clone with default values", () => {
     const cloned = root.clone();
 
     // Variants should be cloned
-    expect(cloned.variants[0].uuid).to.not.equal(root.variants[0].uuid);
-    expect(cloned.variants[1].uuid).to.not.equal(root.variants[1].uuid);
+    expect(cloned.variants[0]).to.not.equal(root.variants[0]);
+    expect(cloned.variants[1]).to.not.equal(root.variants[1]);
 
     // primaryVariant should reference the cloned variant, not original
     expect(cloned.primaryVariant).to.equal(cloned.variants[0]).and.not.equal(root.primaryVariant).and.not.equal(v1);
@@ -525,8 +524,8 @@ describe("Dynamic child creation patterns", () => {
     const cloned = root.clone();
 
     expect(cloned.vsettings).to.have.lengthOf(2);
-    expect(cloned.vsettings[0].uuid).to.not.equal(root.vsettings[0].uuid);
-    expect(cloned.vsettings[1].uuid).to.not.equal(root.vsettings[1].uuid);
+    expect(cloned.vsettings[0]).to.not.equal(root.vsettings[0]);
+    expect(cloned.vsettings[1]).to.not.equal(root.vsettings[1]);
     expect(cloned.vsettings[0].parent).to.equal(cloned);
     expect(cloned.vsettings[1].parent).to.equal(cloned);
     expect(cloned.vsettings[0].rs.parent).to.equal(cloned.vsettings[0]);
@@ -587,7 +586,6 @@ describe("Union types in child lists", () => {
     expect(cloned.options).to.have.lengthOf(3);
     expect(cloned.options[0]).to.equal("string1"); // Primitive preserved
     expect(cloned.options[1]).to.not.equal(model1); // Model cloned
-    expect((cloned.options[1] as StringOrModel).uuid).to.not.equal(model1.uuid);
     expect((cloned.options[1] as StringOrModel).value).to.equal("model1");
     expect((cloned.options[1] as StringOrModel).parent).to.equal(cloned);
     expect(cloned.options[2]).to.equal("string2"); // Primitive preserved
@@ -647,10 +645,10 @@ describe("Deeply nested defaults with clone", () => {
     const cloned = materialized.clone();
 
     // All should be different instances
-    expect(cloned.uuid).to.not.equal(materialized.uuid);
-    expect(cloned.nested.uuid).to.not.equal(materialized.nested.uuid);
-    expect(cloned.nested.nested.uuid).to.not.equal(materialized.nested.nested.uuid);
-    expect(cloned.nested.nested.nested.uuid).to.not.equal(materialized.nested.nested.nested.uuid);
+    expect(cloned).to.not.equal(materialized);
+    expect(cloned.nested).to.not.equal(materialized.nested);
+    expect(cloned.nested.nested).to.not.equal(materialized.nested.nested);
+    expect(cloned.nested.nested.nested).to.not.equal(materialized.nested.nested.nested);
 
     // All should have correct parent chain
     expect(cloned.nested.parent).to.equal(cloned);

@@ -29,15 +29,69 @@ function validateKeyElement(item: unknown): void {
   );
 }
 
+// ── Two sorts for two concerns ──────────────────────────────────────────────
+//
+// Local sort:  process-local trie paths. Uses singleton construction ordinal.
+//              Works from birth, never changes, never serialized.
+//
+// Shared sort: cross-peer Y.Map key serialization. Uses UUID.
+//              Only called during [referenceSymbol] when all models are materialized.
+
+/** Monotonic singleton ordinal — assigned once per object, never changes. */
+let nextOrdinal = 0;
+const singletonOrdinals = new WeakMap<PlexusModel, number>();
+function ordinalOf(m: PlexusModel): number {
+  let id = singletonOrdinals.get(m);
+  if (id === undefined) {
+    id = nextOrdinal++;
+    singletonOrdinals.set(m, id);
+  }
+  return id;
+}
+
+/** Local sort for PathMap trie paths. Stable from construction — no UUID needed. */
+function localSort(a: AllowedYJSValue, b: AllowedYJSValue): number {
+  const aIsModel = a instanceof PlexusModel;
+  const bIsModel = b instanceof PlexusModel;
+
+  if (aIsModel && !bIsModel) return -1;
+  if (!aIsModel && bIsModel) return 1;
+
+  if (aIsModel && bIsModel) {
+    return ordinalOf(a) - ordinalOf(b);
+  }
+
+  const aType = a === null ? "null" : typeof a;
+  const bType = b === null ? "null" : typeof b;
+  if (aType !== bType) return aType.localeCompare(bType);
+
+  return String(a).localeCompare(String(b));
+}
+
 /**
- * Trie node for efficient structural key lookup.
- * Uses WeakMap for PlexusModel keys (GC-friendly) and Map for primitives.
- *
- * canonicalKey can be:
- * - K (strong reference) when entry is active
- * - WeakRef<K & object> when entry is deleted but key might be used for comparison
- * - undefined when no key has ever been stored at this path
+ * Shared sort for Y.Map key serialization. Uses UUID — always available at
+ * serialization time since serialization only happens after materialization.
  */
+export function canonicalSort(a: AllowedYJSValue, b: AllowedYJSValue): number {
+  const aIsModel = a instanceof PlexusModel;
+  const bIsModel = b instanceof PlexusModel;
+
+  if (aIsModel && !bIsModel) return -1;
+  if (!aIsModel && bIsModel) return 1;
+
+  if (aIsModel && bIsModel) {
+    return a.uuid.localeCompare(b.uuid);
+  }
+
+  const aType = a === null ? "null" : typeof a;
+  const bType = b === null ? "null" : typeof b;
+  if (aType !== bType) return aType.localeCompare(bType);
+
+  return String(a).localeCompare(String(b));
+}
+
+// ── Trie ────────────────────────────────────────────────────────────────────
+
 type TrieNode<K, V> = {
   value: V | undefined;
   keyId: number | undefined;
@@ -53,51 +107,24 @@ const createNode = <K extends AllowedYJSMapKey, V>(): TrieNode<K, V> => ({
 });
 
 /**
- * Canonical sort for Set elements.
- * Models first (by uuid), then primitives (by type, then by value).
- */
-export function canonicalSort(a: AllowedYJSValue, b: AllowedYJSValue): number {
-  const aIsModel = a instanceof PlexusModel;
-  const bIsModel = b instanceof PlexusModel;
-
-  // Models come first
-  if (aIsModel && !bIsModel) return -1;
-  if (!aIsModel && bIsModel) return 1;
-
-  // Both models: sort by uuid
-  if (aIsModel && bIsModel) {
-    return a.uuid.localeCompare(b.uuid);
-  }
-
-  // Both primitives: sort by type first, then by value
-  const aType = a === null ? "null" : typeof a;
-  const bType = b === null ? "null" : typeof b;
-  if (aType !== bType) {
-    return aType.localeCompare(bType);
-  }
-
-  return String(a).localeCompare(String(b));
-}
-
-/**
  * PathMap - A Map implementation with structural key equality.
  *
  * Supports keys that are:
  * - PlexusModel instances (identity by object reference, singleton guarantee)
  * - Primitives (string, number, boolean, null)
- * - Set<above> (unordered - canonical form via sorting)
+ * - Set<above> (unordered - local ordinal sort for trie, UUID sort for serialization)
  * - Array<above> (ordered - sequence matters)
  *
  * Uses separate trie roots for flat/set/array keys to prevent type collisions.
- * Uses WeakMap for model keys and WeakRefs for stored keys, allowing GC of orphaned entries.
- * Maintains insertion order for iteration via stored key list.
+ * Uses DefaultedMap (reference equality for models, value equality for primitives).
+ * Maintains insertion order for iteration via stored entry list.
  */
 export class PathMap<K extends AllowedYJSMapKey, V extends AllowedYJSValue> implements Map<K, V> {
   private flatRoot: TrieNode<K, V> = createNode();
   private setRoot: TrieNode<K, V> = createNode();
   private arrayRoot: TrieNode<K, V> = createNode();
 
-  private readonly storedKeys = new Map<number, Readonly<K>>();
+  private readonly storedEntries = new Map<number, { key: Readonly<K>; node: TrieNode<K, V> }>();
   private nextKeyId = 0;
   private _size = 0;
 
@@ -109,38 +136,13 @@ export class PathMap<K extends AllowedYJSMapKey, V extends AllowedYJSValue> impl
     return "PathMap";
   }
 
-  maybeGetCanonicalNode(key: K) {
-    let current: TrieNode<K, V> = this.getRootForKey(key);
-    for (const element of this.keyToPath(key)) {
-      if (!current.children.has(element)) {
-        return;
-      }
-      current = current.children.get(element);
-    }
-    return current;
-  }
-
-  maybeGetCanonicalKey(key: K): K | undefined {
-    const node = this.maybeGetCanonicalNode(key);
-    return node ? this.resolveCanonicalKey(node.canonicalKey) : undefined;
-  }
-
-  getCanonicalNode(key: K) {
-    let current = this.getRootForKey(key);
-    for (const element of this.keyToPath(key)) {
-      current = current.children.get(element);
-    }
-    return current;
-  }
-
   getCanonicalKey(key: K): K {
     const node = this.getCanonicalNode(key);
     const resolved = this.resolveCanonicalKey(node.canonicalKey);
-    // If WeakRef was GC'd, create new canonical key
     if (resolved === undefined) {
       let canonicalKey: K;
       if (key instanceof Set) {
-        canonicalKey = new Set([...key].sort(canonicalSort)) as K;
+        canonicalKey = new Set([...key].sort(localSort)) as K;
       } else if (Array.isArray(key)) {
         canonicalKey = Object.freeze([...key]) as K & ReadonlyArray<K[keyof K]>;
       } else {
@@ -160,23 +162,37 @@ export class PathMap<K extends AllowedYJSMapKey, V extends AllowedYJSValue> impl
     const node = this.getCanonicalNode(key);
 
     if (node.value === undefined) {
-      // New entry
       node.keyId = this.nextKeyId++;
       this._size++;
       let canonicalKey: K;
       if (key instanceof Set) {
-        canonicalKey = new Set([...key].sort(canonicalSort)) as K;
+        canonicalKey = new Set([...key].sort(localSort)) as K;
       } else if (Array.isArray(key)) {
         canonicalKey = Object.freeze([...key]) as K & ReadonlyArray<K[keyof K]>;
       } else {
         canonicalKey = key;
       }
-      this.storedKeys.set(node.keyId, canonicalKey);
+      this.storedEntries.set(node.keyId, { key: canonicalKey, node });
       node.canonicalKey = canonicalKey;
     }
 
     node.value = value;
     return this;
+  }
+
+  getOrInsert(key: K, defaultValue: V): V {
+    const existing = this.get(key);
+    if (existing !== undefined) return existing;
+    this.set(key, defaultValue);
+    return defaultValue;
+  }
+
+  getOrInsertComputed(key: K, callbackfn: (key: K) => V): V {
+    const existing = this.get(key);
+    if (existing !== undefined) return existing;
+    const value = callbackfn(key);
+    this.set(key, value);
+    return value;
   }
 
   has(key: K): boolean {
@@ -189,21 +205,17 @@ export class PathMap<K extends AllowedYJSMapKey, V extends AllowedYJSValue> impl
       return false;
     }
 
-    // Clean up storedKeys to prevent memory leak in iteration
     if (node.keyId !== undefined) {
-      this.storedKeys.delete(node.keyId);
+      this.storedEntries.delete(node.keyId);
     }
 
     node.value = undefined;
     node.keyId = undefined;
 
-    // Convert canonicalKey to WeakRef for objects (Set, Array) so it can be GC'd
-    // but still available for key comparison if something else holds reference
     const canonicalKey = node.canonicalKey;
     if (canonicalKey instanceof Set || Array.isArray(canonicalKey)) {
       node.canonicalKey = new WeakRef(canonicalKey as K & object);
     }
-    // For primitives and PlexusModel, keep as-is (primitives are cheap, models are singletons)
 
     this._size--;
     return true;
@@ -213,25 +225,28 @@ export class PathMap<K extends AllowedYJSMapKey, V extends AllowedYJSValue> impl
     this.flatRoot = createNode();
     this.setRoot = createNode();
     this.arrayRoot = createNode();
-    this.storedKeys.clear();
+    this.storedEntries.clear();
     this._size = 0;
   }
 
   *keys(): MapIterator<K> {
-    for (const key of this.storedKeys.values()) {
+    for (const { key } of this.storedEntries.values()) {
       yield key;
     }
   }
 
   *values(): MapIterator<V> {
-    for (const key of this.storedKeys.values()) {
-      yield this.getCanonicalNode(key).value!;
+    for (const { node } of this.storedEntries.values()) {
+      yield node.value!;
     }
   }
 
   *entries(): MapIterator<[K, V]> {
-    for (const key of this.storedKeys.values()) {
-      yield [key, this.getCanonicalNode(key).value!] as const;
+    for (const { key, node } of this.storedEntries.values()) {
+      // this declaration has nothing to do with code logic.
+      // ESLint formatter somewhy trying to turn it into yield [(key, node.value!)], breaking the code
+      const output = [key, node.value!];
+      yield output as [K, V];
     }
   }
 
@@ -249,27 +264,38 @@ export class PathMap<K extends AllowedYJSMapKey, V extends AllowedYJSValue> impl
     return this.entries();
   }
 
-  /**
-   * Get the appropriate trie root for a key type.
-   */
+  private maybeGetCanonicalNode(key: K): TrieNode<K, V> | undefined {
+    let current: TrieNode<K, V> = this.getRootForKey(key);
+    for (const element of this.keyToPath(key)) {
+      if (!current.children.has(element)) {
+        return;
+      }
+      current = current.children.get(element);
+    }
+    return current;
+  }
+
+  private getCanonicalNode(key: K) {
+    let current = this.getRootForKey(key);
+    for (const element of this.keyToPath(key)) {
+      current = current.children.get(element);
+    }
+    return current;
+  }
+
   private getRootForKey(key: K): TrieNode<K, V> {
-    if (key instanceof Set) {
-      return this.setRoot;
-    }
-    if (Array.isArray(key)) {
-      return this.arrayRoot;
-    }
+    if (key instanceof Set) return this.setRoot;
+    if (Array.isArray(key)) return this.arrayRoot;
     return this.flatRoot;
   }
 
   /**
-   * Convert a key to a normalized path for trie traversal.
-   * Sets are sorted for canonical form, arrays preserve order.
-   * Validates all elements are allowed types.
+   * Convert key to trie path. Sets use localSort (singleton ordinal),
+   * arrays preserve order, flat keys are single-element.
    */
   private keyToPath(key: K): AllowedYJSValue[] {
     if (key instanceof Set) {
-      const elements = [...key].sort(canonicalSort);
+      const elements = [...key].sort(localSort);
       for (const el of elements) validateKeyElement(el);
       return elements;
     }
@@ -277,14 +303,10 @@ export class PathMap<K extends AllowedYJSMapKey, V extends AllowedYJSValue> impl
       for (const el of key) validateKeyElement(el);
       return key;
     }
-    // Single value - validate it
     validateKeyElement(key);
     return [key];
   }
 
-  /**
-   * Resolve canonicalKey from node, handling WeakRef case.
-   */
   private resolveCanonicalKey(canonicalKey: K | WeakRef<K & object> | undefined): K | undefined {
     if (canonicalKey instanceof WeakRef) {
       return canonicalKey.deref();

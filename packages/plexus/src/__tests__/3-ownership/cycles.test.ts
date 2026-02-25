@@ -138,6 +138,7 @@ describe("Circular References", () => {
 
   it("should sync circular references across documents", async () => {
     const { site: site1, doc: doc1 } = await createTestSite("Circular Sync Test");
+    doc2 = new Y.Doc({ guid: doc1.guid });
 
     const compA = new Component({ name: "A", type: "component", children: [], metadata: {} });
     const compB = new Component({ name: "B", type: "component", children: [], metadata: {} });

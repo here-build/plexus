@@ -436,6 +436,7 @@ describe("array field (@syncing.list)", () => {
 
     it("should sync complex array operations across documents", () => {
       const { site: site1, doc: doc1 } = createTestSite("Complex Sync Test");
+      const doc2 = new Y.Doc({ guid: doc1.guid });
 
       const parent = new Component({
         name: "Parent",

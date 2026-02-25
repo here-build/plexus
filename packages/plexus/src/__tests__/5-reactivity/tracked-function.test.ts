@@ -8,7 +8,7 @@
  */
 
 import * as Y from "yjs";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
 import { referenceSymbol } from "../../proxy-runtime-types.js";
@@ -66,36 +66,28 @@ function createTestUser(name: string) {
   return { user, entityId: user.uuid, doc, plexus };
 }
 
-// Helper to sync docs and create plexus2 with the synced root
-function syncDocsAndCreatePlexus(doc1: Y.Doc, doc2: Y.Doc): TestPlexus<any> {
-  syncDocs(doc1, doc2);
-  // Create plexus2 after syncing so it has the root
-  return TestPlexus.connect(doc2);
-}
-
-// Helper to sync docs when plexus2 already exists
-function syncDocsWithPlexus(doc1: Y.Doc, doc2: Y.Doc, _plexus2: TestPlexus<any>): void {
-  syncDocs(doc1, doc2);
-}
-
 describe("Cross-Document Notifications", () => {
-  let doc1: Y.Doc;
-  let doc2: Y.Doc;
-
-  beforeEach(() => {
-    doc1 = new Y.Doc();
-    doc2 = new Y.Doc();
-  });
+  const docsToCleanup: Y.Doc[] = [];
 
   afterEach(() => {
-    doc1.destroy();
-    doc2.destroy();
+    for (const doc of docsToCleanup) {
+      doc.destroy();
+    }
+    docsToCleanup.length = 0;
   });
+
+  /** Create a doc2 that shares the source doc's guid (required for CRDT-native UUID decode) */
+  function createPeerDoc(sourceDoc: Y.Doc): Y.Doc {
+    const doc2 = new Y.Doc({ guid: sourceDoc.guid });
+    docsToCleanup.push(doc2);
+    return doc2;
+  }
 
   describe("Basic Field Tracking", () => {
     it("should notify when primitive field changes across documents", async () => {
       // Doc1: Create user and set up tracking
       const { user: user1, entityId, doc: doc1 } = createTestUser("Alice");
+      const doc2 = createPeerDoc(doc1);
       syncDocs(doc1, doc2);
       const plexus2 = TestPlexus.connect(doc2);
       const user2 = plexus2.loadEntity<User>(entityId)!;
@@ -113,6 +105,7 @@ describe("Cross-Document Notifications", () => {
 
     it("should notify when multiple fields change in same transaction", async () => {
       const { user: user1, entityId, doc: doc1 } = createTestUser("Bob");
+      const doc2 = createPeerDoc(doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
@@ -144,6 +137,7 @@ describe("Cross-Document Notifications", () => {
 
     it("should not notify when untracked fields change", async () => {
       const { user: user1, entityId, doc: doc1 } = createTestUser("Carol");
+      const doc2 = createPeerDoc(doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
@@ -172,6 +166,7 @@ describe("Cross-Document Notifications", () => {
   describe("Record/Map Tracking", () => {
     it("should notify when record property is added", async () => {
       const { user: user1, entityId, doc: doc1, plexus } = createTestUser("David");
+      const doc2 = createPeerDoc(doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
@@ -222,6 +217,7 @@ describe("Cross-Document Notifications", () => {
       initialPost[referenceSymbol](doc1); // Materialize the post
       user1.posts["initial"] = initialPost;
 
+      const doc2 = createPeerDoc(doc1);
       // Sync to doc2
       syncDocs(doc1, doc2);
       const plexus2 = TestPlexus.connect(doc2);
@@ -257,6 +253,7 @@ describe("Cross-Document Notifications", () => {
       initialPost[referenceSymbol](doc1); // Materialize the post
       user1.posts["tracked-post"] = initialPost;
 
+      const doc2 = createPeerDoc(doc1);
       // Sync to doc2
       syncDocs(doc1, doc2);
       const plexus2 = TestPlexus.connect(doc2);
@@ -292,6 +289,7 @@ describe("Cross-Document Notifications", () => {
 
       const { doc: doc1, root: post1, plexus } = initTestPlexus<Post>(ephemeralPost);
       const entityId = post1.uuid;
+      const doc2 = createPeerDoc(doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
@@ -342,6 +340,7 @@ describe("Cross-Document Notifications", () => {
 
       const { doc: doc1, root: post1, plexus } = initTestPlexus<Post>(ephemeralPost);
       const entityId = post1.uuid;
+      const doc2 = createPeerDoc(doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
@@ -385,6 +384,7 @@ describe("Cross-Document Notifications", () => {
 
       const { doc: doc1, root: post1, plexus } = initTestPlexus<Post>(ephemeralPost);
       const entityId = post1.uuid;
+      const doc2 = createPeerDoc(doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
@@ -412,6 +412,7 @@ describe("Cross-Document Notifications", () => {
   describe("Set Tracking", () => {
     it("should notify when set items are added or removed", async () => {
       const { user: user1, entityId, doc: doc1, plexus } = createTestUser("Grace");
+      const doc2 = createPeerDoc(doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
@@ -440,6 +441,7 @@ describe("Cross-Document Notifications", () => {
   describe("Multiple Subscribers", () => {
     it("should notify all subscribers when tracked data changes", async () => {
       const { user: user1, entityId, doc: doc1 } = createTestUser("Henry");
+      const doc2 = createPeerDoc(doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
@@ -490,6 +492,7 @@ describe("Cross-Document Notifications", () => {
       post[referenceSymbol](doc1); // Materialize the post
       user1.posts["main"] = post;
 
+      const doc2 = createPeerDoc(doc1);
       // Sync to doc2
       syncDocs(doc1, doc2);
       const plexus2 = TestPlexus.connect(doc2);
@@ -516,6 +519,7 @@ describe("Cross-Document Notifications", () => {
   describe("Performance and Cleanup", () => {
     it("should not accumulate subscribers after function executions", async () => {
       const { user: user1, entityId, doc: doc1 } = createTestUser("Jack");
+      const doc2 = createPeerDoc(doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);
@@ -544,6 +548,7 @@ describe("Cross-Document Notifications", () => {
 
     it("should handle rapid successive changes efficiently", async () => {
       const { user: user1, entityId, doc: doc1 } = createTestUser("Kate");
+      const doc2 = createPeerDoc(doc1);
 
       // Sync to doc2
       syncDocs(doc1, doc2);

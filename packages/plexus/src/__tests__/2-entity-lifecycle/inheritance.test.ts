@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
@@ -129,7 +129,7 @@ describe("Plexus Inheritance and Default Values", () => {
       expect([root.baseField, root.middleField]).to.have.ordered.members(["updated-base", "updated-middle"]);
 
       // Create another doc synced with the first
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc.guid });
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc));
 
       const { root: root2 } = connectTestPlexus<ConcreteEntity>(doc2);
@@ -274,7 +274,7 @@ describe("Plexus Inheritance and Default Values", () => {
       const { doc: doc1 } = initTestPlexus(entity1);
 
       // Create second doc and sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
 
       // Establish sync before creating plexus
       doc1.on("update", (update) => {
@@ -321,7 +321,7 @@ describe("Plexus Inheritance and Default Values", () => {
       root1.children.push(child2);
 
       // Create second doc and sync
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
 
       const { root: root2 } = connectTestPlexus<ConcreteEntity>(doc2);
@@ -347,7 +347,7 @@ describe("Plexus Inheritance and Default Values", () => {
       const { doc: doc1, root: root1 } = initTestPlexus(entity);
 
       // Create second doc
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc1.guid });
 
       // Initial sync - apply doc1's state to doc2
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
@@ -479,16 +479,6 @@ describe("Plexus Inheritance and Default Values", () => {
   });
 
   describe("Decorator override stability across sync", () => {
-    let doc2: Y.Doc;
-
-    beforeEach(() => {
-      doc2 = new Y.Doc();
-    });
-
-    afterEach(() => {
-      doc2.destroy();
-    });
-
     it("should maintain stability even with bad overwrites", async () => {
       const { site: site1, doc: doc1 } = await createTestSiteWithStringish("stability");
 
@@ -507,6 +497,7 @@ describe("Plexus Inheritance and Default Values", () => {
       site1.inherited.stringish = "updatedStringish";
       site1.inherited.stringishWithDefault = "updatedStringishWithDefault";
 
+      const doc2 = new Y.Doc({ guid: doc1.guid });
       syncDocs(doc1, doc2);
 
       // Access from doc2
@@ -520,6 +511,8 @@ describe("Plexus Inheritance and Default Values", () => {
         "updatedStringish",
         "updatedStringishWithDefault",
       ]);
+
+      doc2.destroy();
     });
   });
 
@@ -698,7 +691,7 @@ describe("Plexus Inheritance and Default Values", () => {
       ]);
 
       // Test cross-doc sync preserves ownership
-      const doc2 = new Y.Doc();
+      const doc2 = new Y.Doc({ guid: doc.guid });
       Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc));
 
       const { root: graphRoot2 } = connectTestPlexus<FullyOwnedGraph>(doc2);

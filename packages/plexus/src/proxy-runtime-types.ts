@@ -66,6 +66,7 @@ export type Internals<Parent extends PlexusModel | null> =
       uuid?: PlexusUUID;
       reference?: ReferenceTuple;
       backingStorage: Map<string, any>;
+      isRoot?: boolean;
       isDematerialized?: boolean;
       unobserve?: () => void;
     }
@@ -75,6 +76,7 @@ export type Internals<Parent extends PlexusModel | null> =
       documentId: string;
       uuid: PlexusUUID;
       parent: Parent;
+      isRoot?: boolean;
       reference: [string, string];
       parentKey: null;
       parentMetadata: null;

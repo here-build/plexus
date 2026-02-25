@@ -4,7 +4,6 @@ import type * as Y from "yjs";
 import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue, AllowedYValue } from "../proxy-runtime-types.js";
 import { referenceSymbol } from "../proxy-runtime-types.js";
-import { canonicalSort } from "./PathMap.js";
 import { deref } from "../deref.js";
 
 const SET_PREFIX = "Set";
@@ -88,8 +87,10 @@ function deserializeValue(line: string, doc: Y.Doc): AllowedYJSValue {
  */
 export function serializeKey(key: AllowedYJSMapKey, doc: Y.Doc): string {
   if (key instanceof Set) {
-    const sorted = [...key].sort(canonicalSort);
-    const lines = sorted.map((item) => serializeValue(item, doc));
+    // Serialize first (materializes entities via [referenceSymbol]), then sort.
+    // Serialized form is deterministic and cross-peer stable.
+    const lines = [...key].map((item) => serializeValue(item, doc));
+    lines.sort();
     return [SET_PREFIX, ...lines].join("\n");
   }
   if (Array.isArray(key)) {

@@ -110,7 +110,7 @@ describe("Set Proxy Implementation", () => {
       typeof (new Set() as any).isSubsetOf === "function" &&
       typeof (new Set() as any).isSupersetOf === "function";
 
-    (hasSetComparators ? it : it.skip)("should support Set comparison methods", () => {
+    it.skipIf(!hasSetComparators)("should support Set comparison methods", () => {
       const model = new TestModelWithSet({
         name: "Test Model",
         tags: new Set(["tag1", "tag2"]),
@@ -123,12 +123,12 @@ describe("Set Proxy Implementation", () => {
 
       // Test set relationship methods
       expect([
-        (model.tags as any).isDisjointFrom(new Set(["tag3", "tag4"])),
-        (model.tags as any).isDisjointFrom(otherSet),
-        (model.tags as any).isSubsetOf(superSet),
-        (model.tags as any).isSubsetOf(subSet),
-        (model.tags as any).isSupersetOf(subSet),
-        (model.tags as any).isSupersetOf(superSet),
+        model.tags.isDisjointFrom(new Set(["tag3", "tag4"])),
+        model.tags.isDisjointFrom(otherSet),
+        model.tags.isSubsetOf(superSet),
+        model.tags.isSubsetOf(subSet),
+        model.tags.isSupersetOf(subSet),
+        model.tags.isSupersetOf(superSet),
       ]).to.have.ordered.members([true, false, true, false, true, false]);
     });
 

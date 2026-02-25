@@ -97,6 +97,7 @@ describe("Array Holes and Sparse Operations", () => {
 
   it("should sync sparse arrays correctly", async () => {
     const { site: site1, doc: doc1 } = await createTestSite("Sparse Sync Test");
+    doc2 = new Y.Doc({ guid: doc1.guid });
 
     const parent = new Component({ name: "Parent", type: "container", children: [], metadata: {} });
     parent.children[50] = new Component({ name: "SparseChild", type: "child", children: [], metadata: {} }); // Sparse assignment

@@ -2,7 +2,7 @@ import invariant from "tiny-invariant";
 
 import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
-import { getInternals, type PlexusConstructor, PlexusModel } from "./PlexusModel.js";
+import { getInternals, type PlexusConstructor, PlexusModel, safeUuid } from "./PlexusModel.js";
 import { buildArrayProxy } from "./proxies/materialized-array.js";
 import { buildMapProxy } from "./proxies/materialized-map.js";
 import { buildRecordProxy } from "./proxies/materialized-record.js";
@@ -137,7 +137,7 @@ const set = <
   const internals = getInternals(object);
   invariant(
     !internals.isDependency,
-    `Plexus<${object.__type__}#${object.uuid}.${context.name}>: dependencies are readonly`,
+    `Plexus<${object.__type__}#${safeUuid(object)}.${context.name}>: dependencies are readonly`,
   );
   const storedValue = internals.backingStorage.get(context.name) as T;
   if (storedValue === value) {
@@ -169,7 +169,7 @@ const setChild = <
   const internals = getInternals(object);
   invariant(
     !internals.isDependency,
-    `Plexus<${object.__type__}#${object.uuid}.${context.name}>: dependencies are readonly`,
+    `Plexus<${object.__type__}#${safeUuid(object)}.${context.name}>: dependencies are readonly`,
   );
   const storedValue = internals.backingStorage.get(context.name) as T;
   if (storedValue === value) {
@@ -271,9 +271,9 @@ const createHandlers = <
       const internals = getInternals(this);
       invariant(
         !internals.isDependency,
-        `Plexus<${this.__type__}#${this.uuid}.${context.name}>: dependencies are handled via special flow overriding this getter. This error should not happen`,
+        `Plexus<${this.__type__}#${safeUuid(this)}.${context.name}>: dependencies are handled via special flow overriding this getter. This error should not happen`,
       );
-      if (context.name === "dependencies" && this.uuid === "root") {
+      if (context.name === "dependencies" && this.isRoot) {
         if (this.__doc__) {
           return docPlexus.get(this.__doc__)!.rootDependenciesRepresentation as T;
         } else {
@@ -282,7 +282,7 @@ const createHandlers = <
       }
       invariant(
         !internals.isDematerialized,
-        `Plexus<${this.__type__}#${this.uuid}.${context.name}>: model was dematerialized by undo; check whether you are using fresh models directly vs via path from root`,
+        `Plexus<${this.__type__}#${safeUuid(this)}.${context.name}>: model was dematerialized by undo; check whether you are using fresh models directly vs via path from root`,
       );
       // Dematerialized models can still be read (returns presync state)
       trackAccess(this, context.name);
@@ -299,11 +299,11 @@ const createHandlers = <
       const internals = getInternals(this);
       invariant(
         !internals.isDependency,
-        `Plexus<${this.__type__}#${this.uuid}.${context.name}>: dependencies are handled via special flow overriding this setter. This error should not happen`,
+        `Plexus<${this.__type__}#${safeUuid(this)}.${context.name}>: dependencies are handled via special flow overriding this setter. This error should not happen`,
       );
       invariant(
         !internals.isDematerialized,
-        `Plexus<${this.__type__}#${this.uuid}.${context.name}>: model was dematerialized by undo; check whether you are using fresh models directly vs via path from root`,
+        `Plexus<${this.__type__}#${safeUuid(this)}.${context.name}>: model was dematerialized by undo; check whether you are using fresh models directly vs via path from root`,
       );
       if (this.__schema__[context.name] === "val") {
         set(context as any, this, value as Extract<T, AllowedYJSValue>);

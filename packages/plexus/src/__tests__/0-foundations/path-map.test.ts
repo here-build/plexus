@@ -168,12 +168,6 @@ describe("PathMap", () => {
       expect(Object.isFrozen(canonical1)).to.eq(true);
     });
 
-    it("should return undefined for maybeGetCanonicalKey on missing key", () => {
-      const map = new PathMap<string, number>();
-
-      expect(map.maybeGetCanonicalKey("missing")).to.eq(undefined);
-    });
-
     it("should create canonical key on getCanonicalKey even for missing keys", () => {
       const map = new PathMap<Set<string>, number>();
 
@@ -186,20 +180,6 @@ describe("PathMap", () => {
   });
 
   describe("delete and WeakRef behavior", () => {
-    it("should preserve canonical key as WeakRef after delete for Sets", () => {
-      const map = new PathMap<Set<string>, number>();
-
-      const key = new Set(["a", "b"]);
-      map.set(key, 1);
-
-      const canonicalBefore = map.getCanonicalKey(key);
-      map.delete(key);
-
-      // After delete, canonical key should still be resolvable if original is alive
-      const canonicalAfter = map.maybeGetCanonicalKey(key);
-      expect(canonicalAfter).to.equal(canonicalBefore);
-    });
-
     it("should remove from iteration after delete", () => {
       const map = new PathMap<string, number>();
 

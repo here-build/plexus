@@ -1,8 +1,9 @@
-// Dereference both tuple and legacy object references
+// Dereference tuple references via CRDT-native UUID → StructStore resolution
 
 import invariant from "tiny-invariant";
 import * as Y from "yjs";
 
+import { decode } from "./crdt-uuid.js";
 import { documentEntityCaches } from "./entity-cache.js";
 import { entityClasses } from "./globals.js";
 import type { ConcretePlexusConstructor } from "./PlexusModel.js";
@@ -11,7 +12,6 @@ import { PlexusWrapper } from "./PlexusWrapper.js";
 import type { AllowedYJSValue, AllowedYValue, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { isTupleReference } from "./utils/utils.js";
 import { docPlexus } from "./plexus-registry.js";
-import { getModelsMap } from "./yjs/getModels.js";
 
 export function deref<T extends AllowedYJSValue>(
   doc: Y.Doc,
@@ -37,10 +37,27 @@ export function deref<T extends AllowedYJSValue>(
     return docPlexus.get(doc)!.__getDependencyNode__(alteredDocumentId, entityId) as T;
   }
 
-  const yModels = getModelsMap(doc);
+  // Entity cache check first — O(1) if already resolved
+  const entityCache = documentEntityCaches.get(doc);
+  const knownEntity = entityCache.get(entityId)?.deref();
+  if (knownEntity) {
+    return knownEntity as T;
+  }
 
-  const entityModel = yModels?.get(entityId);
-  invariant(entityModel, `Plexus<document#${doc.clientID}>: model #${entityId} not found`);
+  // CRDT-native UUID → StructStore resolution — O(log n)
+  // decode reverses the Feistel cipher to recover {clientId, clock},
+  // then getItem does a binary search in the StructStore.
+  const { clientId, clock } = decode(entityId as PlexusUUID, doc.guid);
+  const item = Y.getItem(doc.store, Y.createID(clientId, clock));
+  invariant(
+    item.content instanceof Y.ContentType,
+    `Plexus<model#${entityId}>: decoded item is not a ContentType (got ${item.content?.constructor?.name})`,
+  );
+  const entityModel = item.content.type as YPlexusNode;
+  invariant(
+    entityModel instanceof Y.XmlElement,
+    `Plexus<model#${entityId}>: decoded item content is not XmlElement (got ${entityModel?.constructor?.name})`,
+  );
 
   const targetType = entityModel.nodeName;
   invariant(typeof targetType === "string", `Plexus<model#${entityId}>: missing type (nodeName)`);
@@ -48,16 +65,11 @@ export function deref<T extends AllowedYJSValue>(
   const ModelConstructor = entityClasses.get(targetType) as ConcretePlexusConstructor;
   invariant(ModelConstructor, `Plexus<${targetType}#${entityId}>: class not registered in entityClasses`);
 
-  const entityCache = documentEntityCaches.get(doc);
-  const knownEntity = entityCache.get(entityId)?.deref();
-  if (knownEntity) {
-    return knownEntity as T;
-  }
   const model = PlexusModel.__materializeRaw__(ModelConstructor);
   const internals = getInternals(model);
   invariant(
     !internals.isDependency,
-    `Plexus<${targetType}#${entityId}>: somehow, raw materialization spawned dependency. This should never happen and is bug in Plexus itself`,
+    `Plexus<${targetType}#${entityId}>: raw materialization spawned dependency — bug in Plexus`,
   );
   internals.uuid = entityId as PlexusUUID;
   internals.yjsModel = new PlexusWrapper(entityModel);

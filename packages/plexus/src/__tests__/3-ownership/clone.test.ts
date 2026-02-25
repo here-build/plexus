@@ -172,7 +172,7 @@ describe("Clone semantics", () => {
       const cloned = original.clone();
 
       // Different entities
-      expect(cloned.uuid).to.not.equal(original.uuid);
+      expect(cloned).to.not.equal(original);
 
       // Same primitive values
       expect({ ...cloned }).to.deep.include({
@@ -234,7 +234,7 @@ describe("Clone semantics", () => {
 
       // Referenced entity should be the same instance
       expect(cloned.component).to.equal(comp);
-      expect(cloned.component?.uuid).to.equal(comp.uuid);
+      expect(cloned.component).to.equal(comp);
       expect([...cloned.references]).to.include(comp);
 
       // Verify it's actually the same reference
@@ -294,19 +294,18 @@ describe("Clone semantics", () => {
       const cloned = parent.clone();
 
       // Parent should be different
-      expect(cloned.uuid).to.not.equal(parent.uuid);
+      expect(cloned).to.not.equal(parent);
       expect(cloned.name).to.equal("parent");
 
-      // child-val: child should be cloned (different UUID)
-      expect(cloned.child!.uuid).to.not.equal(child.uuid);
+      // child-val: child should be cloned (different object)
+      expect(cloned.child).to.not.equal(child);
       expect(cloned.child!.name).to.equal("child"); // But same values
       expect(cloned.child!.value).to.equal(1);
 
-      // val: reference should be preserved (same UUID)
-      expect(cloned.participatingReference!.uuid).to.not.equal(child.uuid);
+      // val: participatingReference should be remapped to the cloned child
+      expect(cloned.participatingReference).to.not.equal(child);
       expect(cloned.participatingReference).to.equal(cloned.child); // Same object reference
-      // val: reference should be preserved (same UUID)
-      expect(cloned.reference!.uuid).to.equal(child2.uuid);
+      // val: reference should be preserved (same object)
       expect(cloned.reference).to.equal(child2); // Same object reference
     });
 
@@ -339,16 +338,16 @@ describe("Clone semantics", () => {
       const cloned = parent.clone();
 
       // Parent should be different
-      expect(cloned.uuid).to.not.equal(parent.uuid);
+      expect(cloned).to.not.equal(parent);
       expect(cloned.name).to.equal("parent");
 
-      // child-list: children should be cloned (different UUIDs but same values)
+      // child-list: children should be cloned (different objects but same values)
       expect(cloned.children)
         .to.have.lengthOf(2)
         .and.satisfy(
           (arr: typeof cloned.children) =>
-            arr[0].uuid !== child1.uuid &&
-            arr[1].uuid !== child2.uuid &&
+            arr[0] !== child1 &&
+            arr[1] !== child2 &&
             arr[0].name === "child1" &&
             arr[1].name === "child2",
         );
@@ -408,8 +407,8 @@ describe("Clone semantics", () => {
       // child-set: children should be cloned
       expect(cloned.childSet.size).to.equal(2);
       const clonedChildren = Array.from(cloned.childSet);
-      expect(clonedChildren[0].uuid).to.not.equal(child1.uuid);
-      expect(clonedChildren[1].uuid).to.not.equal(child2.uuid);
+      expect(clonedChildren[0]).to.not.equal(child1);
+      expect(clonedChildren[1]).to.not.equal(child2);
 
       // set: references to cloned entities should be remapped
       expect(cloned.refSet).to.satisfy(
@@ -440,8 +439,8 @@ describe("Clone semantics", () => {
 
       // child-record: values should be cloned
       expect(Object.keys(cloned.childMap)).to.deep.equal(["first", "second"]);
-      expect(cloned.childMap.first.uuid).to.not.equal(child1.uuid);
-      expect(cloned.childMap.second.uuid).to.not.equal(child2.uuid);
+      expect(cloned.childMap.first).to.not.equal(child1);
+      expect(cloned.childMap.second).to.not.equal(child2);
       expect(cloned.childMap.first.name).to.equal("child1"); // Same values
       expect(cloned.childMap.second.name).to.equal("child2");
 
@@ -450,7 +449,6 @@ describe("Clone semantics", () => {
       expect(cloned.refMap.first).to.equal(cloned.childMap.first); // Remapped to clone
       expect(cloned.refMap.second).to.equal(cloned.childMap.second); // Remapped to clone
       expect(cloned.refMap.third).to.equal(child3); // Not cloned, preserved
-      expect(cloned.refMap.third.uuid).to.equal(child3.uuid);
     });
   });
 });
@@ -474,12 +472,12 @@ describe("Circular ownership edge cases", () => {
     const clonedA = nodeA.clone();
 
     // Cloned A should be different from original
-    expect(clonedA.uuid).to.not.equal(nodeA.uuid);
+    expect(clonedA).to.not.equal(nodeA);
     expect(clonedA.name).to.equal("A");
 
     // Cloned A should have a cloned B
     expect(clonedA.nodeB).to.not.equal(null);
-    expect(clonedA.nodeB!.uuid).to.not.equal(nodeB.uuid);
+    expect(clonedA.nodeB).to.not.equal(nodeB);
     expect(clonedA.nodeB!.name).to.equal("B");
 
     // The cloned B should have null nodeA (as constructed)
@@ -514,11 +512,11 @@ describe("Circular ownership edge cases", () => {
     expect(clonedParent2.children).to.have.lengthOf(2);
 
     // First child should be a clone of sharedChild
-    expect(clonedParent2.children[0].uuid).to.not.equal(sharedChild.uuid);
+    expect(clonedParent2.children[0]).to.not.equal(sharedChild);
     expect(clonedParent2.children[0].name).to.equal("shared");
 
     // Second child should be a clone of parent1 (which now has no children)
-    expect((clonedParent2.children[1] as any).uuid).to.not.equal(parent1.uuid);
+    expect(clonedParent2.children[1]).to.not.equal(parent1);
     expect((clonedParent2.children[1] as any).name).to.equal("parent1");
     expect((clonedParent2.children[1] as any).children).to.have.lengthOf(0); // Empty because sharedChild was moved
   });
@@ -558,8 +556,8 @@ describe("Circular ownership edge cases", () => {
     const clonedLevel2b = clonedRoot.children[1] as any;
 
     // Both levels should be cloned
-    expect(clonedLevel2a.uuid).to.not.equal(level2a.uuid);
-    expect(clonedLevel2b.uuid).to.not.equal(level2b.uuid);
+    expect(clonedLevel2a).to.not.equal(level2a);
+    expect(clonedLevel2b).to.not.equal(level2b);
     expect(clonedLevel2a.name).to.equal("level2a");
     expect(clonedLevel2b.name).to.equal("level2b");
 
@@ -569,7 +567,7 @@ describe("Circular ownership edge cases", () => {
     // level2b should have the cloned leafChild
     expect(clonedLevel2b.children).to.have.lengthOf(1);
     const clonedLeafFromB = clonedLevel2b.children[0];
-    expect(clonedLeafFromB.uuid).to.not.equal(leafChild.uuid);
+    expect(clonedLeafFromB).to.not.equal(leafChild);
     expect(clonedLeafFromB.name).to.equal("leaf");
   });
 
@@ -634,9 +632,9 @@ describe("Circular ownership edge cases", () => {
     const clonedRight = clonedRoot.children[1] as any;
 
     // Everything should be cloned
-    expect(clonedRoot.uuid).to.not.equal(root.uuid);
-    expect(clonedLeft.uuid).to.not.equal(left.uuid);
-    expect(clonedRight.uuid).to.not.equal(right.uuid);
+    expect(clonedRoot).to.not.equal(root);
+    expect(clonedLeft).to.not.equal(left);
+    expect(clonedRight).to.not.equal(right);
 
     // Left should have no children (shared was moved)
     expect(clonedLeft.children).to.have.lengthOf(0);
@@ -644,7 +642,7 @@ describe("Circular ownership edge cases", () => {
     // Right should have the cloned shared
     expect(clonedRight.children).to.have.lengthOf(1);
     const sharedFromRight = clonedRight.children[0];
-    expect(sharedFromRight.uuid).to.not.equal(shared.uuid);
+    expect(sharedFromRight).to.not.equal(shared);
     expect(sharedFromRight.name).to.equal("shared");
     expect(sharedFromRight.value).to.equal(42);
   });
@@ -662,17 +660,15 @@ describe("Circular ownership edge cases", () => {
     const cloned = mixedParent.clone();
 
     // The child in children should be cloned
-    expect(cloned.children[0].uuid).to.not.equal(sharedChild.uuid);
+    expect(cloned.children[0]).to.not.equal(sharedChild);
     expect(cloned.children[0].name).to.equal("shared");
     expect(cloned.children[0].value).to.equal(100);
 
     // The child in references should be remapped to the clone
     expect(cloned.references[0]).to.equal(cloned.children[0]); // Remapped to clone
-    expect(cloned.references[0].uuid).to.equal(cloned.children[0].uuid);
 
     // The other reference should be preserved
     expect(cloned.references[1]).to.equal(otherChild);
-    expect(cloned.references[1].uuid).to.equal(otherChild.uuid);
   });
 
   it("should handle empty collections properly", () => {
@@ -684,7 +680,7 @@ describe("Circular ownership edge cases", () => {
 
     const cloned = parent.clone();
 
-    expect(cloned.uuid).to.not.equal(parent.uuid);
+    expect(cloned).to.not.equal(parent);
     expect(cloned.name).to.equal("empty");
     expect(cloned.children).to.deep.equal([]);
     expect(cloned.references).to.deep.equal([]);
@@ -703,7 +699,7 @@ describe("Circular ownership edge cases", () => {
 
     const cloned = parentWithNulls.clone();
 
-    expect(cloned.uuid).to.not.equal(parentWithNulls.uuid);
+    expect(cloned).to.not.equal(parentWithNulls);
     expect(cloned.name).to.equal("nulls");
     expect(cloned.child).to.eq(null);
     expect(cloned.reference).to.eq(null);
@@ -720,7 +716,7 @@ describe("Circular ownership edge cases", () => {
 
     // First clone
     const cloned1 = parent1.clone();
-    expect(cloned1.children[0].uuid).to.not.equal(child1.uuid);
+    expect(cloned1.children[0]).to.not.equal(child1);
 
     // Second clone should start fresh (not reuse previous mapping)
     const child2 = new ChildComponent({ name: "child2", value: 2 });
@@ -731,8 +727,8 @@ describe("Circular ownership edge cases", () => {
     });
 
     const cloned2 = parent2.clone();
-    expect(cloned2.children[0].uuid).to.not.equal(child2.uuid);
-    expect(cloned2.children[0].uuid).to.not.equal(cloned1.children[0].uuid); // Different clones
+    expect(cloned2.children[0]).to.not.equal(child2);
+    expect(cloned2.children[0]).to.not.equal(cloned1.children[0]); // Different clones
   });
 
   it("should handle very large shared reference networks (single parent constraint)", () => {
@@ -774,7 +770,7 @@ describe("Circular ownership edge cases", () => {
     // All parents should be cloned
     for (let i = 0; i < 50; i++) {
       const clonedParent = clonedMegaRoot.children[i] as any;
-      expect(clonedParent.uuid).to.not.equal(parents[i].uuid);
+      expect(clonedParent).to.not.equal(parents[i]);
       expect(clonedParent.name).to.equal(`parent${i}`);
 
       if (i < 49) {
@@ -784,7 +780,7 @@ describe("Circular ownership edge cases", () => {
         // Only the last parent should have the cloned central child
         expect(clonedParent.children).to.have.lengthOf(1);
         const clonedCentral = clonedParent.children[0];
-        expect(clonedCentral.uuid).to.not.equal(centralChild.uuid);
+        expect(clonedCentral).to.not.equal(centralChild);
         expect(clonedCentral.name).to.equal("central");
         expect(clonedCentral.value).to.equal(999);
       }
@@ -818,7 +814,7 @@ describe("Mixed clone scenarios", () => {
     const cloned = parent.clone();
 
     expect(cloned.children).to.have.lengthOf(4);
-    expect(cloned.children[0].uuid).to.not.equal(parent.children[0].uuid); // Cloned
+    expect(cloned.children[0]).to.not.equal(parent.children[0]); // Cloned
     expect(cloned.children[1]).to.equal("string value"); // Copied as-is
     expect(cloned.children[2]).to.equal(42); // Copied as-is
     expect(cloned.children[3]).to.eq(null); // Copied as-is
@@ -921,7 +917,7 @@ describe("Mixed clone scenarios", () => {
 
     // Each clone should be independent
     for (let i = 0; i < 10; i++) {
-      expect(clonedParents[i].uuid).to.not.equal(parents[i].uuid);
+      expect(clonedParents[i]).to.not.equal(parents[i]);
       expect(clonedParents[i].name).to.equal(`parent${i}`);
 
       if (i < 9) {
@@ -930,7 +926,7 @@ describe("Mixed clone scenarios", () => {
       } else {
         // Only the last parent should have the cloned child
         expect(clonedParents[i].children).to.have.lengthOf(1);
-        expect(clonedParents[i].children[0].uuid).to.not.equal(sharedChild.uuid);
+        expect(clonedParents[i].children[0]).to.not.equal(sharedChild);
         expect(clonedParents[i].children[0].name).to.equal("shared");
       }
     }
@@ -968,7 +964,7 @@ describe("Ephemeral entity reference behavior", () => {
 
     // The cloned ephemeral should still reference the original stored entity
     expect(cloned.reference).to.equal(storedChild); // Same reference to stored
-    expect(cloned.reference!.uuid).to.equal(storedChild.uuid);
+    expect(cloned.reference).to.equal(storedChild);
   });
 
   it("should handle mixed ephemeral/materialized in lists - clone child-list and remap references", () => {
@@ -986,8 +982,8 @@ describe("Ephemeral entity reference behavior", () => {
 
     // child-list: both items should be cloned (even if original was ephemeral)
     expect(cloned.children).to.have.lengthOf(2);
-    expect(cloned.children[0].uuid).to.not.equal(ephemeralChild.uuid);
-    expect(cloned.children[1].uuid).to.not.equal(materializedChild1.uuid);
+    expect(cloned.children[0]).to.not.equal(ephemeralChild);
+    expect(cloned.children[1]).to.not.equal(materializedChild1);
     expect(cloned.children[0].name).to.equal("ephemeral");
     expect(cloned.children[1].name).to.equal("materialized1");
 
@@ -995,8 +991,6 @@ describe("Ephemeral entity reference behavior", () => {
     expect(cloned.references).to.have.lengthOf(2);
     expect(cloned.references[0]).to.equal(cloned.children[0]); // Remapped to clone
     expect(cloned.references[1]).to.equal(materializedChild2); // Not cloned, preserved
-    expect(cloned.references[0].uuid).to.equal(cloned.children[0].uuid);
-    expect(cloned.references[1].uuid).to.equal(materializedChild2.uuid);
   });
 
   it("should handle mixed ephemeral/materialized in records - clone child-record and remap references", () => {
@@ -1021,8 +1015,8 @@ describe("Ephemeral entity reference behavior", () => {
 
     // child-record: both values should be cloned
     expect(Object.keys(cloned.childMap)).to.deep.equal(["mat", "eph"]);
-    expect(cloned.childMap.mat.uuid).to.not.equal(materializedChild.uuid);
-    expect(cloned.childMap.eph.uuid).to.not.equal(ephemeralChild.uuid);
+    expect(cloned.childMap.mat).to.not.equal(materializedChild);
+    expect(cloned.childMap.eph).to.not.equal(ephemeralChild);
     expect(cloned.childMap.mat.name).to.equal("materialized");
     expect(cloned.childMap.eph.name).to.equal("ephemeral");
 
@@ -1031,9 +1025,6 @@ describe("Ephemeral entity reference behavior", () => {
     expect(cloned.refMap.mat).to.equal(cloned.childMap.mat); // Remapped to clone
     expect(cloned.refMap.eph).to.equal(cloned.childMap.eph); // Remapped to clone
     expect(cloned.refMap.other).to.equal(otherChild); // Not cloned, preserved
-    expect(cloned.refMap.mat.uuid).to.equal(cloned.childMap.mat.uuid);
-    expect(cloned.refMap.eph.uuid).to.equal(cloned.childMap.eph.uuid);
-    expect(cloned.refMap.other.uuid).to.equal(otherChild.uuid);
   });
 
   it("should handle mixed ephemeral/materialized in sets - clone child-set and remap references", () => {
@@ -1053,7 +1044,7 @@ describe("Ephemeral entity reference behavior", () => {
     expect(cloned.childSet.size).to.equal(2);
     const clonedChildren = Array.from(cloned.childSet);
     expect(
-      clonedChildren.every((child) => child.uuid !== materializedChild.uuid && child.uuid !== ephemeralChild.uuid),
+      clonedChildren.every((child) => child !== materializedChild && child !== ephemeralChild),
     ).to.eq(true);
     expect(clonedChildren.some((child) => child.name === "materialized")).to.eq(true);
     expect(clonedChildren.some((child) => child.name === "ephemeral")).to.eq(true);

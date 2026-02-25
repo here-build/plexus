@@ -25,7 +25,7 @@ import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
 
 // Re-export for backward compatibility
-export { serializeKey } from "./key-serialization.js";
+export { serializeKey, deserializeKey } from "./key-serialization.js";
 
 export type MaterializedMapProxyInitTarget = {
   owner: PlexusModel;

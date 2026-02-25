@@ -16,7 +16,7 @@ import {
 } from "./errors.js";
 import { docPlexus } from "./plexus-registry.js";
 import { PlexusWrapper } from "./PlexusWrapper.js";
-import { serializeKey } from "./proxies/materialized-map.js";
+import { serializeKey, deserializeKey } from "./proxies/materialized-map.js";
 import {
   type AllowedYJSMapKey,
   type AllowedYJSValue,
@@ -236,6 +236,24 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   get parent(): Parent | null {
     trackAccess(this, "parent");
     return this.__internals__.parent;
+  }
+
+  /** The field name on the parent that owns this entity (e.g. "children", "child"). */
+  get parentField(): string | null {
+    return this.__internals__.parentKey;
+  }
+
+  /** Key within the parent field. Record key (string), or deserialized map key (primitive, ReadonlySet, readonly array). */
+  get parentFieldKey(): AllowedYJSMapKey | string | null {
+    const internals = this.__internals__;
+    const meta = internals.parentMetadata;
+    if (meta === null) return null;
+    // Map keys are serialized with a prefix (Value\n, Set\n, Array\n).
+    // Record keys are plain strings — no prefix, no newline.
+    if (!meta.includes("\n")) return meta;
+    const doc = !internals.isDependency && internals.yjsModel?.doc;
+    if (!doc) return meta;
+    return deserializeKey(meta, doc);
   }
 
   /**
@@ -487,10 +505,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
         switch (type) {
           case "val":
           case "child-val":
-            wrapper.set(
-              schemaKey,
-              boundMaybeReference(internals.backingStorage.get(schemaKey) as AllowedYJSValue),
-            );
+            wrapper.set(schemaKey, boundMaybeReference(internals.backingStorage.get(schemaKey) as AllowedYJSValue));
             break;
           case "list":
           case "child-list":

@@ -5,7 +5,8 @@ import { referenceSymbol, YPlexusNode } from "../../proxy-runtime-types.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 import * as Y from "yjs";
 import { PlexusRootParentError } from "../../errors.js";
-import { getModelsMap } from "../../yjs/getModels.js";
+
+import { getModelsMap } from "../getModelsMap.js";
 
 // Helper to read parent data from XmlElement children (positional: [entityId, key, meta?])
 function getParentRef(element: YPlexusNode | undefined): string[] | undefined {

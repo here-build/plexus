@@ -43,7 +43,7 @@
     "build": "tsc -p tsconfig.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "vitest run",
+    "test": "vitest run --config vitest.config.varianced.ts",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },

@@ -3,6 +3,8 @@ import invariant from "tiny-invariant";
 import type { Constructor, ReadonlyDeep } from "type-fest";
 import * as Y from "yjs";
 
+import { nanoid } from "nanoid";
+
 import { clone } from "./clone.js";
 import { encode } from "./crdt-uuid.js";
 import { deref } from "./deref.js";
@@ -41,7 +43,7 @@ import {
 import { trackAccess, trackModification } from "./tracking.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { curryMaybeReference, maybeTransacting, never } from "./utils/utils.js";
-import { getModelsMap } from "./yjs/getModels.js";
+import { getTypeMap } from "./yjs/getModels.js";
 
 export type PlexusConstructor<T extends PlexusModel = PlexusModel> = (abstract new (...args: any) => T) & {
   modelName: string;
@@ -107,6 +109,8 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   static __forcedInternals__: Internals<any> | null = null;
   // eslint-disable-next-line sonarjs/public-static-readonly
   static modelName: string;
+  /** Override in tests for deterministic UUIDs. Only used when PLEXUS_UUID_MODE=arbitrary. */
+  static getArbitraryUUID: () => string = nanoid;
   static readonly schema: GenericRecordSchema;
 
   constructor(init: unknown = {}) {
@@ -170,6 +174,12 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     if (doc) {
       this[referenceSymbol](doc);
       return internals.uuid!;
+    }
+    if (process.env.PLEXUS_UUID_MODE === "arbitrary") {
+      internals.uuid = PlexusModel.getArbitraryUUID() as PlexusUUID;
+      internals.reference = [internals.uuid] as ReferenceTuple;
+      Object.freeze(internals.reference);
+      return internals.uuid;
     }
     throw new Error(`Plexus<${this.__type__}>: .uuid accessed before materialization`);
   }
@@ -447,23 +457,24 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       return internals.reference;
     }
     invariant(docPlexus.has(doc), `Plexus<document#${doc.clientID}>: not registered as Plexus root`);
-    const yTypes = getModelsMap(doc);
+    // type sub-map should exist (pre-created at doc setup; no clock should be consumed)
+    const typeMap = getTypeMap(doc, this.__type__);
 
     if (internals.yjsModel?.doc) {
       invariant(
         doc === internals.yjsModel.doc,
         `Plexus<${this.__type__}#${internals.uuid ?? "<virtual>"}>: cannot cross-reference between docs`,
       );
-      if (yTypes.has(this.uuid)) {
+      if (typeMap.has(this.uuid)) {
         // you never know what kinds of interesting states you can get in with CRDT
         invariant(
-          yTypes.get(this.uuid) === internals.yjsModel.element,
+          typeMap.get(this.uuid) === internals.yjsModel.element,
           `Plexus<${this.__type__}#${this.uuid}>: impossible case. uuid conflict, already taken by different model`,
         );
       } else {
         // this MAY and is allowed to happen during the undo operations that are removing some class from model;
         // this is weird situation where Y.XmlElement technically belongs to doc, but exists in pre-GC limbo.
-        yTypes.set(this.#type, this.uuid, internals.yjsModel.element);
+        typeMap.set(this.uuid, internals.yjsModel.element);
         internals.isDematerialized = false;
       }
       return this.#reference;
@@ -472,16 +483,17 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
 
     return maybeTransacting(doc, () => {
       internals.isWithinYjsModelSeed = true;
-      // Ensure the type sub-map exists (pre-created, no clock consumed)
-      const typeMap = yTypes.getTypeMap(this.#type);
-
       // Check if entity is already stored (re-entry or re-materialization guard).
       let yprojectObjectInstance = internals.uuid ? typeMap.get(internals.uuid) : undefined;
       if (!yprojectObjectInstance) {
-        // CRDT-native UUID: encode {clientId, clock} at materialization.
-        // The next clock tick will be consumed by typeMap.set — predict it now.
-        const predictedClock = Y.getState(doc.store, doc.clientID);
-        internals.uuid = encode(doc.guid, doc.clientID, predictedClock) as PlexusUUID;
+        if (process.env.PLEXUS_UUID_MODE === "arbitrary") {
+          internals.uuid = (internals.uuid ?? PlexusModel.getArbitraryUUID()) as PlexusUUID;
+        } else {
+          // CRDT-native UUID: encode {clientId, clock} at materialization.
+          // The next clock tick will be consumed by typeMap.set — predict it now.
+          const predictedClock = Y.getState(doc.store, doc.clientID);
+          internals.uuid = encode(doc.guid, doc.clientID, predictedClock) as PlexusUUID;
+        }
         // type is encoded in XmlElement nodeName; fields stored directly as attributes (flat)
         yprojectObjectInstance = new Y.XmlElement(this.#type);
         typeMap.set(internals.uuid, yprojectObjectInstance); // consumes predictedClock

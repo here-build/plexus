@@ -12,6 +12,7 @@ import { PlexusWrapper } from "./PlexusWrapper.js";
 import type { AllowedYJSValue, AllowedYValue, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { isTupleReference } from "./utils/utils.js";
 import { docPlexus } from "./plexus-registry.js";
+import { getModelTypesMap } from "./yjs/getModels.js";
 
 export function deref<T extends AllowedYJSValue>(
   doc: Y.Doc,
@@ -44,16 +45,28 @@ export function deref<T extends AllowedYJSValue>(
     return knownEntity as T;
   }
 
-  // CRDT-native UUID → StructStore resolution — O(log n)
-  // decode reverses the Feistel cipher to recover {clientId, clock},
-  // then getItem does a binary search in the StructStore.
-  const { clientId, clock } = decode(entityId as PlexusUUID, doc.guid);
-  const item = Y.getItem(doc.store, Y.createID(clientId, clock));
-  invariant(
-    item.content instanceof Y.ContentType,
-    `Plexus<model#${entityId}>: decoded item is not a ContentType (got ${item.content?.constructor?.name})`,
-  );
-  const entityModel = item.content.type as YPlexusNode;
+  let entityModel: YPlexusNode | undefined = undefined;
+  if (process.env.PLEXUS_UUID_MODE === "arbitrary") {
+    const typeModelsMap = getModelTypesMap(doc);
+    for (const value of typeModelsMap.values()) {
+      if (value.has(entityId)) {
+        entityModel = value.get(entityId);
+        break;
+      }
+    }
+  } else {
+    // CRDT-native UUID → StructStore resolution — O(log n)
+    // decode reverses the Feistel cipher to recover {clientId, clock},
+    // then getItem does a binary search in the StructStore.
+    const { clientId, clock } = decode(entityId as PlexusUUID, doc.guid);
+    const item = Y.getItem(doc.store, Y.createID(clientId, clock));
+    invariant(
+      item.content instanceof Y.ContentType,
+      `Plexus<model#${entityId}>: decoded item is not a ContentType (got ${item.content?.constructor?.name})`,
+    );
+    entityModel = item.content.type as YPlexusNode;
+  }
+
   invariant(
     entityModel instanceof Y.XmlElement,
     `Plexus<model#${entityId}>: decoded item content is not XmlElement (got ${entityModel?.constructor?.name})`,

@@ -15,7 +15,8 @@ import { PlexusModel } from "../../PlexusModel.js";
 import { referenceSymbol } from "../../proxy-runtime-types.js";
 import { isTupleReference } from "../../utils/utils.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
-import { getModelsMap } from "../../yjs/getModels.js";
+
+import { getModelsMap } from "../getModelsMap.js";
 
 // Test model schemas
 @syncing

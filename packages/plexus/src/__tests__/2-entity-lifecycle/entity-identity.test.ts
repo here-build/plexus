@@ -3,7 +3,8 @@ import * as Y from "yjs";
 import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
-import { getModelsMap } from "../../yjs/getModels.js";
+
+import { getModelsMap } from "../getModelsMap.js";
 
 // Simple model for singleton tests
 @syncing

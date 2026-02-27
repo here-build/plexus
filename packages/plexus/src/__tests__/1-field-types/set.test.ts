@@ -7,7 +7,8 @@ import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
 import * as Y from "yjs";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
-import { getModelsMap } from "../../yjs/getModels.js";
+
+import { getModelsMap } from "../getModelsMap.js";
 
 // Test model with a set field
 @syncing

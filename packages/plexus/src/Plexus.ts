@@ -22,7 +22,7 @@ import { DefaultedMap } from "@here.build/collections";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { maybeTransacting } from "./utils/utils.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
-import { getModelsMap } from "./yjs/getModels.js";
+import { ensureModelTypes, getModelTypesMap } from "./yjs/getModels.js";
 
 export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<string, Root> }> {
   readonly rootDependenciesRepresentation: ReadonlyDeep<Record<string, Root>> = new Proxy(
@@ -171,7 +171,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     docPlexus.set(doc, this);
 
     // Set up type-scoped storage
-    this.yTypes = getModelsMap(doc).raw;
+    this.yTypes = getModelTypesMap(doc);
     this.yDependencies = this.doc.getMap<Y.Map<Uint8Array>>(YJS_GLOBALS.dependencies.key);
 
     // Mark root and materialize
@@ -183,14 +183,11 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     // Store root pointer in meta map for remote peer discovery
     doc.getMap<string>(YJS_GLOBALS.meta.key).set(YJS_GLOBALS.meta.wellKnown.root, rootInternals.uuid!);
 
-    // Pre-create type sub-maps for ALL registered entity types.
+    // Pre-create type sub-maps for ALL registered entity types BEFORE UndoManager connects.
     // This ensures undo only removes entities from sub-maps (not the sub-maps themselves).
     // Without this, if a type sub-map is created in the same undo frame as an entity addition,
     // undo removes the entire sub-map, and the inner-map event never fires for dematerialization.
-    const typesHelper = getModelsMap(doc);
-    for (const typeName of entityClasses.keys()) {
-      typesHelper.getTypeMap(typeName);
-    }
+    ensureModelTypes(doc, entityClasses.keys());
 
     this.__undoManager__ = new UndoManager(this.yTypes, {
       captureTimeout: 500,
@@ -459,7 +456,6 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     );
     const dependencyDoc = new Y.Doc({ guid: dependencyDocumentId });
     Y.applyUpdate(dependencyDoc, dependencyVector);
-    const depTypes = getModelsMap(dependencyDoc);
     const dependencies = this.doc.getMap<Y.Map<Uint8Array>>(YJS_GLOBALS.dependencies.key);
     invariant(
       !dependencies.has(dependencyDocumentId),
@@ -476,20 +472,22 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
 
     this.doc.transact(() => {
       dependencies.set(dependencyDocumentId, storage);
-      for (const [key, model] of depTypes.allEntries()) {
-        const encoder = encoding.createEncoder();
-        encoding.writeVarString(encoder, model.nodeName);
-        // Serialize field attributes (flat storage — fields are directly on XmlElement)
-        const attributes = Object.fromEntries(
-          Object.entries(model.getAttributes()).map(([k, v]) => [k, v instanceof Y.AbstractType ? v.toJSON() : v]),
-        );
-        encoding.writeAny(encoder, attributes);
-        // Parent data is stored as a child XmlElement, not as an attribute
-        const wrapper = new PlexusWrapper(model);
-        if (wrapper.hasParent) {
-          encoding.writeVarString(encoder, wrapper.parent!);
+      for (const [_, typeContainer] of getModelTypesMap(dependencyDoc)) {
+        for (const [key, model] of typeContainer.entries()) {
+          const encoder = encoding.createEncoder();
+          encoding.writeVarString(encoder, model.nodeName);
+          // Serialize field attributes (flat storage — fields are directly on XmlElement)
+          const attributes = Object.fromEntries(
+            Object.entries(model.getAttributes()).map(([k, v]) => [k, v instanceof Y.AbstractType ? v.toJSON() : v]),
+          );
+          encoding.writeAny(encoder, attributes);
+          // Parent data is stored as a child XmlElement, not as an attribute
+          const wrapper = new PlexusWrapper(model);
+          if (wrapper.hasParent) {
+            encoding.writeVarString(encoder, wrapper.parent!);
+          }
+          storage.set(key, encoding.toUint8Array(encoder));
         }
-        storage.set(key, encoding.toUint8Array(encoder));
       }
     });
 

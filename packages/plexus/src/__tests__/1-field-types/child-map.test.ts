@@ -13,7 +13,8 @@ import { AllowedYValue, referenceSymbol, YPlexusNode } from "../../proxy-runtime
 import { createTrackedFunction } from "../../tracking.js";
 import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
-import { getModelsMap } from "../../yjs/getModels.js";
+
+import { getModelsMap } from "../getModelsMap.js";
 
 function getParentRef(element: YPlexusNode | undefined): string[] | undefined {
   if (!element || element.length === 0) return undefined;

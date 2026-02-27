@@ -1,23 +1,20 @@
 import * as Y from "yjs";
+import { declareDeterministicMap } from "../genesis-client.js";
 import type { YPlexusNode } from "../proxy-runtime-types.js";
 import * as YJS_GLOBALS from "../YJS_GLOBALS.js";
 
-export const getModelTypesMap = (doc: Y.Doc) => doc.getMap<Y.Map<YPlexusNode>>(YJS_GLOBALS.types.key);
-export const ensureModelTypes = (doc: Y.Doc, types: Iterable<string>) => {
-  const outerMap = getModelTypesMap(doc);
-  for (const type of types) {
-    if (!outerMap.has(type)) {
-      outerMap.set(type, new Y.Map<YPlexusNode>());
-    }
-  }
-};
-// todo - all types should be pre-existent; yet needs checking.
-export const getTypeMap = (doc: Y.Doc, type: string) => {
-  const outerMap = getModelTypesMap(doc);
-  let typeMap = outerMap.get(type);
-  if (!typeMap) {
-    typeMap = new Y.Map<YPlexusNode>();
-    outerMap.set(type, typeMap);
-  }
-  return typeMap;
-};
+/** Top-level "types" map: type name → Y.Map of entities */
+export const getModelTypesMap = (doc: Y.Doc) =>
+  declareDeterministicMap<Y.Map<YPlexusNode>>(doc, [YJS_GLOBALS.types.key]);
+
+/** Top-level "meta" map: well-known keys (root UUID, etc.) */
+export const getMetaMap = (doc: Y.Doc) =>
+  declareDeterministicMap<string>(doc, [YJS_GLOBALS.meta.key]);
+
+/** Top-level "dependencies" map: dependency doc ID → serialized entities */
+export const getDependenciesMap = (doc: Y.Doc) =>
+  declareDeterministicMap<Y.Map<Uint8Array>>(doc, [YJS_GLOBALS.dependencies.key]);
+
+/** Deterministic type sub-map within "types" — genesis-backed, idempotent */
+export const getTypeMap = (doc: Y.Doc, type: string): Y.Map<YPlexusNode> =>
+  declareDeterministicMap<YPlexusNode>(doc, [YJS_GLOBALS.types.key, type]);

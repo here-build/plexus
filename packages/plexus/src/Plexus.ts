@@ -22,7 +22,8 @@ import { DefaultedMap } from "@here.build/collections";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { maybeTransacting } from "./utils/utils.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
-import { ensureModelTypes, getModelTypesMap } from "./yjs/getModels.js";
+import { declareDeterministicMap } from "./genesis-client.js";
+import { getDependenciesMap, getMetaMap, getModelTypesMap } from "./yjs/getModels.js";
 
 export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<string, Root> }> {
   readonly rootDependenciesRepresentation: ReadonlyDeep<Record<string, Root>> = new Proxy(
@@ -172,7 +173,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
 
     // Set up type-scoped storage
     this.yTypes = getModelTypesMap(doc);
-    this.yDependencies = this.doc.getMap<Y.Map<Uint8Array>>(YJS_GLOBALS.dependencies.key);
+    this.yDependencies = getDependenciesMap(doc);
 
     // Mark root and materialize
     const rootInternals = getInternals(root);
@@ -181,13 +182,14 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     // drop root during undos
     root[referenceSymbol](doc);
     // Store root pointer in meta map for remote peer discovery
-    doc.getMap<string>(YJS_GLOBALS.meta.key).set(YJS_GLOBALS.meta.wellKnown.root, rootInternals.uuid!);
+    getMetaMap(doc).set(YJS_GLOBALS.meta.wellKnown.root, rootInternals.uuid!);
 
     // Pre-create type sub-maps for ALL registered entity types BEFORE UndoManager connects.
-    // This ensures undo only removes entities from sub-maps (not the sub-maps themselves).
-    // Without this, if a type sub-map is created in the same undo frame as an entity addition,
-    // undo removes the entire sub-map, and the inner-map event never fires for dematerialization.
-    ensureModelTypes(doc, entityClasses.keys());
+    // Uses genesis clientIds (deterministic, conflict-free across independent peers).
+    // Must happen before UndoManager so undo only removes entities, not type sub-maps.
+    for (const type of entityClasses.keys()) {
+      declareDeterministicMap(doc, [YJS_GLOBALS.types.key, type]);
+    }
 
     this.__undoManager__ = new UndoManager(this.yTypes, {
       captureTimeout: 500,
@@ -283,7 +285,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
       return existing;
     }
 
-    const meta = doc.getMap<string>(YJS_GLOBALS.meta.key);
+    const meta = getMetaMap(doc);
     const rootUuid = meta.get(YJS_GLOBALS.meta.wellKnown.root);
 
     invariant(
@@ -456,7 +458,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     );
     const dependencyDoc = new Y.Doc({ guid: dependencyDocumentId });
     Y.applyUpdate(dependencyDoc, dependencyVector);
-    const dependencies = this.doc.getMap<Y.Map<Uint8Array>>(YJS_GLOBALS.dependencies.key);
+    const dependencies = getDependenciesMap(this.doc);
     invariant(
       !dependencies.has(dependencyDocumentId),
       `Plexus<document#${this.doc.clientID}>.addDependency: dependency ${dependencyDocumentId} already exists in document`,
@@ -466,7 +468,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     this.dependencyReverseId.set(storage, dependencyDocumentId);
 
     // Find root UUID from the dependency doc's meta map
-    const depMeta = dependencyDoc.getMap<string>(YJS_GLOBALS.meta.key);
+    const depMeta = getMetaMap(dependencyDoc);
     const depRootUuid = depMeta.get(YJS_GLOBALS.meta.wellKnown.root);
     invariant(depRootUuid, `Plexus: dependency ${dependencyDocumentId} has no root in meta map`);
 

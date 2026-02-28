@@ -26,6 +26,9 @@ import { declareDeterministicMap } from "./genesis-client.js";
 import { getDependenciesMap, getMetaMap, getModelTypesMap } from "./yjs/getModels.js";
 
 export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<string, Root> }> {
+  /** Override in tests for deterministic UUIDs. Only used when PLEXUS_UUID_MODE=arbitrary. */
+  public static uuidMode: "arbitrary" | undefined = process.env.PLEXUS_UUID_MODE as "arbitrary" | undefined;
+  public static getArbitraryUUID: () => string = nanoid;
   readonly rootDependenciesRepresentation: ReadonlyDeep<Record<string, Root>> = new Proxy(
     {},
     {
@@ -288,10 +291,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     const meta = getMetaMap(doc);
     const rootUuid = meta.get(YJS_GLOBALS.meta.wellKnown.root);
 
-    invariant(
-      rootUuid,
-      `Plexus<document#${doc.clientID}>.connect: no root found, await sync first`,
-    );
+    invariant(rootUuid, `Plexus<document#${doc.clientID}>.connect: no root found, await sync first`);
 
     const root = deref(doc, [rootUuid]) as PlexusModel;
     getInternals(root).isRoot = true;
@@ -378,32 +378,47 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
       // ── Child fields: ownership exclusive, at most one parent ──
       case "child-val": {
         for (const c of candidates) {
-          if ((c as any)[field] === node) { yield c; return; }
+          if ((c as any)[field] === node) {
+            yield c;
+            return;
+          }
         }
         break;
       }
       case "child-list": {
         for (const c of candidates) {
-          if (((c as any)[field] as any[]).includes(node)) { yield c; return; }
+          if (((c as any)[field] as any[]).includes(node)) {
+            yield c;
+            return;
+          }
         }
         break;
       }
       case "child-set": {
         for (const c of candidates) {
-          if (((c as any)[field] as Set<any>).has(node)) { yield c; return; }
+          if (((c as any)[field] as Set<any>).has(node)) {
+            yield c;
+            return;
+          }
         }
         break;
       }
       case "child-record": {
         for (const c of candidates) {
-          if (Object.values((c as any)[field]).includes(node)) { yield c; return; }
+          if (Object.values((c as any)[field]).includes(node)) {
+            yield c;
+            return;
+          }
         }
         break;
       }
       case "child-map": {
         for (const c of candidates) {
           for (const v of ((c as any)[field] as Map<any, any>).values()) {
-            if (v === node) { yield c; return; }
+            if (v === node) {
+              yield c;
+              return;
+            }
           }
         }
         break;
@@ -413,28 +428,40 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
       case "val": {
         const seen = new WeakSet<P>();
         for (const c of candidates) {
-          if ((c as any)[field] === node && !seen.has(c)) { seen.add(c); yield c; }
+          if ((c as any)[field] === node && !seen.has(c)) {
+            seen.add(c);
+            yield c;
+          }
         }
         break;
       }
       case "list": {
         const seen = new WeakSet<P>();
         for (const c of candidates) {
-          if (((c as any)[field] as any[]).includes(node) && !seen.has(c)) { seen.add(c); yield c; }
+          if (((c as any)[field] as any[]).includes(node) && !seen.has(c)) {
+            seen.add(c);
+            yield c;
+          }
         }
         break;
       }
       case "set": {
         const seen = new WeakSet<P>();
         for (const c of candidates) {
-          if (((c as any)[field] as Set<any>).has(node) && !seen.has(c)) { seen.add(c); yield c; }
+          if (((c as any)[field] as Set<any>).has(node) && !seen.has(c)) {
+            seen.add(c);
+            yield c;
+          }
         }
         break;
       }
       case "record": {
         const seen = new WeakSet<P>();
         for (const c of candidates) {
-          if (Object.values((c as any)[field]).includes(node) && !seen.has(c)) { seen.add(c); yield c; }
+          if (Object.values((c as any)[field]).includes(node) && !seen.has(c)) {
+            seen.add(c);
+            yield c;
+          }
         }
         break;
       }
@@ -443,7 +470,11 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
         for (const c of candidates) {
           if (seen.has(c)) continue;
           for (const v of ((c as any)[field] as Map<any, any>).values()) {
-            if (v === node) { seen.add(c); yield c; break; }
+            if (v === node) {
+              seen.add(c);
+              yield c;
+              break;
+            }
           }
         }
         break;

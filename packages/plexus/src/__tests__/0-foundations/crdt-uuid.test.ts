@@ -1,34 +1,39 @@
 /**
  * CRDT-Native UUID Tests
  *
- * Tests the Feistel cipher encoding of Yjs {clientId, clock} addresses.
+ * Tests the prefix-discriminated UUID encoding:
+ *   'p' + Feistel body (user-generated entities)
+ *   'd' + packed body (deterministic genesis entities)
+ *
  * Pure codec tests — no Yjs dependency.
  */
 
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { decode, encode, fromBase62, murmur32, toBase62 } from "../../crdt-uuid.js";
+import { bodyDecode, bodyEncode, decode, encode, murmur32 } from "../../crdt-uuid.js";
 
 // ── Arbitraries ──
 
 const uint32 = fc.integer({ min: 0, max: 0xffffffff });
 const docGuid = fc.string({ minLength: 1, maxLength: 64 });
 
+// Genesis clientIds: above uint32, up to MAX_SAFE_INTEGER
+const genesisClientId = fc.integer({ min: 0x100000000, max: Number.MAX_SAFE_INTEGER });
+const genesisClock = fc.integer({ min: 0, max: 4095 }); // 12-bit cap
+
 describe("CRDT-Native UUID Codec", () => {
-  describe("Base62 roundtrip", () => {
+  describe("Body (base63) roundtrip", () => {
     it("roundtrips zero values", () => {
-      const encoded = toBase62(0, 0);
-      const decoded = fromBase62(encoded);
-      expect(decoded.L).toBe(0);
-      expect(decoded.R).toBe(0);
+      const decoded = bodyDecode(bodyEncode(0, 0));
+      expect(decoded.hi).toBe(0);
+      expect(decoded.lo).toBe(0);
     });
 
     it("roundtrips max uint32 values", () => {
-      const encoded = toBase62(0xffffffff, 0xffffffff);
-      const decoded = fromBase62(encoded);
-      expect(decoded.L).toBe(0xffffffff);
-      expect(decoded.R).toBe(0xffffffff);
+      const decoded = bodyDecode(bodyEncode(0xffffffff, 0xffffffff));
+      expect(decoded.hi).toBe(0xffffffff);
+      expect(decoded.lo).toBe(0xffffffff);
     });
 
     it("roundtrips arbitrary values", () => {
@@ -40,18 +45,17 @@ describe("CRDT-Native UUID Codec", () => {
         [0xdeadbeef, 0xcafebabe],
       ];
       for (const [hi, lo] of cases) {
-        const encoded = toBase62(hi, lo);
-        const decoded = fromBase62(encoded);
-        expect(decoded.L).toBe(hi >>> 0);
-        expect(decoded.R).toBe(lo >>> 0);
+        const decoded = bodyDecode(bodyEncode(hi, lo));
+        expect(decoded.hi).toBe(hi >>> 0);
+        expect(decoded.lo).toBe(lo >>> 0);
       }
     });
 
     it("roundtrips any uint32 pair (fuzz)", () => {
       fc.assert(
         fc.property(uint32, uint32, (hi, lo) => {
-          const decoded = fromBase62(toBase62(hi, lo));
-          return decoded.L === hi >>> 0 && decoded.R === lo >>> 0;
+          const decoded = bodyDecode(bodyEncode(hi, lo));
+          return decoded.hi === hi >>> 0 && decoded.lo === lo >>> 0;
         }),
       );
     });
@@ -59,29 +63,21 @@ describe("CRDT-Native UUID Codec", () => {
     it("always produces 11-char output (fuzz)", () => {
       fc.assert(
         fc.property(uint32, uint32, (hi, lo) => {
-          return toBase62(hi, lo).length === 11;
+          return bodyEncode(hi, lo).length === 11;
         }),
       );
     });
 
-    it("first char is always a letter (fuzz)", () => {
+    it("output is always valid base63 (fuzz)", () => {
       fc.assert(
         fc.property(uint32, uint32, (hi, lo) => {
-          return /^[a-zA-Z]/.test(toBase62(hi, lo));
-        }),
-      );
-    });
-
-    it("output is always alphanumeric (fuzz)", () => {
-      fc.assert(
-        fc.property(uint32, uint32, (hi, lo) => {
-          return /^[a-zA-Z][a-zA-Z0-9]{10}$/.test(toBase62(hi, lo));
+          return /^[a-zA-Z0-9_]{11}$/.test(bodyEncode(hi, lo));
         }),
       );
     });
   });
 
-  describe("Feistel encode/decode roundtrip", () => {
+  describe("Feistel encode/decode roundtrip ('p' prefix)", () => {
     it("roundtrips with basic values", () => {
       const guid = "test-doc-guid";
       const { clientId, clock } = decode(encode(guid, 1, 0), guid);
@@ -118,9 +114,66 @@ describe("CRDT-Native UUID Codec", () => {
         }),
       );
     });
+
+    it("always produces 'p' prefix (fuzz)", () => {
+      fc.assert(
+        fc.property(docGuid, uint32, uint32, (guid, clientId, clock) => {
+          return encode(guid, clientId, clock)[0] === "p";
+        }),
+      );
+    });
   });
 
-  describe("docGuid isolation", () => {
+  describe("Genesis encode/decode roundtrip ('d' prefix)", () => {
+    it("roundtrips basic genesis values", () => {
+      const guid = "doc-genesis";
+      const clientId = 0x100000000; // smallest above-uint32
+      const result = decode(encode(guid, clientId, 0), guid);
+      expect(result.clientId).toBe(clientId);
+      expect(result.clock).toBe(0);
+    });
+
+    it("roundtrips max genesis values", () => {
+      const guid = "doc-genesis-max";
+      const clientId = Number.MAX_SAFE_INTEGER;
+      const clock = 4095;
+      const result = decode(encode(guid, clientId, clock), guid);
+      expect(result.clientId).toBe(clientId);
+      expect(result.clock).toBe(clock);
+    });
+
+    it("roundtrips any genesis (clientId, clock) pair (fuzz)", () => {
+      fc.assert(
+        fc.property(docGuid, genesisClientId, genesisClock, (guid, clientId, clock) => {
+          const result = decode(encode(guid, clientId, clock), guid);
+          return result.clientId === clientId && result.clock === clock;
+        }),
+      );
+    });
+
+    it("always produces 'd' prefix (fuzz)", () => {
+      fc.assert(
+        fc.property(docGuid, genesisClientId, genesisClock, (guid, clientId, clock) => {
+          return encode(guid, clientId, clock)[0] === "d";
+        }),
+      );
+    });
+
+    it("genesis UUIDs are doc-independent (no Feistel)", () => {
+      const clientId = 0x200000000;
+      const uuid1 = encode("doc-A", clientId, 0);
+      const uuid2 = encode("doc-B", clientId, 0);
+      // Same clientId → same UUID regardless of docGuid (genesis is content-addressed)
+      expect(uuid1).toBe(uuid2);
+    });
+
+    it("throws on clock exceeding cap", () => {
+      expect(() => encode("doc", 0x100000000, 4096)).toThrow("exceeds maximum");
+      expect(() => encode("doc", 0x100000000, 5000)).toThrow("exceeds maximum");
+    });
+  });
+
+  describe("docGuid isolation (plexus UUIDs)", () => {
     it("different docGuids produce different UUIDs for same (clientId, clock)", () => {
       const uuid1 = encode("doc-A", 1, 0);
       const uuid2 = encode("doc-B", 1, 0);
@@ -135,8 +188,6 @@ describe("CRDT-Native UUID Codec", () => {
     });
 
     it("wrong docGuid almost never recovers original values (fuzz)", () => {
-      // Not a strict invariant (Feistel collisions are theoretically possible),
-      // but with 64-bit output space the probability per trial is ~2^-64.
       fc.assert(
         fc.property(
           docGuid,
@@ -155,11 +206,20 @@ describe("CRDT-Native UUID Codec", () => {
   });
 
   describe("output format", () => {
-    it("encode always produces valid identifier format (fuzz)", () => {
+    it("plexus UUIDs: always 12 chars, p + base63 (fuzz)", () => {
       fc.assert(
         fc.property(docGuid, uint32, uint32, (guid, clientId, clock) => {
           const uuid = encode(guid, clientId, clock);
-          return uuid.length === 11 && /^[a-zA-Z][a-zA-Z0-9]{10}$/.test(uuid);
+          return uuid.length === 12 && /^p[a-zA-Z0-9_]{11}$/.test(uuid);
+        }),
+      );
+    });
+
+    it("genesis UUIDs: always 12 chars, d + base63 (fuzz)", () => {
+      fc.assert(
+        fc.property(docGuid, genesisClientId, genesisClock, (guid, clientId, clock) => {
+          const uuid = encode(guid, clientId, clock);
+          return uuid.length === 12 && /^d[a-zA-Z0-9_]{11}$/.test(uuid);
         }),
       );
     });
@@ -184,8 +244,7 @@ describe("CRDT-Native UUID Codec", () => {
       expect(uuids.size).toBe(1000);
     });
 
-    it("encode is injective for fixed docGuid (fuzz)", () => {
-      // Generate batches of distinct (clientId, clock) pairs and verify no UUID collisions
+    it("p-prefix encode is injective for fixed docGuid (fuzz)", () => {
       fc.assert(
         fc.property(
           docGuid,
@@ -200,6 +259,32 @@ describe("CRDT-Native UUID Codec", () => {
           },
         ),
       );
+    });
+
+    it("d-prefix encode is injective (fuzz)", () => {
+      fc.assert(
+        fc.property(
+          fc.uniqueArray(fc.tuple(genesisClientId, genesisClock), {
+            minLength: 2,
+            maxLength: 50,
+            comparator: (a, b) => a[0] === b[0] && a[1] === b[1],
+          }),
+          (pairs) => {
+            // docGuid doesn't affect d-prefix, use any
+            const uuids = new Set(pairs.map(([c, k]) => encode("any", c, k)));
+            return uuids.size === pairs.length;
+          },
+        ),
+      );
+    });
+
+    it("p and d prefixes never collide", () => {
+      // Even if the body bytes happen to match, prefixes differ
+      const pUuid = encode("doc", 1, 0);
+      const dUuid = encode("doc", 0x100000000, 0);
+      expect(pUuid[0]).toBe("p");
+      expect(dUuid[0]).toBe("d");
+      expect(pUuid).not.toBe(dUuid);
     });
   });
 

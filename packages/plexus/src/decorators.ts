@@ -3,6 +3,7 @@ import invariant from "tiny-invariant";
 import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
 import { getInternals, type PlexusConstructor, PlexusModel, safeUuid } from "./PlexusModel.js";
+import { assertGenesisIsolation } from "./virtual-children-genesis.js";
 import { buildArrayProxy } from "./proxies/materialized-array.js";
 import { buildMapProxy } from "./proxies/materialized-map.js";
 import { buildRecordProxy } from "./proxies/materialized-record.js";
@@ -268,6 +269,7 @@ const createHandlers = <
   const backingStructures = createBackingStructuresMap.get(context.name);
   return {
     get(this: Model): T {
+      assertGenesisIsolation(this);
       const internals = getInternals(this);
       invariant(
         !internals.isDependency,

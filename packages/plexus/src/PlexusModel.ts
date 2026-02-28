@@ -43,7 +43,9 @@ import {
 import { trackAccess, trackModification } from "./tracking.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { curryMaybeReference, maybeTransacting, never } from "./utils/utils.js";
+import { genesisAllowlist } from "./virtual-children-genesis.js";
 import { getTypeMap } from "./yjs/getModels.js";
+import { Plexus } from "./Plexus.js";
 
 export type PlexusConstructor<T extends PlexusModel = PlexusModel> = (abstract new (...args: any) => T) & {
   modelName: string;
@@ -127,6 +129,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       // CRDT-native UUID is assigned at [referenceSymbol] via encode().
     };
     internalsStore.set(this, internals);
+    if (genesisAllowlist) genesisAllowlist.add(this);
     if (!PlexusModel.__forcedInternals__) {
       setTimeout(() => {
         // @ts-expect-error after we're bootstrapped, initializationState is not needed anymore
@@ -175,8 +178,8 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       this[referenceSymbol](doc);
       return internals.uuid!;
     }
-    if (process.env.PLEXUS_UUID_MODE === "arbitrary") {
-      internals.uuid = PlexusModel.getArbitraryUUID() as PlexusUUID;
+    if (Plexus.uuidMode === "arbitrary") {
+      internals.uuid = Plexus.getArbitraryUUID() as PlexusUUID;
       internals.reference = [internals.uuid] as ReferenceTuple;
       Object.freeze(internals.reference);
       return internals.uuid;
@@ -486,8 +489,8 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       // Check if entity is already stored (re-entry or re-materialization guard).
       let yprojectObjectInstance = internals.uuid ? typeMap.get(internals.uuid) : undefined;
       if (!yprojectObjectInstance) {
-        if (process.env.PLEXUS_UUID_MODE === "arbitrary") {
-          internals.uuid = (internals.uuid ?? PlexusModel.getArbitraryUUID()) as PlexusUUID;
+        if (Plexus.uuidMode === "arbitrary") {
+          internals.uuid = (internals.uuid ?? Plexus.getArbitraryUUID()) as PlexusUUID;
         } else {
           // CRDT-native UUID: encode {clientId, clock} at materialization.
           // The next clock tick will be consumed by typeMap.set — predict it now.

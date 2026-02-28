@@ -25,6 +25,7 @@ export type AllowedYJSValueSet = Set<AllowedYJSValue>;
 export type AllowedYJSValueMap = Record<string, AllowedYJSValue>;
 export type AllowedYJSValueList = AllowedYJSValue[];
 export type AllowedYJSMapKey = AllowedYJSValue | Set<AllowedYJSValue> | AllowedYJSValue[];
+export type AllowedStatelessYJSMapKey = AllowedPrimitive | AllowedPrimitive[];
 
 export type Storageable = AllowedYValue | Y.Map<AllowedYValue> | Y.Array<AllowedYValue>;
 

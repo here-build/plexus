@@ -13,6 +13,7 @@ import type { AllowedYJSValue, AllowedYValue, PlexusUUID, YPlexusNode } from "./
 import { isTupleReference } from "./utils/utils.js";
 import { docPlexus } from "./plexus-registry.js";
 import { getModelTypesMap } from "./yjs/getModels.js";
+import { Plexus } from "./Plexus.js";
 
 export function deref<T extends AllowedYJSValue>(
   doc: Y.Doc,
@@ -46,7 +47,7 @@ export function deref<T extends AllowedYJSValue>(
   }
 
   let entityModel: YPlexusNode | undefined = undefined;
-  if (process.env.PLEXUS_UUID_MODE === "arbitrary") {
+  if (Plexus.uuidMode === "arbitrary") {
     const typeModelsMap = getModelTypesMap(doc);
     for (const value of typeModelsMap.values()) {
       if (value.has(entityId)) {

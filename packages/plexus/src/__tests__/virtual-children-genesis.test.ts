@@ -5,15 +5,18 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
+import { decode } from "../crdt-uuid.js";
+import { deref } from "../deref.js";
 import { syncing } from "../decorators.js";
 import { getInternals, PlexusModel } from "../PlexusModel.js";
-import type { AllowedYValue } from "../proxy-runtime-types.js";
+import type { AllowedYValue, PlexusUUID } from "../proxy-runtime-types.js";
 import {
   materializeVirtualChild,
   GENESIS_ORIGIN,
   genesisAllowlist,
   __getGenesisDepth__,
 } from "../virtual-children-genesis.js";
+import { getTypeMap } from "../yjs/getModels.js";
 import { connectTestPlexus, initTestPlexus } from "./_helpers/test-plexus.js";
 
 // ── Test models ──
@@ -616,6 +619,190 @@ describe("materializeVirtualChild", () => {
     // Subsequent call works
     materializeVirtualChild(root, "items", "after-fail", yjsMap, (key) => new VChild({ label: `ok-${key}` }));
     expect(root.items.get("after-fail")!.label).toBe("ok-after-fail");
+  });
+
+  // ── Child entity resolution (d-prefix UUIDs in StructStore + type directory) ──
+
+  it("child entities have d-prefix UUIDs resolvable via decode → StructStore", () => {
+    const docId = "child-resolution-test";
+    const { root, doc } = initTestPlexus(new VTreeHost({ title: "host", branches: new Map() }), {}, docId);
+    const yjsMap = getYjsMap(root, "branches");
+
+    materializeVirtualChild(root, "branches", "x", yjsMap, (key) =>
+      new VBranch({ tag: `branch-${key}`, leaf: new VLeaf({ value: `leaf-${key}` }) }),
+    );
+
+    const branch = root.branches.get("x")!;
+    const leaf = branch.leaf!;
+
+    // Both genesis entities have d-prefix UUIDs
+    expect(branch.uuid[0]).toBe("d");
+    expect(leaf.uuid[0]).toBe("d");
+
+    // UUIDs decode to above-uint32 clientIds
+    const branchAddr = decode(branch.uuid as PlexusUUID, doc.guid);
+    const leafAddr = decode(leaf.uuid as PlexusUUID, doc.guid);
+    expect(branchAddr.clientId).toBeGreaterThan(0xffffffff);
+    expect(leafAddr.clientId).toBeGreaterThan(0xffffffff);
+
+    // Items exist in StructStore at those addresses
+    const branchItem = Y.getItem(doc.store, Y.createID(branchAddr.clientId, branchAddr.clock));
+    expect(branchItem.content).toBeInstanceOf(Y.ContentType);
+
+    const leafItem = Y.getItem(doc.store, Y.createID(leafAddr.clientId, leafAddr.clock));
+    expect(leafItem.content).toBeInstanceOf(Y.ContentType);
+  });
+
+  it("child entities appear in type directory sub-maps", () => {
+    const { root, doc } = initTestPlexus(new VTreeHost({ title: "host", branches: new Map() }));
+    const yjsMap = getYjsMap(root, "branches");
+
+    materializeVirtualChild(root, "branches", "t", yjsMap, (key) =>
+      new VBranch({ tag: `branch-${key}`, leaf: new VLeaf({ value: `leaf-${key}` }) }),
+    );
+
+    const branch = root.branches.get("t")!;
+    const leaf = branch.leaf!;
+
+    // Both entities registered in their type sub-maps
+    const branchTypeMap = getTypeMap(doc, "VBranch");
+    const leafTypeMap = getTypeMap(doc, "VLeaf");
+
+    expect(branchTypeMap.has(branch.uuid)).toBe(true);
+    expect(leafTypeMap.has(leaf.uuid)).toBe(true);
+
+    // The XmlElements in the type map match the decoded StructStore items
+    const branchXml = branchTypeMap.get(branch.uuid)!;
+    expect(branchXml).toBeInstanceOf(Y.XmlElement);
+    expect(branchXml.nodeName).toBe("VBranch");
+
+    const leafXml = leafTypeMap.get(leaf.uuid)!;
+    expect(leafXml).toBeInstanceOf(Y.XmlElement);
+    expect(leafXml.nodeName).toBe("VLeaf");
+  });
+
+  it("child entity UUIDs match across independent peers", () => {
+    const docId = "child-uuid-match";
+    const factory = (key: string) =>
+      new VBranch({ tag: `branch-${key}`, leaf: new VLeaf({ value: `leaf-${key}` }) });
+
+    // Peer 1
+    const { root: root1, doc: doc1 } = initTestPlexus(
+      new VTreeHost({ title: "host", branches: new Map() }),
+      {},
+      docId,
+    );
+
+    // Peer 2: sync parent
+    const doc2 = new Y.Doc({ guid: docId });
+    Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
+    const { root: root2 } = connectTestPlexus<VTreeHost>(doc2);
+
+    // Independent genesis
+    materializeVirtualChild(root1, "branches", "c", getYjsMap(root1, "branches"), factory);
+    materializeVirtualChild(root2, "branches", "c", getYjsMap(root2, "branches"), factory);
+
+    const b1 = root1.branches.get("c")!;
+    const b2 = root2.branches.get("c")!;
+
+    // Root entity UUIDs match
+    expect(b1.uuid).toBe(b2.uuid);
+
+    // Child entity UUIDs match
+    expect(b1.leaf!.uuid).toBe(b2.leaf!.uuid);
+  });
+
+  it("deep genesis tree: child UUIDs match across independent peers", () => {
+    const docId = "deep-child-uuid-match";
+    const factory = (key: string) =>
+      new VDeep({
+        depth: `L0-${key}`,
+        nested: new VBranch({
+          tag: `L1-${key}`,
+          leaf: new VLeaf({ value: `L2-${key}` }),
+        }),
+      });
+
+    const { root: root1, doc: doc1 } = initTestPlexus(
+      new VTreeHostDeep({ title: "host", nodes: new Map() }),
+      {},
+      docId,
+    );
+
+    const doc2 = new Y.Doc({ guid: docId });
+    Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
+    const { root: root2 } = connectTestPlexus<VTreeHostDeep>(doc2);
+
+    materializeVirtualChild(root1, "nodes", "k", getYjsMap(root1, "nodes"), factory);
+    materializeVirtualChild(root2, "nodes", "k", getYjsMap(root2, "nodes"), factory);
+
+    const d1 = root1.nodes.get("k")!;
+    const d2 = root2.nodes.get("k")!;
+
+    // All three levels match
+    expect(d1.uuid).toBe(d2.uuid);
+    expect(d1.nested!.uuid).toBe(d2.nested!.uuid);
+    expect(d1.nested!.leaf!.uuid).toBe(d2.nested!.leaf!.uuid);
+  });
+
+  it("child entities resolvable via deref from raw UUID tuple", () => {
+    const { root, doc } = initTestPlexus(new VTreeHost({ title: "host", branches: new Map() }));
+    const yjsMap = getYjsMap(root, "branches");
+
+    materializeVirtualChild(root, "branches", "d", yjsMap, (key) =>
+      new VBranch({ tag: `branch-${key}`, leaf: new VLeaf({ value: `leaf-${key}` }) }),
+    );
+
+    const branch = root.branches.get("d")!;
+    const leaf = branch.leaf!;
+
+    // Grab UUIDs, then resolve fresh via deref (simulates what happens on a synced peer)
+    const branchUuid = branch.uuid;
+    const leafUuid = leaf.uuid;
+
+    // deref resolves the d-prefix UUID through decode → StructStore → materialize
+    const resolvedBranch = deref<VBranch>(doc, [branchUuid]);
+    expect(resolvedBranch).toBeInstanceOf(PlexusModel);
+    expect(resolvedBranch.tag).toBe("branch-d");
+
+    const resolvedLeaf = deref<VLeaf>(doc, [leafUuid]);
+    expect(resolvedLeaf).toBeInstanceOf(PlexusModel);
+    expect(resolvedLeaf.value).toBe("leaf-d");
+  });
+
+  it("deep genesis tree: all levels have d-prefix UUIDs and are deref-resolvable", () => {
+    const { root, doc } = initTestPlexus(new VTreeHostDeep({ title: "host", nodes: new Map() }));
+    const yjsMap = getYjsMap(root, "nodes");
+
+    materializeVirtualChild(root, "nodes", "deep", yjsMap, (key) =>
+      new VDeep({
+        depth: `L0-${key}`,
+        nested: new VBranch({
+          tag: `L1-${key}`,
+          leaf: new VLeaf({ value: `L2-${key}` }),
+        }),
+      }),
+    );
+
+    const deep = root.nodes.get("deep")!;
+    const branch = deep.nested!;
+    const leaf = branch.leaf!;
+
+    // All three levels: d-prefix, distinct UUIDs
+    for (const entity of [deep, branch, leaf]) {
+      expect(entity.uuid[0]).toBe("d");
+    }
+    expect(new Set([deep.uuid, branch.uuid, leaf.uuid]).size).toBe(3);
+
+    // All three resolvable via deref
+    const r0 = deref<VDeep>(doc, [deep.uuid]);
+    expect(r0.depth).toBe("L0-deep");
+
+    const r1 = deref<VBranch>(doc, [branch.uuid]);
+    expect(r1.tag).toBe("L1-deep");
+
+    const r2 = deref<VLeaf>(doc, [leaf.uuid]);
+    expect(r2.value).toBe("L2-deep");
   });
 
   // ── Factory purity (called twice) ──

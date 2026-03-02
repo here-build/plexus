@@ -27,6 +27,10 @@ export type AllowedYJSValueList = AllowedYJSValue[];
 export type AllowedYJSMapKey = AllowedYJSValue | Set<AllowedYJSValue> | AllowedYJSValue[];
 export type AllowedStatelessYJSMapKey = AllowedPrimitive | AllowedPrimitive[];
 
+export interface VirtualMap<K extends AllowedStatelessYJSMapKey, V> extends Omit<ReadonlyMap<K, V>, "get"> {
+  get(key: K): V;
+}
+
 export type Storageable = AllowedYValue | Y.Map<AllowedYValue> | Y.Array<AllowedYValue>;
 
 export type YPlexusNode = Y.XmlElement<Record<string, Storageable>>;

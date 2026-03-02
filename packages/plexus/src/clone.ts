@@ -95,6 +95,9 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
             );
             break;
           case "child-map": {
+            // Virtual children auto-materialize — skip during clone
+            const vf = (source.constructor as any)[Symbol.metadata]?.virtualFactories?.[fieldKey];
+            if (vf) break;
             // Phase 1: Clone VALUES only (they're owned children).
             // Keep ORIGINAL keys - they'll be remapped in postMappingFill
             // after all child entities are cloned and in cloneTransactionMapping.
@@ -166,6 +169,9 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
               );
               break;
             case "child-map": {
+              // Virtual children auto-materialize — skip during clone
+              const vf2 = (source.constructor as any)[Symbol.metadata]?.virtualFactories?.[fieldKey];
+              if (vf2) break;
               // Phase 2: Now that all child entities are cloned, remap keys.
               // Keys that were cloned (as values elsewhere) get remapped to the clone.
               // Keys that were NOT cloned stay as the original reference.

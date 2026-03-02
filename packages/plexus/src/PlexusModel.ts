@@ -342,6 +342,18 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       this,
       newParent,
     );
+
+    // Check 6: Virtual child reparenting guard
+    if (internals.uuid?.startsWith("d")) {
+      const currentParent = internals.parent;
+      const currentKey = internals.parentKey;
+      if (currentParent && (currentParent !== newParent || currentKey !== field)) {
+        invariant(
+          false,
+          `Virtual child ${this.__type__}#${internals.uuid} cannot be reparented — bound to genesis field+key`,
+        );
+      }
+    }
   }
 
   /**
@@ -444,6 +456,13 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   detach(): boolean {
     if (this.parent === null) {
       return false;
+    }
+    const internals = this.__internals__;
+    if (!internals.isDependency) {
+      invariant(
+        !internals.uuid?.startsWith("d"),
+        `Virtual child ${this.__type__}#${internals.uuid} cannot be detached — bound to genesis field+key`,
+      );
     }
     this[requestOrphanizationSymbol]();
     return true;

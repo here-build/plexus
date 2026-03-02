@@ -10,6 +10,7 @@ import { buildRecordProxy } from "./proxies/materialized-record.js";
 import { buildSetProxy } from "./proxies/materialized-set.js";
 import {
   type AllowedPrimitive,
+  type AllowedStatelessYJSMapKey,
   type AllowedYJSMapKey,
   type AllowedYJSValue,
   type GenericRecordSchema,
@@ -18,6 +19,7 @@ import {
   requestEmancipationSymbol,
   requestOrphanizationSymbol,
   validateAdoptionSymbol,
+  type VirtualMap,
 } from "./proxy-runtime-types.js";
 import { __untracked__, trackAccess, trackModification } from "./tracking.js";
 import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
@@ -242,7 +244,10 @@ const createBackingStructuresMap = new DefaultedMap((key: string) => ({
   list: new DefaultedWeakMap((owner: PlexusModel) => buildArrayProxy({ owner, key, isChildField: false })),
   "child-list": new DefaultedWeakMap((owner: PlexusModel) => buildArrayProxy({ owner, key, isChildField: true })),
   map: new DefaultedWeakMap((owner: PlexusModel) => buildMapProxy({ owner, key, isChildField: false })),
-  "child-map": new DefaultedWeakMap((owner: PlexusModel) => buildMapProxy({ owner, key, isChildField: true })),
+  "child-map": new DefaultedWeakMap((owner: PlexusModel) => {
+    const virtualFactory = (owner.constructor as any)[Symbol.metadata]?.virtualFactories?.[key];
+    return buildMapProxy({ owner, key, isChildField: true, virtualFactory });
+  }),
 }));
 
 const emptyEphemeralDependency = new DefaultedWeakMap(() => Object.freeze({}));
@@ -257,7 +262,8 @@ const createHandlers = <
     | Set<AllowedYJSValue>
     | AllowedYJSValue[]
     | Record<string, AllowedYJSValue>
-    | Map<AllowedYJSMapKey, AllowedYJSValue>,
+    | Map<AllowedYJSMapKey, AllowedYJSValue>
+    | VirtualMap<AllowedStatelessYJSMapKey, AllowedYJSValue>,
   Context extends ClassAccessorDecoratorContext<Model, T> & { name: string } = ClassAccessorDecoratorContext<
     Model,
     T
@@ -495,6 +501,15 @@ const ensureSchema = (context: ClassAccessorDecoratorContext<PlexusModel, any>):
   return context.metadata.schema as GenericRecordSchema;
 };
 
+const ensureVirtualFactories = (context: ClassAccessorDecoratorContext<PlexusModel, any>): Record<string, Function> => {
+  if (!Object.hasOwn(context.metadata, "virtualFactories")) {
+    context.metadata.virtualFactories = {
+      __proto__: (context.metadata.virtualFactories as Record<string, Function> | undefined) ?? {},
+    };
+  }
+  return context.metadata.virtualFactories as Record<string, Function>;
+};
+
 const buildDecorator = <MappingType extends keyof Mapping<any>>(kind: GenericRecordSchema[string]) =>
   Object.assign(
     function plexusDynamicDecorator<
@@ -596,6 +611,17 @@ export const syncing = Object.assign(syncingDecorator, {
   ) {
     ensureSchema(context)[context.name] = "map";
     return createHandlers<Model, Map<FieldValueKey, FieldValue>>(context);
+  },
+
+  virtual<K extends AllowedStatelessYJSMapKey, V extends PlexusModel>(factory: (key: K) => V) {
+    return function <Model extends PlexusModel>(
+      target: ClassAccessorDecoratorTarget<Model, VirtualMap<K, V>>,
+      context: ClassAccessorDecoratorContext<Model, VirtualMap<K, V>> & { name: string },
+    ) {
+      ensureSchema(context)[context.name] = "child-map";
+      ensureVirtualFactories(context)[context.name] = factory;
+      return createHandlers<Model, VirtualMap<K, V>>(context);
+    };
   },
 
   declare<Out extends AllowedPrimitive | PlexusModel, In extends Out>() {

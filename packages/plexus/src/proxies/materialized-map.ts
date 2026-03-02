@@ -1,8 +1,11 @@
 import * as Y from "yjs";
 
+import invariant from "tiny-invariant";
+
 import { deref } from "../deref.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
+import { materializeVirtualChild } from "../virtual-children-genesis.js";
 import {
   informAdoptionSymbol,
   informOrphanizationSymbol,
@@ -31,12 +34,14 @@ export type MaterializedMapProxyInitTarget = {
   owner: PlexusModel;
   key: string;
   isChildField?: boolean;
+  virtualFactory?: (key: any) => PlexusModel;
 };
 
 export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSValue>({
   owner,
   key,
   isChildField,
+  virtualFactory,
 }: MaterializedMapProxyInitTarget) => {
   const getYjsMap = () => {
     const yjsMap = owner.__yjsFieldsMap__?.get(key) as Y.Map<AllowedYValue> | null;
@@ -149,10 +154,16 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
     get(this: Map<K, V>, mapKey: K): V | undefined {
       trackAccess(owner, key);
       trackAccess(self, backingStorage.getCanonicalKey(mapKey));
+      if (virtualFactory && !backingStorage.has(mapKey)) {
+        const yjsMap = getYjsMap();
+        invariant(yjsMap, "VirtualMap: owner must be connected to a doc");
+        materializeVirtualChild(owner, key, mapKey, yjsMap, virtualFactory);
+      }
       return backingStorage.get(mapKey);
     },
 
     set(this: Map<K, V>, mapKey: K, value: V): Map<K, V> {
+      invariant(!virtualFactory, "VirtualMap: .set() is blocked — use .get(key) to auto-materialize");
       if (backingStorage.get(mapKey) === value) {
         return this;
       }
@@ -198,6 +209,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
     },
 
     delete(mapKey: K): boolean {
+      invariant(!virtualFactory, "VirtualMap: .delete() is blocked — virtual children cannot be removed");
       if (!backingStorage.has(mapKey)) {
         return false;
       }
@@ -226,6 +238,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
     },
 
     clear(): void {
+      invariant(!virtualFactory, "VirtualMap: .clear() is blocked — virtual children cannot be removed");
       if (backingStorage.size === 0) {
         return;
       }
@@ -278,6 +291,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
 
     // Plexus-specific methods
     assign(map: Map<K, V>): void {
+      invariant(!virtualFactory, "VirtualMap: .assign() is blocked — virtual children cannot be overwritten");
       maybeTransacting(owner.__doc__, () => {
         const iterable = map.entries();
 

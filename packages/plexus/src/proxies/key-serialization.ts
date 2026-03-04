@@ -12,6 +12,30 @@ const VALUE_PREFIX = "Value";
 
 const BIGINT_REGEX = /^-?\d+n$/;
 
+// ── Local entity namer ──────────────────────────────────────────────
+// Runtime-local incremental IDs for doc-free key serialization.
+// Two canonical forms exist for PlexusModel references in map keys:
+//   - local:  incremental integers (lazy, doc-free, O(n) resolution)
+//   - global: CRDT UUIDs via Y.Doc (shared storage, O(1) resolution)
+// They can be interchanged: local IDs are always valid within the
+// current runtime; global IDs are valid across peers.
+
+let localIdCounter = 0;
+const entityToLocalId = new WeakMap<PlexusModel, string>();
+const localIdToEntity = new Map<string, WeakRef<PlexusModel>>();
+
+function getOrCreateLocalId(entity: PlexusModel): string {
+  let id = entityToLocalId.get(entity);
+  if (!id) {
+    id = `${localIdCounter++}`;
+    entityToLocalId.set(entity, id);
+    localIdToEntity.set(id, new WeakRef(entity));
+  }
+  return id;
+}
+
+// ── Validation ──────────────────────────────────────────────────────
+
 /**
  * Validate that a value is an allowed primitive type.
  * Throws TypeError for disallowed types.
@@ -40,14 +64,13 @@ function validatePrimitive(item: unknown): void {
   );
 }
 
+// ── Value serialization ─────────────────────────────────────────────
+
 /**
- * Serialize a single value to a line.
- * - BigInt → "123n"
- * - Infinity/-Infinity/NaN → literal string
- * - PlexusModel → reference string
- * - Everything else → JSON
+ * Serialize a single value to a line (global canonical form).
+ * PlexusModel → CRDT reference tuple via doc.
  */
-function serializeValue(item: AllowedYJSValue, doc: Y.Doc): string {
+function serializeValueGlobal(item: AllowedYJSValue, doc: Y.Doc): string {
   validatePrimitive(item);
 
   if (typeof item === "bigint") {
@@ -65,56 +88,103 @@ function serializeValue(item: AllowedYJSValue, doc: Y.Doc): string {
 }
 
 /**
- * Deserialize a single line back to a value.
- * - "123n" → BigInt
- * - "Infinity"/"-Infinity"/"NaN" → special number
- * - Otherwise → JSON.parse, then deref
+ * Serialize a single value to a line (local canonical form).
+ * PlexusModel → local incremental ID, no doc needed.
  */
-function deserializeValue(line: string, doc: Y.Doc): AllowedYJSValue {
+function serializeValueLocal(item: AllowedYJSValue): string {
+  validatePrimitive(item);
+
+  if (typeof item === "bigint") {
+    return `${item}n`;
+  }
+  if (typeof item === "number") {
+    if (Number.isNaN(item)) return "NaN";
+    if (item === Infinity) return "Infinity";
+    if (item === -Infinity) return "-Infinity";
+  }
+  if (item instanceof PlexusModel) {
+    return JSON.stringify([getOrCreateLocalId(item)]);
+  }
+  return JSON.stringify(item);
+}
+
+// ── Value deserialization ───────────────────────────────────────────
+
+/**
+ * Deserialize a single line back to a value.
+ * Tries local resolution first (for local IDs), then doc-based (for CRDT UUIDs).
+ * Returns null for unresolvable entity references.
+ */
+function deserializeValueFlexible(line: string, doc: Y.Doc | null): AllowedYJSValue {
   if (BIGINT_REGEX.test(line)) {
     return BigInt(line.slice(0, -1));
   }
   if (line === "NaN") return NaN;
   if (line === "Infinity") return Infinity;
   if (line === "-Infinity") return -Infinity;
-  return deref(doc, JSON.parse(line) as AllowedYValue);
+
+  const parsed = JSON.parse(line);
+
+  // Check if it's a reference tuple: [id] or [id, docId]
+  if (Array.isArray(parsed) && parsed.length >= 1 && parsed.length <= 2 && typeof parsed[0] === "string") {
+    // Try local resolution first
+    const localEntity = localIdToEntity.get(parsed[0])?.deref();
+    if (localEntity) return localEntity;
+    // Fall back to doc-based resolution
+    if (doc) return deref(doc, parsed as AllowedYValue);
+    // Can't resolve
+    return null as unknown as AllowedYJSValue;
+  }
+
+  return parsed;
 }
 
+// ── Key serialization (public API) ──────────────────────────────────
+
 /**
- * Serialize a key to a string for Y.Map storage.
+ * Serialize a key to a string for storage.
  * Format: Type\nValue1\nValue2\n...
- * Only called when writing to YJS, not for in-memory operations.
+ *
+ * When doc is available, uses global canonical form (CRDT UUIDs).
+ * When doc is null, uses local canonical form (incremental IDs).
  */
-export function serializeKey(key: AllowedYJSMapKey, doc: Y.Doc): string {
+export function serializeKey(key: AllowedYJSMapKey, doc: Y.Doc | null = null): string {
+  const sv = doc ? (item: AllowedYJSValue) => serializeValueGlobal(item, doc) : serializeValueLocal;
+
   if (key instanceof Set) {
-    // Serialize first (materializes entities via [referenceSymbol]), then sort.
+    // Serialize first (materializes entities in global mode), then sort.
     // Serialized form is deterministic and cross-peer stable.
-    const lines = [...key].map((item) => serializeValue(item, doc));
+    const lines = [...key].map(sv);
     lines.sort();
     return [SET_PREFIX, ...lines].join("\n");
   }
   if (Array.isArray(key)) {
-    const lines = key.map((item) => serializeValue(item, doc));
+    const lines = key.map(sv);
     return [ARRAY_PREFIX, ...lines].join("\n");
   }
-  return [VALUE_PREFIX, serializeValue(key, doc)].join("\n");
+  return [VALUE_PREFIX, sv(key)].join("\n");
 }
 
 /**
- * Deserialize a key from Y.Map storage.
- * Used during materialization to rebuild PathMap from YJS.
+ * Deserialize a key from storage.
+ *
+ * Tries local resolution first (local IDs via WeakRef),
+ * then doc-based resolution (CRDT UUIDs). Returns null for
+ * unresolvable entity references.
  */
-export function deserializeKey(serialized: string, doc: Y.Doc): AllowedYJSMapKey {
+export function deserializeKey(serialized: string, doc: Y.Doc | null = null): AllowedYJSMapKey {
   const [prefix, ...lines] = serialized.split("\n");
+
+  const dv = (line: string) => deserializeValueFlexible(line, doc);
 
   switch (prefix) {
     case SET_PREFIX:
-      return new Set<AllowedYJSValue>(lines.map((line) => deserializeValue(line, doc)));
+      return new Set<AllowedYJSValue>(lines.map(dv));
     case ARRAY_PREFIX:
-      return lines.map((line) => deserializeValue(line, doc));
+      return lines.map(dv);
     case VALUE_PREFIX:
       invariant(lines.length === 1, `Value key must have exactly one line, got ${lines.length}`);
-      return deserializeValue(lines[0], doc);
+      return dv(lines[0]);
     default:
       throw new TypeError(`Invalid prefix ${prefix} for serialized map key`);
   }

@@ -172,7 +172,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
 
         // Handle child tracking - VALIDATE FIRST, then orphan old value, adopt new value
         if (isChildField) {
-          const serializedSubKey = owner.__doc__ ? serializeKey(mapKey, owner.__doc__) : String(mapKey);
+          const serializedSubKey = serializeKey(mapKey, owner.__doc__);
           // Validate adoption BEFORE any state changes (throws on cycle)
           value?.[validateAdoptionSymbol]?.(owner, key, serializedSubKey);
 
@@ -307,7 +307,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           // VALIDATE FIRST: Check all truly new values can be adopted
           for (const [k, v] of newEntries) {
             if (v && !oldValueSet.has(v)) {
-              const serializedSubKey = owner.__doc__ ? serializeKey(k, owner.__doc__) : String(k);
+              const serializedSubKey = serializeKey(k, owner.__doc__);
               v[validateAdoptionSymbol]?.(owner, key, serializedSubKey);
             }
           }

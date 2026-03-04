@@ -264,8 +264,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     // Map keys are serialized with a prefix (Value\n, Set\n, Array\n).
     // Record keys are plain strings — no prefix, no newline.
     if (!meta.includes("\n")) return meta;
-    const doc = !internals.isDependency && internals.yjsModel?.doc;
-    if (!doc) return meta;
+    const doc = !internals.isDependency ? (internals.yjsModel?.doc ?? null) : null;
     return deserializeKey(meta, doc);
   }
 

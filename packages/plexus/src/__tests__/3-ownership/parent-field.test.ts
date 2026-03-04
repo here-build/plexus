@@ -399,4 +399,150 @@ describe("parentField / parentFieldKey", () => {
       expect(item.parentFieldKey).toBeNull();
     });
   });
+
+  describe("ephemeral (no doc) child-map parentFieldKey", () => {
+    @syncing
+    class EphemeralMapOwner extends PlexusModel {
+      @syncing.child.map accessor entries!: Map<string, Item>;
+    }
+
+    it("returns string key for ephemeral child-map with string key", () => {
+      const owner = new EphemeralMapOwner();
+      const item = new Item({ name: "a" });
+      owner.entries.set("foo", item);
+
+      expect(item.parentField).toBe("entries");
+      expect(item.parentFieldKey).toBe("foo");
+    });
+
+    it("returns deserialized array key for ephemeral child-map with Array<primitive> key", () => {
+      @syncing
+      class ArrayKeyOwner extends PlexusModel {
+        @syncing.child.map accessor entries!: Map<string[], Item>;
+      }
+
+      const owner = new ArrayKeyOwner();
+      const item = new Item({ name: "val" });
+      owner.entries.set(["alpha", "beta"], item);
+
+      expect(item.parentField).toBe("entries");
+      const key = item.parentFieldKey;
+      expect(Array.isArray(key)).toBe(true);
+      const arr = key as unknown[];
+      expect(arr).toHaveLength(2);
+      expect(arr[0]).toBe("alpha");
+      expect(arr[1]).toBe("beta");
+    });
+
+    it("returns deserialized Set key for ephemeral child-map with Set<primitive> key", () => {
+      @syncing
+      class SetKeyOwner extends PlexusModel {
+        @syncing.child.map accessor entries!: Map<Set<string>, Item>;
+      }
+
+      const owner = new SetKeyOwner();
+      const item = new Item({ name: "val" });
+      owner.entries.set(new Set(["x", "y"]), item);
+
+      expect(item.parentField).toBe("entries");
+      const key = item.parentFieldKey;
+      expect(key).toBeInstanceOf(Set);
+      const set = key as Set<unknown>;
+      expect(set.size).toBe(2);
+      expect(set.has("x")).toBe(true);
+      expect(set.has("y")).toBe(true);
+    });
+
+    it("returns number key for ephemeral child-map with Value<number> key", () => {
+      @syncing
+      class EphNumKeyOwner extends PlexusModel {
+        @syncing.child.map accessor entries!: Map<number, Item>;
+      }
+
+      const owner = new EphNumKeyOwner();
+      const item = new Item({ name: "val" });
+      owner.entries.set(42, item);
+
+      expect(item.parentField).toBe("entries");
+      expect(item.parentFieldKey).toBe(42);
+    });
+  });
+
+  describe("synced child-map parentFieldKey with primitive collections", () => {
+    it("returns deserialized array key for synced child-map with Array<primitive> key", () => {
+      @syncing
+      class ArrayPrimKeyOwner extends PlexusModel {
+        @syncing.child.map accessor entries!: Map<string[], Item>;
+      }
+
+      @syncing
+      class ArrayPrimKeyRoot extends PlexusModel<null> {
+        @syncing.child.list accessor owners: ArrayPrimKeyOwner[] = [];
+      }
+
+      const { root } = initTestPlexus(new ArrayPrimKeyRoot());
+      const owner = new ArrayPrimKeyOwner();
+      root.owners.push(owner);
+
+      const item = new Item({ name: "val" });
+      owner.entries.set(["alpha", "beta"], item);
+
+      expect(item.parentField).toBe("entries");
+      const key = item.parentFieldKey;
+      expect(Array.isArray(key)).toBe(true);
+      const arr = key as unknown[];
+      expect(arr).toHaveLength(2);
+      expect(arr[0]).toBe("alpha");
+      expect(arr[1]).toBe("beta");
+    });
+
+    it("returns deserialized Set key for synced child-map with Set<primitive> key", () => {
+      @syncing
+      class SetPrimKeyOwner extends PlexusModel {
+        @syncing.child.map accessor entries!: Map<Set<string>, Item>;
+      }
+
+      @syncing
+      class SetPrimKeyRoot extends PlexusModel<null> {
+        @syncing.child.list accessor owners: SetPrimKeyOwner[] = [];
+      }
+
+      const { root } = initTestPlexus(new SetPrimKeyRoot());
+      const owner = new SetPrimKeyOwner();
+      root.owners.push(owner);
+
+      const item = new Item({ name: "val" });
+      owner.entries.set(new Set(["x", "y"]), item);
+
+      expect(item.parentField).toBe("entries");
+      const key = item.parentFieldKey;
+      expect(key).toBeInstanceOf(Set);
+      const set = key as Set<unknown>;
+      expect(set.size).toBe(2);
+      expect(set.has("x")).toBe(true);
+      expect(set.has("y")).toBe(true);
+    });
+
+    it("returns number for synced child-map with Value<number> key", () => {
+      @syncing
+      class SyncedNumKeyOwner extends PlexusModel {
+        @syncing.child.map accessor entries!: Map<number, Item>;
+      }
+
+      @syncing
+      class SyncedNumKeyRoot extends PlexusModel<null> {
+        @syncing.child.list accessor owners: SyncedNumKeyOwner[] = [];
+      }
+
+      const { root } = initTestPlexus(new SyncedNumKeyRoot());
+      const owner = new SyncedNumKeyOwner();
+      root.owners.push(owner);
+
+      const item = new Item({ name: "val" });
+      owner.entries.set(42, item);
+
+      expect(item.parentField).toBe("entries");
+      expect(item.parentFieldKey).toBe(42);
+    });
+  });
 });

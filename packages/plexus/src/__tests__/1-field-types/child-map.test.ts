@@ -729,7 +729,7 @@ describe("child.map weird edge cases", () => {
         new ArraySetKeyContainer({
           items: new Map([[[item1, new Set([item2])], item3]]),
         });
-      }).toThrow(/Plain objects are not allowed as map key elements/);
+      }).toThrow(/Plain objects are not allowed as map keys or values/);
     });
 
     it("multiple entities in array key (flat structure) works", () => {
@@ -1084,7 +1084,7 @@ describe("child.map weird edge cases", () => {
         new DeepKeyContainer({
           items: new Map([[[[keyItem]], valueItem]]),
         });
-      }).toThrow(/Plain objects are not allowed as map key elements/);
+      }).toThrow(/Plain objects are not allowed as map keys or values/);
     });
 
     it("single-level array keys with entities ARE supported", () => {

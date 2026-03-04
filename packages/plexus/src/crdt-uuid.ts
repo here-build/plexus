@@ -9,6 +9,10 @@
  *   'd' — deterministic (genesis entity, clientId > uint32)
  *         Body: pack(offset, clock) directly — no Feistel needed since
  *         the clientId is already content-addressed (a hash).
+ *   'a' — arbitrary (test-only, PLEXUS_UUID_MODE=arbitrary)
+ *         Body: nanoid(). Not decodable — used only in unit tests where
+ *         CRDT addressing is irrelevant. The prefix prevents false positives
+ *         on the 'd'-prefix virtual child guard (reparenting/detach invariants).
  *
  * Body alphabet: a-zA-Z0-9_ (63 chars). Capacity: 63^11 ≈ 2^65.75.
  * Valid in JS identifiers, CSS class names, and member access keys.

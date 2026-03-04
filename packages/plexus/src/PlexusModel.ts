@@ -179,7 +179,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       return internals.uuid!;
     }
     if (Plexus.uuidMode === "arbitrary") {
-      internals.uuid = Plexus.getArbitraryUUID() as PlexusUUID;
+      internals.uuid = `a${Plexus.getArbitraryUUID()}` as PlexusUUID;
       internals.reference = [internals.uuid] as ReferenceTuple;
       Object.freeze(internals.reference);
       return internals.uuid;
@@ -508,7 +508,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       let yprojectObjectInstance = internals.uuid ? typeMap.get(internals.uuid) : undefined;
       if (!yprojectObjectInstance) {
         if (Plexus.uuidMode === "arbitrary") {
-          internals.uuid = (internals.uuid ?? Plexus.getArbitraryUUID()) as PlexusUUID;
+          internals.uuid = (internals.uuid ?? `a${Plexus.getArbitraryUUID()}`) as PlexusUUID;
         } else {
           // CRDT-native UUID: encode {clientId, clock} at materialization.
           // The next clock tick will be consumed by typeMap.set — predict it now.

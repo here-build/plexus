@@ -15,41 +15,41 @@ import { initTestPlexus } from "../_helpers/test-plexus.js";
 
 // ── Leaf model ──
 
-@syncing
+@syncing("Item")
 class Item extends PlexusModel {
   @syncing accessor name: string = "";
 }
 
 // ── Container models (one field type each for clarity) ──
 
-@syncing
+@syncing("ChildValOwner")
 class ChildValOwner extends PlexusModel {
   @syncing.child accessor child: Item | null = null;
 }
 
-@syncing
+@syncing("ChildListOwner")
 class ChildListOwner extends PlexusModel {
   @syncing.child.list accessor children: Item[] = [];
 }
 
-@syncing
+@syncing("ChildSetOwner")
 class ChildSetOwner extends PlexusModel {
   @syncing.child.set accessor tags: Set<Item> = new Set();
 }
 
-@syncing
+@syncing("ChildRecordOwner")
 class ChildRecordOwner extends PlexusModel {
   @syncing.child.record accessor items: Record<string, Item> = {};
 }
 
-@syncing
+@syncing("ChildMapOwner")
 class ChildMapOwner extends PlexusModel {
   @syncing.child.map accessor entries!: Map<string, Item>;
 }
 
 // ── Multi-field parent for reparenting tests ──
 
-@syncing
+@syncing("MultiFieldParent")
 class MultiFieldParent extends PlexusModel {
   @syncing.child accessor single: Item | null = null;
   @syncing.child.list accessor listA: Item[] = [];
@@ -59,7 +59,7 @@ class MultiFieldParent extends PlexusModel {
 
 // ── Root ──
 
-@syncing
+@syncing("Root")
 class Root extends PlexusModel<null> {
   @syncing.child.list accessor childVals: ChildValOwner[] = [];
   @syncing.child.list accessor childLists: ChildListOwner[] = [];
@@ -188,13 +188,13 @@ describe("parentField / parentFieldKey", () => {
   });
 
   describe("child-map with Array<PlexusModel> key", () => {
-    @syncing
+    @syncing("ArrayKeyMapOwner")
     class ArrayKeyMapOwner extends PlexusModel {
       @syncing.child.map accessor entries!: Map<Item[], Item>;
       @syncing.child.list accessor children: Item[] = [];
     }
 
-    @syncing
+    @syncing("ArrayKeyRoot")
     class ArrayKeyRoot extends PlexusModel<null> {
       @syncing.child.list accessor owners: ArrayKeyMapOwner[] = [];
     }
@@ -244,13 +244,13 @@ describe("parentField / parentFieldKey", () => {
   });
 
   describe("child-map with Set<PlexusModel> key", () => {
-    @syncing
+    @syncing("SetKeyMapOwner")
     class SetKeyMapOwner extends PlexusModel {
       @syncing.child.map accessor entries!: Map<Set<Item>, Item>;
       @syncing.child.list accessor children: Item[] = [];
     }
 
-    @syncing
+    @syncing("SetKeyRoot")
     class SetKeyRoot extends PlexusModel<null> {
       @syncing.child.list accessor owners: SetKeyMapOwner[] = [];
     }
@@ -401,7 +401,7 @@ describe("parentField / parentFieldKey", () => {
   });
 
   describe("ephemeral (no doc) child-map parentFieldKey", () => {
-    @syncing
+    @syncing("EphemeralMapOwner")
     class EphemeralMapOwner extends PlexusModel {
       @syncing.child.map accessor entries!: Map<string, Item>;
     }
@@ -416,7 +416,7 @@ describe("parentField / parentFieldKey", () => {
     });
 
     it("returns deserialized array key for ephemeral child-map with Array<primitive> key", () => {
-      @syncing
+      @syncing("ArrayKeyOwner")
       class ArrayKeyOwner extends PlexusModel {
         @syncing.child.map accessor entries!: Map<string[], Item>;
       }
@@ -435,7 +435,7 @@ describe("parentField / parentFieldKey", () => {
     });
 
     it("returns deserialized Set key for ephemeral child-map with Set<primitive> key", () => {
-      @syncing
+      @syncing("SetKeyOwner")
       class SetKeyOwner extends PlexusModel {
         @syncing.child.map accessor entries!: Map<Set<string>, Item>;
       }
@@ -454,7 +454,7 @@ describe("parentField / parentFieldKey", () => {
     });
 
     it("returns number key for ephemeral child-map with Value<number> key", () => {
-      @syncing
+      @syncing("EphNumKeyOwner")
       class EphNumKeyOwner extends PlexusModel {
         @syncing.child.map accessor entries!: Map<number, Item>;
       }
@@ -470,12 +470,12 @@ describe("parentField / parentFieldKey", () => {
 
   describe("synced child-map parentFieldKey with primitive collections", () => {
     it("returns deserialized array key for synced child-map with Array<primitive> key", () => {
-      @syncing
+      @syncing("ArrayPrimKeyOwner")
       class ArrayPrimKeyOwner extends PlexusModel {
         @syncing.child.map accessor entries!: Map<string[], Item>;
       }
 
-      @syncing
+      @syncing("ArrayPrimKeyRoot")
       class ArrayPrimKeyRoot extends PlexusModel<null> {
         @syncing.child.list accessor owners: ArrayPrimKeyOwner[] = [];
       }
@@ -497,12 +497,12 @@ describe("parentField / parentFieldKey", () => {
     });
 
     it("returns deserialized Set key for synced child-map with Set<primitive> key", () => {
-      @syncing
+      @syncing("SetPrimKeyOwner")
       class SetPrimKeyOwner extends PlexusModel {
         @syncing.child.map accessor entries!: Map<Set<string>, Item>;
       }
 
-      @syncing
+      @syncing("SetPrimKeyRoot")
       class SetPrimKeyRoot extends PlexusModel<null> {
         @syncing.child.list accessor owners: SetPrimKeyOwner[] = [];
       }
@@ -524,12 +524,12 @@ describe("parentField / parentFieldKey", () => {
     });
 
     it("returns number for synced child-map with Value<number> key", () => {
-      @syncing
+      @syncing("SyncedNumKeyOwner")
       class SyncedNumKeyOwner extends PlexusModel {
         @syncing.child.map accessor entries!: Map<number, Item>;
       }
 
-      @syncing
+      @syncing("SyncedNumKeyRoot")
       class SyncedNumKeyRoot extends PlexusModel<null> {
         @syncing.child.list accessor owners: SyncedNumKeyOwner[] = [];
       }

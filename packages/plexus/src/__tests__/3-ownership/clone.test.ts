@@ -17,7 +17,7 @@ import * as Y from "yjs";
 // =============================================================================
 
 // Basic test component for simple scenarios
-@syncing
+@syncing("TestComponent")
 class TestComponent extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -27,7 +27,7 @@ class TestComponent extends PlexusModel {
 }
 
 // Extended test model with various collection types
-@syncing
+@syncing("TestModel")
 class TestModel extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -52,7 +52,7 @@ class TestModel extends PlexusModel {
 }
 
 // Edge case models for nested ownership
-@syncing
+@syncing("EdgeCaseParent")
 class EdgeCaseParent extends PlexusModel {
   @syncing.child
   accessor value!: EdgeCaseChild;
@@ -60,14 +60,14 @@ class EdgeCaseParent extends PlexusModel {
   accessor field!: TestComponent;
 }
 
-@syncing
+@syncing("EdgeCaseChild")
 class EdgeCaseChild extends PlexusModel {
   @syncing
   accessor field!: TestComponent;
 }
 
 // Ownership-aware models
-@syncing
+@syncing("ChildComponent")
 class ChildComponent extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -76,7 +76,7 @@ class ChildComponent extends PlexusModel {
   accessor value!: number;
 }
 
-@syncing
+@syncing("ParentWithChildVal")
 class ParentWithChildVal extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -91,7 +91,7 @@ class ParentWithChildVal extends PlexusModel {
   accessor reference!: ChildComponent | null; // No ownership: preserve reference
 }
 
-@syncing
+@syncing("ParentWithChildList")
 class ParentWithChildList extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -103,7 +103,7 @@ class ParentWithChildList extends PlexusModel {
   accessor references!: Array<ChildComponent>; // No ownership: preserve references
 }
 
-@syncing
+@syncing("ParentWithChildSet")
 class ParentWithChildSet extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -115,7 +115,7 @@ class ParentWithChildSet extends PlexusModel {
   accessor refSet!: Set<ChildComponent>; // No ownership: preserve references
 }
 
-@syncing
+@syncing("ParentWithChildRecord")
 class ParentWithChildRecord extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -128,7 +128,7 @@ class ParentWithChildRecord extends PlexusModel {
 }
 
 // Circular reference models
-@syncing
+@syncing("NodeA")
 class NodeA extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -137,7 +137,7 @@ class NodeA extends PlexusModel {
   accessor nodeB!: NodeB | null; // Owns NodeB - will clone recursively
 }
 
-@syncing
+@syncing("NodeB")
 class NodeB extends PlexusModel {
   @syncing
   accessor name!: string;

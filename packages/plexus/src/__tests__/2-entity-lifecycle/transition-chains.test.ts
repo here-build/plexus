@@ -14,14 +14,14 @@ import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 
-@syncing
+@syncing("Node")
 class Node extends PlexusModel {
   @syncing accessor name: string = "";
   @syncing.child accessor child: Node | null = null;
   @syncing.child.list accessor children: Node[] = [];
 }
 
-@syncing
+@syncing("Root")
 class Root extends PlexusModel<null> {
   @syncing.child accessor primary: Node | null = null;
   @syncing.child accessor secondary: Node | null = null;

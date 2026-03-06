@@ -14,12 +14,12 @@ import { syncing } from "../../decorators.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 import { createTrackedFunction } from "../../tracking.js";
 
-@syncing
+@syncing("Item")
 class Item extends PlexusModel {
   @syncing accessor name: string = "";
 }
 
-@syncing
+@syncing("NullableContainer")
 class NullableContainer extends PlexusModel<null> {
   @syncing accessor nullableString: string | null = null;
   @syncing accessor nullableNumber: number | null = null;

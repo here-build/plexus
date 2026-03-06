@@ -16,7 +16,7 @@ import { createTrackedFunction } from "../../tracking.js";
 import { initTestPlexus, TestPlexus } from "../_helpers/test-plexus.js";
 
 // Model classes
-@syncing
+@syncing("User")
 class User extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -31,7 +31,7 @@ class User extends PlexusModel {
   accessor tags!: Set<string>;
 }
 
-@syncing
+@syncing("Post")
 class Post extends PlexusModel {
   @syncing
   accessor title!: string;

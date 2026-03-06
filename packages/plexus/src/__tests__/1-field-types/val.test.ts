@@ -5,7 +5,7 @@ import { syncing } from "../../decorators.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
 // Simple test entities
-@syncing
+@syncing("User")
 class User extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -17,7 +17,7 @@ class User extends PlexusModel {
   accessor age!: number;
 }
 
-@syncing
+@syncing("Post")
 class Post extends PlexusModel {
   @syncing
   accessor title!: string;

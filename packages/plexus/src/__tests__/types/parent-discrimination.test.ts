@@ -13,26 +13,26 @@ import { initTestPlexus } from "../_helpers/test-plexus.js";
 // Test Setup: Create a hierarchy
 // ============================================================================
 
-@syncing
+@syncing("Container")
 class Container extends PlexusModel<null> {
   @syncing.child accessor primary: Node | null = null;
   @syncing.child.list accessor nodes: Node[] = [];
 }
 
-@syncing
+@syncing("Node")
 class Node extends PlexusModel<Container> {
   @syncing accessor name: string = "";
   @syncing.child accessor childVal: Node | null = null;
   @syncing.child.list accessor children: Node[] = [];
 }
 
-@syncing
+@syncing("GenericNode")
 class GenericNode extends PlexusModel {
   @syncing accessor name: string = "";
   @syncing.child accessor child: GenericNode | null = null;
 }
 
-@syncing
+@syncing("OtherContainer")
 class OtherContainer extends PlexusModel<null> {
   @syncing.child accessor item: Node | null = null;
 }
@@ -167,7 +167,7 @@ describe("Parent Discrimination Types", () => {
 
   describe("union parent types", () => {
     it("should support union parent types", () => {
-      @syncing
+      @syncing("FlexibleNode")
       class FlexibleNode extends PlexusModel<Container | OtherContainer> {
         @syncing accessor value: string = "";
       }
@@ -179,7 +179,7 @@ describe("Parent Discrimination Types", () => {
 
   describe("any parent type", () => {
     it("should allow any parent with explicit any type", () => {
-      @syncing
+      @syncing("AnyParentNode")
       class AnyParentNode extends PlexusModel<any> {
         @syncing accessor name: string = "";
       }

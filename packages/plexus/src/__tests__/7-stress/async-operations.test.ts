@@ -10,7 +10,7 @@ import { syncing } from "../../decorators.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
 // Test schema definitions
-@syncing
+@syncing("Component")
 class Component extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -25,7 +25,7 @@ class Component extends PlexusModel {
   accessor metadata: Record<string, string> = {};
 }
 
-@syncing
+@syncing("Site")
 class Site extends PlexusModel {
   @syncing
   accessor name!: string;

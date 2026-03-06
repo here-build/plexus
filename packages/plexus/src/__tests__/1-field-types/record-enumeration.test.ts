@@ -12,13 +12,13 @@ import { syncing } from "../../decorators.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 import { createTrackedFunction } from "../../tracking.js";
 
-@syncing
+@syncing("Item")
 class Item extends PlexusModel {
   @syncing accessor name: string = "";
   @syncing accessor value: number = 0;
 }
 
-@syncing
+@syncing("Container")
 class Container extends PlexusModel<null> {
   @syncing.record accessor primitiveRecord: Record<string, string> = {};
   @syncing.child.record accessor childRecord: Record<string, Item> = {};
@@ -301,7 +301,7 @@ describe("Record Enumeration", () => {
     // These tests ensure that when adoption validation fails (e.g., cycle detection),
     // no state changes have occurred - the operation should be atomic (all-or-nothing).
 
-    @syncing
+    @syncing("RecordTreeNode")
     class RecordTreeNode extends PlexusModel {
       @syncing accessor name!: string;
       @syncing.child.record accessor children!: Record<string, RecordTreeNode>;

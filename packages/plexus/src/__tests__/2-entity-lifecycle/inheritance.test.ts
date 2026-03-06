@@ -14,7 +14,7 @@ function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
 }
 
 // Create a proper inheritance hierarchy to test
-@syncing
+@syncing("BaseEntity")
 abstract class BaseEntity extends PlexusModel {
   @syncing
   accessor baseField!: string;
@@ -26,7 +26,7 @@ abstract class BaseEntity extends PlexusModel {
   accessor baseOptional: string | null = null;
 }
 
-@syncing
+@syncing("MiddleEntity")
 abstract class MiddleEntity extends BaseEntity {
   @syncing
   accessor middleField!: string;
@@ -38,7 +38,7 @@ abstract class MiddleEntity extends BaseEntity {
   accessor middleMap: Record<string, number> = { defaultKey: 100 }; // Default object
 }
 
-@syncing
+@syncing("ConcreteEntity")
 class ConcreteEntity extends MiddleEntity {
   @syncing
   accessor concreteField!: string;
@@ -50,7 +50,7 @@ class ConcreteEntity extends MiddleEntity {
   accessor children: ChildEntity[] = []; // Default empty array for child list
 }
 
-@syncing
+@syncing("ChildEntity")
 class ChildEntity extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -60,21 +60,21 @@ class ChildEntity extends PlexusModel {
 }
 
 // Another concrete entity for testing
-@syncing
+@syncing("AnotherConcreteEntity")
 class AnotherConcreteEntity extends MiddleEntity {
   @syncing
   accessor specificField: string = "specific-default";
 }
 
 // Classes for testing inheritance with decorator overrides
-@syncing
+@syncing("ParentWithStringish")
 class ParentWithStringish extends PlexusModel {
   @syncing
   accessor stringish = "stringish";
   accessor stringishWithDefault = "stringishWithDefault";
 }
 
-@syncing
+@syncing("ChildWithStringish")
 class ChildWithStringish extends ParentWithStringish {
   @syncing
   // @ts-expect-error - intentionally narrowing type in child
@@ -83,7 +83,7 @@ class ChildWithStringish extends ParentWithStringish {
   accessor stringishWithDefault = "stringishWithDefaultOverride";
 }
 
-@syncing
+@syncing("SiteWithStringish")
 class SiteWithStringish extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -386,22 +386,22 @@ describe("Plexus Inheritance and Default Values", () => {
 
   describe("Complex inheritance scenarios", () => {
     it("should handle deep inheritance chains with multiple abstract classes", async () => {
-      @syncing
+      @syncing("Layer1")
       abstract class Layer1 extends PlexusModel {
         @syncing accessor l1: string = "layer1-default";
       }
 
-      @syncing
+      @syncing("Layer2")
       abstract class Layer2 extends Layer1 {
         @syncing accessor l2: number = 222;
       }
 
-      @syncing
+      @syncing("Layer3")
       abstract class Layer3 extends Layer2 {
         @syncing.list accessor l3: string[] = ["l3-default"];
       }
 
-      @syncing
+      @syncing("DeepConcrete")
       class DeepConcrete extends Layer3 {
         @syncing accessor concrete: boolean = true;
       }
@@ -427,20 +427,20 @@ describe("Plexus Inheritance and Default Values", () => {
     });
 
     it("should handle multiple concrete classes from same abstract base", async () => {
-      @syncing
+      @syncing("AbstractProduct")
       abstract class AbstractProduct extends PlexusModel {
         @syncing accessor name!: string;
         @syncing accessor price: number = 0;
         @syncing.list accessor tags: string[] = ["product"];
       }
 
-      @syncing
+      @syncing("Book")
       class Book extends AbstractProduct {
         @syncing accessor isbn!: string;
         @syncing accessor pages: number = 0;
       }
 
-      @syncing
+      @syncing("Movie")
       class Movie extends AbstractProduct {
         @syncing accessor duration!: number;
         @syncing accessor rating: string = "PG";
@@ -518,19 +518,19 @@ describe("Plexus Inheritance and Default Values", () => {
 
   describe("Field type override (changing schema type in child)", () => {
     it("should allow changing field from reference to owned child", async () => {
-      @syncing
+      @syncing("SharedArg")
       class SharedArg extends PlexusModel {
         @syncing accessor name!: string;
         @syncing accessor value: number = 0;
       }
 
-      @syncing
+      @syncing("WeakRefParent")
       class WeakRefParent extends PlexusModel {
         @syncing accessor id!: string;
         @syncing accessor arg!: SharedArg; // Weak reference
       }
 
-      @syncing
+      @syncing("OwnedChildVersion")
       class OwnedChildVersion extends WeakRefParent {
         // @ts-expect-error
         @syncing.child accessor arg!: SharedArg; // Override as owned child
@@ -573,17 +573,17 @@ describe("Plexus Inheritance and Default Values", () => {
     });
 
     it("should handle list to child.list override", async () => {
-      @syncing
+      @syncing("Item")
       class Item extends PlexusModel {
         @syncing accessor name!: string;
       }
 
-      @syncing
+      @syncing("ListParent")
       class ListParent extends PlexusModel {
         @syncing.list accessor items: Item[] = [];
       }
 
-      @syncing
+      @syncing("ChildListVersion")
       class ChildListVersion extends ListParent {
         @syncing.child.list accessor items: Item[] = []; // Override as child list
       }
@@ -611,18 +611,18 @@ describe("Plexus Inheritance and Default Values", () => {
     });
 
     it("should handle map to child.map override", async () => {
-      @syncing
+      @syncing("Config")
       class Config extends PlexusModel {
         @syncing accessor key!: string;
         @syncing accessor value!: string;
       }
 
-      @syncing
+      @syncing("MapParent")
       class MapParent extends PlexusModel {
         @syncing.record accessor configs: Record<string, Config> = {};
       }
 
-      @syncing
+      @syncing("ChildMapVersion")
       class ChildMapVersion extends MapParent {
         @syncing.child.record accessor configs: Record<string, Config> = {}; // Override as child map
       }
@@ -647,25 +647,25 @@ describe("Plexus Inheritance and Default Values", () => {
     });
 
     it("should handle complex override chain with mixed ownership", async () => {
-      @syncing
+      @syncing("Node")
       class Node extends PlexusModel {
         @syncing accessor id!: string;
         @syncing accessor label: string = "node";
       }
 
-      @syncing
+      @syncing("BaseGraph")
       abstract class BaseGraph extends PlexusModel {
         @syncing accessor root!: Node; // Reference
         @syncing.list accessor nodes: Node[] = []; // Reference list
       }
 
-      @syncing
+      @syncing("OwnedRootGraph")
       abstract class OwnedRootGraph extends BaseGraph {
         // @ts-expect-error
         @syncing.child override accessor root!: Node;
       }
 
-      @syncing
+      @syncing("FullyOwnedGraph")
       class FullyOwnedGraph extends OwnedRootGraph {
         @syncing.child.list accessor nodes: Node[] = []; // Override: nodes are now owned too
       }
@@ -703,17 +703,17 @@ describe("Plexus Inheritance and Default Values", () => {
     });
 
     it("should handle field type override with default values", async () => {
-      @syncing
+      @syncing("Value")
       class Value extends PlexusModel {
         @syncing accessor data: string = "default";
       }
 
-      @syncing
+      @syncing("WeakParent")
       class WeakParent extends PlexusModel {
         @syncing accessor value: Value | null = null; // Nullable reference with null default
       }
 
-      @syncing
+      @syncing("OwnedChild")
       class OwnedChild extends WeakParent {
         @syncing.child override accessor value: Value = new Value({
           data: "child-default",

@@ -12,7 +12,7 @@ import { syncing } from "../../decorators.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 
 // Test schema definitions
-@syncing
+@syncing("TplTag")
 class TplTag extends PlexusModel {
   @syncing
   accessor tag!: string;
@@ -27,7 +27,7 @@ class TplTag extends PlexusModel {
   accessor attrs!: Record<string, string>;
 }
 
-@syncing
+@syncing("Component")
 class Component extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -45,7 +45,7 @@ class Component extends PlexusModel {
   accessor metadata: Record<string, string> = {};
 }
 
-@syncing
+@syncing("Site")
 class Site extends PlexusModel {
   @syncing
   accessor name!: string;

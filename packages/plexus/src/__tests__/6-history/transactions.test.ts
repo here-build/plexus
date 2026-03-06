@@ -8,7 +8,7 @@ import { entityClasses } from "../../globals.js";
 import { initTestPlexus, TestPlexus } from "../_helpers/test-plexus.js";
 
 // Test entity class for basic transaction tests
-@syncing
+@syncing("TestEntity")
 class TestEntity extends PlexusModel {
   @syncing
   accessor value!: string;
@@ -21,7 +21,7 @@ class TestEntity extends PlexusModel {
 }
 
 // Define a more complex model for integration testing
-@syncing
+@syncing("TodoItem")
 class TodoItem extends PlexusModel {
   @syncing
   accessor text!: string;
@@ -33,7 +33,7 @@ class TodoItem extends PlexusModel {
   accessor priority!: number;
 }
 
-@syncing
+@syncing("TodoList")
 class TodoList extends PlexusModel {
   @syncing
   accessor name!: string;

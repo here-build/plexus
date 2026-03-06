@@ -15,13 +15,13 @@ import { syncing } from "../../decorators.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 import { createTrackedFunction } from "../../tracking.js";
 
-@syncing
+@syncing("Item")
 class Item extends PlexusModel {
   @syncing accessor name: string = "";
   @syncing accessor count: number = 0;
 }
 
-@syncing
+@syncing("Container")
 class Container extends PlexusModel<null> {
   @syncing accessor value: string = "";
   @syncing accessor counter: number = 0;

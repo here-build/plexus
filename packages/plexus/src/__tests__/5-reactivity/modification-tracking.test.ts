@@ -3,7 +3,7 @@ import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
 import { createTrackedFunction } from "../../tracking.js";
 
-@syncing
+@syncing("TestModel")
 class TestModel extends PlexusModel {
   @syncing
   accessor name!: string;

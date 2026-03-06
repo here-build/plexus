@@ -14,68 +14,68 @@ import { initTestPlexus } from "../_helpers/test-plexus.js";
 
 // ── Shared leaf ──
 
-@syncing
+@syncing("Item")
 class Item extends PlexusModel {
   @syncing accessor name: string = "";
 }
 
 // ── Child field owners ──
 
-@syncing
+@syncing("ChildValOwner")
 class ChildValOwner extends PlexusModel {
   @syncing.child accessor item: Item | null = null;
 }
 
-@syncing
+@syncing("ChildListOwner")
 class ChildListOwner extends PlexusModel {
   @syncing.child.list accessor items: Item[] = [];
 }
 
-@syncing
+@syncing("ChildSetOwner")
 class ChildSetOwner extends PlexusModel {
   @syncing.child.set accessor items: Set<Item> = new Set();
 }
 
-@syncing
+@syncing("ChildRecordOwner")
 class ChildRecordOwner extends PlexusModel {
   @syncing.child.record accessor items: Record<string, Item> = {};
 }
 
-@syncing
+@syncing("ChildMapOwner")
 class ChildMapOwner extends PlexusModel {
   @syncing.child.map accessor items!: Map<string, Item>;
 }
 
 // ── Reference field owners ──
 
-@syncing
+@syncing("RefValOwner")
 class RefValOwner extends PlexusModel {
   @syncing accessor ref: Item | null = null;
 }
 
-@syncing
+@syncing("RefListOwner")
 class RefListOwner extends PlexusModel {
   @syncing.list accessor refs: Item[] = [];
 }
 
-@syncing
+@syncing("RefSetOwner")
 class RefSetOwner extends PlexusModel {
   @syncing.set accessor refs: Set<Item> = new Set();
 }
 
-@syncing
+@syncing("RefRecordOwner")
 class RefRecordOwner extends PlexusModel {
   @syncing.record accessor refs: Record<string, Item> = {};
 }
 
-@syncing
+@syncing("RefMapOwner")
 class RefMapOwner extends PlexusModel {
   @syncing.map accessor refs!: Map<string, Item>;
 }
 
 // ── Root ──
 
-@syncing
+@syncing("Root")
 class Root extends PlexusModel<null> {
   @syncing.child.list accessor childVals: ChildValOwner[] = [];
   @syncing.child.list accessor childLists: ChildListOwner[] = [];

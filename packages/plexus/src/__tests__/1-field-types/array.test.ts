@@ -18,7 +18,7 @@ import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 // Test Models
 // ============================================
 
-@syncing
+@syncing("Component")
 class Component extends PlexusModel {
   @syncing accessor name!: string;
   @syncing accessor type!: string;
@@ -27,7 +27,7 @@ class Component extends PlexusModel {
   @syncing.record accessor metadata: Record<string, string> = {};
 }
 
-@syncing
+@syncing("Site")
 class Site extends PlexusModel {
   @syncing accessor name!: string;
   @syncing.record accessor components!: Record<string, Component>;
@@ -904,7 +904,7 @@ describe("array field (@syncing.list)", () => {
     // This was a bug where orphaning/removal happened BEFORE validation
 
     it("push: should not remove reused elements when new element adoption fails", () => {
-      @syncing
+      @syncing("PushTreeNode")
       class PushTreeNode extends PlexusModel {
         @syncing accessor name!: string;
         @syncing.child.list accessor children!: PushTreeNode[];
@@ -930,7 +930,7 @@ describe("array field (@syncing.list)", () => {
     });
 
     it("push: should preserve array state when pushing cycle-causing element with reused element", () => {
-      @syncing
+      @syncing("PushReuseTreeNode")
       class PushReuseTreeNode extends PlexusModel {
         @syncing accessor name!: string;
         @syncing.child.list accessor children!: PushReuseTreeNode[];
@@ -964,7 +964,7 @@ describe("array field (@syncing.list)", () => {
     });
 
     it("unshift: should not corrupt array when adoption fails", () => {
-      @syncing
+      @syncing("UnshiftTreeNode")
       class UnshiftTreeNode extends PlexusModel {
         @syncing accessor name!: string;
         @syncing.child.list accessor children!: UnshiftTreeNode[];
@@ -990,7 +990,7 @@ describe("array field (@syncing.list)", () => {
     });
 
     it("assign: should not orphan existing items when new items adoption fails", () => {
-      @syncing
+      @syncing("AssignTreeNode")
       class AssignTreeNode extends PlexusModel {
         @syncing accessor name!: string;
         @syncing.child.list accessor children!: AssignTreeNode[];
@@ -1026,7 +1026,7 @@ describe("array field (@syncing.list)", () => {
     });
 
     it("index assignment: should not orphan existing item when replacement adoption fails", () => {
-      @syncing
+      @syncing("IndexTreeNode")
       class IndexTreeNode extends PlexusModel {
         @syncing accessor name!: string;
         @syncing.child.list accessor children!: IndexTreeNode[];

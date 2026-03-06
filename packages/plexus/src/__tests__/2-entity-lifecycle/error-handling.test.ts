@@ -12,13 +12,13 @@ import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
-@syncing
+@syncing("Item")
 class Item extends PlexusModel {
   @syncing accessor name: string = "";
   @syncing accessor count: number = 0;
 }
 
-@syncing
+@syncing("Container")
 class Container extends PlexusModel<null> {
   @syncing accessor val: string = "";
   @syncing.child accessor child: Item | null = null;
@@ -94,7 +94,7 @@ describe("Runtime Error Handling", () => {
       const { root } = initTestPlexus(new Container());
 
       // Create a set field for testing
-      @syncing
+      @syncing("SetContainer")
       class SetContainer extends PlexusModel<null> {
         @syncing.set accessor items: Set<string> = new Set();
       }

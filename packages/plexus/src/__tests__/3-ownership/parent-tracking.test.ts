@@ -27,13 +27,13 @@ function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
 }
 
 // Test models with various child-* field configurations
-@syncing
+@syncing("Child")
 class Child extends PlexusModel {
   @syncing
   accessor name!: string;
 }
 
-@syncing
+@syncing("Parent")
 class Parent extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -51,7 +51,7 @@ class Parent extends PlexusModel {
   accessor childMap!: Record<string, Child>;
 }
 
-@syncing
+@syncing("MultiParent")
 class MultiParent extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -450,7 +450,7 @@ describe("Parent Tracking", () => {
 
   describe("Field names with dots", () => {
     it("handles field names containing dots correctly", () => {
-      @syncing
+      @syncing("WeirdParent")
       class WeirdParent extends PlexusModel {
         @syncing.child
         accessor "field.with.dots"!: Child | null;
@@ -741,7 +741,7 @@ describe("Parent Tracking", () => {
 
   describe("Edge case: primitives in child collections", () => {
     it("ignores primitive values when tracking parents", () => {
-      @syncing
+      @syncing("Mixed")
       class Mixed extends PlexusModel {
         @syncing.child.list
         accessor mixed!: (Child | string)[];

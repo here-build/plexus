@@ -6,19 +6,19 @@ import { PlexusModel, syncing } from "../index.js";
 import { buildVisitor, walk } from "../walk.js";
 
 // Test models
-@syncing
+@syncing("Leaf")
 class Leaf extends PlexusModel {
   @syncing accessor value: string = "";
 }
 
-@syncing
+@syncing("Branch")
 class Branch extends PlexusModel {
   @syncing accessor name: string = "";
   @syncing.child accessor leaf: Leaf | null = null;
   @syncing.child.list accessor leaves: Leaf[] = [];
 }
 
-@syncing
+@syncing("Tree")
 class Tree extends PlexusModel {
   @syncing.child.list accessor branches: Branch[] = [];
   @syncing.child accessor mainBranch!: Branch | null;

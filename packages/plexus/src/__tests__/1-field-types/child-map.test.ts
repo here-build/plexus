@@ -26,12 +26,12 @@ function getParentRef(element: YPlexusNode | undefined): string[] | undefined {
 }
 
 // Test models
-@syncing
+@syncing("Item")
 class Item extends PlexusModel {
   @syncing accessor name!: string;
 }
 
-@syncing
+@syncing("Container")
 class Container extends PlexusModel {
   @syncing.child.map
   accessor items!: Map<string, Item>;
@@ -121,7 +121,7 @@ describe("child.map field (@syncing.child.map)", () => {
   });
 
   it("should work with structural keys", () => {
-    @syncing
+    @syncing("ComplexKeyContainer")
     class ComplexKeyContainer extends PlexusModel {
       @syncing.child.map
       accessor items!: Map<[string, number], Item>;
@@ -405,7 +405,7 @@ describe("child.map edge cases", () => {
 
   describe("Reparenting edge cases", () => {
     it("should handle moving child between different maps on same parent", () => {
-      @syncing
+      @syncing("MultiMapContainer")
       class MultiMapContainer extends PlexusModel {
         @syncing.child.map
         accessor leftItems!: Map<string, Item>;
@@ -435,7 +435,7 @@ describe("child.map edge cases", () => {
     });
 
     it("should handle moving child from map to list", () => {
-      @syncing
+      @syncing("MixedContainerMapToList")
       class MixedContainerMapToList extends PlexusModel {
         @syncing.child.map
         accessor itemMap!: Map<string, Item>;
@@ -464,7 +464,7 @@ describe("child.map edge cases", () => {
     });
 
     it("should handle moving child from list to map", () => {
-      @syncing
+      @syncing("MixedContainerListToMap")
       class MixedContainerListToMap extends PlexusModel {
         @syncing.child.map
         accessor itemMap!: Map<string, Item>;
@@ -616,7 +616,7 @@ describe("child.map edge cases", () => {
 describe("child.map weird edge cases", () => {
   describe("Same entity as both key and value", () => {
     it("should handle entity as both key and value in same entry", () => {
-      @syncing
+      @syncing("EntityKeyContainer")
       class EntityKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<Item, Item>;
@@ -639,7 +639,7 @@ describe("child.map weird edge cases", () => {
     });
 
     it("should handle entity as key for one entry and value for another", () => {
-      @syncing
+      @syncing("CrossRefEntityKeyContainer")
       class CrossRefEntityKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<Item, Item>;
@@ -670,7 +670,7 @@ describe("child.map weird edge cases", () => {
 
   describe("Structural keys containing entities", () => {
     it("should handle array key containing entity with same entity as value", () => {
-      @syncing
+      @syncing("ArrayKeyContainer")
       class ArrayKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<[Item], Item>;
@@ -690,7 +690,7 @@ describe("child.map weird edge cases", () => {
     });
 
     it("should handle Set key containing entity with same entity as value", () => {
-      @syncing
+      @syncing("SetKeyContainer")
       class SetKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<Set<Item>, Item>;
@@ -714,7 +714,7 @@ describe("child.map weird edge cases", () => {
       // - Set<primitives | PlexusModels> (top-level)
       // - Array<primitives | PlexusModels> (top-level)
       // Nesting (e.g., Set inside Array, Array inside Set) is NOT supported
-      @syncing
+      @syncing("ArraySetKeyContainer")
       class ArraySetKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<[Item, Set<Item>], Item>;
@@ -733,7 +733,7 @@ describe("child.map weird edge cases", () => {
     });
 
     it("multiple entities in array key (flat structure) works", () => {
-      @syncing
+      @syncing("FlatArrayKeyContainer")
       class FlatArrayKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<[Item, Item], Item>;
@@ -816,7 +816,7 @@ describe("child.map weird edge cases", () => {
 
   describe("Self-reference prevention", () => {
     it("should prevent parent from being its own child value", () => {
-      @syncing
+      @syncing("SelfRefContainer")
       class SelfRefContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<string, PlexusModel>;
@@ -835,7 +835,7 @@ describe("child.map weird edge cases", () => {
     });
 
     it("should prevent root entity from being added as child value anywhere", () => {
-      @syncing
+      @syncing("NestedContainerWithMap")
       class NestedContainerWithMap extends PlexusModel {
         @syncing.child
         accessor child!: NestedContainerWithMap | null;
@@ -860,7 +860,7 @@ describe("child.map weird edge cases", () => {
 
   describe("Cross-field ownership - initialization vs runtime", () => {
     it("KNOWN BEHAVIOR: same entity in multiple fields during init - NO stealing", () => {
-      @syncing
+      @syncing("MultiFieldContainer")
       class MultiFieldContainer extends PlexusModel {
         @syncing.child.list
         accessor list!: Item[];
@@ -891,7 +891,7 @@ describe("child.map weird edge cases", () => {
     });
 
     it("KNOWN BEHAVIOR: same entity in map and child-val during init - NO stealing", () => {
-      @syncing
+      @syncing("MultiFieldContainer2")
       class MultiFieldContainer2 extends PlexusModel {
         @syncing.child.map
         accessor map!: Map<string, Item>;
@@ -919,7 +919,7 @@ describe("child.map weird edge cases", () => {
 
     it("runtime operations DO trigger stealing between fields", () => {
       // This demonstrates that runtime operations properly trigger stealing
-      @syncing
+      @syncing("GetterContainer")
       class GetterContainer extends PlexusModel {
         @syncing.child.list
         accessor list!: Item[];
@@ -956,7 +956,7 @@ describe("child.map weird edge cases", () => {
 
   describe("Entity as key - lookup after value ownership changes", () => {
     it("should still find entry by entity key after entity changes parent", () => {
-      @syncing
+      @syncing("EntityKeyWithOwnedContainer")
       class EntityKeyWithOwnedContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<Item, string>;
@@ -989,13 +989,13 @@ describe("child.map weird edge cases", () => {
     });
 
     it("should handle entity key whose ownership changes to different parent", () => {
-      @syncing
+      @syncing("ParentWithMap")
       class ParentWithMap extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<Item, string>;
       }
 
-      @syncing
+      @syncing("ParentWithOwned")
       class ParentWithOwned extends PlexusModel {
         @syncing.child
         accessor owned!: Item | null;
@@ -1027,7 +1027,7 @@ describe("child.map weird edge cases", () => {
 
   describe("Map with entity keys referencing each other", () => {
     it("should handle circular entity key references", () => {
-      @syncing
+      @syncing("CircularKeyContainer")
       class CircularKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor forward!: Map<Item, Item>;
@@ -1070,7 +1070,7 @@ describe("child.map weird edge cases", () => {
       // PathMap only supports single-level arrays and Sets as keys
       // Nested arrays like [[item]] are not allowed because they can't
       // be properly serialized and compared.
-      @syncing
+      @syncing("DeepKeyContainer")
       class DeepKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<[[Item]], Item>;
@@ -1088,7 +1088,7 @@ describe("child.map weird edge cases", () => {
     });
 
     it("single-level array keys with entities ARE supported", () => {
-      @syncing
+      @syncing("ArrayKeyContainer2")
       class ArrayKeyContainer2 extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<[string, Item], Item>;
@@ -1115,7 +1115,7 @@ describe("child.map weird edge cases", () => {
 
   describe("Empty and null edge cases", () => {
     it("should handle null value in child-map", () => {
-      @syncing
+      @syncing("NullableMapContainer")
       class NullableMapContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<string, Item | null>;
@@ -1132,7 +1132,7 @@ describe("child.map weird edge cases", () => {
     });
 
     it("should handle transition from entity to null", () => {
-      @syncing
+      @syncing("NullableMapContainer2")
       class NullableMapContainer2 extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<string, Item | null>;
@@ -1179,7 +1179,7 @@ describe("child.map weird edge cases", () => {
     });
 
     it("should handle entity bouncing between different collection types", () => {
-      @syncing
+      @syncing("MultiCollectionContainer")
       class MultiCollectionContainer extends PlexusModel {
         @syncing.child.list
         accessor list!: Item[];
@@ -1244,7 +1244,7 @@ describe("child.map weird edge cases", () => {
 describe("child.map clone key rewriting", () => {
   describe("Single entity as key - should be remapped to clone", () => {
     it("entity used as key and value in different entries - key should reference cloned value", () => {
-      @syncing
+      @syncing("EntityKeyMapContainer")
       class EntityKeyMapContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<Item, string>;
@@ -1279,7 +1279,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("entity used as key in child.map and cloned as value in same map", () => {
-      @syncing
+      @syncing("SelfRefMapContainer")
       class SelfRefMapContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<Item, Item>;
@@ -1332,7 +1332,7 @@ describe("child.map clone key rewriting", () => {
 
   describe("Array key containing entities - elements should be remapped", () => {
     it("array key with entity that is also a value elsewhere", () => {
-      @syncing
+      @syncing("CloneArrayKeyContainer")
       class CloneArrayKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor byTuple!: Map<[string, Item], string>;
@@ -1368,7 +1368,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("array key with multiple entities - all should be remapped", () => {
-      @syncing
+      @syncing("MultiEntityArrayKeyContainer")
       class MultiEntityArrayKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor byPair!: Map<[Item, Item], string>;
@@ -1407,7 +1407,7 @@ describe("child.map clone key rewriting", () => {
 
   describe("Set key containing entities - elements should be remapped", () => {
     it("set key with entity that is also a value elsewhere", () => {
-      @syncing
+      @syncing("CloneSetKeyContainer")
       class CloneSetKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor byGroup!: Map<Set<Item>, string>;
@@ -1445,7 +1445,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("set key with multiple entities - all should be remapped", () => {
-      @syncing
+      @syncing("MultiEntitySetKeyContainer")
       class MultiEntitySetKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor byGroup!: Map<Set<Item>, string>;
@@ -1490,12 +1490,12 @@ describe("child.map clone key rewriting", () => {
 
   describe("Deeply nested children as keys - should be remapped", () => {
     // Test models for deep nesting
-    @syncing
+    @syncing("Leaf")
     class Leaf extends PlexusModel {
       @syncing accessor name!: string;
     }
 
-    @syncing
+    @syncing("Branch")
     class Branch extends PlexusModel {
       @syncing accessor name!: string;
 
@@ -1503,7 +1503,7 @@ describe("child.map clone key rewriting", () => {
       accessor leaves!: Leaf[];
     }
 
-    @syncing
+    @syncing("Tree")
     class Tree extends PlexusModel {
       @syncing accessor name!: string;
 
@@ -1562,7 +1562,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("Array<Value> key where Value is a grandchild (depth 2)", () => {
-      @syncing
+      @syncing("TreeWithArrayKey")
       class TreeWithArrayKey extends PlexusModel {
         @syncing accessor name!: string;
 
@@ -1605,7 +1605,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("Set<Value> key where Value is a grandchild (depth 2)", () => {
-      @syncing
+      @syncing("TreeWithSetKey")
       class TreeWithSetKey extends PlexusModel {
         @syncing accessor name!: string;
 
@@ -1654,24 +1654,24 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("depth 3: great-grandchild as key", () => {
-      @syncing
+      @syncing("DeepLeaf")
       class DeepLeaf extends PlexusModel {
         @syncing accessor value!: number;
       }
 
-      @syncing
+      @syncing("Level2")
       class Level2 extends PlexusModel {
         @syncing.child.list
         accessor deepLeaves!: DeepLeaf[];
       }
 
-      @syncing
+      @syncing("Level1")
       class Level1 extends PlexusModel {
         @syncing.child.list
         accessor level2s!: Level2[];
       }
 
-      @syncing
+      @syncing("RootWithDeepKey")
       class RootWithDeepKey extends PlexusModel {
         @syncing.child.list
         accessor level1s!: Level1[];
@@ -1706,7 +1706,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("mixed depths: key array contains child and grandchild", () => {
-      @syncing
+      @syncing("MixedDepthTree")
       class MixedDepthTree extends PlexusModel {
         @syncing.child.list
         accessor branches!: Branch[]; // Branch has leaves (grandchildren)
@@ -1764,7 +1764,7 @@ describe("child.map clone key rewriting", () => {
 
   describe("Mixed scenarios - complex key remapping", () => {
     it("entity is value in one entry and part of array key in another", () => {
-      @syncing
+      @syncing("MixedKeyValueContainer")
       class MixedKeyValueContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<string | [string, Item], Item | string>;
@@ -1802,7 +1802,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("entity key that is NOT cloned as value should remain unchanged", () => {
-      @syncing
+      @syncing("KeyOnlyContainer")
       class KeyOnlyContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<Item, string>; // Values are strings, not child entities
@@ -1830,7 +1830,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("complex: entity in set key, array key, and as value - all should be same clone", () => {
-      @syncing
+      @syncing("UltraMixedContainer")
       class UltraMixedContainer extends PlexusModel {
         @syncing.child.map
         accessor setKeyMap!: Map<Set<Item>, string>;
@@ -1877,7 +1877,7 @@ describe("child.map clone key rewriting", () => {
 
   describe("Self-referential and cyclic key scenarios", () => {
     it("container itself used as key in its own child.map", () => {
-      @syncing
+      @syncing("ContainerAsSelfKey")
       class ContainerAsSelfKey extends PlexusModel {
         @syncing accessor name!: string;
 
@@ -1910,7 +1910,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("same entity appears multiple times in array key [A, A, A]", () => {
-      @syncing
+      @syncing("RepeatedKeyContainer")
       class RepeatedKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor byTriple!: Map<[Item, Item, Item], string>;
@@ -1944,7 +1944,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("same entity as both key AND value in same map entry", () => {
-      @syncing
+      @syncing("SameKeyValueContainer")
       class SameKeyValueContainer extends PlexusModel {
         @syncing.child.map
         accessor selfRefMap!: Map<Item, Item>;
@@ -1975,7 +1975,7 @@ describe("child.map clone key rewriting", () => {
 
   describe("Post-clone lookup verification (Map.get/Map.has)", () => {
     it("Map.get() works with cloned entity keys", () => {
-      @syncing
+      @syncing("LookupTestContainer")
       class LookupTestContainer extends PlexusModel {
         @syncing.child.map
         accessor indexed!: Map<Item, number>;
@@ -2024,7 +2024,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("Map.get() works with cloned Set keys", () => {
-      @syncing
+      @syncing("SetKeyLookupContainer")
       class SetKeyLookupContainer extends PlexusModel {
         @syncing.child.map
         accessor byGroup!: Map<Set<Item>, string>;
@@ -2054,7 +2054,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("Map.get() works with cloned Array keys", () => {
-      @syncing
+      @syncing("ArrayKeyLookupContainer")
       class ArrayKeyLookupContainer extends PlexusModel {
         @syncing.child.map
         accessor byTuple!: Map<[Item, Item], string>;
@@ -2086,7 +2086,7 @@ describe("child.map clone key rewriting", () => {
 
   describe("Empty and boundary cases", () => {
     it("empty Set as key - preserved correctly", () => {
-      @syncing
+      @syncing("EmptySetKeyContainer")
       class EmptySetKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor byEmptySet!: Map<Set<Item>, string>;
@@ -2114,7 +2114,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("empty Array as key - preserved correctly", () => {
-      @syncing
+      @syncing("EmptyArrayKeyContainer")
       class EmptyArrayKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor byEmptyArray!: Map<Item[], string>;
@@ -2142,7 +2142,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("mixed primitives and entities in array key", () => {
-      @syncing
+      @syncing("MixedArrayKeyContainer")
       class MixedArrayKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor byMixed!: Map<[string, Item, number], string>;
@@ -2176,7 +2176,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("mixed primitives and entities in Set key", () => {
-      @syncing
+      @syncing("MixedSetKeyContainer")
       class MixedSetKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor byMixedSet!: Map<Set<string | Item | number>, string>;
@@ -2215,7 +2215,7 @@ describe("child.map clone key rewriting", () => {
     it("key entity in field declared AFTER the map (alphabetical order)", () => {
       // Fields are processed in Object.entries order, which follows declaration order
       // This tests when the key entity is in a field that comes AFTER the map
-      @syncing
+      @syncing("OrderTestContainer")
       class OrderTestContainer extends PlexusModel {
         @syncing.child.map
         accessor aMap!: Map<Item, string>; // 'a' comes before 'z'
@@ -2250,7 +2250,7 @@ describe("child.map clone key rewriting", () => {
 
   describe("Multiple child.map fields interaction", () => {
     it("same entity as key in two different child.maps", () => {
-      @syncing
+      @syncing("DualChildMapContainer")
       class DualChildMapContainer extends PlexusModel {
         @syncing.child.map
         accessor map1!: Map<Item, string>;
@@ -2294,7 +2294,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("entity is key in map1, value in map2 (cross-reference)", () => {
-      @syncing
+      @syncing("CrossRefContainer")
       class CrossRefContainer extends PlexusModel {
         @syncing.child.map
         accessor mapWithEntityKey!: Map<Item, string>;
@@ -2328,7 +2328,7 @@ describe("child.map clone key rewriting", () => {
 
   describe("Child.map + non-child map interaction", () => {
     it("entity cloned in child.map value, remapped in non-child map key", () => {
-      @syncing
+      @syncing("MixedOwnershipContainer")
       class MixedOwnershipContainer extends PlexusModel {
         @syncing.child.map
         accessor childMap!: Map<string, Item>; // Value is owned, gets cloned
@@ -2363,7 +2363,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("entity as key in both child.map and non-child map", () => {
-      @syncing
+      @syncing("BothMapsKeyContainer")
       class BothMapsKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor childMap!: Map<Item, string>;
@@ -2403,7 +2403,7 @@ describe("child.map clone key rewriting", () => {
 
   describe("Clone with newProps override", () => {
     it("newProps overrides child.map entirely - new keys not remapped", () => {
-      @syncing
+      @syncing("OverrideContainer")
       class OverrideContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<Item, string>;
@@ -2440,7 +2440,7 @@ describe("child.map clone key rewriting", () => {
     });
 
     it("newProps map with key that references entity from another child field", () => {
-      @syncing
+      @syncing("CrossFieldOverrideContainer")
       class CrossFieldOverrideContainer extends PlexusModel {
         @syncing.child.map
         accessor indexed!: Map<Item, string>;
@@ -2725,7 +2725,7 @@ describe("child.map advanced edge cases", () => {
 
   describe("Primitives as values", () => {
     it("should handle string values (non-child tracking)", () => {
-      @syncing
+      @syncing("StringMapContainer")
       class StringMapContainer extends PlexusModel {
         @syncing.map // Note: NOT child.map - just regular map
         accessor items!: Map<string, string>;
@@ -2747,7 +2747,7 @@ describe("child.map advanced edge cases", () => {
     });
 
     it("should handle number values", () => {
-      @syncing
+      @syncing("NumberMapContainer")
       class NumberMapContainer extends PlexusModel {
         @syncing.map
         accessor items!: Map<string, number>;
@@ -2766,7 +2766,7 @@ describe("child.map advanced edge cases", () => {
     });
 
     it("should handle mixed primitive and entity values in child-map (entity adopted, primitive not)", () => {
-      @syncing
+      @syncing("MixedMapContainer")
       class MixedMapContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<string, Item | string | number>;
@@ -2797,7 +2797,7 @@ describe("child.map advanced edge cases", () => {
 
   describe("Circular clone edge cases", () => {
     it("should handle clone when entity is both key and value", () => {
-      @syncing
+      @syncing("SelfKeyContainer")
       class SelfKeyContainer extends PlexusModel {
         @syncing.child.map
         accessor items!: Map<Item, Item>;
@@ -2827,7 +2827,7 @@ describe("child.map advanced edge cases", () => {
     });
 
     it("should handle clone with cross-referenced entities", () => {
-      @syncing
+      @syncing("CrossRefCloneContainer")
       class CrossRefCloneContainer extends PlexusModel {
         @syncing.child.map
         accessor forward!: Map<Item, Item>;
@@ -3098,7 +3098,7 @@ describe("child.map advanced edge cases", () => {
 
   describe("Parentship cycle checks", () => {
     it("should prevent direct parent-child cycle (parent adding itself as child)", () => {
-      @syncing
+      @syncing("RecursiveContainer")
       class RecursiveContainer extends PlexusModel {
         @syncing.child.map
         accessor children!: Map<string, RecursiveContainer>;
@@ -3116,7 +3116,7 @@ describe("child.map advanced edge cases", () => {
     });
 
     it("should prevent indirect cycle (grandchild trying to adopt grandparent)", () => {
-      @syncing
+      @syncing("TreeNode")
       class TreeNode extends PlexusModel {
         @syncing accessor name!: string;
 
@@ -3146,7 +3146,7 @@ describe("child.map advanced edge cases", () => {
     });
 
     it("should prevent cycle through sibling (A -> B, B tries to adopt A)", () => {
-      @syncing
+      @syncing("SiblingNode")
       class SiblingNode extends PlexusModel {
         @syncing accessor name!: string;
 
@@ -3176,7 +3176,7 @@ describe("child.map advanced edge cases", () => {
     });
 
     it("should prevent deep cycle (chain of 5 nodes, last trying to adopt first)", () => {
-      @syncing
+      @syncing("ChainNode")
       class ChainNode extends PlexusModel {
         @syncing accessor name!: string;
 
@@ -3216,7 +3216,7 @@ describe("child.map advanced edge cases", () => {
     });
 
     it("should allow non-cyclic reparenting", () => {
-      @syncing
+      @syncing("FlexNode")
       class FlexNode extends PlexusModel {
         @syncing accessor name!: string;
 
@@ -3248,7 +3248,7 @@ describe("child.map advanced edge cases", () => {
     });
 
     it("should prevent cycle when child tries to adopt parent", () => {
-      @syncing
+      @syncing("AncestorNode")
       class AncestorNode extends PlexusModel {
         @syncing accessor name!: string;
 
@@ -3284,7 +3284,7 @@ describe("child.map advanced edge cases", () => {
     // This was a bug where orphaning happened BEFORE validation
 
     it("should not orphan existing value when set() fails due to cycle", () => {
-      @syncing
+      @syncing("CycleNode")
       class CycleNode extends PlexusModel {
         @syncing accessor name!: string;
         @syncing.child.map accessor children!: Map<string, CycleNode>;
@@ -3310,7 +3310,7 @@ describe("child.map advanced edge cases", () => {
     });
 
     it("should not orphan existing value when set() replaces and cycle fails", () => {
-      @syncing
+      @syncing("ReplaceNode")
       class ReplaceNode extends PlexusModel {
         @syncing accessor name!: string;
         @syncing.child.map accessor children!: Map<string, ReplaceNode>;
@@ -3346,7 +3346,7 @@ describe("child.map advanced edge cases", () => {
     });
 
     it("should not orphan any values when assign() fails due to cycle", () => {
-      @syncing
+      @syncing("AssignNode")
       class AssignNode extends PlexusModel {
         @syncing accessor name!: string;
         @syncing.child.map accessor children!: Map<string, AssignNode>;

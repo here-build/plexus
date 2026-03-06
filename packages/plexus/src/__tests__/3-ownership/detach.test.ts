@@ -11,7 +11,7 @@ import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
-@syncing
+@syncing("Node")
 class Node extends PlexusModel {
   @syncing accessor name: string = "";
   @syncing.child accessor childVal: Node | null = null;
@@ -20,7 +20,7 @@ class Node extends PlexusModel {
   @syncing.child.set accessor childSet: Set<Node> = new Set();
 }
 
-@syncing
+@syncing("Root")
 class Root extends PlexusModel<null> {
   @syncing.child accessor primary: Node | null = null;
 }

@@ -18,13 +18,13 @@ import { initTestPlexus } from "../_helpers/test-plexus.js";
 // Base test models
 // ============================================
 
-@syncing
+@syncing("TestValue")
 export class TestValue extends PlexusModel {
   @syncing accessor name: string = "";
   @syncing accessor count: number = 0;
 }
 
-@syncing
+@syncing("TestContainer")
 export class TestContainer extends PlexusModel {
   // Primitive fields
   @syncing accessor val: TestValue | null = null;
@@ -47,7 +47,7 @@ export class TestContainer extends PlexusModel {
   @syncing.map accessor mapWithSetKeys!: Map<Set<TestValue>, string>;
 }
 
-@syncing
+@syncing("TestRoot")
 export class TestRoot extends PlexusModel<null> {
   // For dependency testing
   dependencies?: Record<string, TestRoot>;
@@ -61,13 +61,13 @@ export class TestRoot extends PlexusModel<null> {
 // Inheritance test models
 // ============================================
 
-@syncing
+@syncing("ParentModel")
 export class ParentModel extends PlexusModel {
   @syncing accessor name: string = "parent-default";
   @syncing.list accessor items: TestValue[] = [];
 }
 
-@syncing
+@syncing("ChildModel")
 export class ChildModel extends ParentModel {
   // Override with narrower type
   @syncing accessor name: "child-a" | "child-b" = "child-a";

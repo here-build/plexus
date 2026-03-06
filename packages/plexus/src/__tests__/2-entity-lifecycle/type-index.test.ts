@@ -12,17 +12,17 @@ import { syncing } from "../../decorators.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 
-@syncing
+@syncing("Alpha")
 class Alpha extends PlexusModel {
   @syncing accessor name: string = "";
 }
 
-@syncing
+@syncing("Beta")
 class Beta extends PlexusModel {
   @syncing accessor value: number = 0;
 }
 
-@syncing
+@syncing("TypeIndexRoot")
 class TypeIndexRoot extends PlexusModel<null> {
   @syncing.child.list accessor alphas: Alpha[] = [];
   @syncing.child.list accessor betas: Beta[] = [];

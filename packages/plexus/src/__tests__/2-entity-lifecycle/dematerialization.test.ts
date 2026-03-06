@@ -17,13 +17,13 @@ import { getInternals, PlexusModel } from "../../PlexusModel.js";
 import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
-@syncing
+@syncing("Item")
 class Item extends PlexusModel {
   @syncing
   accessor name: string = "";
 }
 
-@syncing
+@syncing("Container")
 class Container extends PlexusModel {
   @syncing
   accessor name: string = "";
@@ -38,7 +38,7 @@ class Container extends PlexusModel {
   accessor ref: Item | null = null;
 }
 
-@syncing
+@syncing("Root")
 class Root extends PlexusModel {
   @syncing.child.list
   accessor containers: Container[] = [];

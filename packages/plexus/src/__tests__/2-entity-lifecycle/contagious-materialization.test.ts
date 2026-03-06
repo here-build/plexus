@@ -21,7 +21,7 @@ import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 
 // ── Shared leaf entity ──
 
-@syncing
+@syncing("Item")
 class Item extends PlexusModel {
   @syncing accessor name: string = "";
 }
@@ -32,7 +32,7 @@ class Item extends PlexusModel {
  * Scenario 1 & 7: child-map with Set<Item> key, items owned by child-list.
  * The Set key contains entities that are siblings in the child-list.
  */
-@syncing
+@syncing("SetKeyWithChildList")
 class SetKeyWithChildList extends PlexusModel<null> {
   @syncing.child.list accessor children: Item[] = [];
   @syncing.child.map accessor byGroup!: Map<Set<Item>, string>;
@@ -42,7 +42,7 @@ class SetKeyWithChildList extends PlexusModel<null> {
  * Scenario 7 (declaration order): child-map BEFORE child-list.
  * Schema iteration order should not affect contagious materialization.
  */
-@syncing
+@syncing("SetKeyMapFirst")
 class SetKeyMapFirst extends PlexusModel<null> {
   @syncing.child.map accessor byGroup!: Map<Set<Item>, string>;
   @syncing.child.list accessor children: Item[] = [];
@@ -51,7 +51,7 @@ class SetKeyMapFirst extends PlexusModel<null> {
 /**
  * Scenario 2: child-map with Set<Item> key, item owned by child-val.
  */
-@syncing
+@syncing("SetKeyWithChildVal")
 class SetKeyWithChildVal extends PlexusModel<null> {
   @syncing.child accessor item: Item | null = null;
   @syncing.child.map accessor byGroup!: Map<Set<Item>, string>;
@@ -60,7 +60,7 @@ class SetKeyWithChildVal extends PlexusModel<null> {
 /**
  * Scenario 4: child-map with entity as direct key (not in Set).
  */
-@syncing
+@syncing("DirectEntityKey")
 class DirectEntityKey extends PlexusModel<null> {
   @syncing.child.list accessor children: Item[] = [];
   @syncing.child.map accessor byName!: Map<Item, string>;
@@ -69,7 +69,7 @@ class DirectEntityKey extends PlexusModel<null> {
 /**
  * Scenario 5: child-map with Array key containing entities mixed with primitives.
  */
-@syncing
+@syncing("ArrayKeyWithEntities")
 class ArrayKeyWithEntities extends PlexusModel<null> {
   @syncing.child.list accessor children: Item[] = [];
   @syncing.child.map accessor byComposite!: Map<Array<Item | string>, string>;
@@ -78,13 +78,13 @@ class ArrayKeyWithEntities extends PlexusModel<null> {
 /**
  * Scenario 6: Deep cascade — child-map value is entity that also has child-map with entity keys.
  */
-@syncing
+@syncing("InnerContainer")
 class InnerContainer extends PlexusModel {
   @syncing.child.list accessor leaves: Item[] = [];
   @syncing.child.map accessor innerMap!: Map<Set<Item>, string>;
 }
 
-@syncing
+@syncing("OuterContainer")
 class OuterContainer extends PlexusModel<null> {
   @syncing.child.list accessor inners: InnerContainer[] = [];
   @syncing.child.map accessor outerMap!: Map<Set<Item>, InnerContainer>;
@@ -93,7 +93,7 @@ class OuterContainer extends PlexusModel<null> {
 /**
  * Scenario 9: Multiple child-maps sharing key entities.
  */
-@syncing
+@syncing("MultiMapSharedKeys")
 class MultiMapSharedKeys extends PlexusModel<null> {
   @syncing.child.list accessor children: Item[] = [];
   @syncing.child.map accessor mapA!: Map<Set<Item>, string>;

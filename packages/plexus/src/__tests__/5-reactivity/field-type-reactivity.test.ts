@@ -18,13 +18,13 @@ import { initTestPlexus } from "../_helpers/test-plexus.js";
 // Test Models
 // ============================================
 
-@syncing
+@syncing("Item")
 class Item extends PlexusModel {
   @syncing accessor name: string = "";
   @syncing accessor count: number = 0;
 }
 
-@syncing
+@syncing("Container")
 class Container extends PlexusModel<null> {
   // Non-child fields
   @syncing accessor val: string = "";

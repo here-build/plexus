@@ -9,12 +9,12 @@ import { syncing } from "../../decorators.js";
 import { getInternals, PlexusModel } from "../../PlexusModel.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
-@syncing
+@syncing("Item")
 class Item extends PlexusModel {
   @syncing accessor name: string = "";
 }
 
-@syncing
+@syncing("Container")
 class Container extends PlexusModel {
   @syncing accessor name: string = "";
 
@@ -23,7 +23,7 @@ class Container extends PlexusModel {
   @syncing.child.list accessor items: Item[] = [];
 }
 
-@syncing
+@syncing("Root")
 class Root extends PlexusModel<null> {
   dependencies?: Record<string, Root>;
 

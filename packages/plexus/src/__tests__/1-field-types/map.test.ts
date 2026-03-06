@@ -21,28 +21,28 @@ import { initTestPlexus } from "../_helpers/test-plexus.js";
 // Test Models
 // ============================================
 
-@syncing
+@syncing("Variant")
 class Variant extends PlexusModel {
   @syncing accessor name!: string;
 }
 
-@syncing
+@syncing("FrameMetadata")
 class FrameMetadata extends PlexusModel {
   @syncing accessor width!: number;
   @syncing accessor height!: number;
 }
 
-@syncing
+@syncing("KeyModel")
 class KeyModel extends PlexusModel {
   @syncing accessor name!: string;
 }
 
-@syncing
+@syncing("ValueModel")
 class ValueModel extends PlexusModel {
   @syncing accessor data!: string;
 }
 
-@syncing
+@syncing("Component")
 class Component extends PlexusModel {
   @syncing accessor name!: string;
 
@@ -59,7 +59,7 @@ class Component extends PlexusModel {
   @syncing.map accessor metadataByVariant!: Map<Variant, FrameMetadata>;
 }
 
-@syncing
+@syncing("TestContainer")
 class TestContainer extends PlexusModel {
   @syncing.map accessor mapByString!: Map<string, ValueModel>;
   @syncing.map accessor mapBySet!: Map<Set<KeyModel>, ValueModel>;
@@ -67,7 +67,7 @@ class TestContainer extends PlexusModel {
   @syncing.map accessor mapByModel!: Map<KeyModel, ValueModel>;
 }
 
-@syncing
+@syncing("TestSite")
 class TestSite extends PlexusModel<null> {
   @syncing.child.list accessor components!: Component[];
   @syncing.child.list accessor variants!: Variant[];

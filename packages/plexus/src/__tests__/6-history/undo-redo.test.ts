@@ -11,7 +11,7 @@ import { createTrackedFunction } from "../../tracking.js";
 import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
-@syncing
+@syncing("TestModel")
 class TestModel extends PlexusModel {
   @syncing
   accessor name: string = "";

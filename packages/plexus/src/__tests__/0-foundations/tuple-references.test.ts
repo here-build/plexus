@@ -19,7 +19,7 @@ import { initTestPlexus } from "../_helpers/test-plexus.js";
 import { getModelsMap } from "../getModelsMap.js";
 
 // Test model schemas
-@syncing
+@syncing("TestUser")
 class TestUser extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -28,7 +28,7 @@ class TestUser extends PlexusModel {
   accessor posts!: any[];
 }
 
-@syncing
+@syncing("TestPost")
 class TestPost extends PlexusModel {
   @syncing
   accessor title!: string;
@@ -41,7 +41,7 @@ class TestPost extends PlexusModel {
 }
 
 // Minimal model (no collections) to avoid resolver shape issues in this test
-@syncing
+@syncing("Shallow")
 class Shallow extends PlexusModel {
   @syncing
   accessor name!: string;

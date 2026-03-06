@@ -4,17 +4,17 @@
 
 import { PlexusModel, syncing } from "../../index.js";
 
-@syncing
+@syncing("A")
 class A extends PlexusModel<null> {
   @syncing.child accessor child: B | null = null;
 }
 
-@syncing
+@syncing("B")
 class B extends PlexusModel<A> {
   @syncing accessor value: string = "";
 }
 
-@syncing
+@syncing("C")
 class C extends PlexusModel<null> {
   @syncing.child accessor child: B | null = null;
 }

@@ -12,13 +12,13 @@ import { connectTestPlexus, initTestPlexus } from "./_helpers/test-plexus.js";
 
 // ── Test models ──
 
-@syncing
+@syncing("VItem")
 class VItem extends PlexusModel {
   static override readonly modelName = "VItem";
   @syncing accessor label!: string;
 }
 
-@syncing
+@syncing("VHost")
 class VHost extends PlexusModel {
   @syncing accessor name!: string;
   @syncing.virtual((key: string) => new VItem({ label: `auto-${key}` }))
@@ -26,13 +26,13 @@ class VHost extends PlexusModel {
 }
 
 // Subclass to test inheritance
-@syncing
+@syncing("VHostChild")
 class VHostChild extends VHost {
   static override readonly modelName = "VHostChild";
 }
 
 // Model with numeric keys
-@syncing
+@syncing("VNumHost")
 class VNumHost extends PlexusModel {
   static override readonly modelName = "VNumHost";
   @syncing.virtual((key: number) => new VItem({ label: `num-${key}` }))
@@ -168,7 +168,7 @@ describe("VirtualMap (@syncing.virtual)", () => {
   describe("reparenting guard", () => {
     it("moving virtual child to different parent throws", () => {
       // Both models in same doc so doc-mismatch doesn't fire first
-      @syncing
+      @syncing("VHostWithReceiver")
       class VHostWithReceiver extends PlexusModel {
         static override readonly modelName = "VHostWithReceiver";
         @syncing accessor name!: string;

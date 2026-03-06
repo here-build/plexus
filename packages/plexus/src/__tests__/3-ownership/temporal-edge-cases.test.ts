@@ -21,9 +21,8 @@ import { initTestPlexus } from "../_helpers/test-plexus.js";
 // Test Models with Default Values
 // =============================================================================
 
-@syncing
+@syncing("RuleSet")
 class RuleSet extends PlexusModel {
-  static readonly modelName = "RuleSet";
   @syncing.record accessor values!: Record<string, string>;
 
   constructor(props: { values?: Record<string, string> } = {}) {
@@ -31,9 +30,8 @@ class RuleSet extends PlexusModel {
   }
 }
 
-@syncing
+@syncing("VariantedRuleSet")
 class VariantedRuleSet extends PlexusModel<Mixin> {
-  static readonly modelName = "VariantedRuleSet";
   @syncing.list accessor variants!: string[];
   @syncing.child accessor rs!: RuleSet;
 
@@ -43,9 +41,8 @@ class VariantedRuleSet extends PlexusModel<Mixin> {
 }
 
 // Model with default child value - mimics Mixin in the real model
-@syncing
+@syncing("Mixin")
 class Mixin extends PlexusModel {
-  static readonly modelName = "Mixin";
   @syncing accessor name!: string;
   // Default value creates a new RuleSet if none provided
   @syncing.child accessor rs: RuleSet = new RuleSet({ values: { default: "true" } });
@@ -57,9 +54,8 @@ class Mixin extends PlexusModel {
 }
 
 // Model with nested defaults
-@syncing
+@syncing("Theme")
 class Theme extends PlexusModel {
-  static readonly modelName = "Theme";
   @syncing.child accessor defaultStyle!: Mixin;
   @syncing.child.list accessor styles!: ThemeStyle[];
 
@@ -68,9 +64,8 @@ class Theme extends PlexusModel {
   }
 }
 
-@syncing
+@syncing("ThemeStyle")
 class ThemeStyle extends PlexusModel<Theme> {
-  static readonly modelName = "ThemeStyle";
   @syncing accessor selector!: string;
   @syncing.child accessor style!: Mixin;
 
@@ -80,9 +75,8 @@ class ThemeStyle extends PlexusModel<Theme> {
 }
 
 // Self-referential model (like Component with primaryVariant/variants)
-@syncing
+@syncing("Variant")
 class Variant extends PlexusModel<VariantGroup> {
-  static readonly modelName = "Variant";
   @syncing accessor name!: string;
 
   constructor(props: { name: string }) {
@@ -90,9 +84,8 @@ class Variant extends PlexusModel<VariantGroup> {
   }
 }
 
-@syncing
+@syncing("VariantGroup")
 class VariantGroup extends PlexusModel {
-  static readonly modelName = "VariantGroup";
   @syncing accessor name!: string;
   @syncing.child.list accessor variants!: Variant[];
   // Reference to one of the variants (not child)
@@ -104,9 +97,8 @@ class VariantGroup extends PlexusModel {
 }
 
 // Tree structure for move tests
-@syncing
+@syncing("TreeNode")
 class TreeNode extends PlexusModel {
-  static readonly modelName = "TreeNode";
   @syncing accessor name!: string;
   @syncing.child.list accessor children!: TreeNode[];
 
@@ -116,9 +108,8 @@ class TreeNode extends PlexusModel {
 }
 
 // Model with multiple child fields (for move between fields)
-@syncing
+@syncing("Container")
 class Container extends PlexusModel {
-  static readonly modelName = "Container";
   @syncing accessor name!: string;
   @syncing.child accessor primary!: TreeNode | null;
   @syncing.child.list accessor items!: TreeNode[];
@@ -202,7 +193,7 @@ describe("Default child values", () => {
 
     it("assigning null to optional child with default should orphan default", () => {
       // For this test we need a model where the child field is optional
-      @syncing
+      @syncing("OptionalChildModel")
       class OptionalChildModel extends PlexusModel {
         @syncing accessor name!: string;
         @syncing.child accessor optionalChild: RuleSet | null = new RuleSet({ values: { default: "yes" } });
@@ -436,9 +427,8 @@ describe("Clone and auto-move interaction", () => {
 
 describe("Dynamic child creation patterns", () => {
   // This mimics the ensureVariantSetting pattern from TplTag
-  @syncing
+  @syncing("VariantSetting")
   class VariantSetting extends PlexusModel<DynamicParent> {
-    static readonly modelName = "VariantSetting";
     @syncing.list accessor variants!: string[];
     @syncing.child accessor rs: RuleSet = new RuleSet({ values: {} });
 
@@ -447,9 +437,8 @@ describe("Dynamic child creation patterns", () => {
     }
   }
 
-  @syncing
+  @syncing("DynamicParent")
   class DynamicParent extends PlexusModel {
-    static readonly modelName = "DynamicParent";
     @syncing accessor name!: string;
     @syncing.child.list accessor vsettings!: VariantSetting[];
 
@@ -538,12 +527,12 @@ describe("Dynamic child creation patterns", () => {
 // =============================================================================
 
 describe("Union types in child lists", () => {
-  @syncing
+  @syncing("StringOrModel")
   class StringOrModel extends PlexusModel {
     @syncing accessor value!: string;
   }
 
-  @syncing
+  @syncing("MixedListParent")
   class MixedListParent extends PlexusModel {
     @syncing accessor name!: string;
     // This mimics ChoiceType.options: (string | ChoiceOption)[]
@@ -597,29 +586,25 @@ describe("Union types in child lists", () => {
 // =============================================================================
 
 describe("Deeply nested defaults with clone", () => {
-  @syncing
+  @syncing("Level3")
   class Level3 extends PlexusModel<Level2> {
-    static readonly modelName = "Level3";
     @syncing accessor value: string = "level3-default";
   }
 
-  @syncing
+  @syncing("Level2")
   class Level2 extends PlexusModel<Level1> {
-    static readonly modelName = "Level2";
     @syncing accessor name!: string;
     @syncing.child accessor nested: Level3 = new Level3({});
   }
 
-  @syncing
+  @syncing("Level1")
   class Level1 extends PlexusModel<Level0> {
-    static readonly modelName = "Level1";
     @syncing accessor name!: string;
     @syncing.child accessor nested: Level2 = new Level2({ name: "level2-default" });
   }
 
-  @syncing
+  @syncing("Level0")
   class Level0 extends PlexusModel {
-    static readonly modelName = "Level0";
     @syncing accessor name!: string;
     @syncing.child accessor nested: Level1 = new Level1({ name: "level1-default" });
   }

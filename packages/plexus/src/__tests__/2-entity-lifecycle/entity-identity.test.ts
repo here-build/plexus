@@ -7,21 +7,21 @@ import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 import { getModelsMap } from "../getModelsMap.js";
 
 // Simple model for singleton tests
-@syncing
+@syncing("Root")
 class Root extends PlexusModel {
   @syncing
   accessor name!: string;
 }
 
 // Models for edge case tests
-@syncing
+@syncing("Parent")
 class Parent extends PlexusModel {
   @syncing
   accessor stringish = "stringish";
   accessor stringishWithDefault = "stringishWithDefault";
 }
 
-@syncing
+@syncing("Child")
 class Child extends Parent {
   @syncing
   // @ts-expect-error
@@ -30,7 +30,7 @@ class Child extends Parent {
   accessor stringishWithDefault = "stringishWithDefaultOverride";
 }
 
-@syncing
+@syncing("Component")
 class Component extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -45,7 +45,7 @@ class Component extends PlexusModel {
   accessor metadata: Record<string, string> = {};
 }
 
-@syncing
+@syncing("Site")
 class Site extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -68,7 +68,7 @@ async function createTestSite(name: string): Promise<{ site: Site; entityId: str
 }
 
 // Models for entity loading tests
-@syncing
+@syncing("User")
 class User extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -80,7 +80,7 @@ class User extends PlexusModel {
   accessor age!: number;
 }
 
-@syncing
+@syncing("Post")
 class Post extends PlexusModel {
   @syncing
   accessor title!: string;
@@ -95,7 +95,7 @@ class Post extends PlexusModel {
   accessor tags!: string[];
 }
 
-@syncing
+@syncing("Comment")
 class Comment extends PlexusModel {
   @syncing
   accessor text!: string;
@@ -108,7 +108,7 @@ class Comment extends PlexusModel {
 }
 
 // Root type that contains all our test entities
-@syncing
+@syncing("TestRoot")
 class TestRoot extends PlexusModel {
   @syncing
   accessor user!: User | null;

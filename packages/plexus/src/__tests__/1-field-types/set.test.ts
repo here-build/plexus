@@ -11,7 +11,7 @@ import { initTestPlexus } from "../_helpers/test-plexus.js";
 import { getModelsMap } from "../getModelsMap.js";
 
 // Test model with a set field
-@syncing
+@syncing("TestComponent")
 class TestComponent extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -20,7 +20,7 @@ class TestComponent extends PlexusModel {
   accessor version!: number;
 }
 
-@syncing
+@syncing("TestModelWithSet")
 class TestModelWithSet extends PlexusModel {
   @syncing
   accessor name!: string;
@@ -304,7 +304,7 @@ describe("Set Proxy Implementation", () => {
   });
 
   describe("Child Set (@syncing.child.set)", () => {
-    @syncing
+    @syncing("SetTreeNode")
     class SetTreeNode extends PlexusModel {
       @syncing accessor name!: string;
       @syncing.child.set accessor children!: Set<SetTreeNode>;

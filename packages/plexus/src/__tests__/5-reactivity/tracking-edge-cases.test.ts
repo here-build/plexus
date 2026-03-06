@@ -11,12 +11,12 @@ import { syncing } from "../../decorators.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 import { createTrackedFunction } from "../../tracking.js";
 
-@syncing
+@syncing("Item")
 class Item extends PlexusModel {
   @syncing accessor name: string = "";
 }
 
-@syncing
+@syncing("Container")
 class Container extends PlexusModel<null> {
   @syncing.map accessor map: Map<string, string> = new Map();
   @syncing.child.list accessor items: Item[] = [];

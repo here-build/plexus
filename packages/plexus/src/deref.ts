@@ -59,7 +59,7 @@ export function deref<T extends AllowedYJSValue>(
     // CRDT-native UUID → StructStore resolution — O(log n)
     // decode reverses the Feistel cipher to recover {clientId, clock},
     // then getItem does a binary search in the StructStore.
-    const { clientId, clock } = decode(entityId as PlexusUUID, doc.guid);
+    const { clientId, clock } = decode(entityId as PlexusUUID);
     const item = Y.getItem(doc.store, Y.createID(clientId, clock));
     invariant(
       item.content instanceof Y.ContentType,
@@ -88,6 +88,18 @@ export function deref<T extends AllowedYJSValue>(
   internals.uuid = entityId as PlexusUUID;
   internals.yjsModel = new PlexusWrapper(entityModel);
   entityCache.set(entityId, new WeakRef(model));
+
+  // Resolve parent from YJS wrapper BEFORE bootstrap.
+  // Parent is always cached already (top-down materialization from root),
+  // so this deref is a cache hit. Setting parent on internals ensures
+  // informAdoptionSymbol's early-return fires during bootstrap,
+  // avoiding [referenceSymbol] calls before docPlexus is registered.
+  if (internals.yjsModel.hasParent) {
+    internals.parent = deref(doc, [internals.yjsModel.parent!]);
+    internals.parentKey = internals.yjsModel.parentKey;
+    internals.parentMetadata = internals.yjsModel.parentMetadata;
+  }
+
   model.__bootstrapObservation__();
   return model as T;
 }

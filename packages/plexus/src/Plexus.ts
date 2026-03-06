@@ -184,8 +184,9 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     // materialization of root should be explicitly done before UndoManager is spawned - otherwise we may accidentally
     // drop root during undos
     root[referenceSymbol](doc);
-    // Store root pointer in meta map for remote peer discovery
-    getMetaMap(doc).set(YJS_GLOBALS.meta.wellKnown.root, rootInternals.uuid!);
+    // Store root pointer and encoding guid in meta map for remote peer discovery
+    const meta = getMetaMap(doc);
+    meta.set(YJS_GLOBALS.meta.wellKnown.root, rootInternals.uuid!);
 
     // Pre-create type sub-maps for ALL registered entity types BEFORE UndoManager connects.
     // Uses genesis clientIds (deterministic, conflict-free across independent peers).

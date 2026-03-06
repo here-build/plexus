@@ -208,6 +208,61 @@ describe("Tracking Edge Cases", () => {
     });
   });
 
+  describe("Array Object.keys() tracking", () => {
+    it("does NOT notify Object.keys() subscribers when replacing existing element", () => {
+      const { root } = initTestPlexus(new Container());
+      root.items.push(new Item({ name: "initial" }));
+
+      const notify = vi.fn();
+      const tracked = createTrackedFunction(notify, () => Object.keys(root.items));
+      tracked();
+
+      // Replacing existing element should NOT notify Object.keys() (keys unchanged)
+      root.items[0] = new Item({ name: "replaced" });
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
+    });
+
+    it("notifies Object.keys() subscribers when array length changes via push", () => {
+      const { root } = initTestPlexus(new Container());
+      root.items.push(new Item({ name: "first" }));
+
+      const notify = vi.fn();
+      const tracked = createTrackedFunction(notify, () => Object.keys(root.items));
+      tracked();
+
+      root.items.push(new Item({ name: "second" }));
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+    });
+
+    it("notifies Object.keys() subscribers when array length changes via pop", () => {
+      const { root } = initTestPlexus(new Container());
+      root.items.push(new Item({ name: "first" }));
+      root.items.push(new Item({ name: "second" }));
+
+      const notify = vi.fn();
+      const tracked = createTrackedFunction(notify, () => Object.keys(root.items));
+      tracked();
+
+      root.items.pop();
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+    });
+  });
+
+  describe("Record Object.keys() tracking (value-only changes)", () => {
+    it("does NOT notify Object.keys() subscribers when existing value changes", () => {
+      const { root } = initTestPlexus(new Container());
+      root.record["key"] = "initial";
+
+      const notify = vi.fn();
+      const tracked = createTrackedFunction(notify, () => Object.keys(root.record));
+      tracked();
+
+      // Value-only change should NOT notify Object.keys() (keys unchanged)
+      root.record["key"] = "updated";
+      expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
+    });
+  });
+
   describe("Map.size tracking", () => {
     it("notifies size subscribers when key is added", () => {
       const { root } = initTestPlexus(new Container());

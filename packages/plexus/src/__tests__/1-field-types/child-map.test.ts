@@ -43,9 +43,15 @@ describe("child.map field (@syncing.child.map)", () => {
     const { root } = initTestPlexus(container);
 
     const item = new Item({ name: "test" });
+    expect(item.parent).toBeNull();
+    expect(item.parentField).toBeNull();
+    expect(item.parentFieldKey).toBeNull();
+
     root.items.set("key1", item);
 
     expect(item.parent).toBe(root);
+    expect(item.parentField).toBe("items");
+    expect(item.parentFieldKey).toBe("key1");
   });
 
   it("should orphan value when deleted", () => {
@@ -54,10 +60,14 @@ describe("child.map field (@syncing.child.map)", () => {
 
     const item = new Item({ name: "test" });
     root.items.set("key1", item);
-    expect(item).to.include({ parent: root });
+    expect(item.parent).toBe(root);
+    expect(item.parentField).toBe("items");
+    expect(item.parentFieldKey).toBe("key1");
 
     root.items.delete("key1");
-    expect(item).to.include({ parent: null });
+    expect(item.parent).toBeNull();
+    expect(item.parentField).toBeNull();
+    expect(item.parentFieldKey).toBeNull();
   });
 
   it("should orphan old value and adopt new value on set()", () => {
@@ -68,10 +78,17 @@ describe("child.map field (@syncing.child.map)", () => {
     const item2 = new Item({ name: "item2" });
 
     root.items.set("key1", item1);
-    expect(item1).to.have.property("parent", root);
+    expect(item1.parent).toBe(root);
+    expect(item1.parentField).toBe("items");
+    expect(item1.parentFieldKey).toBe("key1");
 
     root.items.set("key1", item2);
-    expect([item1.parent, item2.parent]).to.have.ordered.members([null, root]);
+    expect(item1.parent).toBeNull();
+    expect(item1.parentField).toBeNull();
+    expect(item1.parentFieldKey).toBeNull();
+    expect(item2.parent).toBe(root);
+    expect(item2.parentField).toBe("items");
+    expect(item2.parentFieldKey).toBe("key1");
   });
 
   it("should orphan all values on clear()", () => {
@@ -83,9 +100,20 @@ describe("child.map field (@syncing.child.map)", () => {
 
     root.items.set("key1", item1);
     root.items.set("key2", item2);
+    expect(item1.parent).toBe(root);
+    expect(item1.parentField).toBe("items");
+    expect(item1.parentFieldKey).toBe("key1");
+    expect(item2.parent).toBe(root);
+    expect(item2.parentField).toBe("items");
+    expect(item2.parentFieldKey).toBe("key2");
 
     root.items.clear();
-    expect([item1.parent, item2.parent]).to.have.ordered.members([null, null]);
+    expect(item1.parent).toBeNull();
+    expect(item1.parentField).toBeNull();
+    expect(item1.parentFieldKey).toBeNull();
+    expect(item2.parent).toBeNull();
+    expect(item2.parentField).toBeNull();
+    expect(item2.parentFieldKey).toBeNull();
   });
 
   it("should handle assign() with proper orphaning and adoption", () => {
@@ -98,11 +126,25 @@ describe("child.map field (@syncing.child.map)", () => {
 
     root.items.set("key1", item1);
     root.items.set("key2", item2);
+    expect(item1.parent).toBe(root);
+    expect(item1.parentField).toBe("items");
+    expect(item1.parentFieldKey).toBe("key1");
+    expect(item2.parent).toBe(root);
+    expect(item2.parentField).toBe("items");
+    expect(item2.parentFieldKey).toBe("key2");
 
     // Use type assertion for Plexus's extended Map with assign() method
     (root.items as Map<string, Item> & { assign: (map: Map<string, Item>) => void }).assign(new Map([["key3", item3]]));
 
-    expect([item1.parent, item2.parent, item3.parent]).to.have.ordered.members([null, null, root]);
+    expect(item1.parent).toBeNull();
+    expect(item1.parentField).toBeNull();
+    expect(item1.parentFieldKey).toBeNull();
+    expect(item2.parent).toBeNull();
+    expect(item2.parentField).toBeNull();
+    expect(item2.parentFieldKey).toBeNull();
+    expect(item3.parent).toBe(root);
+    expect(item3.parentField).toBe("items");
+    expect(item3.parentFieldKey).toBe("key3");
   });
 
   it("should handle detach() correctly", () => {
@@ -111,12 +153,16 @@ describe("child.map field (@syncing.child.map)", () => {
 
     const item = new Item({ name: "test" });
     root.items.set("key1", item);
-    expect(item).to.have.property("parent", root);
+    expect(item.parent).toBe(root);
+    expect(item.parentField).toBe("items");
+    expect(item.parentFieldKey).toBe("key1");
     expect(root.items).to.has.key("key1");
 
     // Detach the child - should remove from parent's map
     item.detach();
-    expect(item).to.have.property("parent", null);
+    expect(item.parent).toBeNull();
+    expect(item.parentField).toBeNull();
+    expect(item.parentFieldKey).toBeNull();
     expect(root.items).to.not.has.key("key1");
   });
 
@@ -131,9 +177,16 @@ describe("child.map field (@syncing.child.map)", () => {
     const { root } = initTestPlexus(container);
 
     const item = new Item({ name: "test" });
+    expect(item.parent).toBeNull();
+    expect(item.parentField).toBeNull();
+    expect(item.parentFieldKey).toBeNull();
+
     root.items.set(["a", 1], item);
 
     expect(item.parent).toBe(root);
+    expect(item.parentField).toBe("items");
+    // parentFieldKey is the serialized form of the structural key
+    expect(item.parentFieldKey).toBeDefined();
     expect(root.items.get(["a", 1])).toBe(item);
   });
 });
@@ -178,7 +231,7 @@ describe("child.map edge cases", () => {
       const { root: root2 } = connectTestPlexus<Container>(doc2);
       const item2 = root2.items.get("key1");
 
-      expect(item2).to.exist.and.to.include({ name: "remote-item", parent: root2 });
+      expect(item2).to.exist.and.to.include({ name: "remote-item", parent: root2, parentField: "items" });
     });
 
     it("should orphan children when remote delete() is received", () => {
@@ -196,6 +249,7 @@ describe("child.map edge cases", () => {
       const { root: root2 } = connectTestPlexus<Container>(doc2);
       const item2 = root2.items.get("key1")!;
       expect(item2).to.have.property("parent", root2);
+      expect(item2.parentField).toBe("items");
 
       // Delete on doc1
       root1.items.delete("key1");
@@ -205,6 +259,8 @@ describe("child.map edge cases", () => {
 
       // Item in doc2 should be orphaned
       expect(item2).to.have.property("parent", null);
+      expect(item2.parentField).toBeNull();
+      expect(item2.parentFieldKey).toBeNull();
       expect(root2.items).to.not.has.key("key1");
     });
 
@@ -326,8 +382,10 @@ describe("child.map edge cases", () => {
         items: new Map([["key1", item1]]),
       });
 
-      // Item should have no parent while ephemeral
-      expect(item1.parent).toBeNull();
+      // Item should have parent even while ephemeral (identical behavior to materialized)
+      expect(item1.parent).toBe(container);
+      expect(item1.parentField).toBe("items");
+      expect(item1.parentFieldKey).toBe("key1");
 
       // Materialize - child should be adopted
       const { root } = initTestPlexus(container);
@@ -351,7 +409,11 @@ describe("child.map edge cases", () => {
 
       // Verify initial state
       expect(oldItem1.parent).toBe(root);
+      expect(oldItem1.parentField).toBe("items");
+      expect(oldItem1.parentFieldKey).toBe("key1");
       expect(oldItem2.parent).toBe(root);
+      expect(oldItem2.parentField).toBe("items");
+      expect(oldItem2.parentFieldKey).toBe("key2");
 
       // Perform assign
       const newItem = new Item({ name: "new" });
@@ -359,10 +421,16 @@ describe("child.map edge cases", () => {
 
       // Old items should be orphaned
       expect(oldItem1.parent).toBeNull();
+      expect(oldItem1.parentField).toBeNull();
+      expect(oldItem1.parentFieldKey).toBeNull();
       expect(oldItem2.parent).toBeNull();
+      expect(oldItem2.parentField).toBeNull();
+      expect(oldItem2.parentFieldKey).toBeNull();
 
       // New item should be adopted
       expect(newItem.parent).toBe(root);
+      expect(newItem.parentField).toBe("items");
+      expect(newItem.parentFieldKey).toBe("key3");
       expect(root.items.size).toBe(1);
       expect(root.items.get("key3")).toBe(newItem);
     });
@@ -374,12 +442,16 @@ describe("child.map edge cases", () => {
       const item = new Item({ name: "reused" });
       root.items.set("key1", item);
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("items");
+      expect(item.parentFieldKey).toBe("key1");
 
       // Assign with same item under different key
       (root.items as any).assign(new Map([["newKey", item]]));
 
-      // Item should still have parent (re-adopted)
+      // Item should still have parent (re-adopted under new key)
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("items");
+      expect(item.parentFieldKey).toBe("newKey");
       expect(root.items.size).toBe(1);
       expect(root.items.get("newKey")).toBe(item);
       expect(root.items.has("key1")).toBe(false);
@@ -393,12 +465,20 @@ describe("child.map edge cases", () => {
       const item2 = new Item({ name: "item2" });
       root.items.set("key1", item1);
       root.items.set("key2", item2);
+      expect(item1.parent).toBe(root);
+      expect(item1.parentField).toBe("items");
+      expect(item2.parent).toBe(root);
+      expect(item2.parentField).toBe("items");
 
       // Assign empty map - should orphan all
       (root.items as any).assign(new Map());
 
       expect(item1.parent).toBeNull();
+      expect(item1.parentField).toBeNull();
+      expect(item1.parentFieldKey).toBeNull();
       expect(item2.parent).toBeNull();
+      expect(item2.parentField).toBeNull();
+      expect(item2.parentFieldKey).toBeNull();
       expect(root.items.size).toBe(0);
     });
   });
@@ -423,6 +503,8 @@ describe("child.map edge cases", () => {
       const item = new Item({ name: "movable" });
       root.leftItems.set("key1", item);
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("leftItems");
+      expect(item.parentFieldKey).toBe("key1");
       expect(root.leftItems.has("key1")).toBe(true);
 
       // Move to right map
@@ -432,6 +514,8 @@ describe("child.map edge cases", () => {
       expect(root.leftItems.has("key1")).toBe(false);
       expect(root.rightItems.has("key2")).toBe(true);
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("rightItems");
+      expect(item.parentFieldKey).toBe("key2");
     });
 
     it("should handle moving child from map to list", () => {
@@ -452,6 +536,9 @@ describe("child.map edge cases", () => {
 
       const item = new Item({ name: "movable" });
       root.itemMap.set("key1", item);
+      expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("itemMap");
+      expect(item.parentFieldKey).toBe("key1");
       expect(root.itemMap.has("key1")).toBe(true);
 
       // Move to list
@@ -461,6 +548,8 @@ describe("child.map edge cases", () => {
       expect(root.itemMap.has("key1")).toBe(false);
       expect(root.itemList).toContain(item);
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("itemList");
+      expect(item.parentFieldKey).toBeNull();
     });
 
     it("should handle moving child from list to map", () => {
@@ -481,6 +570,9 @@ describe("child.map edge cases", () => {
 
       const item = new Item({ name: "movable" });
       root.itemList.push(item);
+      expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("itemList");
+      expect(item.parentFieldKey).toBeNull();
       expect(root.itemList).toContain(item);
 
       // Move to map
@@ -490,6 +582,8 @@ describe("child.map edge cases", () => {
       expect(root.itemList).not.toContain(item);
       expect(root.itemMap.has("key1")).toBe(true);
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("itemMap");
+      expect(item.parentFieldKey).toBe("key1");
     });
   });
 
@@ -510,8 +604,14 @@ describe("child.map edge cases", () => {
 
       // After transaction: item1 orphaned, item2 and item3 adopted
       expect(item1.parent).toBeNull();
+      expect(item1.parentField).toBeNull();
+      expect(item1.parentFieldKey).toBeNull();
       expect(item2.parent).toBe(root);
+      expect(item2.parentField).toBe("items");
+      expect(item2.parentFieldKey).toBe("key2");
       expect(item3.parent).toBe(root);
+      expect(item3.parentField).toBe("items");
+      expect(item3.parentFieldKey).toBe("key1");
       expect(root.items.get("key1")).toBe(item3);
       expect(root.items.get("key2")).toBe(item2);
     });
@@ -523,6 +623,8 @@ describe("child.map edge cases", () => {
       const item = new Item({ name: "item" });
       root.items.set("key1", item);
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("items");
+      expect(item.parentFieldKey).toBe("key1");
 
       doc.transact(() => {
         root.items.delete("key1");
@@ -531,6 +633,8 @@ describe("child.map edge cases", () => {
 
       // Item should still be adopted
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("items");
+      expect(item.parentFieldKey).toBe("key1");
       expect(root.items.get("key1")).toBe(item);
     });
   });
@@ -632,6 +736,7 @@ describe("child.map weird edge cases", () => {
       // The item should be adopted as a VALUE (child-map tracks values, not keys)
       // Key is just a reference, not ownership
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("items");
 
       // The map should have the entry
       expect(root.items.get(item)).toBe(item);
@@ -660,7 +765,9 @@ describe("child.map weird edge cases", () => {
 
       // Both items should be adopted as values
       expect(item1.parent).toBe(root);
+      expect(item1.parentField).toBe("items");
       expect(item2.parent).toBe(root);
+      expect(item2.parentField).toBe("items");
 
       // Cross-reference should work
       expect(root.items.get(item1)).toBe(item2);
@@ -771,6 +878,8 @@ describe("child.map weird edge cases", () => {
       root.items.set("key1", item);
       expect(root.items.has("key1")).toBe(true);
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("items");
+      expect(item.parentFieldKey).toBe("key1");
 
       // Setting same item under different key should:
       // 1. Remove from key1 (emancipation during adoption)
@@ -781,14 +890,14 @@ describe("child.map weird edge cases", () => {
       expect(root.items.has("key2")).toBe(true); // Added to new key
       expect(root.items.get("key2")).toBe(item);
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("items");
+      expect(item.parentFieldKey).toBe("key2");
     });
 
-    it("should handle same entity in initial Map with multiple keys - KNOWN BEHAVIOR: no stealing during init", () => {
+    it("should handle same entity in initial Map with multiple keys - last key wins via stealing", () => {
       const item = new Item({ name: "multi-key" });
 
-      // KNOWN BEHAVIOR: During initialization, the same entity can appear under multiple keys
-      // because field initialization doesn't trigger ownership stealing (emancipation only
-      // happens during explicit set() calls, not during bulk assignment from init)
+      // Same entity under multiple keys: adoption triggers stealing, so only the last key survives
       const container = new Container({
         items: new Map([
           ["key1", item],
@@ -799,18 +908,18 @@ describe("child.map weird edge cases", () => {
 
       const { root } = initTestPlexus(container);
 
-      // Item should have parent
+      // Item should have parent with correct field tracking
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("items");
+      expect(item.parentFieldKey).toBe("key3");
 
-      // ACTUAL BEHAVIOR: All three keys have the same item reference
-      // This is because init assignment doesn't trigger the emancipation flow
+      // Only the last key survives (stealing removes previous entries)
       let count = 0;
       for (const [, v] of root.items) {
         if (v === item) count++;
       }
-      // This reveals that during init, the same entity can exist under multiple keys
-      // Only explicit runtime operations enforce single-key ownership
-      expect(count).toBe(3);
+      expect(count).toBe(1);
+      expect(root.items.has("key3")).toBe(true);
     });
   });
 
@@ -859,7 +968,7 @@ describe("child.map weird edge cases", () => {
   });
 
   describe("Cross-field ownership - initialization vs runtime", () => {
-    it("KNOWN BEHAVIOR: same entity in multiple fields during init - NO stealing", () => {
+    it("same entity in multiple fields during init - last field wins via stealing", () => {
       @syncing("MultiFieldContainer")
       class MultiFieldContainer extends PlexusModel {
         @syncing.child.list
@@ -871,9 +980,7 @@ describe("child.map weird edge cases", () => {
 
       const sharedItem = new Item({ name: "shared" });
 
-      // KNOWN BEHAVIOR: During initialization, the same entity can appear in multiple
-      // child fields because init doesn't trigger the emancipation/adoption flow.
-      // Only explicit runtime operations enforce single-location ownership.
+      // Same entity in multiple child fields: stealing moves it to the last-initialized field
       const container = new MultiFieldContainer({
         list: [sharedItem],
         map: new Map([["key", sharedItem]]),
@@ -881,16 +988,16 @@ describe("child.map weird edge cases", () => {
 
       const { root } = initTestPlexus(container);
 
-      // Item has parent (last field to claim it wins for parentKey tracking)
       expect(sharedItem.parent).toBe(root);
+      expect(sharedItem.parentField).toBe("map");
+      expect(sharedItem.parentFieldKey).toBe("key");
 
-      // ACTUAL BEHAVIOR: Item exists in BOTH collections after init
-      // This is because init assignment doesn't trigger stealing
-      expect(root.list).toContain(sharedItem);
+      // Map was initialized after list, so stealing moved the item from list to map
+      expect(root.list).not.toContain(sharedItem);
       expect(root.map.get("key")).toBe(sharedItem);
     });
 
-    it("KNOWN BEHAVIOR: same entity in map and child-val during init - NO stealing", () => {
+    it("same entity in map and child-val during init - last field wins via stealing", () => {
       @syncing("MultiFieldContainer2")
       class MultiFieldContainer2 extends PlexusModel {
         @syncing.child.map
@@ -902,7 +1009,7 @@ describe("child.map weird edge cases", () => {
 
       const sharedItem = new Item({ name: "shared" });
 
-      // KNOWN BEHAVIOR: Same entity in both map and single field during init
+      // Same entity in map and single field: single is initialized after map, so it wins
       const container = new MultiFieldContainer2({
         map: new Map([["key", sharedItem]]),
         single: sharedItem,
@@ -911,9 +1018,11 @@ describe("child.map weird edge cases", () => {
       const { root } = initTestPlexus(container);
 
       expect(sharedItem.parent).toBe(root);
+      expect(sharedItem.parentField).toBe("single");
+      expect(sharedItem.parentFieldKey).toBeNull();
 
-      // ACTUAL BEHAVIOR: Item exists in BOTH locations after init
-      expect(root.map.has("key")).toBe(true);
+      // child-val was initialized after map, so stealing moved item from map to single
+      expect(root.map.has("key")).toBe(false);
       expect(root.single).toBe(sharedItem);
     });
 
@@ -943,6 +1052,8 @@ describe("child.map weird edge cases", () => {
       // Initially item is in list
       expect(root.list).toContain(item);
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("list");
+      expect(item.parentFieldKey).toBeNull();
 
       // Runtime operation: add via getter reference to map
       root.map.set("key", root.firstItem!);
@@ -951,6 +1062,8 @@ describe("child.map weird edge cases", () => {
       expect(root.list).not.toContain(item);
       expect(root.map.get("key")).toBe(item);
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("map");
+      expect(item.parentFieldKey).toBe("key");
     });
   });
 
@@ -983,6 +1096,8 @@ describe("child.map weird edge cases", () => {
       // Now adopt keyItem via the owned field
       root.owned = keyItem;
       expect(keyItem.parent).toBe(root);
+      expect(keyItem.parentField).toBe("owned");
+      expect(keyItem.parentFieldKey).toBeNull();
 
       // Lookup should STILL work (key identity preserved)
       expect(root.items.get(keyItem)).toBe("value");
@@ -1146,11 +1261,15 @@ describe("child.map weird edge cases", () => {
       const { root } = initTestPlexus(container);
 
       expect(item.parent).toBe(root);
+      expect(item.parentField).toBe("items");
+      expect(item.parentFieldKey).toBe("key");
 
       // Replace with null
       root.items.set("key", null);
 
       expect(item.parent).toBeNull(); // Orphaned
+      expect(item.parentField).toBeNull();
+      expect(item.parentFieldKey).toBeNull();
       expect(root.items.get("key")).toBeNull();
     });
   });
@@ -1176,6 +1295,8 @@ describe("child.map weird edge cases", () => {
       // Final state
       expect(root.items.size).toBe(1);
       expect(root.items.has("key99")).toBe(true);
+      expect(item.parentField).toBe("items");
+      expect(item.parentFieldKey).toBe("key99");
     });
 
     it("should handle entity bouncing between different collection types", () => {
@@ -1207,22 +1328,32 @@ describe("child.map weird edge cases", () => {
       // list -> set -> map -> record -> list
       root.list.push(item);
       expect(root.list).toContain(item);
+      expect(item.parentField).toBe("list");
+      expect(item.parentFieldKey).toBeNull();
 
       root.set.add(item);
       expect(root.list).not.toContain(item);
       expect(root.set.has(item)).toBe(true);
+      expect(item.parentField).toBe("set");
+      expect(item.parentFieldKey).toBeNull();
 
       root.map.set("key", item);
       expect(root.set.has(item)).toBe(false);
       expect(root.map.get("key")).toBe(item);
+      expect(item.parentField).toBe("map");
+      expect(item.parentFieldKey).toBe("key");
 
       root.record["key"] = item;
       expect(root.map.has("key")).toBe(false);
       expect(root.record["key"]).toBe(item);
+      expect(item.parentField).toBe("record");
+      expect(item.parentFieldKey).toBe("key");
 
       root.list.push(item);
       expect(root.record["key"]).toBeUndefined();
       expect(root.list).toContain(item);
+      expect(item.parentField).toBe("list");
+      expect(item.parentFieldKey).toBeNull();
 
       expect(item.parent).toBe(root);
     });
@@ -2839,24 +2970,32 @@ describe("child.map advanced edge cases", () => {
       const item1 = new Item({ name: "item1" });
       const item2 = new Item({ name: "item2" });
 
+      // item2 is only in single (not in forward map as value) to avoid stealing
       const container = new CrossRefCloneContainer({
         forward: new Map([[item1, item2]]),
-        single: item2, // item2 appears in both map and single field
+        single: null,
       });
 
       const { doc, root, plexus } = initTestPlexus(container);
+
+      // Now move item2 to single at runtime (triggers stealing from forward map)
+      root.single = item2;
+      expect(root.forward.size).toBe(0); // item2 stolen from map
+      expect(root.single).toBe(item2);
+
+      // Add item2 back to forward as value under a new entry
+      root.forward.set(item1, item2);
+      // item2 is stolen from single to forward
+      expect(root.single).toBeNull();
+      expect(root.forward.get(item1)).toBe(item2);
 
       // Clone
       const cloned = root.clone();
       const [clonedId] = cloned[referenceSymbol](doc);
       const materializedClone = plexus.loadEntity<CrossRefCloneContainer>(clonedId)!;
 
-      // item2 should be cloned once and used in both places
-      const clonedSingle = materializedClone.single!;
       const [[, clonedMapValue]] = [...materializedClone.forward.entries()];
-
-      // Same instance in both places, not original, correct data
-      expect(clonedSingle).to.equal(clonedMapValue).and.include({ name: "item2" }).and.not.equal(item2);
+      expect(clonedMapValue).to.include({ name: "item2" }).and.not.equal(item2);
     });
   });
 

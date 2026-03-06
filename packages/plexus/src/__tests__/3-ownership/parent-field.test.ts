@@ -335,6 +335,53 @@ describe("parentField / parentFieldKey", () => {
     });
   });
 
+  describe("ephemeral constructor-time parentage (all field types)", () => {
+    it("child-val: parent set at construction", () => {
+      const item = new Item({ name: "a" });
+      const owner = new ChildValOwner({ child: item });
+
+      expect(item.parent).toBe(owner);
+      expect(item.parentField).toBe("child");
+      expect(item.parentFieldKey).toBeNull();
+    });
+
+    it("child-list: parent set at construction", () => {
+      const item = new Item({ name: "a" });
+      const owner = new ChildListOwner({ children: [item] });
+
+      expect(item.parent).toBe(owner);
+      expect(item.parentField).toBe("children");
+      expect(item.parentFieldKey).toBeNull();
+    });
+
+    it("child-set: parent set at construction", () => {
+      const item = new Item({ name: "a" });
+      const owner = new ChildSetOwner({ tags: new Set([item]) });
+
+      expect(item.parent).toBe(owner);
+      expect(item.parentField).toBe("tags");
+      expect(item.parentFieldKey).toBeNull();
+    });
+
+    it("child-record: parent set at construction", () => {
+      const item = new Item({ name: "a" });
+      const owner = new ChildRecordOwner({ items: { k: item } });
+
+      expect(item.parent).toBe(owner);
+      expect(item.parentField).toBe("items");
+      expect(item.parentFieldKey).toBe("k");
+    });
+
+    it("child-map: parent set at construction", () => {
+      const item = new Item({ name: "a" });
+      const owner = new ChildMapOwner({ entries: new Map([["k", item]]) });
+
+      expect(item.parent).toBe(owner);
+      expect(item.parentField).toBe("entries");
+      expect(item.parentFieldKey).toBe("k");
+    });
+  });
+
   describe("after reparenting", () => {
     it("updates parentField when moved between different field types", () => {
       const { root } = initTestPlexus(new Root());

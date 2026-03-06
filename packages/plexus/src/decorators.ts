@@ -95,7 +95,7 @@ function createClassDecorator(name: string) {
     }
     decoratedTracker.add(target);
     target.modelName = name;
-    Object.defineProperty(target.prototype, '__type__', { value: name });
+    Object.defineProperty(target.prototype, '__type__', { value: name, writable: false, enumerable: false});
     target.schema = {} as GenericRecordSchema;
     // it may miss with "barrel" nodes
     if (context.metadata.schema) {

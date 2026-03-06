@@ -45,20 +45,28 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
     if (event.target !== yjsMap) {
       return;
     }
+    let structureChanged = false;
     for (const key of event.keysChanged) {
-      if (yjsMap.has(key)) {
+      const hadKeyBefore = key in backingStorage;
+      const hasKeyNow = yjsMap.has(key);
+
+      if (hasKeyNow) {
         invariant(
           yjsMap.doc,
           `Plexus<${owner.__type__}#${owner.uuid}.${key}>: observer triggered for Y.Map without doc`,
         );
         backingStorage[key] = deref(yjsMap.doc!, yjsMap.get(key)!) as T;
+        if (!hadKeyBefore) structureChanged = true;
       } else {
         delete backingStorage[key];
+        if (hadKeyBefore) structureChanged = true;
       }
       trackModification(self, key);
     }
-    trackModification(self, KEYS_SYMBOL);
-    trackModification(self, ENTRIES_LENGTH_SYMBOL);
+    if (structureChanged) {
+      trackModification(self, KEYS_SYMBOL);
+      trackModification(self, ENTRIES_LENGTH_SYMBOL);
+    }
   };
   {
     const map = getYjsMap();

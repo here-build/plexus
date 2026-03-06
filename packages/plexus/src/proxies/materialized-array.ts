@@ -907,7 +907,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
     },
     ownKeys(target) {
       trackAccess(owner, key);
-      trackAccess(self, ACCESS_ALL_SYMBOL);
+      trackAccess(self, KEYS_SYMBOL);
       return Reflect.ownKeys(target);
     },
   });

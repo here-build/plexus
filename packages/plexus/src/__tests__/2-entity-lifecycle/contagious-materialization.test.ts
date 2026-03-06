@@ -330,22 +330,22 @@ describe("contagious materialization", () => {
         innerMap: new Map([[new Set([leafA]), "inner-group"]]),
       });
 
+      // inner is only in outerMap (not also in inners) to avoid stealing
       const container = new OuterContainer({
-        inners: [inner],
+        inners: [],
         outerMap: new Map([[new Set([leafB]), inner]]),
       });
 
-      // This also makes leafB a child of outerMap (as inner is a child-map value,
-      // and leafB is in the Set key)
       const { root, doc } = initTestPlexus(container);
 
       // Clone and materialize
       const cloned = root.clone();
       cloned[referenceSymbol](doc);
 
-      // Outer level
-      expect(cloned.inners).to.have.length(1);
-      const clonedInner = cloned.inners[0];
+      // Outer map's value should be the cloned inner
+      const outerEntries = [...cloned.outerMap.entries()];
+      expect(outerEntries).to.have.length(1);
+      const clonedInner = outerEntries[0][1];
       expect(clonedInner).not.toBe(inner);
       expect(clonedInner).to.have.property("uuid").that.is.a("string");
 
@@ -357,11 +357,6 @@ describe("contagious materialization", () => {
       // Inner map's Set key should use cloned leaf
       const [[innerSetKey]] = [...clonedInner.innerMap.entries()];
       expect([...innerSetKey]).to.include(clonedInner.leaves[0]);
-
-      // Outer map's value should be the cloned inner
-      const outerEntries = [...cloned.outerMap.entries()];
-      expect(outerEntries).to.have.length(1);
-      expect(outerEntries[0][1]).toBe(clonedInner);
     });
   });
 

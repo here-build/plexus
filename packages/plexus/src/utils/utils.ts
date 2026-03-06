@@ -29,18 +29,26 @@ const docInTransactionMotion = new WeakSet();
 export let isTransacting = false;
 export const pendingNotifications: Set<() => void> = new Set();
 
+export const flushNotificationsHook: { wrapper?: (fn: () => void) => void } = {};
+
 export const flushNotifications = () => {
   const toNotify = new Set(pendingNotifications);
   pendingNotifications.clear();
 
-  // Wrap in try-catch to prevent notification errors from propagating
-  for (const notify of toNotify) {
-    try {
-      notify();
-    } catch (error) {
-      // Log but don't propagate notification errors
-      console.error("Error in notification callback:", error);
+  const doFlush = () => {
+    for (const notify of toNotify) {
+      try {
+        notify();
+      } catch (error) {
+        console.error("Error in notification callback:", error);
+      }
     }
+  };
+
+  if (flushNotificationsHook.wrapper) {
+    flushNotificationsHook.wrapper(doFlush);
+  } else {
+    doFlush();
   }
 };
 

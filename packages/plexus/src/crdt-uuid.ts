@@ -5,7 +5,8 @@
  *
  * Prefixes:
  *   'p' — plexus (user-generated entity, clientId ≤ uint32)
- *         Body: Feistel(clientId32, clock32), diffused by doc-specific round keys.
+ *         Body: Feistel(clientId32, clock32) with fixed round keys.
+ *         Produces pseudo-random-looking UUIDs from sequential inputs.
  *   'd' — deterministic (genesis entity, clientId > uint32)
  *         Body: pack(offset, clock) directly — no Feistel needed since
  *         the clientId is already content-addressed (a hash).
@@ -31,7 +32,7 @@ const ALPHA = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
 const DECODE_TABLE = new Uint8Array(128);
 for (let i = 0; i < ALPHA.length; i++) DECODE_TABLE[ALPHA.charCodeAt(i)] = i;
 
-// ── Murmur3-inspired 32-bit hash for round keys ──
+// ── Murmur3-inspired 32-bit hash (used by genesis, exported) ──
 
 export function murmur32(key: string, seed: number): number {
   let h = seed >>> 0;
@@ -53,11 +54,9 @@ export function murmur32(key: string, seed: number): number {
   return h >>> 0;
 }
 
-// ── Round key derivation ──
+// ── Feistel round keys (fixed constants — no doc.guid dependency) ──
 
-export function deriveRoundKeys(docGuid: string): [number, number, number, number] {
-  return [murmur32(docGuid, 0), murmur32(docGuid, 1), murmur32(docGuid, 2), murmur32(docGuid, 3)];
-}
+const ROUND_KEYS: [number, number, number, number] = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a];
 
 // ── Round function: diffusion via multiply-xor-shift ──
 
@@ -111,14 +110,13 @@ const OFFSET_BITS = 32 - CLOCK_BITS; // 20
 
 // ── Encode: {clientId, clock} → PlexusUUID ──
 
-export function encode(docGuid: string, clientId: number, clock: number): PlexusUUID {
+export function encode(clientId: number, clock: number): PlexusUUID {
   if (clientId <= MAX_UINT32) {
-    // 'p' — plexus: Feistel(clientId, clock) diffused by docGuid
-    const roundKeys = deriveRoundKeys(docGuid);
+    // 'p' — plexus: Feistel(clientId, clock) for pseudo-random appearance
     let L = clientId >>> 0;
     let R = clock >>> 0;
     for (let i = 0; i < 4; i++) {
-      const newR = (L ^ roundFn(R, roundKeys[i])) >>> 0;
+      const newR = (L ^ roundFn(R, ROUND_KEYS[i])) >>> 0;
       L = R;
       R = newR;
     }
@@ -137,15 +135,14 @@ export function encode(docGuid: string, clientId: number, clock: number): Plexus
 
 // ── Decode: PlexusUUID → {clientId, clock} ──
 
-export function decode(uuid: PlexusUUID, docGuid: string): { clientId: number; clock: number } {
+export function decode(uuid: PlexusUUID): { clientId: number; clock: number } {
   const prefix = uuid[0];
   const body = uuid.slice(1);
 
   if (prefix === "p") {
-    const roundKeys = deriveRoundKeys(docGuid);
     let { hi: L, lo: R } = bodyDecode(body);
     for (let i = 3; i >= 0; i--) {
-      const newL = (R ^ roundFn(L, roundKeys[i])) >>> 0;
+      const newL = (R ^ roundFn(L, ROUND_KEYS[i])) >>> 0;
       R = L;
       L = newL;
     }

@@ -513,10 +513,10 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
           // CRDT-native UUID: encode {clientId, clock} at materialization.
           // The next clock tick will be consumed by typeMap.set — predict it now.
           const predictedClock = Y.getState(doc.store, doc.clientID);
-          internals.uuid = encode(doc.guid, doc.clientID, predictedClock) as PlexusUUID;
+          internals.uuid = encode(doc.clientID, predictedClock) as PlexusUUID;
         }
         // type is encoded in XmlElement nodeName; fields stored directly as attributes (flat)
-        yprojectObjectInstance = new Y.XmlElement(this.#type);
+        yprojectObjectInstance = new Y.XmlElement(this.__type__);
         typeMap.set(internals.uuid, yprojectObjectInstance); // consumes predictedClock
         // yjsModel must be set before schema iteration to avoid circular self-reference issues
         internals.yjsModel = new PlexusWrapper(yprojectObjectInstance);
@@ -601,10 +601,6 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
 
   get #reference(): ReferenceTuple {
     return [this.uuid] as const;
-  }
-
-  get #type() {
-    return (this.constructor as PlexusConstructor).modelName;
   }
 
   __bootstrapObservation__() {

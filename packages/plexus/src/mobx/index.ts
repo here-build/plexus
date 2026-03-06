@@ -1,7 +1,8 @@
 import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
-import { createAtom } from "mobx";
+import { createAtom, runInAction } from "mobx";
 
 import { ACCESS_ALL_SYMBOL, type Tracker, trackingHook } from "../tracking.js";
+import { flushNotificationsHook } from "../utils/utils.js";
 
 /**
  * Flag to track if global MobX integration is enabled
@@ -32,4 +33,6 @@ export const enableMobXIntegration = () => {
       objectFieldMap.get(entity).get(field).reportChanged();
     }
   };
+
+  flushNotificationsHook.wrapper = (flush) => runInAction(flush);
 };

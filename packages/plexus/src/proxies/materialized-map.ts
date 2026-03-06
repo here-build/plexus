@@ -342,11 +342,12 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         }
 
         // Handle child tracking - adopt all truly new values
+        // Iterate newEntries (not newSerializedEntries) so adoption works in ephemeral mode too
         if (isChildField) {
-          for (const [serializedKey, k] of newSerializedEntries) {
-            const v = backingStorage.get(k);
+          for (const [k, v] of newEntries) {
             if (v && !oldValueSet.has(v)) {
-              v[requestAdoptionSymbol]?.(owner, key, serializedKey);
+              const serializedSubKey = serializeKey(k, owner.__doc__);
+              v[requestAdoptionSymbol]?.(owner, key, serializedSubKey);
             }
           }
         }
@@ -359,19 +360,11 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       const map = getYjsMap();
       if (!map?.doc) return;
 
-      backingStorage.clear();
-      serializedToKey.clear();
-
       for (const [serializedKey, v] of map.entries()) {
         const deserializedKey = deserializeKey(serializedKey, map.doc) as K;
         const value = deref(map.doc!, v) as V;
         backingStorage.set(deserializedKey, value);
         serializedToKey.set(serializedKey, deserializedKey);
-
-        // Adopt children during materialization
-        if (isChildField) {
-          value?.[informAdoptionSymbol]?.(owner, key, serializedKey);
-        }
       }
 
       map.observe(observer);

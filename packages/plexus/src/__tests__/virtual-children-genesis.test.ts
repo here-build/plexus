@@ -142,7 +142,7 @@ describe("materializeVirtualChild", () => {
     expect(root1.items.get("a")!.label).toBe(root2.items.get("a")!.label);
   });
 
-  it("different docIds produce different UUIDs (docGuid feeds Feistel cipher)", () => {
+  it("independent docs produce different UUIDs (different root clientIds cascade)", () => {
     const factory = (key: string) => new VChild({ label: `child-${key}` });
 
     const { root: root1 } = initTestPlexus(new VParent({ name: "parent", items: new Map() }), {}, "doc-alpha");
@@ -153,8 +153,9 @@ describe("materializeVirtualChild", () => {
     const yjsMap2 = getYjsMap(root2, "items");
     materializeVirtualChild(root2, "items", "a", yjsMap2, factory);
 
-    // Different docIds → different UUIDs (Feistel cipher uses docGuid)
-    // Labels are the same (factory is pure), but UUIDs differ
+    // Different docs → different random clientIds → different root UUIDs →
+    // different genesis parent UUIDs → different virtual child UUIDs.
+    // Labels are the same (factory is pure), but UUIDs differ.
     expect(root1.items.get("a")!.label).toBe(root2.items.get("a")!.label);
     expect(root1.items.get("a")!.uuid).not.toBe(root2.items.get("a")!.uuid);
   });
@@ -640,8 +641,8 @@ describe("materializeVirtualChild", () => {
     expect(leaf.uuid[0]).toBe("d");
 
     // UUIDs decode to above-uint32 clientIds
-    const branchAddr = decode(branch.uuid as PlexusUUID, doc.guid);
-    const leafAddr = decode(leaf.uuid as PlexusUUID, doc.guid);
+    const branchAddr = decode(branch.uuid as PlexusUUID);
+    const leafAddr = decode(leaf.uuid as PlexusUUID);
     expect(branchAddr.clientId).toBeGreaterThan(0xffffffff);
     expect(leafAddr.clientId).toBeGreaterThan(0xffffffff);
 

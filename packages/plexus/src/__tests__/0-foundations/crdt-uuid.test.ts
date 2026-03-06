@@ -16,7 +16,6 @@ import { bodyDecode, bodyEncode, decode, encode, murmur32 } from "../../crdt-uui
 // ── Arbitraries ──
 
 const uint32 = fc.integer({ min: 0, max: 0xffffffff });
-const docGuid = fc.string({ minLength: 1, maxLength: 64 });
 
 // Genesis clientIds: above uint32, up to MAX_SAFE_INTEGER
 const genesisClientId = fc.integer({ min: 0x100000000, max: Number.MAX_SAFE_INTEGER });
@@ -79,37 +78,33 @@ describe("CRDT-Native UUID Codec", () => {
 
   describe("Feistel encode/decode roundtrip ('p' prefix)", () => {
     it("roundtrips with basic values", () => {
-      const guid = "test-doc-guid";
-      const { clientId, clock } = decode(encode(guid, 1, 0), guid);
+      const { clientId, clock } = decode(encode(1, 0));
       expect(clientId).toBe(1);
       expect(clock).toBe(0);
     });
 
     it("roundtrips with clock=0", () => {
-      const guid = "doc-abc";
-      const result = decode(encode(guid, 42, 0), guid);
+      const result = decode(encode(42, 0));
       expect(result.clientId).toBe(42);
       expect(result.clock).toBe(0);
     });
 
     it("roundtrips with max uint32 clientId", () => {
-      const guid = "doc-xyz";
-      const result = decode(encode(guid, 0xffffffff, 12345), guid);
+      const result = decode(encode(0xffffffff, 12345));
       expect(result.clientId).toBe(0xffffffff);
       expect(result.clock).toBe(12345);
     });
 
     it("roundtrips with max uint32 clock", () => {
-      const guid = "doc-xyz";
-      const result = decode(encode(guid, 7, 0xffffffff), guid);
+      const result = decode(encode(7, 0xffffffff));
       expect(result.clientId).toBe(7);
       expect(result.clock).toBe(0xffffffff);
     });
 
-    it("roundtrips any (docGuid, clientId, clock) triple (fuzz)", () => {
+    it("roundtrips any (clientId, clock) pair (fuzz)", () => {
       fc.assert(
-        fc.property(docGuid, uint32, uint32, (guid, clientId, clock) => {
-          const result = decode(encode(guid, clientId, clock), guid);
+        fc.property(uint32, uint32, (clientId, clock) => {
+          const result = decode(encode(clientId, clock));
           return result.clientId === clientId >>> 0 && result.clock === clock >>> 0;
         }),
       );
@@ -117,8 +112,8 @@ describe("CRDT-Native UUID Codec", () => {
 
     it("always produces 'p' prefix (fuzz)", () => {
       fc.assert(
-        fc.property(docGuid, uint32, uint32, (guid, clientId, clock) => {
-          return encode(guid, clientId, clock)[0] === "p";
+        fc.property(uint32, uint32, (clientId, clock) => {
+          return encode(clientId, clock)[0] === "p";
         }),
       );
     });
@@ -126,26 +121,24 @@ describe("CRDT-Native UUID Codec", () => {
 
   describe("Genesis encode/decode roundtrip ('d' prefix)", () => {
     it("roundtrips basic genesis values", () => {
-      const guid = "doc-genesis";
       const clientId = 0x100000000; // smallest above-uint32
-      const result = decode(encode(guid, clientId, 0), guid);
+      const result = decode(encode(clientId, 0));
       expect(result.clientId).toBe(clientId);
       expect(result.clock).toBe(0);
     });
 
     it("roundtrips max genesis values", () => {
-      const guid = "doc-genesis-max";
       const clientId = Number.MAX_SAFE_INTEGER;
       const clock = 4095;
-      const result = decode(encode(guid, clientId, clock), guid);
+      const result = decode(encode(clientId, clock));
       expect(result.clientId).toBe(clientId);
       expect(result.clock).toBe(clock);
     });
 
     it("roundtrips any genesis (clientId, clock) pair (fuzz)", () => {
       fc.assert(
-        fc.property(docGuid, genesisClientId, genesisClock, (guid, clientId, clock) => {
-          const result = decode(encode(guid, clientId, clock), guid);
+        fc.property(genesisClientId, genesisClock, (clientId, clock) => {
+          const result = decode(encode(clientId, clock));
           return result.clientId === clientId && result.clock === clock;
         }),
       );
@@ -153,63 +146,23 @@ describe("CRDT-Native UUID Codec", () => {
 
     it("always produces 'd' prefix (fuzz)", () => {
       fc.assert(
-        fc.property(docGuid, genesisClientId, genesisClock, (guid, clientId, clock) => {
-          return encode(guid, clientId, clock)[0] === "d";
+        fc.property(genesisClientId, genesisClock, (clientId, clock) => {
+          return encode(clientId, clock)[0] === "d";
         }),
       );
     });
 
-    it("genesis UUIDs are doc-independent (no Feistel)", () => {
-      const clientId = 0x200000000;
-      const uuid1 = encode("doc-A", clientId, 0);
-      const uuid2 = encode("doc-B", clientId, 0);
-      // Same clientId → same UUID regardless of docGuid (genesis is content-addressed)
-      expect(uuid1).toBe(uuid2);
-    });
-
     it("throws on clock exceeding cap", () => {
-      expect(() => encode("doc", 0x100000000, 4096)).toThrow("exceeds maximum");
-      expect(() => encode("doc", 0x100000000, 5000)).toThrow("exceeds maximum");
-    });
-  });
-
-  describe("docGuid isolation (plexus UUIDs)", () => {
-    it("different docGuids produce different UUIDs for same (clientId, clock)", () => {
-      const uuid1 = encode("doc-A", 1, 0);
-      const uuid2 = encode("doc-B", 1, 0);
-      expect(uuid1).not.toBe(uuid2);
-    });
-
-    it("decode fails with wrong docGuid (produces wrong values)", () => {
-      const uuid = encode("doc-A", 42, 99);
-      const wrongResult = decode(uuid, "doc-B");
-      // Should not recover the original values
-      expect(wrongResult.clientId === 42 && wrongResult.clock === 99).toBe(false);
-    });
-
-    it("wrong docGuid almost never recovers original values (fuzz)", () => {
-      fc.assert(
-        fc.property(
-          docGuid,
-          docGuid.filter((s) => s.length > 0),
-          uint32,
-          uint32,
-          (guidA, guidB, clientId, clock) => {
-            fc.pre(guidA !== guidB);
-            const uuid = encode(guidA, clientId, clock);
-            const wrong = decode(uuid, guidB);
-            return wrong.clientId !== clientId >>> 0 || wrong.clock !== clock >>> 0;
-          },
-        ),
-      );
+      expect(() => encode(0x100000000, 4096)).toThrow("exceeds maximum");
+      expect(() => encode(0x100000000, 5000)).toThrow("exceeds maximum");
     });
   });
 
   describe("output format", () => {
     it("plexus UUIDs: always 12 chars, p + base63 (fuzz)", () => {
       fc.assert(
-        fc.property(docGuid, uint32, uint32, (guid, clientId, clock) => {
-          const uuid = encode(guid, clientId, clock);
+        fc.property(uint32, uint32, (clientId, clock) => {
+          const uuid = encode(clientId, clock);
           return uuid.length === 12 && /^p[a-zA-Z0-9_]{11}$/.test(uuid);
         }),
       );
@@ -217,8 +170,8 @@ describe("CRDT-Native UUID Codec", () => {
 
     it("genesis UUIDs: always 12 chars, d + base63 (fuzz)", () => {
       fc.assert(
-        fc.property(docGuid, genesisClientId, genesisClock, (guid, clientId, clock) => {
-          const uuid = encode(guid, clientId, clock);
+        fc.property(genesisClientId, genesisClock, (clientId, clock) => {
+          const uuid = encode(clientId, clock);
           return uuid.length === 12 && /^d[a-zA-Z0-9_]{11}$/.test(uuid);
         }),
       );
@@ -227,34 +180,31 @@ describe("CRDT-Native UUID Codec", () => {
 
   describe("collision resistance", () => {
     it("sequential clocks produce different UUIDs", () => {
-      const guid = "collision-test";
       const uuids = new Set<string>();
       for (let clock = 0; clock < 1000; clock++) {
-        uuids.add(encode(guid, 1, clock));
+        uuids.add(encode(1, clock));
       }
       expect(uuids.size).toBe(1000);
     });
 
     it("different clients produce different UUIDs", () => {
-      const guid = "collision-test";
       const uuids = new Set<string>();
       for (let clientId = 0; clientId < 1000; clientId++) {
-        uuids.add(encode(guid, clientId, 0));
+        uuids.add(encode(clientId, 0));
       }
       expect(uuids.size).toBe(1000);
     });
 
-    it("p-prefix encode is injective for fixed docGuid (fuzz)", () => {
+    it("p-prefix encode is injective (fuzz)", () => {
       fc.assert(
         fc.property(
-          docGuid,
           fc.uniqueArray(fc.tuple(uint32, uint32), {
             minLength: 2,
             maxLength: 50,
             comparator: (a, b) => a[0] === b[0] && a[1] === b[1],
           }),
-          (guid, pairs) => {
-            const uuids = new Set(pairs.map(([c, k]) => encode(guid, c, k)));
+          (pairs) => {
+            const uuids = new Set(pairs.map(([c, k]) => encode(c, k)));
             return uuids.size === pairs.length;
           },
         ),
@@ -270,8 +220,7 @@ describe("CRDT-Native UUID Codec", () => {
             comparator: (a, b) => a[0] === b[0] && a[1] === b[1],
           }),
           (pairs) => {
-            // docGuid doesn't affect d-prefix, use any
-            const uuids = new Set(pairs.map(([c, k]) => encode("any", c, k)));
+            const uuids = new Set(pairs.map(([c, k]) => encode(c, k)));
             return uuids.size === pairs.length;
           },
         ),
@@ -279,9 +228,8 @@ describe("CRDT-Native UUID Codec", () => {
     });
 
     it("p and d prefixes never collide", () => {
-      // Even if the body bytes happen to match, prefixes differ
-      const pUuid = encode("doc", 1, 0);
-      const dUuid = encode("doc", 0x100000000, 0);
+      const pUuid = encode(1, 0);
+      const dUuid = encode(0x100000000, 0);
       expect(pUuid[0]).toBe("p");
       expect(dUuid[0]).toBe("d");
       expect(pUuid).not.toBe(dUuid);

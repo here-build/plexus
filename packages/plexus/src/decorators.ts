@@ -24,13 +24,16 @@ import {
 import { __untracked__, trackAccess, trackModification } from "./tracking.js";
 import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
 import { maybeReference, maybeTransacting } from "./utils/utils.js";
-import { DiscriminateMap, DiscriminateValue, Mapping } from "./decorator-types.js";
-
-const argsAreClassDecoratorArgs = <Model extends PlexusModel, T extends AllowedYJSValue>(
-  args:
-    | [PlexusConstructor<Model>, ClassDecoratorContext<PlexusConstructor<Model>>]
-    | [ClassAccessorDecoratorTarget<Model, T>, ClassAccessorDecoratorContext<Model, T> & { name: string }],
-): args is [PlexusConstructor<Model>, ClassDecoratorContext<PlexusConstructor<Model>>] => args[1].kind === "class";
+import {
+  DiscriminateMap,
+  type DiscriminatingIdentityDecorator,
+  type DiscriminatingListDecorator,
+  type DiscriminatingRecordDecorator,
+  type DiscriminatingSetDecorator,
+  type ListDecorator,
+  type RecordDecorator,
+  type SetDecorator,
+} from "./decorator-types.js";
 
 try {
   // @ts-expect-error this is letting compiled stage-3 decorators work in wrangler dev environment
@@ -45,87 +48,97 @@ try {
 
 const decoratedTracker = new WeakSet<PlexusConstructor>();
 
-function syncingDecorator<
-  Model extends PlexusModel,
-  T extends AllowedYJSValue,
-  TargetConstructor extends PlexusConstructor<Model>,
->(
-  ...args: [TargetConstructor, ClassDecoratorContext<PlexusConstructor<Model>>]
-): TargetConstructor & PlexusTagContainer<"decorated">;
-function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
-  ...args: [ClassAccessorDecoratorTarget<Model, T>, ClassAccessorDecoratorContext<Model, T> & { name: string }]
-): ClassAccessorDecoratorResult<Model, T>;
-function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
-  ...args:
-    | [PlexusConstructor<Model>, ClassDecoratorContext<PlexusConstructor<Model>>]
-    | [ClassAccessorDecoratorTarget<Model, T>, ClassAccessorDecoratorContext<Model, T> & { name: string }]
-) {
-  if (argsAreClassDecoratorArgs(args)) {
-    const [target, context] = args as [PlexusConstructor<Model>, ClassDecoratorContext<PlexusConstructor<Model>>];
+/**
+ * Class decorator factory — accepts the model name as an argument.
+ *
+ * NOTE: Sometimes, user-defined classes may adjust constructor logic; e.g.:
+ * class Code extends PlexusModel {
+ *   constructor(code: string = "void 0") {
+ *     validateCodeIsCorrect(code);
+ *     super({code});
+ *   }
+ * }
+ *
+ * In order to keep the capability to spawn the models even if constructor is different,
+ * we dynamically switch the prototype to Object during "bypass mode" (where we rehydrate backed classes).
+ * This allows us to access private fields - typical Object.create(Class.prototype) or Reflect.setPrototypeOf(target, Class.prototype)
+ * is not working for private fields, so this is only option here.
+ *
+ * The name is known upfront so no addInitializer needed: previously, decorators executed
+ * BEFORE static declarations, making it impossible to do something like:
+ *   @syncing
+ *   class Model extends PlexusModel {
+ *     static modelName = "Model";
+ *   }
+ * — modelName would not be present at the moment of @syncing decorator call, requiring addInitializer.
+ * Now, since name is an argument to @syncing("Name"), it's available immediately.
+ *
+ * Defines __type__ as a prototype value property, shadowing the PlexusModel getter
+ * and avoiding constructor traversal at runtime.
+ */
+function createClassDecorator(name: string) {
+  invariant(name, `@syncing: model name is required`);
+  return (
+    target: PlexusConstructor,
+    context: ClassDecoratorContext,
+  ) => {
     const proto = Reflect.getPrototypeOf(target)! as PlexusConstructor;
     if (proto !== PlexusModel) {
       invariant(
         proto.prototype instanceof PlexusModel,
-        `Plexus<${target.name}>: parent class ${proto.name} is not a PlexusModel`,
+        `Plexus<${name}>: parent class ${proto.name} is not a PlexusModel`,
       );
       invariant(
         decoratedTracker.has(proto as PlexusConstructor),
-        `Plexus<${target.name}>: parent class ${proto.name} must also use @syncing decorator`,
+        `Plexus<${name}>: parent class ${proto.name} must also use @syncing decorator`,
       );
     }
     decoratedTracker.add(target);
-    /**
-     * NOTE: this is not valid anymore; yet, the problem remains. We're solving it differently now
-     * Sometimes, user-defined classes may adjust constructor logic; e.g.:
-     * class Code extends PlexusModel {
-     *   constructor(code: string = "void 0") {
-     *     validateCodeIsCorrect(code);
-     *     super({code});
-     *   }
-     * }
-     *
-     * in order to keep the capability to spawn the models even if constructor is different,
-     * we dynamically switch the prototype to Object during "bypass mode" (where we rehydrate backed classes).
-     * This allows us to access private fields - typical Object.create(Class.prototype) or Reflect.setPrototypeOf(target, Class.prototype)
-     * is not working for private fields, so this is only option here.
-     */
-    context.addInitializer(() => {
-      /**
-       * problem here is, decorators are executed BEFORE static declarations.
-       * this mean it's impossible to directly do something like
-       * @syncing
-       * class Model extends PlexusModel {
-       *   static modelName = "Model";
-       * }
-       * to override things - modelName will simply be not present at moment
-       * of @syncing decorator call. Thus, we need to use initializer.
-       */
-      const name = Object.hasOwn(target, "modelName") ? target.modelName : (context.name ?? target.modelName);
-      invariant(name, `Plexus<${target.name}>: class requires a modelName`);
-      target.modelName = name;
-      target.schema = {} as GenericRecordSchema;
-      // it may miss with "barrel" nodes
-      if (context.metadata.schema) {
-        // we specifically need for...in to traverse over the inherited fields too
-        for (const key in context.metadata.schema) {
-          target.schema[key] = context.metadata.schema[key];
-        }
+    target.modelName = name;
+    Object.defineProperty(target.prototype, '__type__', { value: name });
+    target.schema = {} as GenericRecordSchema;
+    // it may miss with "barrel" nodes
+    if (context.metadata.schema) {
+      // we specifically need for...in to traverse over the inherited fields too
+      for (const key in context.metadata.schema) {
+        target.schema[key] = context.metadata.schema[key];
       }
-      invariant(
-        !entityClasses.has(target.modelName),
-        `Plexus<${target.modelName}>: duplicate class name, must be unique`,
-      );
-      entityClasses.set(target.modelName, target);
-    });
-    return target as PlexusConstructor<Model> & PlexusTagContainer<"decorated">;
-  } else {
-    const [target, context] = args as [
-      ClassAccessorDecoratorTarget<Model, T>,
-      ClassAccessorDecoratorContext<Model, T> & { name: string },
-    ];
-    ensureSchema(context)[context.name] = "val";
-    return createHandlers(context) as ClassAccessorDecoratorResult<Model, T>;
+    }
+    invariant(
+      !entityClasses.has(name),
+      `Plexus<${name}>: duplicate class name, must be unique`,
+    );
+    entityClasses.set(name, target);
+    return target;
+  };
+}
+
+/**
+ * @syncing("Name") — class decorator (registers model, defines __type__).
+ * @syncing accessor field — identity/val field decorator.
+ */
+function syncingDecorator(name: string): <
+  Model extends PlexusModel,
+  TargetConstructor extends PlexusConstructor<Model>,
+>(
+  target: TargetConstructor,
+  context: ClassDecoratorContext<PlexusConstructor<Model>>,
+) => TargetConstructor & PlexusTagContainer<"decorated">;
+function syncingDecorator<Model extends PlexusModel, T extends AllowedYJSValue>(
+  target: ClassAccessorDecoratorTarget<Model, T>,
+  context: ClassAccessorDecoratorContext<Model, T> & { name: string },
+): ClassAccessorDecoratorResult<Model, T>;
+function syncingDecorator(
+  first: string | ClassAccessorDecoratorTarget<PlexusModel, any>,
+  second?: ClassAccessorDecoratorContext<PlexusModel, any> & { name: string },
+): any {
+  // String call: @syncing("ModelName")
+  if (typeof first === 'string') {
+    return createClassDecorator(first);
   }
+  // Accessor decorator: @syncing accessor field
+  ensureSchema(second!)[second!.name] = "val";
+  return createHandlers(second!);
 }
 
 const set = <
@@ -513,80 +526,42 @@ const ensureVirtualFactories = (context: ClassAccessorDecoratorContext<PlexusMod
 /**
  * Unified decorator builder. Runtime is identical for all field types —
  * type differentiation is handled by explicit interface casts at the assignment site.
+ *
+ * The problem we're solving here is that PlexusModel<A | B> is not matching PlexusModel<B>;
+ * yet we cannot just generalize types. So, we infer two types - FieldValue, that is produced from usage,
+ * and discriminator, that defines what FieldValue is allowed to be. Since we have 2 args, we can make first one
+ * produce FieldValue, and second one to act as discriminator. (decorators are weird; maybe there's more efficient
+ * way to solve it, but it's very hard to debug decorator types)
+ *
+ * // todo narrow down
  */
 const buildDecorator = (kind: GenericRecordSchema[string]) =>
   Object.assign(
-    function plexusDynamicDecorator<
-      Model extends PlexusModel,
-      FieldValue extends AllowedPrimitive | PlexusModel,
-      Struct extends Mapping<FieldValue>[MappingType],
-    >(
-      target: ClassAccessorDecoratorTarget<Model, Struct>,
-      context: ClassAccessorDecoratorContext<Model, Struct> & { name: string },
+    function plexusDynamicDecorator(
+      target: ClassAccessorDecoratorTarget<PlexusModel, any>,
+      context: ClassAccessorDecoratorContext<PlexusModel, any> & { name: string },
     ) {
       ensureSchema(context)[context.name] = kind;
-      return createHandlers<Model, Struct>(context);
+      return createHandlers(context);
     },
     {
-      declare<Out extends Mapping<AllowedPrimitive | PlexusModel>[MappingType], In extends Out>() {
-        return function plexusDynamicDecorator<Model extends PlexusModel>(
-          target: ClassAccessorDecoratorTarget<Model, Out>,
-          context: ClassAccessorDecoratorContext<Model, Out> & { name: string },
+      declare() {
+        return function plexusDynamicDecorator(
+          target: ClassAccessorDecoratorTarget<PlexusModel, any>,
+          context: ClassAccessorDecoratorContext<PlexusModel, any> & { name: string },
         ) {
           ensureSchema(context)[context.name] = kind;
-          return createHandlers<Model, Out>(context) as {
-            get?(this: Model): Out;
-            set?(this: Model, value: In): void;
-            init?(this: Model, value: In): In;
-          };
-        };
-      },
-    },
-  );
-
-/** separate function here is done only for better types debugging; no other purpose intended */
-const buildDiscriminatingDecorator = <MappingType extends keyof Mapping<any>>(kind: GenericRecordSchema[string]) =>
-  Object.assign(
-    function plexusDynamicDecorator<
-      Model extends PlexusModel,
-      /**
-       * The problem we're solving here is that PlexusModel<A | B> is not matching PlexusModel<B>;
-       * yet we cannot just generalize types. So, we infer two types - FieldValue, that is produced from usage,
-       * and discriminator, that defines what FieldValue is allowed to be. Since we have 2 args, we can make first one
-       * produce FieldValue, and second one to act as discriminator. (decorators are weird; maybe there's more efficient
-       * way to solve it, but it's very hard to debug decorator types)
-       */
-      Value extends Mapping<AllowedYJSValue>[MappingType],
-    >(
-      target: ClassAccessorDecoratorTarget<Model, DiscriminateValue<MappingType, Value, Model>>,
-      context: ClassAccessorDecoratorContext<Model, Value> & { name: string },
-    ) {
-      ensureSchema(context)[context.name] = kind;
-      return createHandlers<Model, Value>(context);
-    },
-    {
-      // todo narrow down
-      declare<Out extends Mapping<AllowedPrimitive | PlexusModel>[MappingType], In extends Out>() {
-        return function plexusDynamicDecorator<Model extends PlexusModel>(
-          target: ClassAccessorDecoratorTarget<PlexusModel, Out>,
-          context: ClassAccessorDecoratorContext<PlexusModel, Out> & { name: string },
-        ) {
-          ensureSchema(context)[context.name] = kind;
-          return createHandlers<Model, Out>(context) as {
-            get?(this: Model): Out;
-            set?(this: Model, value: In): void;
-            init?(this: Model, value: In): In;
-          };
+          return createHandlers(context);
         };
       },
     },
   );
 
 export const syncing = Object.assign(syncingDecorator, {
-  child: Object.assign(buildDiscriminatingDecorator<"identity">("child-val"), {
-    record: buildDiscriminatingDecorator<"record">("child-record"),
-    set: buildDiscriminatingDecorator<"set">("child-set"),
-    list: buildDiscriminatingDecorator<"list">("child-list"),
+  child: Object.assign(buildDecorator("child-val") as DiscriminatingIdentityDecorator, {
+    record: buildDecorator("child-record") as DiscriminatingRecordDecorator,
+    set: buildDecorator("child-set") as DiscriminatingSetDecorator,
+    list: buildDecorator("child-list") as DiscriminatingListDecorator,
     /**
      * Specialized decorator for Map fields where values are tracked as children.
      * Provides parent-child ownership tracking for map values.
@@ -601,9 +576,9 @@ export const syncing = Object.assign(syncingDecorator, {
       return createHandlers<Model, DiscriminateMap<Field, Model>>(context);
     },
   }),
-  record: buildDecorator<"record">("record"),
-  set: buildDecorator<"set">("set"),
-  list: buildDecorator<"list">("list"),
+  record: buildDecorator("record") as RecordDecorator,
+  set: buildDecorator("set") as SetDecorator,
+  list: buildDecorator("list") as ListDecorator,
 
   /**
    * Specialized decorator for Map fields that preserves both key and value types.

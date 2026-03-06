@@ -1,7 +1,9 @@
-import type { AllowedPrimitive, AllowedYJSValue, GenericRecordSchema } from "./proxy-runtime-types.js";
-import { PlexusModel } from "./PlexusModel.js";
+import type { AllowedPrimitive, AllowedYJSValue } from "./proxy-runtime-types.js";
+import type { PlexusModel } from "./PlexusModel.js";
 
 /**
+ * Core parent constraint check shared by all child discriminators.
+ *
  * This type basically says: (types logic is inverted, obviously)
  * "If you're using child field - you know what the hell you are doing".
  * Its logic is following:
@@ -10,43 +12,134 @@ import { PlexusModel } from "./PlexusModel.js";
  * - now let's look who's parent of field you passed
  * - if it's default value (any), then it's allowed value. We're not forcing for children declaration hard - sometimes it's not needed
  * - but if you decided to annotate the parent, you better make sure that it's including this specific parent
- *
  * this enables optional type-level schema validation of child-parent relations
  */
-type PreDiscriminateValue<
-  MappingType extends keyof Mapping<any>,
-  T extends Mapping<AllowedPrimitive | PlexusModel>[MappingType],
-  Parent extends PlexusModel,
-> = T extends Mapping<infer Value>[MappingType]
-  ? Extract<Value, PlexusModel> extends PlexusModel<infer ActualParent extends PlexusModel>
-    ? any extends ActualParent
-      ? T
-      : Parent extends Extract<ActualParent, Parent>
-        ? T
-        : never
-    : never
-  : never;
-export type DiscriminateValue<
-  MappingType extends keyof Mapping<any>,
-  T extends Mapping<AllowedPrimitive | PlexusModel>[MappingType],
-  Parent extends PlexusModel,
-> =
-  PreDiscriminateValue<MappingType, T, Parent> extends never
-    ? Mapping<AllowedPrimitive | PlexusModel<Parent>>[MappingType]
+type CheckParentConstraint<Value, T, Parent extends PlexusModel> =
+  Extract<Value, PlexusModel> extends PlexusModel<infer AP extends PlexusModel>
+    ? any extends AP ? T : Parent extends Extract<AP, Parent> ? T : never
+    : never;
+
+type DiscriminateChildVal<T extends AllowedYJSValue, Parent extends PlexusModel> =
+  CheckParentConstraint<T, T, Parent> extends never
+    ? AllowedPrimitive | PlexusModel<Parent>
     : T;
 
-export interface Mapping<T> {
-  identity: T;
-  record: Record<string, T>;
-  set: Set<T>;
-  list: T[];
+type DiscriminateChildRecord<T extends Record<string, AllowedYJSValue>, Parent extends PlexusModel> =
+  T extends Record<string, infer V>
+    ? CheckParentConstraint<V, T, Parent> extends never
+      ? Record<string, AllowedPrimitive | PlexusModel<Parent>>
+      : T
+    : never;
+
+type DiscriminateChildSet<T extends Set<AllowedYJSValue>, Parent extends PlexusModel> =
+  T extends Set<infer V>
+    ? CheckParentConstraint<V, T, Parent> extends never
+      ? Set<AllowedPrimitive | PlexusModel<Parent>>
+      : T
+    : never;
+
+type DiscriminateChildList<T extends AllowedYJSValue[], Parent extends PlexusModel> =
+  T extends (infer V)[]
+    ? CheckParentConstraint<V, T, Parent> extends never
+      ? (AllowedPrimitive | PlexusModel<Parent>)[]
+      : T
+    : never;
+
+type DeclareResult<Out, In, Model extends PlexusModel> = {
+  get?(this: Model): Out;
+  set?(this: Model, value: In): void;
+  init?(this: Model, value: In): In;
+};
+
+// ── Decorator interfaces ──
+// Explicit per-variant interfaces, cast onto buildDecorator() in decorators.ts.
+// Verbose intentionally — TS resolves concrete interfaces faster than generic indexed access.
+// Three-generic <Model, V, Struct> is required: without V, TS collapses specific object types.
+
+export interface RecordDecorator {
+  <Model extends PlexusModel, V extends AllowedPrimitive | PlexusModel, Struct extends Record<string, V>>(
+    target: ClassAccessorDecoratorTarget<Model, Struct>,
+    context: ClassAccessorDecoratorContext<Model, Struct> & { name: string },
+  ): ClassAccessorDecoratorResult<Model, Struct>;
+  declare<Out extends Record<string, AllowedPrimitive | PlexusModel>, In extends Out>(): <Model extends PlexusModel>(
+    target: ClassAccessorDecoratorTarget<Model, Out>,
+    context: ClassAccessorDecoratorContext<Model, Out> & { name: string },
+  ) => DeclareResult<Out, In, Model>;
+}
+
+export interface SetDecorator {
+  <Model extends PlexusModel, V extends AllowedPrimitive | PlexusModel, Struct extends Set<V>>(
+    target: ClassAccessorDecoratorTarget<Model, Struct>,
+    context: ClassAccessorDecoratorContext<Model, Struct> & { name: string },
+  ): ClassAccessorDecoratorResult<Model, Struct>;
+  declare<Out extends Set<AllowedPrimitive | PlexusModel>, In extends Out>(): <Model extends PlexusModel>(
+    target: ClassAccessorDecoratorTarget<Model, Out>,
+    context: ClassAccessorDecoratorContext<Model, Out> & { name: string },
+  ) => DeclareResult<Out, In, Model>;
+}
+
+export interface ListDecorator {
+  <Model extends PlexusModel, V extends AllowedPrimitive | PlexusModel, Struct extends V[]>(
+    target: ClassAccessorDecoratorTarget<Model, Struct>,
+    context: ClassAccessorDecoratorContext<Model, Struct> & { name: string },
+  ): ClassAccessorDecoratorResult<Model, Struct>;
+  declare<Out extends (AllowedPrimitive | PlexusModel)[], In extends Out>(): <Model extends PlexusModel>(
+    target: ClassAccessorDecoratorTarget<Model, Out>,
+    context: ClassAccessorDecoratorContext<Model, Out> & { name: string },
+  ) => DeclareResult<Out, In, Model>;
+}
+
+// ── Child (discriminating) decorator interfaces ──
+
+export interface DiscriminatingIdentityDecorator {
+  <Model extends PlexusModel, T extends AllowedYJSValue>(
+    target: ClassAccessorDecoratorTarget<Model, DiscriminateChildVal<T, Model>>,
+    context: ClassAccessorDecoratorContext<Model, T> & { name: string },
+  ): ClassAccessorDecoratorResult<Model, T>;
+  declare<Out extends AllowedPrimitive | PlexusModel, In extends Out>(): <Model extends PlexusModel>(
+    target: ClassAccessorDecoratorTarget<PlexusModel, Out>,
+    context: ClassAccessorDecoratorContext<PlexusModel, Out> & { name: string },
+  ) => DeclareResult<Out, In, Model>;
+}
+
+export interface DiscriminatingRecordDecorator {
+  <Model extends PlexusModel, V extends AllowedYJSValue, Struct extends Record<string, V>>(
+    target: ClassAccessorDecoratorTarget<Model, DiscriminateChildRecord<Struct, Model>>,
+    context: ClassAccessorDecoratorContext<Model, Struct> & { name: string },
+  ): ClassAccessorDecoratorResult<Model, Struct>;
+  declare<Out extends Record<string, AllowedPrimitive | PlexusModel>, In extends Out>(): <Model extends PlexusModel>(
+    target: ClassAccessorDecoratorTarget<PlexusModel, Out>,
+    context: ClassAccessorDecoratorContext<PlexusModel, Out> & { name: string },
+  ) => DeclareResult<Out, In, Model>;
+}
+
+export interface DiscriminatingSetDecorator {
+  <Model extends PlexusModel, V extends AllowedYJSValue, Struct extends Set<V>>(
+    target: ClassAccessorDecoratorTarget<Model, DiscriminateChildSet<Struct, Model>>,
+    context: ClassAccessorDecoratorContext<Model, Struct> & { name: string },
+  ): ClassAccessorDecoratorResult<Model, Struct>;
+  declare<Out extends Set<AllowedPrimitive | PlexusModel>, In extends Out>(): <Model extends PlexusModel>(
+    target: ClassAccessorDecoratorTarget<PlexusModel, Out>,
+    context: ClassAccessorDecoratorContext<PlexusModel, Out> & { name: string },
+  ) => DeclareResult<Out, In, Model>;
+}
+
+export interface DiscriminatingListDecorator {
+  <Model extends PlexusModel, V extends AllowedYJSValue, Struct extends V[]>(
+    target: ClassAccessorDecoratorTarget<Model, DiscriminateChildList<Struct, Model>>,
+    context: ClassAccessorDecoratorContext<Model, Struct> & { name: string },
+  ): ClassAccessorDecoratorResult<Model, Struct>;
+  declare<Out extends (AllowedPrimitive | PlexusModel)[], In extends Out>(): <Model extends PlexusModel>(
+    target: ClassAccessorDecoratorTarget<PlexusModel, Out>,
+    context: ClassAccessorDecoratorContext<PlexusModel, Out> & { name: string },
+  ) => DeclareResult<Out, In, Model>;
 }
 
 /**
  * Pre-discrimination for map values.
  * Checks if V can be a child of Parent - returns V if valid, never if not.
  *
- * Logic (same as PreDiscriminateValue but for raw value type, not Mapping):
+ * Logic (same as CheckParentConstraint but for raw value type, not Mapping):
  * - Extract PlexusModel from V (might be V itself or part of union)
  * - If no PlexusModel in V, return never (child fields require model values)
  * - If PlexusModel has `any` parent (unspecified), allow it
@@ -61,6 +154,7 @@ type PreDiscriminateMapValue<V extends AllowedYJSValue, Parent extends PlexusMod
         ? V
         : never
     : never;
+
 /**
  * Full discrimination for map values with fallback.
  * If PreDiscriminateMapValue returns never (invalid parent relationship),
@@ -70,6 +164,7 @@ type DiscriminateMapValue<V extends AllowedYJSValue, Parent extends PlexusModel>
   PreDiscriminateMapValue<V, Parent> extends never
     ? AllowedPrimitive | PlexusModel<Parent>
     : PreDiscriminateMapValue<V, Parent>;
+
 type MapKey<T extends Map<any, any>> =
   T extends Map<infer K, any>
     ?
@@ -78,6 +173,7 @@ type MapKey<T extends Map<any, any>> =
         | (Extract<K, AllowedYJSValue> extends AllowedYJSValue ? K : never)
     : never;
 type MapValue<T extends Map<any, any>> = T extends Map<any, infer K> ? Extract<K, AllowedYJSValue> : never;
+
 export type DiscriminateMap<Field extends Map<any, any>, Parent extends PlexusModel> = Map<
   MapKey<Field>,
   DiscriminateMapValue<MapValue<Field>, Parent>

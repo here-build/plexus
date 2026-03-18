@@ -14,6 +14,7 @@ import {
 import { ACCESS_ALL_SYMBOL, ENTRIES_LENGTH_SYMBOL, KEYS_SYMBOL, trackAccess, trackModification } from "../tracking.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
+import { materializeMapForField } from "../virtual-children-genesis.js";
 
 export type MaterializedRecordProxyInitTarget = {
   owner: PlexusModel;
@@ -26,18 +27,23 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
   key,
   isChildField,
 }: MaterializedRecordProxyInitTarget) => {
-  const getYjsMap = () => {
-    const yjsMap = owner.__yjsFieldsMap__?.get(key) as Y.Map<AllowedYValue> | null;
-    // todo this solves migration issues of adding new fields; yet, it do not generally help
-    if (yjsMap) {
-      return yjsMap;
-    }
-    if (owner.__doc__ && owner.__yjsFieldsMap__) {
-      const array = new Y.Map<AllowedYValue>();
-      owner.__yjsFieldsMap__.set(key, array);
-      return array;
-    }
-    return null;
+  const getYjsMap = (): Y.Map<AllowedYValue> | null => {
+    return (owner.__yjsFieldsMap__?.get(key) as Y.Map<AllowedYValue>) ?? null;
+  };
+
+  const attachObserver = (map: Y.Map<AllowedYValue>) => {
+    if (undoManagerNotifications.has(map)) return;
+    map.observe(observer);
+    undoManagerNotifications.set(map, observer);
+  };
+
+  const ensureYjsMap = (): Y.Map<AllowedYValue> | null => {
+    const existing = getYjsMap();
+    if (existing) return existing;
+    if (!owner.__doc__ || !owner.__yjsFieldsMap__) return null;
+    const map = materializeMapForField(owner, key);
+    attachObserver(map);
+    return map;
   };
   const backingStorage: Record<string, T> = {};
   const observer = (event: Y.YMapEvent<AllowedYValue>) => {
@@ -70,11 +76,8 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
   };
   {
     const map = getYjsMap();
-
-    // Register for undo notifications
     if (map) {
-      map.observe(observer);
-      undoManagerNotifications.set(map, observer);
+      attachObserver(map);
       Object.assign(backingStorage, map.toJSON());
     }
   }
@@ -103,6 +106,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
           };
         case "assign":
           return (newEntries: Record<string, AllowedYJSValue> | Iterable<[string, AllowedYJSValue]>) => {
+            ensureYjsMap(); // create container outside tracked transaction
             maybeTransacting(owner.__doc__, () => {
               // Convert to array for multiple iterations
               const entriesArray: [string, AllowedYJSValue][] = [
@@ -150,14 +154,19 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
           };
         case materializationSymbol:
           return () => {
-            const map = getYjsMap()!;
+            const map = getYjsMap();
+            if (!map) {
+              // Container absent or removed (e.g., by undo) — clear the proxy
+              for (const k of Object.keys(backingStorage)) {
+                delete backingStorage[k];
+              }
+              return;
+            }
             Object.assign(
               backingStorage,
               Object.fromEntries(Object.entries(map.toJSON()).map(([key, value]) => [key, deref(map.doc!, value)])),
             );
-            map.observe(observer);
-            // Register for undo notifications during materialization
-            undoManagerNotifications.set(map, observer);
+            attachObserver(map);
           };
       }
 
@@ -196,6 +205,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
     },
     set(proxyTarget, elementKey, value) {
       if (typeof elementKey === "string") {
+        if (value !== undefined) ensureYjsMap();
         maybeTransacting(owner.__doc__, () => {
           trackModification(self, elementKey);
           // Track key changes: key added (wasn't present, now has value) or removed (was present, now undefined)

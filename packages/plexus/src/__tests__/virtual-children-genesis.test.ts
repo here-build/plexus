@@ -23,13 +23,11 @@ import { connectTestPlexus, initTestPlexus } from "./_helpers/test-plexus.js";
 
 @syncing("VChild")
 class VChild extends PlexusModel {
-  static override readonly modelName = "VChild";
   @syncing accessor label!: string;
 }
 
 @syncing("VParent")
 class VParent extends PlexusModel {
-  static override readonly modelName = "VParent";
   @syncing accessor name!: string;
   @syncing.child.map accessor items!: Map<string, VChild>;
 }
@@ -38,41 +36,35 @@ class VParent extends PlexusModel {
 
 @syncing("VLeaf")
 class VLeaf extends PlexusModel {
-  static override readonly modelName = "VLeaf";
   @syncing accessor value!: string;
 }
 
 @syncing("VBranch")
 class VBranch extends PlexusModel {
-  static override readonly modelName = "VBranch";
   @syncing accessor tag!: string;
   @syncing.child accessor leaf: VLeaf | null = null;
 }
 
 @syncing("VWithList")
 class VWithList extends PlexusModel {
-  static override readonly modelName = "VWithList";
   @syncing accessor name!: string;
   @syncing.child.list accessor children: VLeaf[] = [];
 }
 
 @syncing("VDeep")
 class VDeep extends PlexusModel {
-  static override readonly modelName = "VDeep";
   @syncing accessor depth!: string;
   @syncing.child accessor nested: VBranch | null = null;
 }
 
 @syncing("VTreeHost")
 class VTreeHost extends PlexusModel {
-  static override readonly modelName = "VTreeHost";
   @syncing accessor title!: string;
   @syncing.child.map accessor branches!: Map<string, VBranch>;
 }
 
 @syncing("VTreeHostDeep")
 class VTreeHostDeep extends PlexusModel {
-  static override readonly modelName = "VTreeHostDeep";
   @syncing accessor title!: string;
   @syncing.child.map accessor nodes!: Map<string, VDeep>;
 }

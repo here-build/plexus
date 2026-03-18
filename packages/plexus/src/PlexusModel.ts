@@ -541,51 +541,63 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
             wrapper.set(schemaKey, boundMaybeReference(internals.backingStorage.get(schemaKey) as AllowedYJSValue));
             break;
           case "list":
-          case "child-list":
-            wrapper.set(
-              schemaKey,
-              // @ts-expect-error todo (maybe report to yjs?) - type issue: yjs Array.from not supporting boolean
-              Y.Array.from(
-                // @ts-expect-error same issue
-                // Convert sparse arrays to dense arrays (holes become null)
-                Array.from<AllowedYJSValue, AllowedYValue>(this[schemaKey], boundMaybeReference),
-              ),
-            );
+          case "child-list": {
+            const sourceArray = this[schemaKey] as AllowedYJSValue[];
+            if (sourceArray.length > 0) {
+              wrapper.set(
+                schemaKey,
+                // @ts-expect-error todo (maybe report to yjs?) - type issue: yjs Array.from not supporting boolean
+                Y.Array.from(
+                  // @ts-expect-error same issue
+                  // Convert sparse arrays to dense arrays (holes become null)
+                  Array.from<AllowedYJSValue, AllowedYValue>(sourceArray, boundMaybeReference),
+                ),
+              );
+            }
             break;
+          }
           case "record":
-          case "child-record":
-            wrapper.set(
-              schemaKey,
-              new Y.Map<AllowedYValue | null>(
-                Object.entries(this[schemaKey] as Record<string, AllowedYJSValue>).map(([recordKey, val]) => [
-                  recordKey,
-                  boundMaybeReference(val),
-                ]),
-              ),
-            );
+          case "child-record": {
+            const entries = Object.entries(this[schemaKey] as Record<string, AllowedYJSValue>);
+            if (entries.length > 0) {
+              wrapper.set(
+                schemaKey,
+                new Y.Map<AllowedYValue | null>(
+                  entries.map(([recordKey, val]) => [recordKey, boundMaybeReference(val)]),
+                ),
+              );
+            }
             break;
+          }
           case "set":
-          case "child-set":
-            wrapper.set(
-              schemaKey,
-              // @ts-expect-error todo (maybe report to yjs?) - type issue: yjs Array.from not supporting boolean
-              Y.Array.from(
-                // @ts-expect-error same issue
-                Array.from(this[schemaKey], boundMaybeReference),
-              ),
-            );
+          case "child-set": {
+            const sourceSet = this[schemaKey] as Set<AllowedYJSValue>;
+            if (sourceSet.size > 0) {
+              wrapper.set(
+                schemaKey,
+                // @ts-expect-error todo (maybe report to yjs?) - type issue: yjs Array.from not supporting boolean
+                Y.Array.from(
+                  // @ts-expect-error same issue
+                  Array.from(sourceSet, boundMaybeReference),
+                ),
+              );
+            }
             break;
+          }
           case "map":
           case "child-map": {
             // Map proxy uses PathMap for in-memory storage, serialize for Y.Map
+            // Deterministic genesis clientIds ensure concurrent peers converge.
             const mapProxy = this[schemaKey] as Map<AllowedYJSMapKey, AllowedYJSValue>;
-            const entries: [string, AllowedYValue | null][] = [];
-            for (const [key, val] of mapProxy.entries()) {
-              // Use serializeKey to match materialized-map.ts format (Set:, Array:, Value: prefixes)
-              const serializedKey = serializeKey(key, doc);
-              entries.push([serializedKey, boundMaybeReference(val)]);
+            if (mapProxy.size > 0) {
+              const entries: [string, AllowedYValue | null][] = [];
+              for (const [key, val] of mapProxy.entries()) {
+                // Use serializeKey to match materialized-map.ts format (Set:, Array:, Value: prefixes)
+                const serializedKey = serializeKey(key, doc);
+                entries.push([serializedKey, boundMaybeReference(val)]);
+              }
+              wrapper.set(schemaKey, new Y.Map<AllowedYValue | null>(entries));
             }
-            wrapper.set(schemaKey, new Y.Map<AllowedYValue | null>(entries));
             break;
           }
           default:
@@ -641,7 +653,11 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
         case "child-list":
         case "map":
         case "child-map":
-          this[key][materializationSymbol]();
+          if (internals.yjsModel!.has(key)) {
+            this[key][materializationSymbol]();
+          }
+          // else: container absent → proxy starts empty, materializes on first write
+          break;
       }
     }
 
@@ -657,12 +673,10 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
             trackModification(this, key);
           }
         } else if (key in this.__schema__) {
-          console.warn(
-            `[Plexus: ${this.__type__}(${this.uuid}).${key}]`,
-            `the value that should be preserved untouched was rewritten`,
-            this,
-            key,
-          );
+          // Container field materialized (locally or by remote peer)
+          // or removed (by undo). Trigger proxy sync + observer registration.
+          this[key][materializationSymbol]();
+          trackModification(this, key);
         } else {
           console.warn("attempted to write the value that is not in schema", this, key);
         }

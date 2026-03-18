@@ -26,6 +26,7 @@ import { deserializeKey, serializeKey } from "./key-serialization.js";
 import { PathMap } from "./PathMap.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
+import { materializeMapForField } from "../virtual-children-genesis.js";
 
 // Re-export for backward compatibility
 export { serializeKey, deserializeKey } from "./key-serialization.js";
@@ -43,17 +44,23 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
   isChildField,
   virtualFactory,
 }: MaterializedMapProxyInitTarget) => {
-  const getYjsMap = () => {
-    const yjsMap = owner.__yjsFieldsMap__?.get(key) as Y.Map<AllowedYValue> | null;
-    if (yjsMap) {
-      return yjsMap;
-    }
-    if (owner.__doc__ && owner.__yjsFieldsMap__) {
-      const map = new Y.Map<AllowedYValue>();
-      owner.__yjsFieldsMap__.set(key, map);
-      return map;
-    }
-    return null;
+  const getYjsMap = (): Y.Map<AllowedYValue> | null => {
+    return (owner.__yjsFieldsMap__?.get(key) as Y.Map<AllowedYValue>) ?? null;
+  };
+
+  const attachObserver = (map: Y.Map<AllowedYValue>) => {
+    if (undoManagerNotifications.has(map)) return;
+    map.observe(observer);
+    undoManagerNotifications.set(map, observer);
+  };
+
+  const ensureYjsMap = (): Y.Map<AllowedYValue> | null => {
+    const existing = getYjsMap();
+    if (existing) return existing;
+    if (!owner.__doc__ || !owner.__yjsFieldsMap__) return null;
+    const map = materializeMapForField(owner, key);
+    attachObserver(map);
+    return map;
   };
 
   // PathMap handles structural key equality with trie + WeakRefs
@@ -134,8 +141,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
   {
     const map = getYjsMap();
     if (map?.doc) {
-      map.observe(observer);
-      undoManagerNotifications.set(map, observer);
+      attachObserver(map);
       for (const [serializedKey, v] of map.entries()) {
         const deserializedKey = deserializeKey(serializedKey, map.doc) as K;
         backingStorage.set(deserializedKey, deref(map.doc, v) as V);
@@ -155,6 +161,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       trackAccess(owner, key);
       trackAccess(self, backingStorage.getCanonicalKey(mapKey));
       if (virtualFactory && !backingStorage.has(mapKey)) {
+        ensureYjsMap();
         const yjsMap = getYjsMap();
         invariant(yjsMap, "VirtualMap: owner must be connected to a doc");
         materializeVirtualChild(owner, key, mapKey, yjsMap, virtualFactory);
@@ -167,6 +174,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       if (backingStorage.get(mapKey) === value) {
         return this;
       }
+      ensureYjsMap();
       maybeTransacting(owner.__doc__, () => {
         const hadKey = backingStorage.has(mapKey);
 
@@ -292,6 +300,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
     // Plexus-specific methods
     assign(map: Map<K, V>): void {
       invariant(!virtualFactory, "VirtualMap: .assign() is blocked — virtual children cannot be overwritten");
+      ensureYjsMap();
       maybeTransacting(owner.__doc__, () => {
         const iterable = map.entries();
 
@@ -358,7 +367,11 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
 
     [materializationSymbol](): void {
       const map = getYjsMap();
-      if (!map?.doc) return;
+      if (!map?.doc) {
+        backingStorage.clear();
+        serializedToKey.clear();
+        return;
+      }
 
       for (const [serializedKey, v] of map.entries()) {
         const deserializedKey = deserializeKey(serializedKey, map.doc) as K;
@@ -367,8 +380,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         serializedToKey.set(serializedKey, deserializedKey);
       }
 
-      map.observe(observer);
-      undoManagerNotifications.set(map, observer);
+      attachObserver(map);
     },
   };
   Reflect.setPrototypeOf(mapLike, Map.prototype);

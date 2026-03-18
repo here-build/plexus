@@ -23,6 +23,9 @@ import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { maybeTransacting } from "./utils/utils.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 import { declareDeterministicMap } from "./genesis-client.js";
+// MAX_UINT32 threshold: genesis clientIds are always above this value.
+// Used to filter container genesis Items from UndoManager StackItems.
+const MAX_UINT32 = 0xffffffff;
 import { getDependenciesMap, getMetaMap, getModelTypesMap } from "./yjs/getModels.js";
 
 export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<string, Root> }> {
@@ -198,6 +201,18 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     this.__undoManager__ = new UndoManager(this.yTypes, {
       captureTimeout: 500,
       trackedOrigins: new Set([Plexus]),
+    });
+
+    // Strip genesis Items from UndoManager StackItems.
+    // Genesis clientIds are always > MAX_UINT32 (entity genesis + container genesis).
+    // Container creation is structural — must survive undo/redo, same as entities.
+    this.__undoManager__.on("stack-item-added", (event) => {
+      const clients = event.stackItem.insertions.clients;
+      for (const clientId of clients.keys()) {
+        if (clientId > MAX_UINT32) {
+          clients.delete(clientId);
+        }
+      }
     });
 
     // Wire up undo/redo notification bridge

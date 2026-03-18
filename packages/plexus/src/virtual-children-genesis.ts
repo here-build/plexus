@@ -153,7 +153,64 @@ function assertPrimitiveKey(key: unknown): void {
   invariant(false, `Invalid virtual child key type: ${type}`);
 }
 
-// ── Core Function ──
+function computeContainerGenesisId(parentUuid: string, fieldName: string): number {
+  const canonical = `${parentUuid}\0${fieldName}\0__container__`;
+  const hi = murmur32(canonical, SEED_HI);
+  const lo = murmur32(canonical, SEED_LO);
+  const wide = (hi & 0x1fffff) * 0x100000000 + (lo >>> 0);
+  return (wide % GENESIS_RANGE) + MAX_UINT32 + 1;
+}
+
+function materializeVirtualStruct(owner: PlexusModel, fieldName: string, value: Y.AbstractType<any>): void {
+  const doc = owner.__doc__;
+  invariant(doc != null, "materializeVirtualStruct: document should be available for virtual genesis");
+  const genesisId = computeContainerGenesisId(owner.uuid, fieldName);
+
+  // Snapshot real doc state before genesis
+  const sv = Y.encodeStateVector(doc);
+
+  // Create isolated temp doc with genesis clientId + real doc state
+  const tmpDoc = new Y.Doc({ guid: doc.guid });
+  Object.defineProperty(tmpDoc, "clientID", {
+    get: () => genesisId,
+    set: () => {},
+    configurable: true,
+  });
+  Y.applyUpdate(tmpDoc, Y.encodeStateAsUpdate(doc));
+
+  const tmpSubMap = tmpDoc
+    .getMap<Y.Map<Y.XmlElement<Record<string, Y.AbstractType<any>>>>>("types")
+    .get(owner.__type__);
+  invariant(tmpSubMap, `materializeVirtualStruct: type map for ${owner.__type__} not found in temp doc`);
+  const tmpElement = tmpSubMap.get(owner.uuid);
+  invariant(tmpElement, `materializeVirtualStruct: entity ${owner.__type__}#${owner.uuid} not found in temp doc`);
+  tmpElement.setAttribute(fieldName, value);
+
+  // Encode only the genesis Items (diff since snapshot)
+  const diff = Y.encodeStateAsUpdate(tmpDoc, sv);
+  tmpDoc.destroy();
+
+  // Merge into real doc — Items carry genesis clientId, UndoManager ignores them
+  Y.applyUpdate(doc, diff);
+}
+
+export function materializeMapForField(owner: PlexusModel, fieldName: string): Y.Map<AllowedYValue> {
+  const wrapper = owner.__yjsFieldsMap__!;
+  const existing = wrapper.get(fieldName);
+  if (existing) return existing as Y.Map<AllowedYValue>;
+
+  materializeVirtualStruct(owner, fieldName, new Y.Map<AllowedYValue>());
+  return wrapper.get(fieldName) as Y.Map<AllowedYValue>;
+}
+
+export function materializeArrayForField(owner: PlexusModel, fieldName: string): Y.Array<AllowedYValue> {
+  const wrapper = owner.__yjsFieldsMap__!;
+  const existing = wrapper.get(fieldName);
+  if (existing) return existing as Y.Array<AllowedYValue>;
+
+  materializeVirtualStruct(owner, fieldName, new Y.Array<AllowedYValue>());
+  return wrapper.get(fieldName) as Y.Array<AllowedYValue>;
+}
 
 /**
  * Create a deterministic, undo-invisible CRDT entity via content-addressed genesis.
@@ -178,6 +235,8 @@ export function materializeVirtualChild<K extends AllowedStatelessYJSMapKey, V e
   const doc = owner.__doc__;
   invariant(doc, `materializeVirtualChild: owner ${owner.__type__} must be connected to a doc`);
   assertPrimitiveKey(mapKey);
+
+  yjsMap ??= materializeMapForField(owner, fieldName);
 
   const ownerUuid = owner.uuid;
   const serializedMapKey = serializeKey(mapKey, doc);

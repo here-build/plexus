@@ -12,6 +12,7 @@ import {
 import { ACCESS_ALL_SYMBOL, ENTRIES_LENGTH_SYMBOL, KEYS_SYMBOL, trackAccess, trackModification } from "../tracking.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
+import { materializeArrayForField } from "../virtual-children-genesis.js";
 
 export type MaterializedSetProxyInitTarget = {
   owner: PlexusModel;
@@ -37,18 +38,23 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
     }
     return backingSet;
   };
-  const getYjsSet = () => {
-    const yjsArray = owner.__yjsFieldsMap__?.get(key) as Y.Array<AllowedYValue> | null;
-    // todo this solves migration issues of adding new fields; yet, it do not generally help
-    if (yjsArray) {
-      return yjsArray;
-    }
-    if (owner.__doc__ && owner.__yjsFieldsMap__) {
-      const array = new Y.Array<AllowedYValue>();
-      owner.__yjsFieldsMap__.set(key, array);
-      return array;
-    }
-    return null;
+  const getYjsSet = (): Y.Array<AllowedYValue> | null => {
+    return (owner.__yjsFieldsMap__?.get(key) as Y.Array<AllowedYValue>) ?? null;
+  };
+
+  const attachObserver = (arr: Y.Array<AllowedYValue>) => {
+    if (undoManagerNotifications.has(arr)) return;
+    arr.observe(observer);
+    undoManagerNotifications.set(arr, observer);
+  };
+
+  const ensureYjsSet = (): Y.Array<AllowedYValue> | null => {
+    const existing = getYjsSet();
+    if (existing) return existing;
+    if (!owner.__doc__ || !owner.__yjsFieldsMap__) return null;
+    const arr = materializeArrayForField(owner, key);
+    attachObserver(arr);
+    return arr;
   };
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
     if (event.target !== getYjsSet()) {
@@ -60,11 +66,8 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
     trackModification(self, ENTRIES_LENGTH_SYMBOL);
   };
   const yjsSet = getYjsSet();
-  yjsSet?.observe(observer);
-
-  // Register for undo notifications
   if (yjsSet) {
-    undoManagerNotifications.set(yjsSet, observer);
+    attachObserver(yjsSet);
   }
 
   const self = new Proxy(Object.seal(backingSet), {
@@ -90,6 +93,7 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
 
             // Now safe to add to backing set
             backingStorage.add(value);
+            ensureYjsSet(); // create container outside tracked transaction
             maybeTransacting(owner.__doc__!, () => {
               trackModification(self, KEYS_SYMBOL);
               trackModification(self, ENTRIES_LENGTH_SYMBOL);
@@ -123,9 +127,9 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
           };
         case "assign":
           return (newValues: Iterable<T>) => {
-            const yjsArray = getYjsSet();
-
             const newValuesSet = new Set(newValues);
+            if (newValuesSet.size > 0) ensureYjsSet();
+            const yjsArray = getYjsSet();
             maybeTransacting(owner.__doc__, () => {
               trackModification(self, KEYS_SYMBOL);
               trackModification(self, ENTRIES_LENGTH_SYMBOL);
@@ -243,12 +247,15 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
           };
         case materializationSymbol:
           return () => {
+            const yjsSet = getYjsSet();
+            if (!yjsSet) {
+              // Container absent or removed (e.g., by undo) — clear the proxy
+              backingSet = new Set();
+              needsRegeneration = false;
+              return;
+            }
             needsRegeneration = true;
-            // todo duplicate observation tracking
-            const yjsSet = getYjsSet()!;
-            yjsSet.observe(observer);
-            // Register for undo notifications during materialization
-            undoManagerNotifications.set(yjsSet, observer);
+            attachObserver(yjsSet);
           };
         default:
           return false;

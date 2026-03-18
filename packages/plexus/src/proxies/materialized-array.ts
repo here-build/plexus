@@ -23,6 +23,7 @@ import {
 } from "../tracking.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
+import { materializeArrayForField } from "../virtual-children-genesis.js";
 
 // Track if we've shown the copyWithin warning for child arrays (one-time per session)
 let copyWithinChildArrayWarningShown = false;
@@ -118,18 +119,23 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
   isChildField,
 }: MaterializedArrayProxyInitTarget) => {
   const backingArray: Array<T | null> = [];
-  const getYjsArray = () => {
-    const yjsArray = owner.__yjsFieldsMap__?.get(key) as Y.Array<AllowedYValue> | null;
-    // todo this solves migration issues of adding new fields; yet, it do not generally help
-    if (yjsArray) {
-      return yjsArray;
-    }
-    if (owner.__doc__ && owner.__yjsFieldsMap__) {
-      const array = new Y.Array<AllowedYValue>();
-      owner.__yjsFieldsMap__.set(key, array);
-      return array;
-    }
-    return null;
+  const getYjsArray = (): Y.Array<AllowedYValue> | null => {
+    return (owner.__yjsFieldsMap__?.get(key) as Y.Array<AllowedYValue>) ?? null;
+  };
+
+  const attachObserver = (arr: Y.Array<AllowedYValue>) => {
+    if (undoManagerNotifications.has(arr)) return;
+    arr.observe(observer);
+    undoManagerNotifications.set(arr, observer);
+  };
+
+  const ensureYjsArray = (): Y.Array<AllowedYValue> | null => {
+    const existing = getYjsArray();
+    if (existing) return existing;
+    if (!owner.__doc__ || !owner.__yjsFieldsMap__) return null;
+    const arr = materializeArrayForField(owner, key);
+    attachObserver(arr);
+    return arr;
   };
   const observer = (event: Y.YArrayEvent<AllowedYValue>) => {
     const yjsArray = getYjsArray();
@@ -175,11 +181,8 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
   };
   {
     const yjsArray = getYjsArray();
-    yjsArray?.observe(observer);
-
-    // Register for undo notifications
     if (yjsArray) {
-      undoManagerNotifications.set(yjsArray, observer);
+      attachObserver(yjsArray);
     }
   }
 
@@ -207,8 +210,9 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           //    This ordering ensures parent refs are updated correctly for CRDT synchronization
           //
 
-          return (...elements: Array<T>) =>
-            maybeTransacting(owner.__doc__, () => {
+          return (...elements: Array<T>) => {
+            ensureYjsArray();
+            return maybeTransacting(owner.__doc__, () => {
               // Update parent tracking for child fields
               const reusedIndices: number[] = [];
               const reusedElements: T[] = [];
@@ -263,9 +267,11 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               trackModification(self, ACCESS_ALL_SYMBOL);
               return backingArray.length;
             });
+          };
         case "unshift": // arr.unshift(entity) → yArray.unshift(entity.reference())
-          return (...elements: Array<T>) =>
-            maybeTransacting(owner.__doc__, () => {
+          return (...elements: Array<T>) => {
+            ensureYjsArray();
+            return maybeTransacting(owner.__doc__, () => {
               // Update parent tracking for child fields
               const reusedIndices: number[] = [];
               const reusedElements: T[] = [];
@@ -320,8 +326,10 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               trackModification(self, ACCESS_ALL_SYMBOL);
               return backingArray.length;
             });
+          };
         case "splice": // arr.splice(index, deleteCount, ...items)
           return (start: number, deleteCount?: number, ...itemsToInsert: Array<T>) => {
+            if (itemsToInsert.length > 0) ensureYjsArray();
             return maybeTransacting(owner.__doc__, () => {
               const actualStart =
                 start < 0 ? Math.max(backingArray.length + start, 0) : Math.min(start, backingArray.length);
@@ -500,6 +508,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           };
         case "reverse": // arr.reverse() → reverse in place
           return () => {
+            ensureYjsArray();
             return maybeTransacting(owner.__doc__, () => {
               backingArray.reverse();
 
@@ -516,6 +525,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           };
         case "sort": // arr.sort(compareFn) → sort in place
           return (compareFn?: (a: T, b: T) => number) => {
+            ensureYjsArray();
             return maybeTransacting(owner.__doc__, () => {
               backingArray.sort(compareFn as ((a: T | null, b: T | null) => number) | undefined);
 
@@ -532,6 +542,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           };
         case "copyWithin": // arr.copyWithin(target, start, end) → copy elements within array
           return (target: number, start: number, end?: number) => {
+            ensureYjsArray();
             return maybeTransacting(owner.__doc__, () => {
               if (isChildField) {
                 // One-time warning: copyWithin on child arrays has special semantics
@@ -588,6 +599,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             if (newElements.length === backingArray.length && newElements.every((val, i) => val === backingArray[i])) {
               return;
             }
+            if (newElements.length > 0) ensureYjsArray();
             maybeTransacting(owner.__doc__, () => {
               if (isChildField) {
                 // Validate that newElements doesn't contain duplicates
@@ -624,7 +636,12 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           return backingArray.length;
         case materializationSymbol:
           return () => {
-            const yjsArray = getYjsArray()!;
+            const yjsArray = getYjsArray();
+            if (!yjsArray) {
+              // Container absent or removed (e.g., by undo) — clear the proxy
+              backingArray.splice(0, backingArray.length);
+              return;
+            }
             invariant(
               yjsArray.doc,
               `Plexus<${owner.__type__}#${owner.uuid}.${key}>: materialization triggered for Y.Array without doc`,
@@ -638,9 +655,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             }
 
             backingArray.splice(0, backingArray.length, ...materializedItems);
-            yjsArray.observe(observer);
-            // Register for undo notifications during materialization
-            undoManagerNotifications.set(yjsArray, observer);
+            attachObserver(yjsArray);
           };
         case Symbol.iterator:
           return () => {
@@ -666,6 +681,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   return result;
                 }
 
+                ensureYjsArray();
                 const yjsArray = getYjsArray();
                 return maybeTransacting(yjsArray?.doc, () => {
                   // DUPLICATE VALIDATION: Check if the array method created duplicates
@@ -729,6 +745,10 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
     },
 
     set(_, elementKey, value) {
+      // Ensure container exists before tracked transaction for index assignment
+      if (typeof elementKey === "string" && elementKey !== "length" && Number.isSafeInteger(Number.parseInt(elementKey))) {
+        ensureYjsArray();
+      }
       return maybeTransacting(owner.__doc__, () => {
         if (elementKey === "length") {
           // Handle array length truncation

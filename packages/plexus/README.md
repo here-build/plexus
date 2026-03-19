@@ -237,15 +237,12 @@ class {
 
 ## Inheritance
 
-`@syncing` is required on every level of the class hierarchy:
+`@syncing` is required on every level of the class hierarchy. Pass a string to set the model name (used for CRDT type maps and cross-peer resolution):
 
 ```typescript
 
-@syncing
+@syncing("SuperProject")
 class SuperProject extends Project {
-  // static modelName resolves name collisions (e.g. from mangling)
-  static readonly modelName = "Project*";
-
   // field types can be redefined in subclasses
   // @ts-expect-error - it IS typescript error, but we allow overwriting child to non-child vice-versa.
   @syncing.child accessor title: string | RichName = "";
@@ -420,6 +417,8 @@ Always use these wrappers — not the raw Yjs `UndoManager`. The wrappers set in
 operations triggered during undo/redo (observation re-bootstrap, parent pointer fixup) are not themselves recorded
 as undoable actions. Built on `UndoManager` internally with a 500ms capture window.
 
+Structural operations (entity creation, container materialization) are automatically excluded from the undo history — only content changes are reversible.
+
 ## Querying
 
 ```typescript
@@ -434,6 +433,8 @@ for (const project of plexus.parentsOf(page, Project, "pages")) {
   // yields Project instances whose .pages contains page
 }
 ```
+
+**Lazy Containers**: Empty collection fields (lists, sets, records, maps) cost zero in the CRDT log until first write. The container is materialized on demand with a deterministic identity that converges across independent peers.
 
 **Singleton Guarantee & `O(1)` Entity Caching**: Plexus maintains an internal `WeakRef` cache of all materialized entities. When querying nested models or resolving dependencies, you receive **the exact same TypeScript class instance in memory**. Navigating to a model or calling `plexus.loadEntity(uuid)` performs an `O(1)` memory lookup rather than a binary search traversing the `Y.StructStore` for entities you have already encountered. This ensures that `entityA === entityB` strict equality checks function correctly across your application while drastically minimizing overhead.
 

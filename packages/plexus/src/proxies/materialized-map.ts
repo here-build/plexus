@@ -142,11 +142,12 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
     const map = getYjsMap();
     if (map?.doc) {
       attachObserver(map);
-      for (const [serializedKey, v] of map.entries()) {
-        const deserializedKey = deserializeKey(serializedKey, map.doc) as K;
-        backingStorage.set(deserializedKey, deref(map.doc, v) as V);
+      // some runtimes like wrangler act weird on Y.Map.entries()
+      map.forEach((v, serializedKey) => {
+        const deserializedKey = deserializeKey(serializedKey, map.doc!) as K;
+        backingStorage.set(deserializedKey, deref(map.doc!, v) as V);
         serializedToKey.set(serializedKey, deserializedKey);
-      }
+      });
     }
   }
 
@@ -373,12 +374,13 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         return;
       }
 
-      for (const [serializedKey, v] of map.entries()) {
-        const deserializedKey = deserializeKey(serializedKey, map.doc) as K;
+      // some runtimes like wrangler act weird on Y.Map.entries()
+      map.forEach((v, serializedKey) => {
+        const deserializedKey = deserializeKey(serializedKey, map.doc!) as K;
         const value = deref(map.doc!, v) as V;
         backingStorage.set(deserializedKey, value);
         serializedToKey.set(serializedKey, deserializedKey);
-      }
+      });
 
       attachObserver(map);
     },

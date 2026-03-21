@@ -30,7 +30,13 @@ import { getDependenciesMap, getMetaMap, getModelTypesMap } from "./yjs/getModel
 
 export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<string, Root> }> {
   /** Override in tests for deterministic UUIDs. Only used when PLEXUS_UUID_MODE=arbitrary. */
-  public static uuidMode: "arbitrary" | undefined = process.env.PLEXUS_UUID_MODE as "arbitrary" | undefined;
+  public static uuidMode: "arbitrary" | undefined = (() => {
+    try {
+      return process.env.PLEXUS_UUID_MODE as "arbitrary" | undefined;
+    } catch {
+      return undefined;
+    }
+  })();
   public static getArbitraryUUID: () => string = nanoid;
   readonly rootDependenciesRepresentation: ReadonlyDeep<Record<string, Root>> = new Proxy(
     {},

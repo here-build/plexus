@@ -160,38 +160,96 @@ describe("VirtualMap (@syncing.virtual)", () => {
     });
   });
 
-  // ── Reparenting guard ──
+  // ── Re-adoption / escape guards ──
+  //
+  // Virtual genesis entities are permanently bound to their genesis field+key.
+  // All adoption vectors must reject them: child field, child.list, child.map,
+  // and detach. The d-prefix UUID triggers the guard in validateAdoptionSymbol.
 
-  describe("reparenting guard", () => {
-    it("moving virtual child to different parent throws", () => {
-      // Both models in same doc so doc-mismatch doesn't fire first
-      @syncing("VHostWithReceiver")
-      class VHostWithReceiver extends PlexusModel {
-        @syncing accessor name!: string;
-        @syncing.virtual((key: string) => new VItem({ label: `auto-${key}` }))
-        accessor items!: VirtualMap<string, VItem>;
-        @syncing.child accessor held: VItem | null = null;
-      }
+  describe("re-adoption guards", () => {
+    // Shared model that exposes every adoption vector
+    @syncing("VAdoptionTarget")
+    class VAdoptionTarget extends PlexusModel {
+      @syncing accessor name!: string;
+      @syncing.virtual((key: string) => new VItem({ label: `auto-${key}` }))
+      accessor items!: VirtualMap<string, VItem>;
+      @syncing.child accessor held: VItem | null = null;
+      @syncing.child.list accessor list: VItem[] = [];
+      @syncing.child.map accessor map!: Map<string, VItem>;
+    }
 
-      const { root } = initTestPlexus(new VHostWithReceiver({ name: "host" }));
+    it("@syncing.child field assignment throws", () => {
+      const { root } = initTestPlexus(new VAdoptionTarget({ name: "host", map: new Map() }));
       const child = root.items.get("a");
 
       expect(() => {
         root.held = child;
       }).toThrow("cannot be reparented");
     });
-  });
 
-  // ── Detach guard ──
+    it("child.list.push() throws", () => {
+      const { root } = initTestPlexus(new VAdoptionTarget({ name: "host", map: new Map() }));
+      const child = root.items.get("a");
 
-  describe("detach guard", () => {
-    it(".detach() on virtual child throws", () => {
+      expect(() => {
+        root.list.push(child);
+      }).toThrow("cannot be reparented");
+    });
+
+    it("child.list.splice() throws", () => {
+      const { root } = initTestPlexus(new VAdoptionTarget({ name: "host", map: new Map() }));
+      const child = root.items.get("a");
+
+      expect(() => {
+        root.list.splice(0, 0, child);
+      }).toThrow("cannot be reparented");
+    });
+
+    it("child.list[index] assignment throws", () => {
+      const { root } = initTestPlexus(new VAdoptionTarget({ name: "host", map: new Map() }));
+      // Pre-populate with a legitimate item so index 0 exists
+      root.list.push(new VItem({ label: "placeholder" }));
+      const child = root.items.get("a");
+
+      expect(() => {
+        root.list[0] = child;
+      }).toThrow("cannot be reparented");
+    });
+
+    it("child.map.set() throws", () => {
+      const { root } = initTestPlexus(new VAdoptionTarget({ name: "host", map: new Map() }));
+      const child = root.items.get("a");
+
+      expect(() => {
+        root.map.set("stolen", child);
+      }).toThrow("cannot be reparented");
+    });
+
+    it(".detach() throws", () => {
       const { root } = initTestPlexus(new VHost({ name: "host" }));
       const child = root.items.get("a");
 
       expect(() => {
         child.detach();
       }).toThrow("cannot be detached");
+    });
+
+    it("re-adoption to SAME parent+field is allowed (idempotent)", () => {
+      // The guard checks currentParent !== newParent || currentKey !== field.
+      // Re-assigning to the same location should NOT throw.
+      const { root } = initTestPlexus(new VAdoptionTarget({ name: "host", map: new Map() }));
+      const child = root.items.get("a");
+
+      // The child's parent is root, field is "items". Attempting to adopt
+      // into the same field should be a no-op, not a throw.
+      // This is implicitly tested by the fact that .get() returns the same
+      // instance on second call, but let's be explicit about the invariant.
+      expect(child.parent).toBe(root);
+      expect(child.parentField).toBe("items");
+
+      // Second .get() — would re-adopt if the guard were broken
+      const same = root.items.get("a");
+      expect(same).toBe(child);
     });
   });
 
@@ -298,6 +356,49 @@ describe("VirtualMap (@syncing.virtual)", () => {
 
       const item = root.items.get("d-check");
       expect(item.uuid.startsWith("d")).toBe(true);
+    });
+  });
+
+  // ── Document-bound constraint ──
+
+  describe("document-bound constraint", () => {
+    it(".get() on ephemeral (no-doc) owner throws", () => {
+      const ephemeral = new VHost({ name: "ephemeral" });
+
+      expect(() => {
+        ephemeral.items.get("any-key");
+      }).toThrow(/must be connected/);
+    });
+
+    it(".has() on ephemeral owner returns false (no throw)", () => {
+      const ephemeral = new VHost({ name: "ephemeral" });
+      expect(ephemeral.items.has("x")).toBe(false);
+    });
+
+    it(".size on ephemeral owner returns 0 (no throw)", () => {
+      const ephemeral = new VHost({ name: "ephemeral" });
+      expect(ephemeral.items.size).toBe(0);
+    });
+
+    it("iteration on ephemeral owner yields nothing (no throw)", () => {
+      const ephemeral = new VHost({ name: "ephemeral" });
+      expect([...ephemeral.items.keys()]).toEqual([]);
+      expect([...ephemeral.items.values()]).toEqual([]);
+      expect([...ephemeral.items.entries()]).toEqual([]);
+    });
+
+    it(".get() works after connecting ephemeral model to doc", () => {
+      const model = new VHost({ name: "late-connect" });
+
+      // Before: throws
+      expect(() => model.items.get("early")).toThrow();
+
+      // Connect to doc
+      const { root } = initTestPlexus(model);
+
+      // After: works
+      const item = root.items.get("late");
+      expect(item.label).toBe("auto-late");
     });
   });
 });

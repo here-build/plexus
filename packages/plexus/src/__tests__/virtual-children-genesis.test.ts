@@ -329,14 +329,14 @@ describe("materializeVirtualChild", () => {
 
   // ── Key validation ──
 
-  it("primitive key validation: PlexusModel key throws", () => {
+  it("key validation: disconnected PlexusModel key throws", () => {
     const { root } = initTestPlexus(new VParent({ name: "parent", items: new Map() }));
     const yjsMap = getYjsMap(root, "items");
-    const model = new VChild({ label: "key" });
+    const disconnected = new VChild({ label: "key" });
 
     expect(() => {
-      materializeVirtualChild(root, "items", model as any, yjsMap, () => new VChild({ label: "x" }));
-    }).toThrow("PlexusModel");
+      materializeVirtualChild(root, "items", disconnected as any, yjsMap, () => new VChild({ label: "x" }));
+    }).toThrow("must be connected to a doc");
   });
 
   it("primitive key validation: Set key throws", () => {
@@ -812,5 +812,100 @@ describe("materializeVirtualChild", () => {
 
     expect(callCount).toBe(2);
     expect(root.items.get("count")!.label).toBe("child-count");
+  });
+});
+
+// ── PlexusModel keys ──
+
+/**
+ * Host model that holds key entities in a child-list and has a child-map
+ * where those key entities can be used as keys for materializeVirtualChild.
+ */
+@syncing("VKeyEntity")
+class VKeyEntity extends PlexusModel {
+  @syncing accessor name!: string;
+}
+
+@syncing("VModelKeyHost")
+class VModelKeyHost extends PlexusModel {
+  @syncing accessor title!: string;
+  @syncing.child.list accessor keys: VKeyEntity[] = [];
+  @syncing.child.map accessor registry!: Map<string, VChild>;
+}
+
+describe("materializeVirtualChild — PlexusModel keys", () => {
+  it("connected PlexusModel key produces correct entity", () => {
+    const keyEntity = new VKeyEntity({ name: "alpha" });
+    const host = new VModelKeyHost({ title: "host", keys: [keyEntity], registry: new Map() });
+    const { root } = initTestPlexus(host);
+
+    // keyEntity is now connected via root.keys[0]
+    const key = root.keys[0];
+    const yjsMap = getYjsMap(root, "registry");
+
+    // Read key fields BEFORE genesis — factory isolation blocks access to external models
+    const keyName = key.name;
+    materializeVirtualChild(root, "registry", key as any, yjsMap, () => new VChild({ label: `value-for-${keyName}` }));
+
+    expect(root.registry.size).toBe(1);
+    const entries = [...root.registry.values()];
+    expect(entries[0].label).toBe("value-for-alpha");
+  });
+
+  it("ephemeral PlexusModel key (no doc) throws", () => {
+    const host = new VModelKeyHost({ title: "host", keys: [], registry: new Map() });
+    const { root } = initTestPlexus(host);
+
+    const disconnectedKey = new VKeyEntity({ name: "orphan" });
+    const yjsMap = getYjsMap(root, "registry");
+
+    expect(() => {
+      materializeVirtualChild(root, "registry", disconnectedKey as any, yjsMap, () => new VChild({ label: "x" }));
+    }).toThrow("must be connected to a doc");
+  });
+
+  it("PlexusModel key determinism: two peers genesis same key → identical value UUIDs", () => {
+    const docId = "model-key-determinism";
+    const keyEntity = new VKeyEntity({ name: "shared-key" });
+    const host = new VModelKeyHost({ title: "host", keys: [keyEntity], registry: new Map() });
+
+    // Peer 1
+    const { root: root1, doc: doc1 } = initTestPlexus(host, {}, docId);
+    const key1 = root1.keys[0];
+
+    // Peer 2: sync full state
+    const doc2 = new Y.Doc({ guid: docId });
+    Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1));
+    const { root: root2 } = connectTestPlexus<VModelKeyHost>(doc2);
+    const key2 = root2.keys[0];
+
+    // Same key entity UUID on both peers
+    expect(key1.uuid).toBe(key2.uuid);
+
+    // Both peers genesis independently
+    const factory = () => new VChild({ label: "determined" });
+    materializeVirtualChild(root1, "registry", key1 as any, getYjsMap(root1, "registry"), factory);
+    materializeVirtualChild(root2, "registry", key2 as any, getYjsMap(root2, "registry"), factory);
+
+    // Same key UUID → same serialized key → same genesis clientId → identical value UUIDs
+    const values1 = [...root1.registry.values()];
+    const values2 = [...root2.registry.values()];
+    expect(values1[0].uuid).toBe(values2[0].uuid);
+  });
+
+  it("PlexusModel key from different doc throws (cross-reference blocked)", () => {
+    const host = new VModelKeyHost({ title: "host", keys: [], registry: new Map() });
+    const { root } = initTestPlexus(host, {}, "doc-A");
+
+    // Key entity connected to a DIFFERENT doc
+    const foreignKey = new VKeyEntity({ name: "foreign" });
+    initTestPlexus(foreignKey, {}, "doc-B");
+
+    const yjsMap = getYjsMap(root, "registry");
+
+    // serializeKey enforces same-doc: key's referenceSymbol checks doc === key's doc
+    expect(() => {
+      materializeVirtualChild(root, "registry", foreignKey as any, yjsMap, () => new VChild({ label: "cross-doc" }));
+    }).toThrow(/cross-reference between docs/);
   });
 });

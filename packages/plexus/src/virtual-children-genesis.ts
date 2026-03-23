@@ -16,7 +16,7 @@ import { murmur32 } from "./crdt-uuid.js";
 import { docPlexus } from "./plexus-registry.js";
 import { getInternals, PlexusModel } from "./PlexusModel.js";
 import { serializeKey } from "./proxies/key-serialization.js";
-import type { AllowedStatelessYJSMapKey, AllowedYValue } from "./proxy-runtime-types.js";
+import type { AllowedVirtualMapKey, AllowedYValue } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
 import { Plexus } from "./Plexus.js";
 
@@ -134,21 +134,32 @@ function withNativeUUIDs<T>(fn: () => T): T {
 }
 
 /**
- * Validate that a key is primitive or primitive[].
- * Throws on PlexusModel, Set, or other disallowed types.
+ * Validate that a key is a valid virtual map key.
+ *
+ * Allowed: primitives, primitive arrays, and PlexusModel instances connected
+ * to a Y.Doc (their UUID provides deterministic serialization for
+ * content-addressed genesis).
+ *
+ * Rejected: disconnected PlexusModel (non-deterministic), Sets, other types.
  */
-function assertPrimitiveKey(key: unknown): void {
+function assertValidKey(key: unknown): void {
   if (Array.isArray(key)) {
     for (const item of key) {
-      assertPrimitiveKey(item);
+      assertValidKey(item);
     }
+    return;
+  }
+  if (key instanceof PlexusModel) {
+    invariant(
+      key.__doc__,
+      "PlexusModel key must be connected to a doc for deterministic serialization",
+    );
     return;
   }
   const type = typeof key;
   if (type === "string" || type === "number" || type === "boolean" || type === "bigint") {
     return;
   }
-  invariant(!(key instanceof PlexusModel), "PlexusModel instances are not allowed as virtual child keys");
   invariant(!(key instanceof Set), "Sets are not allowed as virtual child keys");
   invariant(false, `Invalid virtual child key type: ${type}`);
 }
@@ -220,11 +231,11 @@ export function materializeArrayForField(owner: PlexusModel, fieldName: string):
  *
  * @param owner     Parent model (must be connected to a doc)
  * @param fieldName Field on parent (must be a child-map field)
- * @param mapKey    Primitive or primitive[] key
+ * @param mapKey    Primitive, primitive[], or doc-connected PlexusModel key
  * @param yjsMap    Parent's Y.Map for this field
  * @param factory   Creates entity tree — isolated, cannot access external models
  */
-export function materializeVirtualChild<K extends AllowedStatelessYJSMapKey, V extends PlexusModel>(
+export function materializeVirtualChild<K extends AllowedVirtualMapKey, V extends PlexusModel>(
   owner: PlexusModel,
   fieldName: string,
   mapKey: K,
@@ -234,7 +245,7 @@ export function materializeVirtualChild<K extends AllowedStatelessYJSMapKey, V e
   // Validate prerequisites
   const doc = owner.__doc__;
   invariant(doc, `materializeVirtualChild: owner ${owner.__type__} must be connected to a doc`);
-  assertPrimitiveKey(mapKey);
+  assertValidKey(mapKey);
 
   yjsMap ??= materializeMapForField(owner, fieldName);
 

@@ -10,7 +10,7 @@ import { buildRecordProxy } from "./proxies/materialized-record.js";
 import { buildSetProxy } from "./proxies/materialized-set.js";
 import {
   type AllowedPrimitive,
-  type AllowedStatelessYJSMapKey,
+  type AllowedVirtualMapKey,
   type AllowedYJSMapKey,
   type AllowedYJSValue,
   type GenericRecordSchema,
@@ -276,7 +276,7 @@ const createHandlers = <
     | AllowedYJSValue[]
     | Record<string, AllowedYJSValue>
     | Map<AllowedYJSMapKey, AllowedYJSValue>
-    | VirtualMap<AllowedStatelessYJSMapKey, AllowedYJSValue>,
+    | VirtualMap<AllowedVirtualMapKey, AllowedYJSValue>,
   Context extends ClassAccessorDecoratorContext<Model, T> & { name: string } = ClassAccessorDecoratorContext<
     Model,
     T
@@ -592,7 +592,20 @@ export const syncing = Object.assign(syncingDecorator, {
     return createHandlers<Model, Map<FieldValueKey, FieldValue>>(context);
   },
 
-  virtual<K extends AllowedStatelessYJSMapKey, V extends PlexusModel>(factory: (key: K) => V) {
+  /**
+   * Declares a document-bound virtual child map. Entries are auto-materialized
+   * on first `.get(key)` via content-addressed genesis — two independent peers
+   * producing the same entry get identical CRDT Items (sync is a no-op).
+   *
+   * **Document-bound:** `.get()` requires the owner to be connected to a
+   * `Y.Doc`. Ephemeral (doc-less) models must not call `.get()` — it will
+   * throw. Use eager construction (`constructor` + `@syncing.child.map`) for
+   * fields that must work in both ephemeral and connected contexts.
+   *
+   * Mutations (`.set()`, `.delete()`, `.clear()`) are blocked at runtime —
+   * virtual children are created by the factory, not by callers.
+   */
+  virtual<K extends AllowedVirtualMapKey, V extends PlexusModel>(factory: (key: K) => V) {
     return function <Model extends PlexusModel>(
       target: ClassAccessorDecoratorTarget<Model, VirtualMap<K, V>>,
       context: ClassAccessorDecoratorContext<Model, VirtualMap<K, V>> & { name: string },

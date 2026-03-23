@@ -25,9 +25,9 @@ export type AllowedYJSValueSet = Set<AllowedYJSValue>;
 export type AllowedYJSValueMap = Record<string, AllowedYJSValue>;
 export type AllowedYJSValueList = AllowedYJSValue[];
 export type AllowedYJSMapKey = AllowedYJSValue | Set<AllowedYJSValue> | AllowedYJSValue[];
-export type AllowedStatelessYJSMapKey = AllowedPrimitive | AllowedPrimitive[];
+export type AllowedVirtualMapKey = AllowedPrimitive | AllowedPrimitive[] | PlexusModel;
 
-export interface VirtualMap<K extends AllowedStatelessYJSMapKey, V> extends Omit<ReadonlyMap<K, V>, "get"> {
+export interface VirtualMap<K extends AllowedVirtualMapKey, V> extends Omit<ReadonlyMap<K, V>, "get"> {
   get(key: K): V;
 }
 

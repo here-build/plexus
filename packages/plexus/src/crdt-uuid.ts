@@ -110,9 +110,10 @@ const OFFSET_BITS = 32 - CLOCK_BITS; // 20
 
 // ── Encode: {clientId, clock} → PlexusUUID ──
 
-export function encode(clientId: number, clock: number): PlexusUUID {
+export function encode(clientId: number, clock: number, binding?: "bound"): PlexusUUID {
   if (clientId <= MAX_UINT32) {
-    // 'p' — plexus: Feistel(clientId, clock) for pseudo-random appearance
+    // Feistel(clientId, clock) for pseudo-random appearance
+    // 'p' = normal, 'b' = bound (cloned into virtual map — same resolution, reparent blocked)
     let L = clientId >>> 0;
     let R = clock >>> 0;
     for (let i = 0; i < 4; i++) {
@@ -120,7 +121,8 @@ export function encode(clientId: number, clock: number): PlexusUUID {
       L = R;
       R = newR;
     }
-    return ("p" + bodyEncode(L, R)) as PlexusUUID;
+    const prefix = binding === "bound" ? "b" : "p";
+    return (prefix + bodyEncode(L, R)) as PlexusUUID;
   }
 
   // 'd' — deterministic: direct packing (clientId is already a content hash)
@@ -139,7 +141,8 @@ export function decode(uuid: PlexusUUID): { clientId: number; clock: number } {
   const prefix = uuid[0];
   const body = uuid.slice(1);
 
-  if (prefix === "p") {
+  if (prefix === "p" || prefix === "b") {
+    // Feistel inverse — same for both p (normal) and b (bound)
     let { hi: L, lo: R } = bodyDecode(body);
     for (let i = 3; i >= 0; i--) {
       const newL = (R ^ roundFn(L, ROUND_KEYS[i])) >>> 0;

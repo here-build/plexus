@@ -29,6 +29,13 @@ const MAX_UINT32 = 0xffffffff;
 import { getDependenciesMap, getMetaMap, getModelTypesMap } from "./yjs/getModels.js";
 
 export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<string, Root> }> {
+  /** Enable PLEXUS_TEST_SENTINEL — constructor throws the sentinel symbol for reachability testing. */
+  public static testSentinels: boolean = false;
+
+  /** Set during controlled construction (sentinel-driven). Read by decorators init() to skip field initialization. */
+  // eslint-disable-next-line sonarjs/public-static-readonly
+  static __isControlledConstruction__: boolean = false;
+
   /** Override in tests for deterministic UUIDs. Only used when PLEXUS_UUID_MODE=arbitrary. */
   public static uuidMode: "arbitrary" | undefined = (() => {
     try {

@@ -1,12 +1,16 @@
 import invariant from "tiny-invariant";
 
 import type { ConcretePlexusConstructor } from "./PlexusModel.js";
-import { PlexusModel, safeUuid } from "./PlexusModel.js";
+import { getInternals, PlexusModel, safeUuid } from "./PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue } from "./proxy-runtime-types.js";
 import { __untracked__, ACCESS_ALL_SYMBOL, trackAccess } from "./tracking.js";
 
 // Global clone transaction mapping for handling cycles and deduplication
 let cloneTransactionMapping: WeakMap<any, any> | null = null;
+
+export function isInCloneTransaction(): boolean {
+  return cloneTransactionMapping !== null;
+}
 
 const postMappingFill = new Set<() => void>();
 
@@ -95,9 +99,6 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
             );
             break;
           case "child-map": {
-            // Virtual children auto-materialize — skip during clone
-            const vf = (source.constructor as any)[Symbol.metadata]?.virtualFactories?.[fieldKey];
-            if (vf) break;
             // Phase 1: Clone VALUES only (they're owned children).
             // Keep ORIGINAL keys - they'll be remapped in postMappingFill
             // after all child entities are cloned and in cloneTransactionMapping.
@@ -115,7 +116,11 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
             }
             modelEntries.set(fieldKey, tempEntries);
             // Set empty map for now - will be filled in postMappingFill
-            clonedModel[fieldKey] = new Map();
+            // Virtual maps: backing proxy exists already, skip assignment (set() is blocked)
+            const vfPhase1 = (source.constructor as any)[Symbol.metadata]?.virtualFactories?.[fieldKey];
+            if (!vfPhase1) {
+              clonedModel[fieldKey] = new Map();
+            }
             break;
           }
         }
@@ -169,12 +174,8 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
               );
               break;
             case "child-map": {
-              // Virtual children auto-materialize — skip during clone
-              const vf2 = (source.constructor as any)[Symbol.metadata]?.virtualFactories?.[fieldKey];
-              if (vf2) break;
               // Phase 2: Now that all child entities are cloned, remap keys.
-              // Keys that were cloned (as values elsewhere) get remapped to the clone.
-              // Keys that were NOT cloned stay as the original reference.
+              const vf = (source.constructor as any)[Symbol.metadata]?.virtualFactories?.[fieldKey];
               const tempEntries = childMapTempEntries!.get(clonedModel)?.get(fieldKey);
               if (tempEntries) {
                 const finalEntries: [AllowedYJSMapKey, AllowedYJSValue][] = tempEntries.map(([key, value]) => {
@@ -186,9 +187,23 @@ export function clone<Model extends PlexusModel>(source: Model, newProps: Partia
                   } else {
                     remappedKey = cloneTransactionMapping!.get(key) ?? key;
                   }
+                  // Mark cloned entities as bound when going into a virtual map
+                  if (vf && value instanceof PlexusModel) {
+                    const internals = getInternals(value);
+                    invariant(
+                      !internals.isDependency,
+                      `Clone: dependency entity ${safeUuid(value)} cannot be placed in a virtual map`,
+                    );
+                    internals.binding = "bound";
+                  }
                   return [remappedKey, value]; // Value already cloned in phase 1
                 });
-                clonedModel[fieldKey] = new Map(finalEntries);
+                if (vf) {
+                  // Virtual maps: use .assign() which is allowed during clone transactions
+                  (clonedModel[fieldKey] as any).assign(new Map(finalEntries));
+                } else {
+                  clonedModel[fieldKey] = new Map(finalEntries);
+                }
                 childMapTempEntries!.get(clonedModel)?.delete(fieldKey);
               }
               break;

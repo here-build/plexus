@@ -1,4 +1,5 @@
 export * from "./proxy-runtime-types.js";
+export * from "./sentinels.js";
 
 export * from "./PlexusModel.js";
 export * from "./decorators.js";

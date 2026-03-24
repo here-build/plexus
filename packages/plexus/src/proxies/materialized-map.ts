@@ -2,6 +2,7 @@ import * as Y from "yjs";
 
 import invariant from "tiny-invariant";
 
+import { isInCloneTransaction } from "../clone.js";
 import { deref } from "../deref.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
@@ -300,7 +301,9 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
 
     // Plexus-specific methods
     assign(map: Map<K, V>): void {
-      invariant(!virtualFactory, "VirtualMap: .assign() is blocked — virtual children cannot be overwritten");
+      if (virtualFactory) {
+        invariant(isInCloneTransaction(), "VirtualMap: .assign() is blocked outside clone — virtual children are factory-created");
+      }
       ensureYjsMap();
       maybeTransacting(owner.__doc__, () => {
         const iterable = map.entries();

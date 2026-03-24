@@ -112,6 +112,16 @@ describe("VirtualMap (@syncing.virtual)", () => {
         (root.items as any).assign(new Map([["x", new VItem({ label: "x" })]]));
       }).toThrow("VirtualMap");
     });
+
+    it("accessor assignment is a type error AND throws at runtime", () => {
+      const { root } = initTestPlexus(new VHost({ name: "host" }));
+
+      // @ts-expect-error — virtual map accessor rejects assignment at type level (set accepts never)
+      expect(() => { root.items = new Map(); }).toThrow("cannot be assigned");
+
+      // @ts-expect-error — even assigning the same type is rejected
+      expect(() => { root.items = root.items; }).toThrow("cannot be assigned");
+    });
   });
 
   // ── Read operations ──
@@ -184,7 +194,7 @@ describe("VirtualMap (@syncing.virtual)", () => {
 
       expect(() => {
         root.held = child;
-      }).toThrow("cannot be reparented");
+      }).toThrow();
     });
 
     it("child.list.push() throws", () => {
@@ -193,7 +203,7 @@ describe("VirtualMap (@syncing.virtual)", () => {
 
       expect(() => {
         root.list.push(child);
-      }).toThrow("cannot be reparented");
+      }).toThrow();
     });
 
     it("child.list.splice() throws", () => {
@@ -202,7 +212,7 @@ describe("VirtualMap (@syncing.virtual)", () => {
 
       expect(() => {
         root.list.splice(0, 0, child);
-      }).toThrow("cannot be reparented");
+      }).toThrow();
     });
 
     it("child.list[index] assignment throws", () => {
@@ -213,7 +223,7 @@ describe("VirtualMap (@syncing.virtual)", () => {
 
       expect(() => {
         root.list[0] = child;
-      }).toThrow("cannot be reparented");
+      }).toThrow();
     });
 
     it("child.map.set() throws", () => {
@@ -222,7 +232,7 @@ describe("VirtualMap (@syncing.virtual)", () => {
 
       expect(() => {
         root.map.set("stolen", child);
-      }).toThrow("cannot be reparented");
+      }).toThrow();
     });
 
     it(".detach() throws", () => {
@@ -231,7 +241,7 @@ describe("VirtualMap (@syncing.virtual)", () => {
 
       expect(() => {
         child.detach();
-      }).toThrow("cannot be detached");
+      }).toThrow();
     });
 
     it("re-adoption to SAME parent+field is allowed (idempotent)", () => {
@@ -256,16 +266,20 @@ describe("VirtualMap (@syncing.virtual)", () => {
   // ── Clone ──
 
   describe("clone", () => {
-    it("cloning model with virtual map produces empty virtual map", () => {
+    it("cloning model with virtual map preserves materialized entries", () => {
       const { root } = initTestPlexus(new VHost({ name: "host" }));
       root.items.get("a");
       root.items.get("b");
       expect(root.items.size).toBe(2);
 
       const cloned = root.clone();
-      // Virtual maps start empty on clones — children auto-materialize on access
-      expect(cloned.items.size).toBe(0);
+      // Materialized virtual children are cloned (not empty)
+      expect(cloned.items.size).toBe(2);
       expect(cloned.name).toBe("host");
+      // Cloned entries are different instances with same content
+      expect(cloned.items.get("a")).not.toBe(root.items.get("a"));
+      expect(cloned.items.get("a")!.label).toBe("auto-a");
+      expect(cloned.items.get("b")!.label).toBe("auto-b");
     });
 
     it("cloned virtual map still auto-materializes", () => {

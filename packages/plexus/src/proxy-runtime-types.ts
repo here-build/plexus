@@ -74,6 +74,13 @@ export type Internals<Parent extends PlexusModel | null> =
       isRoot?: boolean;
       isDematerialized?: boolean;
       unobserve?: () => void;
+      /**
+       * How this entity was created — determines UUID prefix and lifecycle rules.
+       * - undefined: normal entity (p-prefix, full lifecycle)
+       * - "derived": virtual genesis child (d-prefix, reparent/detach blocked)
+       * - "bound": cloned into virtual map (b-prefix, reparent/detach blocked)
+       */
+      binding?: "derived" | "bound";
     }
   | {
       isDependency: true;

@@ -3,6 +3,7 @@ import invariant from "tiny-invariant";
 import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
 import { getInternals, type PlexusConstructor, PlexusModel, safeUuid } from "./PlexusModel.js";
+import { Plexus } from "./Plexus.js";
 import { assertGenesisIsolation } from "./virtual-children-genesis.js";
 import { buildArrayProxy } from "./proxies/materialized-array.js";
 import { buildMapProxy } from "./proxies/materialized-map.js";
@@ -415,8 +416,8 @@ const createHandlers = <
      * (but if ?? would fall back only on undefined, not null)
      * */
     init(this: Model, value: T): T {
-      // we're intentionally skipping
-      if (PlexusModel.__isMaterializingRaw__) {
+      // Skip field init during controlled construction (sentinel-driven)
+      if (Plexus.__isControlledConstruction__) {
         return undefined as any;
       }
       const internals = getInternals(this);
@@ -612,7 +613,21 @@ export const syncing = Object.assign(syncingDecorator, {
     ) {
       ensureSchema(context)[context.name] = "child-map";
       ensureVirtualFactories(context)[context.name] = factory;
-      return createHandlers<Model, VirtualMap<K, V>>(context);
+      const handlers = createHandlers<Model, VirtualMap<K, V>>(context);
+      // Virtual maps: get returns VirtualMap, set accepts never (assignment is a type error),
+      // init returns the backing proxy without calling .assign()
+      return {
+        get(this: Model): VirtualMap<K, V> {
+          return handlers.get.call(this);
+        },
+        set(this: Model, _value: never): void {
+          invariant(false, `@syncing.virtual field "${String(context.name)}" cannot be assigned — use .get(key) to auto-materialize`);
+        },
+        init(this: Model, _value: never): VirtualMap<K, V> {
+          if (Plexus.__isControlledConstruction__) return undefined as any;
+          return handlers.get.call(this);
+        },
+      };
     };
   },
 

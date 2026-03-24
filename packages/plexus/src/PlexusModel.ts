@@ -46,6 +46,7 @@ import { curryMaybeReference, maybeTransacting, never } from "./utils/utils.js";
 import { genesisAllowlist } from "./virtual-children-genesis.js";
 import { getTypeMap } from "./yjs/getModels.js";
 import { Plexus } from "./Plexus.js";
+import { PLEXUS_CONTROLLED, PLEXUS_DERIVED, PLEXUS_TEST_SENTINEL } from "./sentinels.js";
 
 export type PlexusConstructor<T extends PlexusModel = PlexusModel> = (abstract new (...args: any) => T) & {
   modelName: string;
@@ -59,6 +60,15 @@ export type ConcretePlexusConstructor<T extends PlexusModel = PlexusModel> = (ne
 const currentlyEmancipating = new WeakSet<PlexusModel>();
 
 const internalsStore = new WeakMap<PlexusModel, Internals<any>>();
+
+// _isControlledConstruction lives on Plexus static (not module-scoped let)
+// because not every bundler allows cross-module mutation of exported let bindings.
+
+/** Check if an entity is bound (derived or cloned into virtual map). Bound entities can't be reparented or detached. */
+export function isBoundEntity(internals: Internals<any>): boolean {
+  if (internals.isDependency) return false;
+  return internals.binding === "derived" || internals.binding === "bound";
+}
 
 /**
  * Access internals for a PlexusModel instance.
@@ -106,8 +116,6 @@ export type PlexusInit<T extends PlexusModel> = {
 
 export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   // eslint-disable-next-line sonarjs/public-static-readonly
-  static __isMaterializingRaw__ = false;
-  // eslint-disable-next-line sonarjs/public-static-readonly
   static __forcedInternals__: Internals<any> | null = null;
   // eslint-disable-next-line sonarjs/public-static-readonly
   static modelName: string;
@@ -116,15 +124,27 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   static readonly schema: GenericRecordSchema;
 
   constructor(init: unknown = {}) {
+    // Test sentinel: throw self for constructor reachability testing
+    if (init === PLEXUS_TEST_SENTINEL) {
+      if (Plexus.testSentinels) throw PLEXUS_TEST_SENTINEL;
+      init = {};
+    }
+
+    const isControlled = init === PLEXUS_CONTROLLED || init === PLEXUS_DERIVED;
+    // Note: _isControlledConstruction is set by __materializeRaw__ / __materializePredefined__
+    // BEFORE the constructor runs (so decorators' init() sees it). Setting here is a safety net.
+    if (isControlled) Plexus.__isControlledConstruction__ = true;
+
     // Use forced internals if provided (for dependency models), otherwise default
     const internals: Internals<any> = PlexusModel.__forcedInternals__ ?? {
       parent: null,
       parentKey: null,
       parentMetadata: null,
-      initializationState: init as any,
+      initializationState: isControlled ? {} : (init as any),
       isWithinYjsModelSeed: false,
       yjsModel: undefined,
       backingStorage: new Map<string, any>(),
+      binding: init === PLEXUS_DERIVED ? "derived" as const : undefined,
       // No UUID until materialization — virtual nodes are ephemeral.
       // CRDT-native UUID is assigned at [referenceSymbol] via encode().
     };
@@ -188,11 +208,11 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   }
 
   static __materializeRaw__<T extends PlexusModel>(constructor: Constructor<T>) {
-    PlexusModel.__isMaterializingRaw__ = true;
+    Plexus.__isControlledConstruction__ = true;
     try {
-      return new constructor();
+      return new constructor(PLEXUS_CONTROLLED);
     } finally {
-      PlexusModel.__isMaterializingRaw__ = false;
+      Plexus.__isControlledConstruction__ = false;
     }
   }
 
@@ -296,12 +316,12 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   }
 
   static __materializePredefined__<T extends PlexusModel>(constructor: Constructor<T>, internals: Internals<any>) {
-    PlexusModel.__isMaterializingRaw__ = true;
+    Plexus.__isControlledConstruction__ = true;
     PlexusModel.__forcedInternals__ = internals;
     try {
-      return new constructor();
+      return new constructor(PLEXUS_CONTROLLED);
     } finally {
-      PlexusModel.__isMaterializingRaw__ = false;
+      Plexus.__isControlledConstruction__ = false;
       PlexusModel.__forcedInternals__ = null;
     }
   }
@@ -342,14 +362,14 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       newParent,
     );
 
-    // Check 6: Virtual child reparenting guard
-    if (internals.uuid?.startsWith("d")) {
+    // Check 6: Bound entity reparenting guard (derived genesis + cloned into virtual map)
+    if (isBoundEntity(internals)) {
       const currentParent = internals.parent;
       const currentKey = internals.parentKey;
       if (currentParent && (currentParent !== newParent || currentKey !== field)) {
         invariant(
           false,
-          `Virtual child ${this.__type__}#${internals.uuid} cannot be reparented — bound to genesis field+key`,
+          `Bound entity ${this.__type__}#${internals.uuid} cannot be reparented — bound to field+key (binding: ${internals.binding})`,
         );
       }
     }
@@ -459,8 +479,8 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     const internals = this.__internals__;
     if (!internals.isDependency) {
       invariant(
-        !internals.uuid?.startsWith("d"),
-        `Virtual child ${this.__type__}#${internals.uuid} cannot be detached — bound to genesis field+key`,
+        !isBoundEntity(internals),
+        `Bound entity ${this.__type__}#${internals.uuid} cannot be detached (binding: ${internals.binding})`,
       );
     }
     this[requestOrphanizationSymbol]();
@@ -512,8 +532,13 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
         } else {
           // CRDT-native UUID: encode {clientId, clock} at materialization.
           // The next clock tick will be consumed by typeMap.set — predict it now.
+          // binding === "bound" → b-prefix; genesis (clientId > uint32) → d-prefix; else → p-prefix
           const predictedClock = Y.getState(doc.store, doc.clientID);
-          internals.uuid = encode(doc.clientID, predictedClock) as PlexusUUID;
+          internals.uuid = encode(
+            doc.clientID,
+            predictedClock,
+            !internals.isDependency && internals.binding === "bound" ? "bound" : undefined,
+          ) as PlexusUUID;
         }
         // type is encoded in XmlElement nodeName; fields stored directly as attributes (flat)
         yprojectObjectInstance = new Y.XmlElement(this.__type__);

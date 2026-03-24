@@ -113,13 +113,13 @@ describe("VirtualMap (@syncing.virtual)", () => {
       }).toThrow("VirtualMap");
     });
 
-    it("accessor assignment is a type error AND throws at runtime", () => {
+    it("accessor assignment is a type error for foreign values, runtime error for all", () => {
       const { root } = initTestPlexus(new VHost({ name: "host" }));
 
-      // @ts-expect-error — virtual map accessor rejects assignment at type level (set accepts never)
+      // @ts-expect-error — VirtualMap brand prevents assigning a plain Map
       expect(() => { root.items = new Map(); }).toThrow("cannot be assigned");
 
-      // @ts-expect-error — even assigning the same type is rejected
+      // Self-assignment: passes type check (same branded type) but throws at runtime
       expect(() => { root.items = root.items; }).toThrow("cannot be assigned");
     });
   });

@@ -147,11 +147,15 @@ It means that the special virtual "user" appears in CRDT for everyone accessing 
 generates this entity in a way that will be identical for every user out there,
 and during the CRDT merge, it will not overwrite itself, but merge safely.
 
-> **Restrictions:**
-> 
-> - Factory runs in a **sandbox** with no access to external state
-> - Produce structures as **shallow** as possible
-> - This is **not** a general-purpose lazy loader
+> **Constraints:**
+>
+> - **Document-bound:** `.get()` requires the owner to be connected to a `Y.Doc`. Ephemeral (doc-less) models must not access virtual fields — it will throw. Use eager construction (`constructor` + `@syncing.child.map`) for fields that must work in both ephemeral and connected contexts.
+> - **Factory isolation:** Factory runs in a sandbox with no access to external models. Only entities created within the factory are accessible.
+> - **Mutations blocked:** `.set()`, `.delete()`, `.clear()`, `.assign()` all throw at runtime. Virtual children are created by the factory, not by callers.
+> - **Keys:** Primitives, primitive arrays, and `PlexusModel` instances (when connected to a doc) are valid keys. Sets are rejected. Disconnected PlexusModel keys throw.
+> - **Clone:** Virtual children are skipped during clone — they auto-materialize on access in the clone.
+> - **Undo:** Genesis operations use `GENESIS_ORIGIN` — invisible to UndoManager.
+> - This is **not** a general-purpose lazy loader.
 
 ### Map Keys
 

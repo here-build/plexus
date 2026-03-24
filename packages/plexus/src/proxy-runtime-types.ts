@@ -27,8 +27,13 @@ export type AllowedYJSValueList = AllowedYJSValue[];
 export type AllowedYJSMapKey = AllowedYJSValue | Set<AllowedYJSValue> | AllowedYJSValue[];
 export type AllowedVirtualMapKey = AllowedPrimitive | AllowedPrimitive[] | PlexusModel;
 
+/** @internal Brand symbol — makes VirtualMap unconstructable from outside Plexus. */
+declare const __virtualMapBrand: unique symbol;
+
 export interface VirtualMap<K extends AllowedVirtualMapKey, V> extends Omit<ReadonlyMap<K, V>, "get"> {
   get(key: K): V;
+  /** Prevents assignment — no externally constructed value satisfies this branded type. */
+  readonly [__virtualMapBrand]: never;
 }
 
 export type Storageable = AllowedYValue | Y.Map<AllowedYValue> | Y.Array<AllowedYValue>;

@@ -415,7 +415,7 @@ const createHandlers = <
      * this._initializationState[field] ?? child.field ?? parent.field ?? grandparent.field
      * (but if ?? would fall back only on undefined, not null)
      * */
-    init(this: Model, value: T): T {
+    init(this: Model, value: T | undefined): T {
       // Skip field init during controlled construction (sentinel-driven)
       if (Plexus.__isControlledConstruction__) {
         return undefined as any;

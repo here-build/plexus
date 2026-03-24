@@ -23,6 +23,14 @@ class Container extends PlexusModel {
   @syncing.child.list accessor items: Item[] = [];
 }
 
+/** A container that holds a REFERENCE (not child) to an Item — can point cross-doc */
+@syncing("RefHolder")
+class RefHolder extends PlexusModel {
+  @syncing accessor name: string = "";
+  @syncing accessor ref: Item | null = null;
+  @syncing.list accessor refs: Item[] = [];
+}
+
 @syncing("Root")
 class Root extends PlexusModel<null> {
   dependencies?: Record<string, Root>;
@@ -30,10 +38,23 @@ class Root extends PlexusModel<null> {
   @syncing.child.list accessor containers: Container[] = [];
 
   @syncing.child.list accessor items: Item[] = [];
+
+  @syncing.child.list accessor holders: RefHolder[] = [];
 }
 
-function createDependencyDoc(documentId: string, setup: (plexus: ReturnType<typeof initTestPlexus<Root>>) => void) {
-  const { doc, plexus, root } = initTestPlexus(new Root({ containers: [], items: [] }), {}, documentId);
+function createDependencyDoc(
+  documentId: string,
+  setup: (plexus: ReturnType<typeof initTestPlexus<Root>>) => void,
+  existingDeps?: Record<string, Uint8Array>,
+) {
+  const { doc, plexus, root } = initTestPlexus(new Root({ containers: [], items: [], holders: [] }), {}, documentId);
+
+  // Load any pre-existing dependencies this package needs
+  if (existingDeps) {
+    for (const [depId, depVector] of Object.entries(existingDeps)) {
+      plexus.addDependency(depId, depVector);
+    }
+  }
 
   plexus.transact(() => {
     setup({ doc, plexus, root });
@@ -243,9 +264,80 @@ describe("Dependency system", () => {
     });
 
     it("should throw for unknown dependency", () => {
-      const { plexus } = initTestPlexus(new Root({ containers: [], items: [] }));
+      const { plexus } = initTestPlexus(new Root({ containers: [], items: [], holders: [] }));
 
       expect(() => plexus.__getDependencyNode__("unknown-pkg", "some-uuid")).to.throw("cannot resolve dependency");
+    });
+  });
+
+  describe("Transitive dependencies (deps-of-deps)", () => {
+    it("should resolve cross-doc references when both deps are loaded flat", () => {
+      // Package B: has an item
+      const [depBId, depBVector] = createDependencyDoc("pkg-B", ({ root }) => {
+        root.items.push(new Item({ name: "shared-token" }));
+      });
+
+      // Package A: depends on B, holds a reference to B's item
+      const [depAId, depAVector] = createDependencyDoc(
+        "pkg-A",
+        ({ plexus, root }) => {
+          // Get B's item via the loaded dependency
+          const depBRoot = plexus.rootDependenciesRepresentation["pkg-B"];
+          const bItem = depBRoot.items[0];
+
+          // Create a holder in A that references B's item
+          const holder = new RefHolder({ name: "uses-b-token", ref: null, refs: [] });
+          holder.ref = bItem as Item;
+          root.holders.push(holder);
+        },
+        { "pkg-B": depBVector },
+      );
+
+      // Our project: load both A and B as flat dependencies
+      const { plexus } = initTestPlexus(new Root({ containers: [], items: [], holders: [] }));
+      plexus.addDependency(depBId, depBVector);
+      plexus.addDependency(depAId, depAVector);
+
+      const depARoot = plexus.rootDependenciesRepresentation["pkg-A"];
+      const depBRoot = plexus.rootDependenciesRepresentation["pkg-B"];
+
+      // A's holder should reference B's item
+      const holder = depARoot.holders[0];
+      expect(holder.name).to.equal("uses-b-token");
+      expect(holder.ref).to.not.eq(null);
+      expect(holder.ref!.name).to.equal("shared-token");
+
+      // The resolved item should be the same instance as B's item
+      expect(holder.ref === depBRoot.items[0]).to.eq(true);
+    });
+
+    it("should fail gracefully when transitive dep is not loaded", () => {
+      // Package B: has an item
+      const [depBId, depBVector] = createDependencyDoc("pkg-B-missing", ({ root }) => {
+        root.items.push(new Item({ name: "orphan-token" }));
+      });
+
+      // Package A: depends on B
+      const [depAId, depAVector] = createDependencyDoc(
+        "pkg-A-missing",
+        ({ plexus, root }) => {
+          const depBRoot = plexus.rootDependenciesRepresentation["pkg-B-missing"];
+          const holder = new RefHolder({ name: "broken-ref", ref: null, refs: [] });
+          holder.ref = depBRoot.items[0] as Item;
+          root.holders.push(holder);
+        },
+        { "pkg-B-missing": depBVector },
+      );
+
+      // Our project: load A but NOT B
+      const { plexus } = initTestPlexus(new Root({ containers: [], items: [], holders: [] }));
+      plexus.addDependency(depAId, depAVector);
+
+      const depARoot = plexus.rootDependenciesRepresentation["pkg-A-missing"];
+      const holder = depARoot.holders[0];
+
+      // Accessing the cross-doc reference should throw because B is not loaded
+      expect(() => holder.ref).to.throw("cannot resolve dependency");
     });
   });
 });

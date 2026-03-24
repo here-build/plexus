@@ -83,7 +83,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
           get parent() {
             return parentUuid ? defaultedMap.get(parentUuid) : null;
           },
-          reference: [documentId, uuid],
+          reference: [uuid, documentId],
           parentKey: null,
           parentMetadata: null,
         },

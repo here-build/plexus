@@ -259,14 +259,14 @@ describe("Dependency system", () => {
       const itemUuid = getInternals(item).uuid!;
 
       // Should be able to retrieve via getDependencyNode
-      const retrieved = plexus.__getDependencyNode__("pkg-get", itemUuid);
+      const retrieved = plexus.getDependencyEntity("pkg-get", itemUuid);
       expect(retrieved === item).to.eq(true); // Same cached instance
     });
 
     it("should throw for unknown dependency", () => {
       const { plexus } = initTestPlexus(new Root({ containers: [], items: [], holders: [] }));
 
-      expect(() => plexus.__getDependencyNode__("unknown-pkg", "some-uuid")).to.throw("cannot resolve dependency");
+      expect(() => plexus.getDependencyEntity("unknown-pkg", "some-uuid")).to.throw("not loaded");
     });
   });
 
@@ -337,7 +337,127 @@ describe("Dependency system", () => {
       const holder = depARoot.holders[0];
 
       // Accessing the cross-doc reference should throw because B is not loaded
-      expect(() => holder.ref).to.throw("cannot resolve dependency");
+      expect(() => holder.ref).to.throw("not loaded");
+    });
+  });
+
+  describe("replaceDependency", () => {
+    it("should replace blob and resolve new entities", () => {
+      const [depId, depVector1] = createDependencyDoc("pkg-replace", ({ root }) => {
+        root.items.push(new Item({ name: "v1-item" }));
+      });
+
+      const { plexus } = initTestPlexus(new Root({ containers: [], items: [], holders: [] }));
+      const v1Root = plexus.addDependency(depId, depVector1);
+      expect(v1Root.items[0].name).to.equal("v1-item");
+
+      // Create v2 with different content
+      const [, depVector2] = createDependencyDoc("pkg-replace", ({ root }) => {
+        root.items.push(new Item({ name: "v2-item" }));
+        root.items.push(new Item({ name: "v2-extra" }));
+      });
+
+      const v2Root = plexus.replaceDependency(depId, depVector2);
+      expect(v2Root.items).to.have.lengthOf(2);
+      expect(v2Root.items[0].name).to.equal("v2-item");
+      expect(v2Root.items[1].name).to.equal("v2-extra");
+    });
+
+    it("should invalidate cache — old instances no longer returned", () => {
+      const [depId, depVector1] = createDependencyDoc("pkg-cache-inv", ({ root }) => {
+        root.items.push(new Item({ name: "original" }));
+      });
+
+      const { plexus } = initTestPlexus(new Root({ containers: [], items: [], holders: [] }));
+      const v1Root = plexus.addDependency(depId, depVector1);
+      const oldItem = v1Root.items[0];
+      expect(oldItem.name).to.equal("original");
+
+      const [, depVector2] = createDependencyDoc("pkg-cache-inv", ({ root }) => {
+        root.items.push(new Item({ name: "replaced" }));
+      });
+
+      const v2Root = plexus.replaceDependency(depId, depVector2);
+      // New root is a different instance
+      expect(v2Root).to.not.eq(v1Root);
+      expect(v2Root.items[0].name).to.equal("replaced");
+    });
+
+    it("should throw for non-existent dependency", () => {
+      const { plexus } = initTestPlexus(new Root({ containers: [], items: [], holders: [] }));
+      expect(() => plexus.replaceDependency("nonexistent", new Uint8Array())).to.throw("not found");
+    });
+  });
+
+  describe("removeDependency", () => {
+    it("should remove dependency and make references dangling", () => {
+      const [depId, depVector] = createDependencyDoc("pkg-remove", ({ root }) => {
+        root.items.push(new Item({ name: "doomed" }));
+      });
+
+      const { plexus } = initTestPlexus(new Root({ containers: [], items: [], holders: [] }));
+      plexus.addDependency(depId, depVector);
+
+      const deps = plexus.rootDependenciesRepresentation;
+      expect(deps["pkg-remove"]).to.not.eq(undefined);
+
+      plexus.removeDependency(depId);
+
+      // Dependency no longer accessible
+      expect(deps["pkg-remove"]).to.eq(undefined);
+      expect(() => plexus.getDependencyEntity(depId, "any-uuid")).to.throw("not loaded");
+    });
+
+    it("should throw for non-existent dependency", () => {
+      const { plexus } = initTestPlexus(new Root({ containers: [], items: [], holders: [] }));
+      expect(() => plexus.removeDependency("nonexistent")).to.throw("not found");
+    });
+  });
+
+  describe("Multiple dependencies", () => {
+    it("should load and resolve across A, B, C independently", () => {
+      const [idA, vecA] = createDependencyDoc("pkg-multi-A", ({ root }) => {
+        root.items.push(new Item({ name: "from-A" }));
+      });
+      const [idB, vecB] = createDependencyDoc("pkg-multi-B", ({ root }) => {
+        root.items.push(new Item({ name: "from-B" }));
+      });
+      const [idC, vecC] = createDependencyDoc("pkg-multi-C", ({ root }) => {
+        root.items.push(new Item({ name: "from-C" }));
+      });
+
+      const { plexus } = initTestPlexus(new Root({ containers: [], items: [], holders: [] }));
+      plexus.addDependency(idA, vecA);
+      plexus.addDependency(idB, vecB);
+      plexus.addDependency(idC, vecC);
+
+      const deps = plexus.rootDependenciesRepresentation;
+      expect(deps["pkg-multi-A"].items[0].name).to.equal("from-A");
+      expect(deps["pkg-multi-B"].items[0].name).to.equal("from-B");
+      expect(deps["pkg-multi-C"].items[0].name).to.equal("from-C");
+    });
+  });
+
+  describe("Blob format", () => {
+    it("should round-trip: createBlobFromDoc → decodeBlob → entities match", () => {
+      const [depId, depVector] = createDependencyDoc("pkg-roundtrip", ({ root }) => {
+        root.items.push(new Item({ name: "alpha" }));
+        root.items.push(new Item({ name: "beta" }));
+        const container = new Container({ name: "wrapper", item: null, items: [] });
+        container.item = new Item({ name: "nested" });
+        root.containers.push(container);
+      });
+
+      const { plexus } = initTestPlexus(new Root({ containers: [], items: [], holders: [] }));
+      const depRoot = plexus.addDependency(depId, depVector);
+
+      // Verify all entities materialized correctly from the blob
+      expect(depRoot.items).to.have.lengthOf(2);
+      expect(depRoot.items[0].name).to.equal("alpha");
+      expect(depRoot.items[1].name).to.equal("beta");
+      expect(depRoot.containers).to.have.lengthOf(1);
+      expect(depRoot.containers[0].name).to.equal("wrapper");
+      expect(depRoot.containers[0].item!.name).to.equal("nested");
     });
   });
 });

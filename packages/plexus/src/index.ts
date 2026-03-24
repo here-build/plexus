@@ -7,5 +7,6 @@ export * from "./errors.js";
 export * from "./tracking.js";
 export * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 export * from "./Plexus.js";
+export * from "./dependency-blob.js";
 export * from "./plexus-registry.js";
 export * from "./walk.js";

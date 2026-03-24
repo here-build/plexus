@@ -36,7 +36,7 @@ export function deref<T extends AllowedYJSValue>(
 
   const alteredDocumentId = pointer[1] ?? contextualDocumentId;
   if (alteredDocumentId) {
-    return docPlexus.get(doc)!.__getDependencyNode__(alteredDocumentId, entityId) as T;
+    return docPlexus.get(doc)!.getDependencyEntity(alteredDocumentId, entityId) as T;
   }
 
   // Entity cache check first — O(1) if already resolved

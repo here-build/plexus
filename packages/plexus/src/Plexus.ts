@@ -2,15 +2,14 @@
  * Plexus Document - Orchestrates YJS document state and undo/redo
  */
 
-import { decoding, encoding } from "lib0";
 import { nanoid } from "nanoid";
 import invariant from "tiny-invariant";
 import type { ReadonlyDeep } from "type-fest";
 import * as Y from "yjs";
 import { UndoManager } from "yjs";
 
+import { type DecodedBlob, decodeBlob, createBlobFromDoc } from "./dependency-blob.js";
 import { deref } from "./deref.js";
-import { DefaultedWeakMap } from "@here.build/collections";
 import { documentEntityCaches } from "./entity-cache.js";
 import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
@@ -18,7 +17,6 @@ import { getInternals, PlexusModel, type PlexusConstructor } from "./PlexusModel
 import { PlexusWrapper } from "./PlexusWrapper.js";
 import type { AllowedYValue, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
-import { DefaultedMap } from "@here.build/collections";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { maybeTransacting } from "./utils/utils.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
@@ -50,134 +48,114 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     {
       ownKeys: () => [...this.yDependencies.keys()],
       get: (_, key: string) => {
-        const depMap = this.yDependencies.get(key);
-        if (!depMap) return undefined;
-        // Find root UUID from the dependency's meta map
-        const depDoc = new Y.Doc({ guid: key });
-        // Dependencies are serialized — root is stored under the "root" well-known key
-        // In old format, root was stored with key "root". In new format, we look in meta.
-        // For dependencies, the root UUID is stored as the "root" key in the dependency map itself.
-        const rootUuid = this.#findDependencyRoot(depMap);
-        return this.dependencyModels.get(depMap).get(rootUuid);
+        if (typeof key !== "string") return undefined;
+        const blob = this.yDependencies.get(key);
+        if (!blob) return undefined;
+        const decoded = this.#decodedBlobs.get(key);
+        if (!decoded) return undefined;
+        return this.#materializeDependencyEntity(key, decoded.rootUuid);
+      },
+      getOwnPropertyDescriptor: (_, key: string) => {
+        if (typeof key !== "string" || !this.yDependencies.has(key)) return undefined;
+        return { configurable: true, enumerable: true, value: (this.rootDependenciesRepresentation as any)[key] };
       },
     },
   );
-  protected readonly yDependencies: Y.Map<Y.Map<Uint8Array>>;
-  protected readonly dependencyReverseId = new WeakMap<Y.Map<Uint8Array>, string>();
-  private readonly dependencyModels = new DefaultedWeakMap((map: Y.Map<Uint8Array>) => {
-    const documentId = this.dependencyReverseId.get(map)!;
-    const defaultedMap: DefaultedMap<string, PlexusModel> = new DefaultedMap((uuid: string) => {
-      const decoder = decoding.createDecoder(map.get(uuid)!);
-      const modelType = decoding.readVarString(decoder);
-      const storage = decoding.readAny(decoder);
-      const parentUuid = decoding.hasContent(decoder) ? decoding.readVarString(decoder) : null;
-      const constructor = entityClasses.get(modelType);
-      invariant(constructor, `Plexus<doc#${documentId}, model#${uuid}> cannot discover model constructor ${modelType}`);
+  protected readonly yDependencies: Y.Map<Uint8Array>;
 
-      const model = PlexusModel.__materializePredefined__(
-        constructor as Extract<typeof constructor, new (...args: any) => any>,
-        {
-          isDependency: true,
-          documentId,
-          uuid,
-          get parent() {
-            return parentUuid ? defaultedMap.get(parentUuid) : null;
-          },
-          reference: [uuid, documentId],
-          parentKey: null,
-          parentMetadata: null,
+  #decodedBlobs = new Map<string, DecodedBlob>();
+  #dependencyEntityCache = new Map<string, PlexusModel>();
+
+  #ensureDecoded(projectId: string): DecodedBlob {
+    let decoded = this.#decodedBlobs.get(projectId);
+    if (!decoded) {
+      const blob = this.yDependencies.get(projectId);
+      invariant(blob, `Plexus: dependency "${projectId}" not loaded`);
+      decoded = decodeBlob(blob);
+      this.#decodedBlobs.set(projectId, decoded);
+    }
+    return decoded;
+  }
+
+  #materializeDependencyEntity(projectId: string, entityUuid: string): PlexusModel {
+    const cacheKey = `${projectId}\0${entityUuid}`;
+    const cached = this.#dependencyEntityCache.get(cacheKey);
+    if (cached) return cached;
+
+    const decoded = this.#ensureDecoded(projectId);
+    const entry = decoded.entities.get(entityUuid);
+    invariant(entry, `Plexus: entity "${entityUuid}" not found in dependency "${projectId}"`);
+
+    const constructor = entityClasses.get(entry.type);
+    invariant(constructor, `Plexus<dep#${projectId}, model#${entityUuid}> cannot discover model constructor "${entry.type}"`);
+
+    const self = this;
+    const model = PlexusModel.__materializePredefined__(
+      constructor as Extract<typeof constructor, new (...args: any) => any>,
+      {
+        isDependency: true,
+        documentId: entry.sourceProjectId ?? projectId,
+        uuid: entityUuid as PlexusUUID,
+        get parent() {
+          return entry.parentUuid ? self.#materializeDependencyEntity(projectId, entry.parentUuid) : null;
         },
-      );
-      const cache: Record<string, unknown> = {};
-      Object.defineProperties(
-        model,
-        Object.fromEntries(
-          Object.entries(model.__schema__).map(([key, type]): [string, PropertyDescriptor] => {
-            const value = storage[key];
-            switch (type) {
-              case "val":
-              case "child-val":
-                return [
-                  key,
-                  {
-                    configurable: true,
-                    enumerable: true,
-                    get: () => {
-                      cache[key] ??= deref(this.doc, value, documentId);
-                      return cache[key];
-                    },
-                  },
-                ];
-              case "list":
-              case "child-list":
-                return [
-                  key,
-                  {
-                    configurable: true,
-                    enumerable: true,
-                    get: () => {
-                      cache[key] ??= value.map((record: AllowedYValue) => deref(this.doc, record, documentId));
-                      return cache[key];
-                    },
-                  },
-                ];
-              case "set":
-              case "child-set":
-                return [
-                  key,
-                  {
-                    configurable: true,
-                    enumerable: true,
-                    get: () => {
-                      cache[key] ??= new Set(value.map((record: AllowedYValue) => deref(this.doc, record, documentId)));
-                      return cache[key];
-                    },
-                  },
-                ];
-              case "record":
-              case "child-record":
-                return [
-                  key,
-                  {
-                    configurable: true,
-                    enumerable: true,
-                    get: () => {
-                      cache[key] ??= Object.fromEntries(
-                        Object.entries(value).map(([subkey, record]) => [
-                          subkey,
-                          deref(this.doc, record as AllowedYValue, documentId),
-                        ]),
-                      );
-                      return cache[key];
-                    },
-                  },
-                ];
-              case "map":
-              case "child-map":
-                return [
-                  key,
-                  {
-                    configurable: true,
-                    enumerable: true,
-                    get: () => {
-                      cache[key] ??= new Map(
-                        Object.entries(value).map(([subkey, record]) => [
-                          subkey,
-                          deref(this.doc, record as AllowedYValue, documentId),
-                        ]),
-                      );
-                      return cache[key];
-                    },
-                  },
-                ];
-            }
-          }),
-        ),
-      );
-      return model;
-    });
-    return defaultedMap;
-  });
+        reference: [entityUuid, entry.sourceProjectId ?? projectId],
+        parentKey: null,
+        parentMetadata: null,
+      },
+    );
+
+    // Lazy field hydration with deref for cross-doc reference resolution
+    const fieldCache: Record<string, unknown> = {};
+    const resolveProjectId = entry.sourceProjectId ?? projectId;
+    Object.defineProperties(
+      model,
+      Object.fromEntries(
+        Object.entries(model.__schema__).map(([key, type]): [string, PropertyDescriptor] => {
+          const value = entry.attributes[key];
+          switch (type) {
+            case "val":
+            case "child-val":
+              return [key, { configurable: true, enumerable: true, get: () => {
+                fieldCache[key] ??= deref(this.doc, value as AllowedYValue, resolveProjectId);
+                return fieldCache[key];
+              }}];
+            case "list":
+            case "child-list":
+              return [key, { configurable: true, enumerable: true, get: () => {
+                fieldCache[key] ??= (value as AllowedYValue[]).map((v) => deref(this.doc, v, resolveProjectId));
+                return fieldCache[key];
+              }}];
+            case "set":
+            case "child-set":
+              return [key, { configurable: true, enumerable: true, get: () => {
+                fieldCache[key] ??= new Set((value as AllowedYValue[]).map((v) => deref(this.doc, v, resolveProjectId)));
+                return fieldCache[key];
+              }}];
+            case "record":
+            case "child-record":
+              return [key, { configurable: true, enumerable: true, get: () => {
+                fieldCache[key] ??= Object.fromEntries(
+                  Object.entries(value as Record<string, AllowedYValue>).map(([k, v]) => [k, deref(this.doc, v, resolveProjectId)]),
+                );
+                return fieldCache[key];
+              }}];
+            case "map":
+            case "child-map":
+              return [key, { configurable: true, enumerable: true, get: () => {
+                fieldCache[key] ??= new Map(
+                  Object.entries(value as Record<string, AllowedYValue>).map(([k, v]) => [k, deref(this.doc, v, resolveProjectId)]),
+                );
+                return fieldCache[key];
+              }}];
+          }
+        }),
+      ),
+    );
+
+    this.#dependencyEntityCache.set(cacheKey, model);
+    return model;
+  }
   protected readonly yTypes: Y.Map<Y.Map<YPlexusNode>>;
   private readonly __undoManager__: UndoManager;
   private __isUndoing__ = false;
@@ -511,69 +489,103 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     }
   }
 
-  addDependency(dependencyDocumentId: string, dependencyVector: Uint8Array): Root {
+  addDependency(projectId: string, blob: Uint8Array): Root {
     invariant(
       Object.hasOwn(this.root, "dependencies"),
       `Plexus<document#${this.doc.clientID}>.addDependency: root model does not support dependencies`,
     );
-    const dependencyDoc = new Y.Doc({ guid: dependencyDocumentId });
-    Y.applyUpdate(dependencyDoc, dependencyVector);
     const dependencies = getDependenciesMap(this.doc);
     invariant(
-      !dependencies.has(dependencyDocumentId),
-      `Plexus<document#${this.doc.clientID}>.addDependency: dependency ${dependencyDocumentId} already exists in document`,
+      !dependencies.has(projectId),
+      `Plexus<document#${this.doc.clientID}>.addDependency: dependency "${projectId}" already exists`,
     );
 
-    const storage = new Y.Map<Uint8Array>();
-    this.dependencyReverseId.set(storage, dependencyDocumentId);
+    // Auto-detect format: if it's a Y.Doc state vector, convert to blob
+    const finalBlob = this.#ensureBlobFormat(projectId, blob);
 
-    // Find root UUID from the dependency doc's meta map
-    const depMeta = getMetaMap(dependencyDoc);
-    const depRootUuid = depMeta.get(YJS_GLOBALS.meta.wellKnown.root);
-    invariant(depRootUuid, `Plexus: dependency ${dependencyDocumentId} has no root in meta map`);
-
-    this.doc.transact(() => {
-      dependencies.set(dependencyDocumentId, storage);
-      for (const [_, typeContainer] of getModelTypesMap(dependencyDoc)) {
-        for (const [key, model] of typeContainer.entries()) {
-          const encoder = encoding.createEncoder();
-          encoding.writeVarString(encoder, model.nodeName);
-          // Serialize field attributes (flat storage — fields are directly on XmlElement)
-          const attributes = Object.fromEntries(
-            Object.entries(model.getAttributes()).map(([k, v]) => [k, v instanceof Y.AbstractType ? v.toJSON() : v]),
-          );
-          encoding.writeAny(encoder, attributes);
-          // Parent data is stored as a child XmlElement, not as an attribute
-          const wrapper = new PlexusWrapper(model);
-          if (wrapper.hasParent) {
-            encoding.writeVarString(encoder, wrapper.parent!);
-          }
-          storage.set(key, encoding.toUint8Array(encoder));
-        }
-      }
+    maybeTransacting(this.doc, () => {
+      dependencies.set(projectId, finalBlob);
     });
 
-    return this.dependencyModels.get(storage).get(depRootUuid) as Root;
+    const decoded = this.#ensureDecoded(projectId);
+    return this.#materializeDependencyEntity(projectId, decoded.rootUuid) as Root;
   }
 
-  public __getDependencyNode__(dependencyId: string, elementUuid: string) {
-    const dependency = this.yDependencies.get(dependencyId);
-    invariant(dependency, `Plexus<doc#${dependencyId}> cannot resolve dependency by id`);
-    return this.dependencyModels.get(dependency).get(elementUuid);
-  }
+  replaceDependency(projectId: string, blob: Uint8Array): Root {
+    const dependencies = getDependenciesMap(this.doc);
+    invariant(
+      dependencies.has(projectId),
+      `Plexus<document#${this.doc.clientID}>.replaceDependency: dependency "${projectId}" not found`,
+    );
 
-  #findDependencyRoot(depMap: Y.Map<Uint8Array>): string {
-    // Dependencies store entities as uuid→serialized. The root is the one whose
-    // parent field is absent. For backwards compat, try "root" key first.
-    if (depMap.has("root")) return "root";
-    // Otherwise scan for the entry with no parent
-    for (const [uuid] of depMap.entries()) {
-      const decoder = decoding.createDecoder(depMap.get(uuid)!);
-      decoding.readVarString(decoder); // modelType
-      decoding.readAny(decoder); // storage
-      const hasParent = decoding.hasContent(decoder);
-      if (!hasParent) return uuid;
+    const finalBlob = this.#ensureBlobFormat(projectId, blob);
+
+    // Invalidate caches
+    this.#decodedBlobs.delete(projectId);
+    for (const key of this.#dependencyEntityCache.keys()) {
+      if (key.startsWith(`${projectId}\0`)) {
+        this.#dependencyEntityCache.delete(key);
+      }
     }
-    invariant(false, "Plexus: dependency has no root entity");
+
+    maybeTransacting(this.doc, () => {
+      dependencies.set(projectId, finalBlob);
+    });
+
+    const decoded = this.#ensureDecoded(projectId);
+    return this.#materializeDependencyEntity(projectId, decoded.rootUuid) as Root;
+  }
+
+  /**
+   * Remove a dependency. References become dangling (deref throws).
+   */
+  removeDependency(projectId: string): void {
+    const dependencies = getDependenciesMap(this.doc);
+    invariant(
+      dependencies.has(projectId),
+      `Plexus<document#${this.doc.clientID}>.removeDependency: dependency "${projectId}" not found`,
+    );
+
+    // Invalidate caches
+    this.#decodedBlobs.delete(projectId);
+    for (const key of this.#dependencyEntityCache.keys()) {
+      if (key.startsWith(`${projectId}\0`)) {
+        this.#dependencyEntityCache.delete(key);
+      }
+    }
+
+    maybeTransacting(this.doc, () => {
+      dependencies.delete(projectId);
+    });
+  }
+
+  public getDependencyEntity(projectId: string, entityUuid: string): PlexusModel {
+    invariant(this.yDependencies.has(projectId), `Plexus: dependency "${projectId}" not loaded`);
+    return this.#materializeDependencyEntity(projectId, entityUuid);
+  }
+
+
+  #ensureBlobFormat(projectId: string, data: Uint8Array): Uint8Array {
+    // Try to detect: blob format starts with version byte (1).
+    // Y.Doc state vectors start with different bytes.
+    // Simple heuristic: try decoding as blob first.
+    try {
+      decodeBlob(data);
+      return data; // Already blob format
+    } catch {
+      // Not blob format — assume Y.Doc state vector, convert
+      return this.#convertDocVectorToBlob(projectId, data);
+    }
+  }
+
+  #convertDocVectorToBlob(projectId: string, stateVector: Uint8Array): Uint8Array {
+    const depDoc = new Y.Doc({ guid: projectId });
+    Y.applyUpdate(depDoc, stateVector);
+
+    const depMeta = getMetaMap(depDoc);
+    const rootUuid = depMeta.get(YJS_GLOBALS.meta.wellKnown.root);
+    invariant(rootUuid, `Plexus: dependency "${projectId}" has no root in meta map`);
+
+    return createBlobFromDoc(depDoc, rootUuid, getModelTypesMap, PlexusWrapper);
   }
 }

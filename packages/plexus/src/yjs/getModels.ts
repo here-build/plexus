@@ -11,9 +11,9 @@ export const getModelTypesMap = (doc: Y.Doc) =>
 export const getMetaMap = (doc: Y.Doc) =>
   declareDeterministicMap<string>(doc, [YJS_GLOBALS.meta.key]);
 
-/** Top-level "dependencies" map: dependency doc ID → serialized entities */
+/** Top-level "dependencies" map: projectId → singular snapshot blob */
 export const getDependenciesMap = (doc: Y.Doc) =>
-  declareDeterministicMap<Y.Map<Uint8Array>>(doc, [YJS_GLOBALS.dependencies.key]);
+  declareDeterministicMap<Uint8Array>(doc, [YJS_GLOBALS.dependencies.key]);
 
 /** Deterministic type sub-map within "types" — genesis-backed, idempotent */
 export const getTypeMap = (doc: Y.Doc, type: string): Y.Map<YPlexusNode> =>

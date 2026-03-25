@@ -117,35 +117,35 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
             case "val":
             case "child-val":
               return [key, { configurable: true, enumerable: true, get: () => {
-                fieldCache[key] ??= deref(this.doc, value as AllowedYValue, resolveProjectId);
+                fieldCache[key] ??= value != null ? deref(this.doc, value as AllowedYValue, resolveProjectId) : null;
                 return fieldCache[key];
               }}];
             case "list":
             case "child-list":
               return [key, { configurable: true, enumerable: true, get: () => {
-                fieldCache[key] ??= (value as AllowedYValue[]).map((v) => deref(this.doc, v, resolveProjectId));
+                fieldCache[key] ??= value ? (value as AllowedYValue[]).map((v) => deref(this.doc, v, resolveProjectId)) : [];
                 return fieldCache[key];
               }}];
             case "set":
             case "child-set":
               return [key, { configurable: true, enumerable: true, get: () => {
-                fieldCache[key] ??= new Set((value as AllowedYValue[]).map((v) => deref(this.doc, v, resolveProjectId)));
+                fieldCache[key] ??= value ? new Set((value as AllowedYValue[]).map((v) => deref(this.doc, v, resolveProjectId))) : new Set();
                 return fieldCache[key];
               }}];
             case "record":
             case "child-record":
               return [key, { configurable: true, enumerable: true, get: () => {
-                fieldCache[key] ??= Object.fromEntries(
+                fieldCache[key] ??= value ? Object.fromEntries(
                   Object.entries(value as Record<string, AllowedYValue>).map(([k, v]) => [k, deref(this.doc, v, resolveProjectId)]),
-                );
+                ) : {};
                 return fieldCache[key];
               }}];
             case "map":
             case "child-map":
               return [key, { configurable: true, enumerable: true, get: () => {
-                fieldCache[key] ??= new Map(
+                fieldCache[key] ??= value ? new Map(
                   Object.entries(value as Record<string, AllowedYValue>).map(([k, v]) => [k, deref(this.doc, v, resolveProjectId)]),
-                );
+                ) : new Map();
                 return fieldCache[key];
               }}];
           }

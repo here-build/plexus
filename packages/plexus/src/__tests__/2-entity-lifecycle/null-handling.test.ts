@@ -9,10 +9,11 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { PlexusModel } from "../../PlexusModel.js";
+
 import { syncing } from "../../decorators.js";
-import { initTestPlexus } from "../_helpers/test-plexus.js";
+import { PlexusModel } from "../../PlexusModel.js";
 import { createTrackedFunction } from "../../tracking.js";
+import { initTestPlexus } from "../_helpers/test-plexus.js";
 
 @syncing("Item")
 class Item extends PlexusModel {
@@ -131,8 +132,7 @@ describe("Null Handling Edge Cases", () => {
     it("can have mixed null and non-null entries", () => {
       const { root } = initTestPlexus(new NullableContainer());
 
-      root.children.push(new Item({ name: "first" }));
-      root.children.push(null);
+      root.children.push(new Item({ name: "first" }), null);
       root.children.push(new Item({ name: "third" }));
 
       expect([
@@ -301,10 +301,8 @@ describe("Null Handling Edge Cases", () => {
     it("can filter out nulls from array", () => {
       const { root } = initTestPlexus(new NullableContainer());
 
-      root.children.push(new Item({ name: "first" }));
-      root.children.push(null);
-      root.children.push(new Item({ name: "third" }));
-      root.children.push(null);
+      root.children.push(new Item({ name: "first" }), null);
+      root.children.push(new Item({ name: "third" }), null);
 
       const nonNull = root.children.filter((c): c is Item => c !== null);
       expect([nonNull.length, nonNull[0].name, nonNull[1].name]).to.have.ordered.members([2, "first", "third"]);

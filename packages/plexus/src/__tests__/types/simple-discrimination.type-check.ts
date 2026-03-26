@@ -2,7 +2,7 @@
  * Simplified type test to debug parent discrimination
  */
 
-import { PlexusModel, syncing } from "../../index.js";
+import { PlexusModel, syncing } from "../..";
 
 @syncing("A")
 class A extends PlexusModel<null> {
@@ -49,11 +49,7 @@ const _cChild: CChildType = null as any as B | null;
 // If discrimination worked, C.child should be `never` or a different type than A.child
 
 // Check if the types are actually different
-type AreChildTypesSame = AChildType extends CChildType
-  ? CChildType extends AChildType
-    ? true
-    : false
-  : false;
+type AreChildTypesSame = AChildType extends CChildType ? (CChildType extends AChildType ? true : false) : false;
 const _same: AreChildTypesSame = true; // If this compiles, types are the same (bug)
 
 // The issue: TypeScript sees both as "B | null" without checking parent compatibility

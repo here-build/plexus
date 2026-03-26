@@ -10,10 +10,11 @@
 
 import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
-import { PlexusModel } from "../../PlexusModel.js";
+
 import { syncing } from "../../decorators.js";
-import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
+import { PlexusModel } from "../../PlexusModel.js";
 import { createTrackedFunction } from "../../tracking.js";
+import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 
 @syncing("Item")
 class Item extends PlexusModel {

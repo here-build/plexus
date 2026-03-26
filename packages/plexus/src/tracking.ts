@@ -21,8 +21,8 @@
  * - createTrackedFunction: Main API for React integration
  */
 
-import { flushNotifications, isTransacting, pendingNotifications } from "./utils/utils.js";
 import type { AllowedYJSMapKey } from "./proxy-runtime-types.js"; // Special symbols for tracking comprehensive access patterns
+import { flushNotifications, isTransacting, pendingNotifications } from "./utils/utils.js";
 
 // Special symbols for tracking comprehensive access patterns
 export const ACCESS_ALL_SYMBOL = Symbol("ACCESS_ALL");

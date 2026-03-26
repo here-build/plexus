@@ -6,14 +6,14 @@ import * as Y from "yjs";
 import { decode } from "./crdt-uuid.js";
 import { documentEntityCaches } from "./entity-cache.js";
 import { entityClasses } from "./globals.js";
+import { docPlexus } from "./plexus-registry.js";
+import { Plexus } from "./Plexus.js";
 import type { ConcretePlexusConstructor } from "./PlexusModel.js";
 import { getInternals, PlexusModel } from "./PlexusModel.js";
 import { PlexusWrapper } from "./PlexusWrapper.js";
 import type { AllowedYJSValue, AllowedYValue, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { isTupleReference } from "./utils/utils.js";
-import { docPlexus } from "./plexus-registry.js";
 import { getModelTypesMap } from "./yjs/getModels.js";
-import { Plexus } from "./Plexus.js";
 
 export function deref<T extends AllowedYJSValue>(
   doc: Y.Doc,

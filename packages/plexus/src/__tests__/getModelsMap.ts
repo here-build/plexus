@@ -1,4 +1,5 @@
-import * as Y from "yjs";
+import type * as Y from "yjs";
+
 import type { YPlexusNode } from "../proxy-runtime-types.js";
 import { getModelTypesMap, getTypeMap } from "../yjs/getModels.js";
 

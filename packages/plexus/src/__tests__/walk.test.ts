@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-shadow */
 import { describe, expect, it } from "vitest";
 
 // eslint-disable-next-line import-x/no-useless-path-segments

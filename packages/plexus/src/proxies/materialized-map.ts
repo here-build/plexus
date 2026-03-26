@@ -1,12 +1,10 @@
-import * as Y from "yjs";
-
 import invariant from "tiny-invariant";
+import type * as Y from "yjs";
 
 import { isInCloneTransaction } from "../clone.js";
 import { deref } from "../deref.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
-import { materializeVirtualChild } from "../virtual-children-genesis.js";
 import {
   informAdoptionSymbol,
   informOrphanizationSymbol,
@@ -27,7 +25,7 @@ import { deserializeKey, serializeKey } from "./key-serialization.js";
 import { PathMap } from "./PathMap.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
-import { materializeMapForField } from "../virtual-children-genesis.js";
+import { materializeVirtualChild, materializeMapForField } from "../virtual-children-genesis.js";
 
 // Re-export for backward compatibility
 export { serializeKey, deserializeKey } from "./key-serialization.js";
@@ -144,11 +142,11 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
     if (map?.doc) {
       attachObserver(map);
       // some runtimes like wrangler act weird on Y.Map.entries()
-      map.forEach((v, serializedKey) => {
+      for (const [serializedKey, v] of map.entries()) {
         const deserializedKey = deserializeKey(serializedKey, map.doc!) as K;
         backingStorage.set(deserializedKey, deref(map.doc!, v) as V);
         serializedToKey.set(serializedKey, deserializedKey);
-      });
+      }
     }
   }
 
@@ -302,7 +300,10 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
     // Plexus-specific methods
     assign(map: Map<K, V>): void {
       if (virtualFactory) {
-        invariant(isInCloneTransaction(), "VirtualMap: .assign() is blocked outside clone — virtual children are factory-created");
+        invariant(
+          isInCloneTransaction(),
+          "VirtualMap: .assign() is blocked outside clone — virtual children are factory-created",
+        );
       }
       ensureYjsMap();
       maybeTransacting(owner.__doc__, () => {
@@ -378,12 +379,12 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       }
 
       // some runtimes like wrangler act weird on Y.Map.entries()
-      map.forEach((v, serializedKey) => {
+      for (const [serializedKey, v] of map.entries()) {
         const deserializedKey = deserializeKey(serializedKey, map.doc!) as K;
         const value = deref(map.doc!, v) as V;
         backingStorage.set(deserializedKey, value);
         serializedToKey.set(serializedKey, deserializedKey);
-      });
+      }
 
       attachObserver(map);
     },

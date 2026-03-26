@@ -1,10 +1,20 @@
+import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
 import invariant from "tiny-invariant";
 
+import type {
+  DiscriminateMap,
+  type DiscriminatingIdentityDecorator,
+  type DiscriminatingListDecorator,
+  type DiscriminatingRecordDecorator,
+  type DiscriminatingSetDecorator,
+  type ListDecorator,
+  type RecordDecorator,
+  type SetDecorator,
+} from "./decorator-types.js";
 import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
-import { getInternals, type PlexusConstructor, PlexusModel, safeUuid } from "./PlexusModel.js";
 import { Plexus } from "./Plexus.js";
-import { assertGenesisIsolation } from "./virtual-children-genesis.js";
+import { getInternals, type PlexusConstructor, PlexusModel, safeUuid } from "./PlexusModel.js";
 import { buildArrayProxy } from "./proxies/materialized-array.js";
 import { buildMapProxy } from "./proxies/materialized-map.js";
 import { buildRecordProxy } from "./proxies/materialized-record.js";
@@ -23,18 +33,8 @@ import {
   type VirtualMap,
 } from "./proxy-runtime-types.js";
 import { __untracked__, trackAccess, trackModification } from "./tracking.js";
-import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
 import { maybeReference, maybeTransacting } from "./utils/utils.js";
-import {
-  DiscriminateMap,
-  type DiscriminatingIdentityDecorator,
-  type DiscriminatingListDecorator,
-  type DiscriminatingRecordDecorator,
-  type DiscriminatingSetDecorator,
-  type ListDecorator,
-  type RecordDecorator,
-  type SetDecorator,
-} from "./decorator-types.js";
+import { assertGenesisIsolation } from "./virtual-children-genesis.js";
 
 try {
   // @ts-expect-error this is letting compiled stage-3 decorators work in wrangler dev environment
@@ -79,10 +79,7 @@ const decoratedTracker = new WeakSet<PlexusConstructor>();
  */
 function createClassDecorator(name: string) {
   invariant(name, `@syncing: model name is required`);
-  return (
-    target: PlexusConstructor,
-    context: ClassDecoratorContext,
-  ) => {
+  return (target: PlexusConstructor, context: ClassDecoratorContext) => {
     const proto = Reflect.getPrototypeOf(target)! as PlexusConstructor;
     if (proto !== PlexusModel) {
       invariant(
@@ -96,7 +93,7 @@ function createClassDecorator(name: string) {
     }
     decoratedTracker.add(target);
     target.modelName = name;
-    Object.defineProperty(target.prototype, '__type__', { value: name, writable: false, enumerable: false});
+    Object.defineProperty(target.prototype, "__type__", { value: name, writable: false, enumerable: false });
     target.schema = {} as GenericRecordSchema;
     // it may miss with "barrel" nodes
     if (context.metadata.schema) {
@@ -105,10 +102,7 @@ function createClassDecorator(name: string) {
         target.schema[key] = context.metadata.schema[key];
       }
     }
-    invariant(
-      !entityClasses.has(name),
-      `Plexus<${name}>: duplicate class name, must be unique`,
-    );
+    invariant(!entityClasses.has(name), `Plexus<${name}>: duplicate class name, must be unique`);
     entityClasses.set(name, target);
     return target;
   };
@@ -118,10 +112,9 @@ function createClassDecorator(name: string) {
  * @syncing("Name") — class decorator (registers model, defines __type__).
  * @syncing accessor field — identity/val field decorator.
  */
-function syncingDecorator(name: string): <
-  Model extends PlexusModel,
-  TargetConstructor extends PlexusConstructor<Model>,
->(
+function syncingDecorator(
+  name: string,
+): <Model extends PlexusModel, TargetConstructor extends PlexusConstructor<Model>>(
   target: TargetConstructor,
   context: ClassDecoratorContext<PlexusConstructor<Model>>,
 ) => TargetConstructor & PlexusTagContainer<"decorated">;
@@ -134,7 +127,7 @@ function syncingDecorator(
   second?: ClassAccessorDecoratorContext<PlexusModel, any> & { name: string },
 ): any {
   // String call: @syncing("ModelName")
-  if (typeof first === 'string') {
+  if (typeof first === "string") {
     return createClassDecorator(first);
   }
   // Accessor decorator: @syncing accessor field
@@ -621,7 +614,10 @@ export const syncing = Object.assign(syncingDecorator, {
           return handlers.get.call(this);
         },
         set(this: Model, _value: never): void {
-          invariant(false, `@syncing.virtual field "${String(context.name)}" cannot be assigned — use .get(key) to auto-materialize`);
+          invariant(
+            false,
+            `@syncing.virtual field "${String(context.name)}" cannot be assigned — use .get(key) to auto-materialize`,
+          );
         },
         init(this: Model, _value: never): VirtualMap<K, V> {
           if (Plexus.__isControlledConstruction__) return undefined as any;

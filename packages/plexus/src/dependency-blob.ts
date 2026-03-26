@@ -18,8 +18,8 @@
  *       attributes: any (lib0 encoded)
  */
 
-import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
+import * as encoding from "lib0/encoding";
 
 const BLOB_VERSION = 1;
 

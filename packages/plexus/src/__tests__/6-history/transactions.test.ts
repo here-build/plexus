@@ -1,11 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it, Mock, vi } from "vitest";
-import * as Y from "yjs";
-import { PlexusModel } from "../../PlexusModel.js";
+import type { Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as Y from "yjs";
+
 import { syncing } from "../../decorators.js";
+import { entityClasses } from "../../globals.js";
+import { PlexusModel } from "../../PlexusModel.js";
 import { createTrackedFunction } from "../../tracking.js";
 import { isTransacting, pendingNotifications } from "../../utils/utils.js";
-import { entityClasses } from "../../globals.js";
-import { initTestPlexus, TestPlexus } from "../_helpers/test-plexus.js";
+import type { TestPlexus } from "../_helpers/test-plexus.js";
+import { initTestPlexus } from "../_helpers/test-plexus.js";
 
 // Test entity class for basic transaction tests
 @syncing("TestEntity")
@@ -452,8 +455,8 @@ describe("Plexus Transactions", () => {
       }
 
       // Execute all to register tracking
-      trackingFns.forEach((fn) => fn());
-      callbacks.forEach((cb) => (cb as any).mockClear());
+      for (const fn of trackingFns) fn();
+      for (const cb of callbacks) (cb as any).mockClear();
 
       plexus.transact(() => {
         // Trigger modifications
@@ -463,15 +466,15 @@ describe("Plexus Transactions", () => {
         }
 
         // None should be called yet
-        callbacks.forEach((cb) => {
+        for (const cb of callbacks) {
           expect(cb).to.have.property("mock").with.property("calls").with.lengthOf(0);
-        });
+        }
       });
 
       // All should be called after
-      callbacks.forEach((cb) => {
+      for (const cb of callbacks) {
         expect(cb).to.have.property("mock").with.property("calls").with.lengthOf(1);
-      });
+      }
     });
 
     it("should handle notification errors gracefully", () => {
@@ -598,7 +601,7 @@ describe("Transaction Integration Tests", () => {
       return {
         name: todoList.name,
         itemCount: todoList.items.length,
-        tags: Array.from(todoList.tags),
+        tags: [...todoList.tags],
       };
     });
 
@@ -645,8 +648,8 @@ describe("Transaction Integration Tests", () => {
     expect(todoList.items).to.have.lengthOf(2);
     // Items are proxy entities, accessing them properly requires deref
     // For now just verify count
-    expect(Array.from(todoList.tags)).to.include("urgent");
-    expect(Array.from(todoList.tags)).to.include("work");
+    expect([...todoList.tags]).to.include("urgent");
+    expect([...todoList.tags]).to.include("work");
   });
 
   it("should handle nested transactions with complex operations", () => {
@@ -749,12 +752,12 @@ describe("Transaction Integration Tests", () => {
     for (let i = 0; i < 5; i++) {
       const callback = vi.fn();
       tagCallbacks.push(callback);
-      const tracked = createTrackedFunction(callback, () => Array.from(todoList.tags).join(","));
+      const tracked = createTrackedFunction(callback, () => [...todoList.tags].join(","));
       tracked();
     }
 
     // Clear all initial calls
-    [...nameCallbacks, ...itemCallbacks, ...tagCallbacks].forEach((cb) => cb.mockClear());
+    for (const cb of [...nameCallbacks, ...itemCallbacks, ...tagCallbacks]) cb.mockClear();
 
     // Single transaction with multiple changes
     plexus.transact(() => {
@@ -771,20 +774,20 @@ describe("Transaction Integration Tests", () => {
       todoList.tags.add("test");
 
       // No callbacks during transaction
-      [...nameCallbacks, ...itemCallbacks, ...tagCallbacks].forEach((cb) => {
+      for (const cb of [...nameCallbacks, ...itemCallbacks, ...tagCallbacks]) {
         expect(cb).to.have.property("mock").with.property("calls").with.lengthOf(0);
-      });
+      }
     });
 
     // Each group should fire exactly once
-    nameCallbacks.forEach((cb) => {
+    for (const cb of nameCallbacks) {
       expect(cb).to.have.property("mock").with.property("calls").with.lengthOf(1);
-    });
-    itemCallbacks.forEach((cb) => {
+    }
+    for (const cb of itemCallbacks) {
       expect(cb).to.have.property("mock").with.property("calls").with.lengthOf(1);
-    });
-    tagCallbacks.forEach((cb) => {
+    }
+    for (const cb of tagCallbacks) {
       expect(cb).to.have.property("mock").with.property("calls").with.lengthOf(1);
-    });
+    }
   });
 });

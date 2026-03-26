@@ -6,8 +6,9 @@
  * child fields (child-val, child-list, child-record, child-set).
  */
 
-import { PlexusModel } from "./PlexusModel.js";
 import invariant from "tiny-invariant";
+
+import { PlexusModel } from "./PlexusModel.js";
 
 const isPlexusModel = (value: unknown): value is PlexusModel => value instanceof PlexusModel;
 
@@ -160,4 +161,4 @@ export const buildVisitor =
           ? R
           : any
         : never;
-    }[keyof Models];;
+    }[keyof Models];

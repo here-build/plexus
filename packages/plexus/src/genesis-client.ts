@@ -19,17 +19,18 @@
  */
 
 import * as Y from "yjs";
+
 import { murmur32 } from "./crdt-uuid.js";
 
 /** Yjs clientIds are uint32: [0, 0xFFFFFFFF]. Genesis lives above this. */
-const MAX_UINT32 = 0xffffffff;
+const MAX_UINT32 = 0xff_ff_ff_ff;
 
 /** Number of integers in (MAX_UINT32, MAX_SAFE_INTEGER]. */
 const GENESIS_RANGE = Number.MAX_SAFE_INTEGER - MAX_UINT32;
 
 /** Hash seeds — "GEN" and "SIS" in hex-ish */
-const SEED_HI = 0x47454e;
-const SEED_LO = 0x534953;
+const SEED_HI = 0x47_45_4e;
+const SEED_LO = 0x53_49_53;
 
 /**
  * Compute a deterministic genesis clientId for a scaffold element.
@@ -38,14 +39,14 @@ const SEED_LO = 0x534953;
  * Yjs uint32 clientIds, safe for JS float64 arithmetic.
  */
 export function genesisClientId(type: string, path: string[]): number {
-  const canonical = type + "\0" + path.join("\0");
+  const canonical = `${type}\0${path.join("\0")}`;
   const hi = murmur32(canonical, SEED_HI);
   const lo = murmur32(canonical, SEED_LO);
   // Combine two 32-bit hashes into a ~53-bit value.
   // (hi & 0x1FFFFF) keeps 21 bits; * 0x100000000 shifts left 32; + lo fills lower 32.
   // Maximum: (2^21 - 1) * 2^32 + (2^32 - 1) = 2^53 - 1 = MAX_SAFE_INTEGER.
   // Note: bitwise ops truncate to 32 bits, so we use arithmetic (& is safe for 21-bit mask).
-  const wide = (hi & 0x1fffff) * 0x100000000 + (lo >>> 0);
+  const wide = (hi & 0x1f_ff_ff) * 0x1_00_00_00_00 + (lo >>> 0);
   return (wide % GENESIS_RANGE) + MAX_UINT32 + 1;
 }
 
@@ -61,7 +62,7 @@ export function genesisClientId(type: string, path: string[]): number {
 const vectorCache = new Map<string, Uint8Array>();
 
 function getSegmentVector(type: "map" | "array", path: string[]): Uint8Array {
-  const cacheKey = type + "\0" + path.join("\0");
+  const cacheKey = `${type}\0${path.join("\0")}`;
   let vector = vectorCache.get(cacheKey);
   if (vector) return vector;
 

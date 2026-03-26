@@ -7,8 +7,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { PlexusModel } from "../../PlexusModel.js";
+
 import { syncing } from "../../decorators.js";
+import { PlexusModel } from "../../PlexusModel.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
 @syncing("Node")
@@ -171,8 +172,7 @@ describe("Detach Method", () => {
       const child = new Node({ name: "Child" });
 
       root.primary = parentA;
-      parentA.childList.push(parentB);
-      parentA.childList.push(child);
+      parentA.childList.push(parentB, child);
 
       // Move child from parentA.childList to parentB.childList
       // Without detach, this would remove from parentA's list automatically

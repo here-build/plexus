@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
+
 import { genesisClientId, declareDeterministicMap } from "../../genesis-client.js";
 
 function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
@@ -28,8 +29,8 @@ describe("genesis clientId — CREATE2-style deterministic scaffold", () => {
     // Different input → different output
     expect(id1).not.toBe(id3);
     // Above uint32 range (structurally impossible to collide with Yjs clientIds)
-    expect(id1).toBeGreaterThan(0xffffffff);
-    expect(id3).toBeGreaterThan(0xffffffff);
+    expect(id1).toBeGreaterThan(0xff_ff_ff_ff);
+    expect(id3).toBeGreaterThan(0xff_ff_ff_ff);
     // Under MAX_SAFE_INTEGER
     expect(id1).toBeLessThanOrEqual(Number.MAX_SAFE_INTEGER);
     expect(id3).toBeLessThanOrEqual(Number.MAX_SAFE_INTEGER);

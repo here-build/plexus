@@ -771,7 +771,7 @@ describe("array field (@syncing.list)", () => {
       expect(item.parent).to.equal(parent);
 
       // Splice out removes parent
-      parent.children.splice(0, parent.children.length);
+      parent.children.splice(0);
       expect(item.parent).to.eq(null);
     });
   });

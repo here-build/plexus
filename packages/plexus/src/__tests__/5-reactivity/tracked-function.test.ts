@@ -7,10 +7,11 @@
  * - Doc1 should receive notifications when tracked data changes
  */
 
-import * as Y from "yjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PlexusModel } from "../../PlexusModel.js";
+import * as Y from "yjs";
+
 import { syncing } from "../../decorators.js";
+import { PlexusModel } from "../../PlexusModel.js";
 import { referenceSymbol } from "../../proxy-runtime-types.js";
 import { createTrackedFunction } from "../../tracking.js";
 import { initTestPlexus, TestPlexus } from "../_helpers/test-plexus.js";
@@ -421,7 +422,7 @@ describe("Cross-Document Notifications", () => {
 
       const notifyCallback = vi.fn();
       const trackedFunction = createTrackedFunction(notifyCallback, () => {
-        return Array.from(user2.tags).sort(); // Track set contents on doc2
+        return [...user2.tags].sort(); // Track set contents on doc2
       });
 
       expect(trackedFunction()).to.deep.equal([]);
@@ -434,7 +435,7 @@ describe("Cross-Document Notifications", () => {
       await new Promise((resolve) => setImmediate(resolve));
 
       expect(notifyCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
-      expect(Array.from(user2.tags).sort()).to.deep.equal(["javascript", "react"]);
+      expect([...user2.tags].sort()).to.deep.equal(["javascript", "react"]);
     });
   });
 

@@ -9,11 +9,11 @@ import * as Y from "yjs";
 import { syncing } from "../../decorators.js";
 import { getInternals, PlexusModel } from "../../PlexusModel.js";
 import { serializeKey } from "../../proxies/key-serialization.js";
-import { AllowedYValue, referenceSymbol, YPlexusNode } from "../../proxy-runtime-types.js";
+import type { YPlexusNode } from "../../proxy-runtime-types.js";
+import { AllowedYValue, referenceSymbol } from "../../proxy-runtime-types.js";
 import { createTrackedFunction } from "../../tracking.js";
 import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
-
 import { getModelsMap } from "../getModelsMap.js";
 
 function getParentRef(element: YPlexusNode | undefined): string[] | undefined {

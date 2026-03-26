@@ -15,10 +15,10 @@ import { bodyDecode, bodyEncode, decode, encode, murmur32 } from "../../crdt-uui
 
 // ── Arbitraries ──
 
-const uint32 = fc.integer({ min: 0, max: 0xffffffff });
+const uint32 = fc.integer({ min: 0, max: 0xff_ff_ff_ff });
 
 // Genesis clientIds: above uint32, up to MAX_SAFE_INTEGER
-const genesisClientId = fc.integer({ min: 0x100000000, max: Number.MAX_SAFE_INTEGER });
+const genesisClientId = fc.integer({ min: 0x1_00_00_00_00, max: Number.MAX_SAFE_INTEGER });
 const genesisClock = fc.integer({ min: 0, max: 4095 }); // 12-bit cap
 
 describe("CRDT-Native UUID Codec", () => {
@@ -30,18 +30,18 @@ describe("CRDT-Native UUID Codec", () => {
     });
 
     it("roundtrips max uint32 values", () => {
-      const decoded = bodyDecode(bodyEncode(0xffffffff, 0xffffffff));
-      expect(decoded.hi).toBe(0xffffffff);
-      expect(decoded.lo).toBe(0xffffffff);
+      const decoded = bodyDecode(bodyEncode(0xff_ff_ff_ff, 0xff_ff_ff_ff));
+      expect(decoded.hi).toBe(0xff_ff_ff_ff);
+      expect(decoded.lo).toBe(0xff_ff_ff_ff);
     });
 
     it("roundtrips arbitrary values", () => {
       const cases: [number, number][] = [
         [1, 0],
         [0, 1],
-        [12345, 67890],
-        [0x80000000, 0x80000000],
-        [0xdeadbeef, 0xcafebabe],
+        [12_345, 67_890],
+        [0x80_00_00_00, 0x80_00_00_00],
+        [0xde_ad_be_ef, 0xca_fe_ba_be],
       ];
       for (const [hi, lo] of cases) {
         const decoded = bodyDecode(bodyEncode(hi, lo));
@@ -70,7 +70,7 @@ describe("CRDT-Native UUID Codec", () => {
     it("output is always valid base63 (fuzz)", () => {
       fc.assert(
         fc.property(uint32, uint32, (hi, lo) => {
-          return /^[a-zA-Z0-9_]{11}$/.test(bodyEncode(hi, lo));
+          return /^\w{11}$/.test(bodyEncode(hi, lo));
         }),
       );
     });
@@ -90,15 +90,15 @@ describe("CRDT-Native UUID Codec", () => {
     });
 
     it("roundtrips with max uint32 clientId", () => {
-      const result = decode(encode(0xffffffff, 12345));
-      expect(result.clientId).toBe(0xffffffff);
-      expect(result.clock).toBe(12345);
+      const result = decode(encode(0xff_ff_ff_ff, 12_345));
+      expect(result.clientId).toBe(0xff_ff_ff_ff);
+      expect(result.clock).toBe(12_345);
     });
 
     it("roundtrips with max uint32 clock", () => {
-      const result = decode(encode(7, 0xffffffff));
+      const result = decode(encode(7, 0xff_ff_ff_ff));
       expect(result.clientId).toBe(7);
-      expect(result.clock).toBe(0xffffffff);
+      expect(result.clock).toBe(0xff_ff_ff_ff);
     });
 
     it("roundtrips any (clientId, clock) pair (fuzz)", () => {
@@ -121,7 +121,7 @@ describe("CRDT-Native UUID Codec", () => {
 
   describe("Genesis encode/decode roundtrip ('d' prefix)", () => {
     it("roundtrips basic genesis values", () => {
-      const clientId = 0x100000000; // smallest above-uint32
+      const clientId = 0x1_00_00_00_00; // smallest above-uint32
       const result = decode(encode(clientId, 0));
       expect(result.clientId).toBe(clientId);
       expect(result.clock).toBe(0);
@@ -153,8 +153,8 @@ describe("CRDT-Native UUID Codec", () => {
     });
 
     it("throws on clock exceeding cap", () => {
-      expect(() => encode(0x100000000, 4096)).toThrow("exceeds maximum");
-      expect(() => encode(0x100000000, 5000)).toThrow("exceeds maximum");
+      expect(() => encode(0x1_00_00_00_00, 4096)).toThrow("exceeds maximum");
+      expect(() => encode(0x1_00_00_00_00, 5000)).toThrow("exceeds maximum");
     });
   });
 
@@ -163,7 +163,7 @@ describe("CRDT-Native UUID Codec", () => {
       fc.assert(
         fc.property(uint32, uint32, (clientId, clock) => {
           const uuid = encode(clientId, clock);
-          return uuid.length === 12 && /^p[a-zA-Z0-9_]{11}$/.test(uuid);
+          return uuid.length === 12 && /^p\w{11}$/.test(uuid);
         }),
       );
     });
@@ -172,7 +172,7 @@ describe("CRDT-Native UUID Codec", () => {
       fc.assert(
         fc.property(genesisClientId, genesisClock, (clientId, clock) => {
           const uuid = encode(clientId, clock);
-          return uuid.length === 12 && /^d[a-zA-Z0-9_]{11}$/.test(uuid);
+          return uuid.length === 12 && /^d\w{11}$/.test(uuid);
         }),
       );
     });
@@ -229,7 +229,7 @@ describe("CRDT-Native UUID Codec", () => {
 
     it("p and d prefixes never collide", () => {
       const pUuid = encode(1, 0);
-      const dUuid = encode(0x100000000, 0);
+      const dUuid = encode(0x1_00_00_00_00, 0);
       expect(pUuid[0]).toBe("p");
       expect(dUuid[0]).toBe("d");
       expect(pUuid).not.toBe(dUuid);
@@ -241,7 +241,7 @@ describe("CRDT-Native UUID Codec", () => {
       fc.assert(
         fc.property(fc.string(), uint32, (key, seed) => {
           const h = murmur32(key, seed);
-          return h >= 0 && h <= 0xffffffff && h >>> 0 === h;
+          return h >= 0 && h <= 0xff_ff_ff_ff && h >>> 0 === h;
         }),
       );
     });

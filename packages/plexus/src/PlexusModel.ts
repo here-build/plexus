@@ -1,9 +1,8 @@
 import "@here.build/arrival-env";
+import { nanoid } from "nanoid";
 import invariant from "tiny-invariant";
 import type { Constructor, ReadonlyDeep } from "type-fest";
 import * as Y from "yjs";
-
-import { nanoid } from "nanoid";
 
 import { clone } from "./clone.js";
 import { encode } from "./crdt-uuid.js";
@@ -17,6 +16,7 @@ import {
   PlexusSelfAdoptionError,
 } from "./errors.js";
 import { docPlexus } from "./plexus-registry.js";
+import { Plexus } from "./Plexus.js";
 import { PlexusWrapper } from "./PlexusWrapper.js";
 import { serializeKey, deserializeKey } from "./proxies/materialized-map.js";
 import {
@@ -40,13 +40,12 @@ import {
   requestOrphanizationSymbol,
   validateAdoptionSymbol,
 } from "./proxy-runtime-types.js";
+import { PLEXUS_CONTROLLED, PLEXUS_DERIVED, PLEXUS_TEST_SENTINEL } from "./sentinels.js";
 import { trackAccess, trackModification } from "./tracking.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { curryMaybeReference, maybeTransacting, never } from "./utils/utils.js";
 import { genesisAllowlist } from "./virtual-children-genesis.js";
 import { getTypeMap } from "./yjs/getModels.js";
-import { Plexus } from "./Plexus.js";
-import { PLEXUS_CONTROLLED, PLEXUS_DERIVED, PLEXUS_TEST_SENTINEL } from "./sentinels.js";
 
 export type PlexusConstructor<T extends PlexusModel = PlexusModel> = (abstract new (...args: any) => T) & {
   modelName: string;
@@ -144,7 +143,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       isWithinYjsModelSeed: false,
       yjsModel: undefined,
       backingStorage: new Map<string, any>(),
-      binding: init === PLEXUS_DERIVED ? "derived" as const : undefined,
+      binding: init === PLEXUS_DERIVED ? ("derived" as const) : undefined,
       // No UUID until materialization — virtual nodes are ephemeral.
       // CRDT-native UUID is assigned at [referenceSymbol] via encode().
     };
@@ -284,7 +283,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     // Map keys are serialized with a prefix (Value\n, Set\n, Array\n).
     // Record keys are plain strings — no prefix, no newline.
     if (!meta.includes("\n")) return meta;
-    const doc = !internals.isDependency ? (internals.yjsModel?.doc ?? null) : null;
+    const doc = internals.isDependency ? null : (internals.yjsModel?.doc ?? null);
     return deserializeKey(meta, doc);
   }
 
@@ -439,13 +438,11 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     internals.parent = null;
     internals.parentKey = null;
     internals.parentMetadata = null;
-    if (internals.yjsModel) {
-      if (internals.yjsModel.hasParent) {
-        maybeTransacting(this.__doc__, () => {
-          internals.yjsModel!.clearParentData();
-          trackModification(this, "parent");
-        });
-      }
+    if (internals.yjsModel?.hasParent) {
+      maybeTransacting(this.__doc__, () => {
+        internals.yjsModel!.clearParentData();
+        trackModification(this, "parent");
+      });
     }
   }
 

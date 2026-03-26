@@ -1,4 +1,5 @@
-import * as Y from "yjs";
+import type * as Y from "yjs";
+
 import type { Storageable, YPlexusNode } from "./proxy-runtime-types.js";
 
 /**
@@ -62,7 +63,7 @@ export class PlexusWrapper {
 
   setParentData(entityId: string, key: string, metadata?: string | null): void {
     const len = this.element.length;
-    const expectedLen = metadata != null ? 3 : 2;
+    const expectedLen = metadata == null ? 2 : 3;
 
     // No-op if values already match
     if (

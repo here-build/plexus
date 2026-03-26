@@ -1,6 +1,5 @@
-import type * as Y from "yjs";
-
 import { DefaultedWeakMap } from "@here.build/collections";
+import type * as Y from "yjs";
 
 import type { PlexusModel } from "./PlexusModel.js";
 

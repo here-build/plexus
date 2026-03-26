@@ -6,10 +6,10 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { PlexusModel } from "../../PlexusModel.js";
-import { syncing } from "../../decorators.js";
-import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 
+import { syncing } from "../../decorators.js";
+import { PlexusModel } from "../../PlexusModel.js";
+import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 
 // Test schema definitions
 @syncing("Component")

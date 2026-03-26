@@ -95,8 +95,7 @@ describe("Concurrent Mutation Races", () => {
       metadata: {},
     });
 
-    comp1_doc1.children.push(child1);
-    comp1_doc1.children.push(child2);
+    comp1_doc1.children.push(child1, child2);
 
     // Sync and verify state consistency
     syncDocs(doc1, doc2);

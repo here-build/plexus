@@ -23,6 +23,7 @@
  */
 
 import invariant from "tiny-invariant";
+
 import type { PlexusUUID } from "./proxy-runtime-types.js";
 
 // ── Body alphabet: Base63 ──
@@ -38,33 +39,33 @@ export function murmur32(key: string, seed: number): number {
   let h = seed >>> 0;
   for (let i = 0; i < key.length; i++) {
     let k = key.charCodeAt(i);
-    k = Math.imul(k, 0xcc9e2d51);
+    k = Math.imul(k, 0xcc_9e_2d_51);
     k = (k << 15) | (k >>> 17);
-    k = Math.imul(k, 0x1b873593);
+    k = Math.imul(k, 0x1b_87_35_93);
     h ^= k;
     h = (h << 13) | (h >>> 19);
-    h = (Math.imul(h, 5) + 0xe6546b64) >>> 0;
+    h = (Math.imul(h, 5) + 0xe6_54_6b_64) >>> 0;
   }
   h ^= key.length;
   h ^= h >>> 16;
-  h = Math.imul(h, 0x85ebca6b);
+  h = Math.imul(h, 0x85_eb_ca_6b);
   h ^= h >>> 13;
-  h = Math.imul(h, 0xc2b2ae35);
+  h = Math.imul(h, 0xc2_b2_ae_35);
   h ^= h >>> 16;
   return h >>> 0;
 }
 
 // ── Feistel round keys (fixed constants — no doc.guid dependency) ──
 
-const ROUND_KEYS: [number, number, number, number] = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a];
+const ROUND_KEYS: [number, number, number, number] = [0x6a_09_e6_67, 0xbb_67_ae_85, 0x3c_6e_f3_72, 0xa5_4f_f5_3a];
 
 // ── Round function: diffusion via multiply-xor-shift ──
 
 function roundFn(value: number, key: number): number {
   let h = (value ^ key) >>> 0;
-  h = Math.imul(h, 0x5bd1e995);
+  h = Math.imul(h, 0x5b_d1_e9_95);
   h ^= h >>> 13;
-  h = Math.imul(h, 0x5bd1e995);
+  h = Math.imul(h, 0x5b_d1_e9_95);
   h ^= h >>> 15;
   return h >>> 0;
 }
@@ -74,11 +75,11 @@ function roundFn(value: number, key: number): number {
 // No BigInt. All intermediates ≤ 63 × 2^32 < 2^38 — safe for float64.
 
 export function bodyEncode(hi: number, lo: number): string {
-  const chars = new Array<string>(11);
+  const chars = Array.from({ length: 11 });
   for (let i = 10; i >= 0; i--) {
     const hiRem = hi % 63;
     hi = Math.floor(hi / 63);
-    const combined = hiRem * 0x100000000 + lo;
+    const combined = hiRem * 0x1_00_00_00_00 + lo;
     chars[i] = ALPHA[combined % 63];
     lo = Math.floor(combined / 63);
   }
@@ -91,7 +92,7 @@ export function bodyDecode(s: string): { hi: number; lo: number } {
   for (let i = 0; i < 11; i++) {
     const digit = DECODE_TABLE[s.charCodeAt(i)];
     const loProduct = lo * 63 + digit;
-    const carry = Math.floor(loProduct / 0x100000000);
+    const carry = Math.floor(loProduct / 0x1_00_00_00_00);
     lo = loProduct >>> 0;
     hi = hi * 63 + carry;
   }
@@ -103,7 +104,7 @@ export function bodyDecode(s: string): { hi: number; lo: number } {
 // Split into hi (33 bits) and lo (20 bits offset + 12 bits clock = 32 bits).
 // Max packed: (2^33 - 1) × 2^32 + (2^32 - 1) = 2^65 - 1 < 63^11 ✓
 
-const MAX_UINT32 = 0xffffffff;
+const MAX_UINT32 = 0xff_ff_ff_ff;
 const CLOCK_BITS = 12;
 const CLOCK_CAP = 1 << CLOCK_BITS; // 4096
 const OFFSET_BITS = 32 - CLOCK_BITS; // 20
@@ -132,7 +133,7 @@ export function encode(clientId: number, clock: number, binding?: "bound"): Plex
   const hi = Math.floor(offset / (1 << OFFSET_BITS));
   const offsetLo = offset % (1 << OFFSET_BITS);
   const lo = offsetLo * CLOCK_CAP + clock;
-  return ("d" + bodyEncode(hi, lo)) as PlexusUUID;
+  return `d${bodyEncode(hi, lo)}` as PlexusUUID;
 }
 
 // ── Decode: PlexusUUID → {clientId, clock} ──

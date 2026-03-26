@@ -1,9 +1,9 @@
 import type * as Y from "yjs";
 
+import { Plexus } from "../Plexus.js";
 import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReferenceTuple } from "../proxy-runtime-types.js";
 import { referenceSymbol } from "../proxy-runtime-types.js";
-import { Plexus } from "../Plexus.js";
 
 export function never(value: never): never {
   throw new Error(`Unexpected value: ${value}`);

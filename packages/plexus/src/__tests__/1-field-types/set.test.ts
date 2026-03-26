@@ -3,11 +3,11 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { PlexusModel } from "../../PlexusModel.js";
-import { syncing } from "../../decorators.js";
 import * as Y from "yjs";
-import { initTestPlexus } from "../_helpers/test-plexus.js";
 
+import { syncing } from "../../decorators.js";
+import { PlexusModel } from "../../PlexusModel.js";
+import { initTestPlexus } from "../_helpers/test-plexus.js";
 import { getModelsMap } from "../getModelsMap.js";
 
 // Test model with a set field
@@ -89,16 +89,16 @@ describe("Set Proxy Implementation", () => {
       });
 
       // Test values()
-      const values = Array.from(model.tags.values());
+      const values = [...model.tags.values()];
       expect(values).to.include.members(["tag1", "tag2", "tag3"]);
 
       // Test forEach
       const collected: string[] = [];
-      model.tags.forEach((value) => collected.push(value));
+      for (const value of model.tags) collected.push(value);
       expect(collected).to.include.members(["tag1", "tag2", "tag3"]);
 
       // Test entries()
-      const entries = Array.from(model.tags.entries());
+      const entries = [...model.tags.entries()];
       expect(entries).to.deep.include.members([
         ["tag1", "tag1"],
         ["tag2", "tag2"],
@@ -276,11 +276,11 @@ describe("Set Proxy Implementation", () => {
       ]).to.have.ordered.members([0, undefined, false, false]);
 
       // Iteration should work on empty sets
-      const values = Array.from(model.tags.values());
+      const values = [...model.tags.values()];
       expect(values).to.deep.equal([]);
 
       const collected: string[] = [];
-      model.tags.forEach((value) => collected.push(value));
+      for (const value of model.tags) collected.push(value);
       expect(collected).to.deep.equal([]);
     });
 

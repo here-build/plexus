@@ -8,9 +8,10 @@
 
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { PlexusModel } from "../../PlexusModel.js";
+
 import { syncing } from "../../decorators.js";
 import { Plexus } from "../../Plexus.js";
+import { PlexusModel } from "../../PlexusModel.js";
 
 @syncing("GuidTestNode")
 class GuidTestNode extends PlexusModel {

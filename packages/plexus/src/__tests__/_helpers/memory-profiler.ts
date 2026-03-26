@@ -26,7 +26,7 @@ export interface MemoryProfile {
 }
 
 export class MemoryProfiler {
-  private profiles = new Map<string, MemoryProfile>();
+  private readonly profiles = new Map<string, MemoryProfile>();
   private currentProfile: MemoryProfile | null = null;
   private intervalId: NodeJS.Timeout | null = null;
 
@@ -124,7 +124,7 @@ export class MemoryProfiler {
    * Get all stored profiles
    */
   getAllProfiles(): MemoryProfile[] {
-    return Array.from(this.profiles.values());
+    return [...this.profiles.values()];
   }
 
   /**
@@ -158,7 +158,7 @@ export class MemoryProfiler {
   generateReport(profile: MemoryProfile): string {
     const duration = profile.endTime - profile.startTime;
     const startHeap = profile.snapshots[0]?.heapUsed ?? 0;
-    const endHeap = profile.snapshots[profile.snapshots.length - 1]?.heapUsed ?? 0;
+    const endHeap = profile.snapshots.at(-1)?.heapUsed ?? 0;
 
     return `
 === Memory Profile Report: ${profile.name} ===
@@ -219,9 +219,9 @@ Average Heap Usage:
 
 Winner: ${
       p2Growth < p1Growth && p2Peak < p1Peak && p2Avg < p1Avg
-        ? profile2.name + " (better on all metrics)"
+        ? `${profile2.name} (better on all metrics)`
         : p1Growth < p2Growth && p1Peak < p2Peak && p1Avg < p2Avg
-          ? profile1.name + " (better on all metrics)"
+          ? `${profile1.name} (better on all metrics)`
           : "Mixed results - check individual metrics"
     }
 `.trim();
@@ -232,7 +232,7 @@ Winner: ${
  * Higher-level memory testing utilities
  */
 export class MemoryTester {
-  private profiler = new MemoryProfiler();
+  private readonly profiler = new MemoryProfiler();
 
   /**
    * Run a test function with memory profiling

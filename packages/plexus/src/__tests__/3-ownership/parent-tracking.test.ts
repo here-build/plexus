@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { PlexusModel } from "../../PlexusModel.js";
-import { syncing } from "../../decorators.js";
-import { referenceSymbol, YPlexusNode } from "../../proxy-runtime-types.js";
-import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 import * as Y from "yjs";
-import { PlexusRootParentError } from "../../errors.js";
 
+import { syncing } from "../../decorators.js";
+import { PlexusRootParentError } from "../../errors.js";
+import { PlexusModel } from "../../PlexusModel.js";
+import type { YPlexusNode } from "../../proxy-runtime-types.js";
+import { referenceSymbol } from "../../proxy-runtime-types.js";
+import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 import { getModelsMap } from "../getModelsMap.js";
 
 // Helper to read parent data from XmlElement children (positional: [entityId, key, meta?])

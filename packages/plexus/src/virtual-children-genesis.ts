@@ -14,11 +14,11 @@ import * as Y from "yjs";
 
 import { murmur32 } from "./crdt-uuid.js";
 import { docPlexus } from "./plexus-registry.js";
+import { Plexus } from "./Plexus.js";
 import { getInternals, PlexusModel } from "./PlexusModel.js";
 import { serializeKey } from "./proxies/key-serialization.js";
 import type { AllowedVirtualMapKey, AllowedYValue } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
-import { Plexus } from "./Plexus.js";
 
 // ── Constants ──
 
@@ -26,8 +26,8 @@ import { Plexus } from "./Plexus.js";
 export const GENESIS_ORIGIN = Symbol("plexus:genesis");
 
 /** Hash seeds — "GEN" and "SIS" in hex-ish (shared with genesis-client.ts) */
-const SEED_HI = 0x47454e;
-const SEED_LO = 0x534953;
+const SEED_HI = 0x47_45_4e;
+const SEED_LO = 0x53_49_53;
 
 // ── Factory Isolation ──
 
@@ -72,26 +72,25 @@ export function assertGenesisIsolation(model: PlexusModel): void {
  */
 function murmurBytes(data: Uint8Array, seed: number): number {
   let h = seed >>> 0;
-  for (let i = 0; i < data.length; i++) {
-    let k = data[i];
-    k = Math.imul(k, 0xcc9e2d51);
+  for (let k of data) {
+    k = Math.imul(k, 0xcc_9e_2d_51);
     k = (k << 15) | (k >>> 17);
-    k = Math.imul(k, 0x1b873593);
+    k = Math.imul(k, 0x1b_87_35_93);
     h ^= k;
     h = (h << 13) | (h >>> 19);
-    h = (Math.imul(h, 5) + 0xe6546b64) >>> 0;
+    h = (Math.imul(h, 5) + 0xe6_54_6b_64) >>> 0;
   }
   h ^= data.length;
   h ^= h >>> 16;
-  h = Math.imul(h, 0x85ebca6b);
+  h = Math.imul(h, 0x85_eb_ca_6b);
   h ^= h >>> 13;
-  h = Math.imul(h, 0xc2b2ae35);
+  h = Math.imul(h, 0xc2_b2_ae_35);
   h ^= h >>> 16;
   return h >>> 0;
 }
 
 /** Yjs clientIds are uint32: [0, 0xFFFFFFFF]. Genesis lives above this. */
-const MAX_UINT32 = 0xffffffff;
+const MAX_UINT32 = 0xff_ff_ff_ff;
 
 /** Number of integers in (MAX_UINT32, MAX_SAFE_INTEGER]. */
 const GENESIS_RANGE = Number.MAX_SAFE_INTEGER - MAX_UINT32;
@@ -108,10 +107,10 @@ function computeVirtualGenesisId(
   vector: Uint8Array,
 ): number {
   const vectorHash = murmurBytes(vector, SEED_HI);
-  const canonical = `${parentUuid}\\0${fieldName}\\0${serializedKey}\\0${vectorHash.toString(36)}`;
+  const canonical = String.raw`${parentUuid}\0${fieldName}\0${serializedKey}\0${vectorHash.toString(36)}`;
   const hi = murmur32(canonical, SEED_HI);
   const lo = murmur32(canonical, SEED_LO);
-  const wide = (hi & 0x1fffff) * 0x100000000 + (lo >>> 0);
+  const wide = (hi & 0x1f_ff_ff) * 0x1_00_00_00_00 + (lo >>> 0);
   return (wide % GENESIS_RANGE) + MAX_UINT32 + 1;
 }
 
@@ -150,10 +149,7 @@ function assertValidKey(key: unknown): void {
     return;
   }
   if (key instanceof PlexusModel) {
-    invariant(
-      key.__doc__,
-      "PlexusModel key must be connected to a doc for deterministic serialization",
-    );
+    invariant(key.__doc__, "PlexusModel key must be connected to a doc for deterministic serialization");
     return;
   }
   const type = typeof key;
@@ -168,7 +164,7 @@ function computeContainerGenesisId(parentUuid: string, fieldName: string): numbe
   const canonical = `${parentUuid}\0${fieldName}\0__container__`;
   const hi = murmur32(canonical, SEED_HI);
   const lo = murmur32(canonical, SEED_LO);
-  const wide = (hi & 0x1fffff) * 0x100000000 + (lo >>> 0);
+  const wide = (hi & 0x1f_ff_ff) * 0x1_00_00_00_00 + (lo >>> 0);
   return (wide % GENESIS_RANGE) + MAX_UINT32 + 1;
 }
 

@@ -6,7 +6,8 @@
  */
 
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { PlexusModel, syncing } from "../../index.js";
+
+import { PlexusModel, syncing } from "../..";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
 // ============================================================================

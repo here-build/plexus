@@ -14,8 +14,8 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import { PlexusModel } from "../../PlexusModel.js";
 import { syncing } from "../../decorators.js";
+import { PlexusModel } from "../../PlexusModel.js";
 import { referenceSymbol } from "../../proxy-runtime-types.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 

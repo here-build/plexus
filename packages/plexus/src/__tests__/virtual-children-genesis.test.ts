@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import { decode } from "../crdt-uuid.js";
-import { deref } from "../deref.js";
 import { syncing } from "../decorators.js";
+import { deref } from "../deref.js";
 import { getInternals, PlexusModel } from "../PlexusModel.js";
 import type { AllowedYValue, PlexusUUID } from "../proxy-runtime-types.js";
 import {
@@ -621,8 +621,12 @@ describe("materializeVirtualChild", () => {
     const { root, doc } = initTestPlexus(new VTreeHost({ title: "host", branches: new Map() }), {}, docId);
     const yjsMap = getYjsMap(root, "branches");
 
-    materializeVirtualChild(root, "branches", "x", yjsMap, (key) =>
-      new VBranch({ tag: `branch-${key}`, leaf: new VLeaf({ value: `leaf-${key}` }) }),
+    materializeVirtualChild(
+      root,
+      "branches",
+      "x",
+      yjsMap,
+      (key) => new VBranch({ tag: `branch-${key}`, leaf: new VLeaf({ value: `leaf-${key}` }) }),
     );
 
     const branch = root.branches.get("x")!;
@@ -635,8 +639,8 @@ describe("materializeVirtualChild", () => {
     // UUIDs decode to above-uint32 clientIds
     const branchAddr = decode(branch.uuid as PlexusUUID);
     const leafAddr = decode(leaf.uuid as PlexusUUID);
-    expect(branchAddr.clientId).toBeGreaterThan(0xffffffff);
-    expect(leafAddr.clientId).toBeGreaterThan(0xffffffff);
+    expect(branchAddr.clientId).toBeGreaterThan(0xff_ff_ff_ff);
+    expect(leafAddr.clientId).toBeGreaterThan(0xff_ff_ff_ff);
 
     // Items exist in StructStore at those addresses
     const branchItem = Y.getItem(doc.store, Y.createID(branchAddr.clientId, branchAddr.clock));
@@ -650,8 +654,12 @@ describe("materializeVirtualChild", () => {
     const { root, doc } = initTestPlexus(new VTreeHost({ title: "host", branches: new Map() }));
     const yjsMap = getYjsMap(root, "branches");
 
-    materializeVirtualChild(root, "branches", "t", yjsMap, (key) =>
-      new VBranch({ tag: `branch-${key}`, leaf: new VLeaf({ value: `leaf-${key}` }) }),
+    materializeVirtualChild(
+      root,
+      "branches",
+      "t",
+      yjsMap,
+      (key) => new VBranch({ tag: `branch-${key}`, leaf: new VLeaf({ value: `leaf-${key}` }) }),
     );
 
     const branch = root.branches.get("t")!;
@@ -676,15 +684,10 @@ describe("materializeVirtualChild", () => {
 
   it("child entity UUIDs match across independent peers", () => {
     const docId = "child-uuid-match";
-    const factory = (key: string) =>
-      new VBranch({ tag: `branch-${key}`, leaf: new VLeaf({ value: `leaf-${key}` }) });
+    const factory = (key: string) => new VBranch({ tag: `branch-${key}`, leaf: new VLeaf({ value: `leaf-${key}` }) });
 
     // Peer 1
-    const { root: root1, doc: doc1 } = initTestPlexus(
-      new VTreeHost({ title: "host", branches: new Map() }),
-      {},
-      docId,
-    );
+    const { root: root1, doc: doc1 } = initTestPlexus(new VTreeHost({ title: "host", branches: new Map() }), {}, docId);
 
     // Peer 2: sync parent
     const doc2 = new Y.Doc({ guid: docId });
@@ -742,8 +745,12 @@ describe("materializeVirtualChild", () => {
     const { root, doc } = initTestPlexus(new VTreeHost({ title: "host", branches: new Map() }));
     const yjsMap = getYjsMap(root, "branches");
 
-    materializeVirtualChild(root, "branches", "d", yjsMap, (key) =>
-      new VBranch({ tag: `branch-${key}`, leaf: new VLeaf({ value: `leaf-${key}` }) }),
+    materializeVirtualChild(
+      root,
+      "branches",
+      "d",
+      yjsMap,
+      (key) => new VBranch({ tag: `branch-${key}`, leaf: new VLeaf({ value: `leaf-${key}` }) }),
     );
 
     const branch = root.branches.get("d")!;
@@ -767,14 +774,19 @@ describe("materializeVirtualChild", () => {
     const { root, doc } = initTestPlexus(new VTreeHostDeep({ title: "host", nodes: new Map() }));
     const yjsMap = getYjsMap(root, "nodes");
 
-    materializeVirtualChild(root, "nodes", "deep", yjsMap, (key) =>
-      new VDeep({
-        depth: `L0-${key}`,
-        nested: new VBranch({
-          tag: `L1-${key}`,
-          leaf: new VLeaf({ value: `L2-${key}` }),
+    materializeVirtualChild(
+      root,
+      "nodes",
+      "deep",
+      yjsMap,
+      (key) =>
+        new VDeep({
+          depth: `L0-${key}`,
+          nested: new VBranch({
+            tag: `L1-${key}`,
+            leaf: new VLeaf({ value: `L2-${key}` }),
+          }),
         }),
-      }),
     );
 
     const deep = root.nodes.get("deep")!;

@@ -11,6 +11,7 @@ import { UndoManager } from "yjs";
 import { type DecodedBlob, decodeBlob, createBlobFromDoc } from "./dependency-blob.js";
 import { deref } from "./deref.js";
 import { documentEntityCaches } from "./entity-cache.js";
+import { declareDeterministicMap } from "./genesis-client.js";
 import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
 import { getInternals, PlexusModel, type PlexusConstructor } from "./PlexusModel.js";
@@ -19,12 +20,11 @@ import type { AllowedYValue, PlexusUUID, YPlexusNode } from "./proxy-runtime-typ
 import { referenceSymbol } from "./proxy-runtime-types.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { maybeTransacting } from "./utils/utils.js";
+import { getDependenciesMap, getMetaMap, getModelTypesMap } from "./yjs/getModels.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
-import { declareDeterministicMap } from "./genesis-client.js";
 // MAX_UINT32 threshold: genesis clientIds are always above this value.
 // Used to filter container genesis Items from UndoManager StackItems.
-const MAX_UINT32 = 0xffffffff;
-import { getDependenciesMap, getMetaMap, getModelTypesMap } from "./yjs/getModels.js";
+const MAX_UINT32 = 0xff_ff_ff_ff;
 
 export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<string, Root> }> {
   /** Enable PLEXUS_TEST_SENTINEL — constructor throws the sentinel symbol for reachability testing. */
@@ -39,7 +39,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     try {
       return process.env.PLEXUS_UUID_MODE as "arbitrary" | undefined;
     } catch {
-      return undefined;
+      return;
     }
   })();
   public static getArbitraryUUID: () => string = nanoid;
@@ -48,23 +48,23 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     {
       ownKeys: () => [...this.yDependencies.keys()],
       get: (_, key: string) => {
-        if (typeof key !== "string") return undefined;
+        if (typeof key !== "string") return;
         const blob = this.yDependencies.get(key);
-        if (!blob) return undefined;
+        if (!blob) return;
         const decoded = this.#decodedBlobs.get(key);
-        if (!decoded) return undefined;
+        if (!decoded) return;
         return this.#materializeDependencyEntity(key, decoded.rootUuid);
       },
       getOwnPropertyDescriptor: (_, key: string) => {
-        if (typeof key !== "string" || !this.yDependencies.has(key)) return undefined;
+        if (typeof key !== "string" || !this.yDependencies.has(key)) return;
         return { configurable: true, enumerable: true, value: (this.rootDependenciesRepresentation as any)[key] };
       },
     },
   );
   protected readonly yDependencies: Y.Map<Uint8Array>;
 
-  #decodedBlobs = new Map<string, DecodedBlob>();
-  #dependencyEntityCache = new Map<string, PlexusModel>();
+  readonly #decodedBlobs = new Map<string, DecodedBlob>();
+  readonly #dependencyEntityCache = new Map<string, PlexusModel>();
 
   #ensureDecoded(projectId: string): DecodedBlob {
     let decoded = this.#decodedBlobs.get(projectId);
@@ -87,7 +87,10 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     invariant(entry, `Plexus: entity "${entityUuid}" not found in dependency "${projectId}"`);
 
     const constructor = entityClasses.get(entry.type);
-    invariant(constructor, `Plexus<dep#${projectId}, model#${entityUuid}> cannot discover model constructor "${entry.type}"`);
+    invariant(
+      constructor,
+      `Plexus<dep#${projectId}, model#${entityUuid}> cannot discover model constructor "${entry.type}"`,
+    );
 
     const self = this;
     const model = PlexusModel.__materializePredefined__(
@@ -116,38 +119,88 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
           switch (type) {
             case "val":
             case "child-val":
-              return [key, { configurable: true, enumerable: true, get: () => {
-                fieldCache[key] ??= value != null ? deref(this.doc, value as AllowedYValue, resolveProjectId) : null;
-                return fieldCache[key];
-              }}];
+              return [
+                key,
+                {
+                  configurable: true,
+                  enumerable: true,
+                  get: () => {
+                    fieldCache[key] ??=
+                      value == null ? null : deref(this.doc, value as AllowedYValue, resolveProjectId);
+                    return fieldCache[key];
+                  },
+                },
+              ];
             case "list":
             case "child-list":
-              return [key, { configurable: true, enumerable: true, get: () => {
-                fieldCache[key] ??= value ? (value as AllowedYValue[]).map((v) => deref(this.doc, v, resolveProjectId)) : [];
-                return fieldCache[key];
-              }}];
+              return [
+                key,
+                {
+                  configurable: true,
+                  enumerable: true,
+                  get: () => {
+                    fieldCache[key] ??= value
+                      ? (value as AllowedYValue[]).map((v) => deref(this.doc, v, resolveProjectId))
+                      : [];
+                    return fieldCache[key];
+                  },
+                },
+              ];
             case "set":
             case "child-set":
-              return [key, { configurable: true, enumerable: true, get: () => {
-                fieldCache[key] ??= value ? new Set((value as AllowedYValue[]).map((v) => deref(this.doc, v, resolveProjectId))) : new Set();
-                return fieldCache[key];
-              }}];
+              return [
+                key,
+                {
+                  configurable: true,
+                  enumerable: true,
+                  get: () => {
+                    fieldCache[key] ??= value
+                      ? new Set((value as AllowedYValue[]).map((v) => deref(this.doc, v, resolveProjectId)))
+                      : new Set();
+                    return fieldCache[key];
+                  },
+                },
+              ];
             case "record":
             case "child-record":
-              return [key, { configurable: true, enumerable: true, get: () => {
-                fieldCache[key] ??= value ? Object.fromEntries(
-                  Object.entries(value as Record<string, AllowedYValue>).map(([k, v]) => [k, deref(this.doc, v, resolveProjectId)]),
-                ) : {};
-                return fieldCache[key];
-              }}];
+              return [
+                key,
+                {
+                  configurable: true,
+                  enumerable: true,
+                  get: () => {
+                    fieldCache[key] ??= value
+                      ? Object.fromEntries(
+                          Object.entries(value as Record<string, AllowedYValue>).map(([k, v]) => [
+                            k,
+                            deref(this.doc, v, resolveProjectId),
+                          ]),
+                        )
+                      : {};
+                    return fieldCache[key];
+                  },
+                },
+              ];
             case "map":
             case "child-map":
-              return [key, { configurable: true, enumerable: true, get: () => {
-                fieldCache[key] ??= value ? new Map(
-                  Object.entries(value as Record<string, AllowedYValue>).map(([k, v]) => [k, deref(this.doc, v, resolveProjectId)]),
-                ) : new Map();
-                return fieldCache[key];
-              }}];
+              return [
+                key,
+                {
+                  configurable: true,
+                  enumerable: true,
+                  get: () => {
+                    fieldCache[key] ??= value
+                      ? new Map(
+                          Object.entries(value as Record<string, AllowedYValue>).map(([k, v]) => [
+                            k,
+                            deref(this.doc, v, resolveProjectId),
+                          ]),
+                        )
+                      : new Map();
+                    return fieldCache[key];
+                  },
+                },
+              ];
           }
         }),
       ),
@@ -283,7 +336,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
    * Doc must be synced before calling - if no root found, throws with helpful hint.
    */
   // it is bad to use Function; yet, it's impossible to use Constructor<> directly since constructor is protected.
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+
   static connect(doc: Y.Doc) {
     // Return existing instance if one exists for this class
     const existing = docPlexus.get(doc);
@@ -563,7 +616,6 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     invariant(this.yDependencies.has(projectId), `Plexus: dependency "${projectId}" not loaded`);
     return this.#materializeDependencyEntity(projectId, entityUuid);
   }
-
 
   #ensureBlobFormat(projectId: string, data: Uint8Array): Uint8Array {
     // Try to detect: blob format starts with version byte (1).

@@ -1,3 +1,3 @@
-import { enableMobXIntegration } from "./index.js";
+import { enableMobXIntegration } from ".";
 
 enableMobXIntegration();

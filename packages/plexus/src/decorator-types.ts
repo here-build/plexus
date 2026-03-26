@@ -1,5 +1,5 @@
-import type { AllowedPrimitive, AllowedYJSValue } from "./proxy-runtime-types.js";
 import type { PlexusModel } from "./PlexusModel.js";
+import type { AllowedPrimitive, AllowedYJSValue } from "./proxy-runtime-types.js";
 
 /**
  * Core parent constraint check shared by all child discriminators.
@@ -16,13 +16,15 @@ import type { PlexusModel } from "./PlexusModel.js";
  */
 type CheckParentConstraint<Value, T, Parent extends PlexusModel> =
   Extract<Value, PlexusModel> extends PlexusModel<infer AP extends PlexusModel>
-    ? any extends AP ? T : Parent extends Extract<AP, Parent> ? T : never
+    ? any extends AP
+      ? T
+      : Parent extends Extract<AP, Parent>
+        ? T
+        : never
     : never;
 
 type DiscriminateChildVal<T extends AllowedYJSValue, Parent extends PlexusModel> =
-  CheckParentConstraint<T, T, Parent> extends never
-    ? AllowedPrimitive | PlexusModel<Parent>
-    : T;
+  CheckParentConstraint<T, T, Parent> extends never ? AllowedPrimitive | PlexusModel<Parent> : T;
 
 type DiscriminateChildRecord<T extends Record<string, AllowedYJSValue>, Parent extends PlexusModel> =
   T extends Record<string, infer V>
@@ -38,12 +40,11 @@ type DiscriminateChildSet<T extends Set<AllowedYJSValue>, Parent extends PlexusM
       : T
     : never;
 
-type DiscriminateChildList<T extends AllowedYJSValue[], Parent extends PlexusModel> =
-  T extends (infer V)[]
-    ? CheckParentConstraint<V, T, Parent> extends never
-      ? (AllowedPrimitive | PlexusModel<Parent>)[]
-      : T
-    : never;
+type DiscriminateChildList<T extends AllowedYJSValue[], Parent extends PlexusModel> = T extends (infer V)[]
+  ? CheckParentConstraint<V, T, Parent> extends never
+    ? (AllowedPrimitive | PlexusModel<Parent>)[]
+    : T
+  : never;
 
 type DeclareResult<Out, In, Model extends PlexusModel> = {
   get?(this: Model): Out;

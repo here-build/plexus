@@ -1,10 +1,10 @@
 import invariant from "tiny-invariant";
 import type * as Y from "yjs";
 
+import { deref } from "../deref.js";
 import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue, AllowedYValue } from "../proxy-runtime-types.js";
 import { referenceSymbol } from "../proxy-runtime-types.js";
-import { deref } from "../deref.js";
 
 const SET_PREFIX = "Set";
 const ARRAY_PREFIX = "Array";
@@ -119,14 +119,14 @@ function deserializeValueFlexible(line: string, doc: Y.Doc | null): AllowedYJSVa
   if (BIGINT_REGEX.test(line)) {
     return BigInt(line.slice(0, -1));
   }
-  if (line === "NaN") return NaN;
+  if (line === "NaN") return Number.NaN;
   if (line === "Infinity") return Infinity;
   if (line === "-Infinity") return -Infinity;
 
   const parsed = JSON.parse(line);
 
   // Check if it's a reference tuple: [id] or [id, docId]
-  if (Array.isArray(parsed) && parsed.length >= 1 && parsed.length <= 2 && typeof parsed[0] === "string") {
+  if (Array.isArray(parsed) && parsed.length > 0 && parsed.length <= 2 && typeof parsed[0] === "string") {
     // Try local resolution first
     const localEntity = localIdToEntity.get(parsed[0])?.deref();
     if (localEntity) return localEntity;

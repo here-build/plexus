@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { PlexusModel } from "../../PlexusModel.js";
+
 import { syncing } from "../../decorators.js";
+import { PlexusModel } from "../../PlexusModel.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
 // Simple test entities
@@ -109,7 +110,7 @@ describe("Plexus Basic Functionality", () => {
     const post = new Post({
       title: "Related Post",
       content: "Content with relationships",
-      author: author,
+      author,
       tags: ["relationship", "test"],
     });
 

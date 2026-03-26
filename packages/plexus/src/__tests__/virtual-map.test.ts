@@ -26,8 +26,7 @@ class VHost extends PlexusModel {
 
 // Subclass to test inheritance
 @syncing("VHostChild")
-class VHostChild extends VHost {
-}
+class VHostChild extends VHost {}
 
 // Model with numeric keys
 @syncing("VNumHost")
@@ -117,10 +116,14 @@ describe("VirtualMap (@syncing.virtual)", () => {
       const { root } = initTestPlexus(new VHost({ name: "host" }));
 
       // @ts-expect-error — VirtualMap brand prevents assigning a plain Map
-      expect(() => { root.items = new Map(); }).toThrow("cannot be assigned");
+      expect(() => {
+        root.items = new Map();
+      }).toThrow("cannot be assigned");
 
       // Self-assignment: passes type check (same branded type) but throws at runtime
-      expect(() => { root.items = root.items; }).toThrow("cannot be assigned");
+      expect(() => {
+        root.items = root.items;
+      }).toThrow("cannot be assigned");
     });
   });
 
@@ -164,7 +167,7 @@ describe("VirtualMap (@syncing.virtual)", () => {
       root.items.get("q");
 
       const labels: string[] = [];
-      root.items.forEach((v) => labels.push(v.label));
+      for (const v of root.items) labels.push(v.label);
       expect(labels).toContain("auto-p");
       expect(labels).toContain("auto-q");
     });

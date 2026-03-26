@@ -7,10 +7,11 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PlexusModel } from "../../PlexusModel.js";
-import { syncing } from "../../decorators.js";
-import { createTrackedFunction } from "../../tracking.js";
 import * as Y from "yjs";
+
+import { syncing } from "../../decorators.js";
+import { PlexusModel } from "../../PlexusModel.js";
+import { createTrackedFunction } from "../../tracking.js";
 
 // =============================================================================
 // Test Models
@@ -286,7 +287,7 @@ describe("Clone semantics", () => {
 
       const parent = new ParentWithChildVal({
         name: "parent",
-        child: child, // Will be cloned
+        child, // Will be cloned
         participatingReference: child, // Will be updated as new entity of that was spawned
         reference: child2, // Will be preserved as reference
       });
@@ -346,10 +347,7 @@ describe("Clone semantics", () => {
         .to.have.lengthOf(2)
         .and.satisfy(
           (arr: typeof cloned.children) =>
-            arr[0] !== child1 &&
-            arr[1] !== child2 &&
-            arr[0].name === "child1" &&
-            arr[1].name === "child2",
+            arr[0] !== child1 && arr[1] !== child2 && arr[0].name === "child1" && arr[1].name === "child2",
         );
 
       // list: references to cloned entities should be remapped, non-cloned preserved
@@ -406,7 +404,7 @@ describe("Clone semantics", () => {
 
       // child-set: children should be cloned
       expect(cloned.childSet.size).to.equal(2);
-      const clonedChildren = Array.from(cloned.childSet);
+      const clonedChildren = [...cloned.childSet];
       expect(clonedChildren[0]).to.not.equal(child1);
       expect(clonedChildren[1]).to.not.equal(child2);
 
@@ -467,7 +465,7 @@ describe("Circular ownership edge cases", () => {
   it("should handle shared references without cycles", () => {
     // Test the transaction mapping with shared references (no true cycles due to runtime constraints)
     const nodeB = new NodeB({ name: "B", nodeA: null });
-    const nodeA = new NodeA({ name: "A", nodeB: nodeB });
+    const nodeA = new NodeA({ name: "A", nodeB });
 
     const clonedA = nodeA.clone();
 
@@ -1042,10 +1040,8 @@ describe("Ephemeral entity reference behavior", () => {
 
     // child-set: both items should be cloned
     expect(cloned.childSet.size).to.equal(2);
-    const clonedChildren = Array.from(cloned.childSet);
-    expect(
-      clonedChildren.every((child) => child !== materializedChild && child !== ephemeralChild),
-    ).to.eq(true);
+    const clonedChildren = [...cloned.childSet];
+    expect(clonedChildren.every((child) => child !== materializedChild && child !== ephemeralChild)).to.eq(true);
     expect(clonedChildren.some((child) => child.name === "materialized")).to.eq(true);
     expect(clonedChildren.some((child) => child.name === "ephemeral")).to.eq(true);
 

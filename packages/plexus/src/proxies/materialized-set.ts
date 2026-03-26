@@ -1,4 +1,4 @@
-import * as Y from "yjs";
+import type * as Y from "yjs";
 
 import { deref } from "../deref.js";
 import type { PlexusModel } from "../PlexusModel.js";

@@ -1,5 +1,5 @@
 import invariant from "tiny-invariant";
-import * as Y from "yjs";
+import type * as Y from "yjs";
 
 import { deref } from "../deref.js";
 import { PlexusDuplicateChildError } from "../errors.js";
@@ -590,7 +590,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               }
             }
 
-            backingArray.splice(0, backingArray.length);
+            backingArray.splice(0);
             yjsArray?.delete(0, yjsArray.length);
             trackModification(self, ACCESS_ALL_SYMBOL);
           };
@@ -639,7 +639,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             const yjsArray = getYjsArray();
             if (!yjsArray) {
               // Container absent or removed (e.g., by undo) — clear the proxy
-              backingArray.splice(0, backingArray.length);
+              backingArray.splice(0);
               return;
             }
             invariant(
@@ -746,7 +746,11 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
 
     set(_, elementKey, value) {
       // Ensure container exists before tracked transaction for index assignment
-      if (typeof elementKey === "string" && elementKey !== "length" && Number.isSafeInteger(Number.parseInt(elementKey))) {
+      if (
+        typeof elementKey === "string" &&
+        elementKey !== "length" &&
+        Number.isSafeInteger(Number.parseInt(elementKey))
+      ) {
         ensureYjsArray();
       }
       return maybeTransacting(owner.__doc__, () => {

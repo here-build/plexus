@@ -8,8 +8,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { PlexusModel } from "../../PlexusModel.js";
+
 import { syncing } from "../../decorators.js";
+import { PlexusModel } from "../../PlexusModel.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
 @syncing("Item")

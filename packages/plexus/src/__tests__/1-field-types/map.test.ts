@@ -12,9 +12,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import { syncing } from "../../decorators.js";
 import { Plexus } from "../../Plexus.js";
 import { PlexusModel } from "../../PlexusModel.js";
-import { syncing } from "../../decorators.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
 // ============================================
@@ -161,9 +161,9 @@ describe("Map", () => {
 
       // forEach
       const collected: string[] = [];
-      component.metadataByName.forEach((val, key) => {
+      for (const [key, val] of component.metadataByName.entries()) {
         collected.push(key as string);
-      });
+      }
       expect(collected).to.include.members(["first", "second"]);
     });
   });
@@ -420,7 +420,7 @@ describe("Map", () => {
       const meta2 = new FrameMetadata({ width: 200, height: 200 });
 
       component.metadataByVariant.set(v1, meta1);
-      // eslint-disable-next-line sonarjs/no-element-overwrite
+
       component.metadataByVariant.set(v1, meta2); // Same key, update value
 
       expect(component.metadataByVariant.size).to.equal(1);
@@ -798,14 +798,14 @@ describe("Map", () => {
         const visited: string[] = [];
 
         // Mutate map during iteration
-        container.mapByString.forEach((value, key) => {
+        for (const [key, value] of container.mapByString.entries()) {
           visited.push(key as string);
 
           // Try to add a new key during iteration
           if (key === "b") {
             container.mapByString.set("d", new ValueModel({ data: "d" }));
           }
-        });
+        }
 
         // BUG: The new key "d" might or might not be visited depending on
         // the iteration state when it was added
@@ -826,14 +826,14 @@ describe("Map", () => {
         const visited: string[] = [];
 
         // Delete entries during iteration
-        container.mapByString.forEach((value, key) => {
+        for (const [key, value] of container.mapByString.entries()) {
           visited.push(key as string);
 
           // Delete "c" when visiting "a"
           if (key === "a") {
             container.mapByString.delete("c");
           }
-        });
+        }
 
         // BUG: "c" may or may not be visited depending on iteration order
         // and internal implementation
@@ -853,13 +853,13 @@ describe("Map", () => {
         const visited: string[] = [];
 
         // Clear during iteration - this is destructive
-        container.mapByString.forEach((value, key) => {
+        for (const [key, value] of container.mapByString.entries()) {
           visited.push(key as string);
 
           if (key === "a") {
             container.mapByString.clear();
           }
-        });
+        }
 
         // After clear, iteration should stop (no more entries)
         // But "a" was already being visited
@@ -879,12 +879,12 @@ describe("Map", () => {
         const visited: string[] = [];
 
         expect(() => {
-          container.mapByString.forEach((value, key) => {
+          for (const [key, value] of container.mapByString.entries()) {
             visited.push(key as string);
             if (key === "b") {
               throw new Error("Callback explosion!");
             }
-          });
+          }
         }).to.throw("Callback explosion!");
 
         // Should have visited at least "a" and "b" before throwing

@@ -11,7 +11,7 @@ import { UndoManager } from "yjs";
 import { type DecodedBlob, decodeBlob, createBlobFromDoc } from "./dependency-blob.js";
 import { deref } from "./deref.js";
 import { documentEntityCaches } from "./entity-cache.js";
-import { declareDeterministicMap } from "./genesis-client.js";
+import { declareDeterministicMap, GENESIS_BASE, isGenesisClientId } from "./genesis-client.js";
 import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
 import { getInternals, PlexusModel, type PlexusConstructor } from "./PlexusModel.js";
@@ -22,8 +22,7 @@ import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { maybeTransacting } from "./utils/utils.js";
 import { getDependenciesMap, getMetaMap, getModelTypesMap } from "./yjs/getModels.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
-// MAX_UINT32 threshold: genesis clientIds are always above this value.
-// Used to filter container genesis Items from UndoManager StackItems.
+// MAX_UINT32 threshold: used for genesis Item filtering in UndoManager.
 const MAX_UINT32 = 0xff_ff_ff_ff;
 
 export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<string, Root> }> {
@@ -248,12 +247,13 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     });
 
     // Strip genesis Items from UndoManager StackItems.
-    // Genesis clientIds are always > MAX_UINT32 (entity genesis + container genesis).
-    // Container creation is structural — must survive undo/redo, same as entities.
+    // Genesis clientIds live in the 0x1F namespace (>= GENESIS_BASE = 31 × 2^40).
+    // Liminal clientIds (0x01 namespace, [2^32, 2^33)) are NOT stripped — committed
+    // liminal changes are user decisions that must survive undo/redo.
     this.__undoManager__.on("stack-item-added", (event) => {
       const clients = event.stackItem.insertions.clients;
       for (const clientId of clients.keys()) {
-        if (clientId > MAX_UINT32) {
+        if (isGenesisClientId(clientId)) {
           clients.delete(clientId);
         }
       }

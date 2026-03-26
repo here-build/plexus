@@ -167,7 +167,7 @@ describe("VirtualMap (@syncing.virtual)", () => {
       root.items.get("q");
 
       const labels: string[] = [];
-      for (const v of root.items) labels.push(v.label);
+      root.items.forEach((v) => labels.push(v.label));
       expect(labels).toContain("auto-p");
       expect(labels).toContain("auto-q");
     });

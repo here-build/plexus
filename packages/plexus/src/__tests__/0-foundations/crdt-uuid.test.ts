@@ -12,14 +12,19 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import { bodyDecode, bodyEncode, decode, encode, murmur32 } from "../../crdt-uuid.js";
+import { GENESIS_BASE, LIMINAL_BASE } from "../../genesis-client.js";
 
 // ── Arbitraries ──
 
 const uint32 = fc.integer({ min: 0, max: 0xff_ff_ff_ff });
 
-// Genesis clientIds: above uint32, up to MAX_SAFE_INTEGER
-const genesisClientId = fc.integer({ min: 0x1_00_00_00_00, max: Number.MAX_SAFE_INTEGER });
+// Genesis clientIds: [GENESIS_BASE, MAX_SAFE_INTEGER]
+const genesisClientId = fc.integer({ min: GENESIS_BASE, max: Number.MAX_SAFE_INTEGER });
 const genesisClock = fc.integer({ min: 0, max: 4095 }); // 12-bit cap
+
+// Liminal clientIds: [LIMINAL_BASE, LIMINAL_BASE + MAX_UINT32]
+const liminalClientId = fc.integer({ min: LIMINAL_BASE, max: LIMINAL_BASE + 0xff_ff_ff_ff });
+const liminalClock = uint32; // full uint32 clock for liminal
 
 describe("CRDT-Native UUID Codec", () => {
   describe("Body (base63) roundtrip", () => {
@@ -121,7 +126,7 @@ describe("CRDT-Native UUID Codec", () => {
 
   describe("Genesis encode/decode roundtrip ('d' prefix)", () => {
     it("roundtrips basic genesis values", () => {
-      const clientId = 0x1_00_00_00_00; // smallest above-uint32
+      const clientId = GENESIS_BASE; // smallest genesis clientId
       const result = decode(encode(clientId, 0));
       expect(result.clientId).toBe(clientId);
       expect(result.clock).toBe(0);
@@ -153,8 +158,8 @@ describe("CRDT-Native UUID Codec", () => {
     });
 
     it("throws on clock exceeding cap", () => {
-      expect(() => encode(0x1_00_00_00_00, 4096)).toThrow("exceeds maximum");
-      expect(() => encode(0x1_00_00_00_00, 5000)).toThrow("exceeds maximum");
+      expect(() => encode(GENESIS_BASE, 4096)).toThrow("exceeds maximum");
+      expect(() => encode(GENESIS_BASE, 5000)).toThrow("exceeds maximum");
     });
   });
 
@@ -227,12 +232,30 @@ describe("CRDT-Native UUID Codec", () => {
       );
     });
 
-    it("p and d prefixes never collide", () => {
+    it("l-prefix encode is injective (fuzz)", () => {
+      fc.assert(
+        fc.property(
+          fc.uniqueArray(fc.tuple(liminalClientId, liminalClock), {
+            minLength: 2,
+            maxLength: 50,
+            comparator: (a, b) => a[0] === b[0] && a[1] === b[1],
+          }),
+          (pairs) => {
+            const uuids = new Set(pairs.map(([c, k]) => encode(c, k)));
+            return uuids.size === pairs.length;
+          },
+        ),
+      );
+    });
+
+    it("p, l, and d prefixes never collide", () => {
       const pUuid = encode(1, 0);
-      const dUuid = encode(0x1_00_00_00_00, 0);
+      const lUuid = encode(LIMINAL_BASE + 1, 0);
+      const dUuid = encode(GENESIS_BASE, 0);
       expect(pUuid[0]).toBe("p");
+      expect(lUuid[0]).toBe("l");
       expect(dUuid[0]).toBe("d");
-      expect(pUuid).not.toBe(dUuid);
+      expect(new Set([pUuid, lUuid, dUuid]).size).toBe(3);
     });
   });
 

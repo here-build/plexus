@@ -2,7 +2,7 @@
  * Simplified type test to debug parent discrimination
  */
 
-import { PlexusModel, syncing } from "../..";
+import { PlexusModel, syncing } from "../../index.js";
 
 @syncing("A")
 class A extends PlexusModel<null> {

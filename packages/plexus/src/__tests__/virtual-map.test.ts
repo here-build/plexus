@@ -115,8 +115,8 @@ describe("VirtualMap (@syncing.virtual)", () => {
     it("accessor assignment is a type error for foreign values, runtime error for all", () => {
       const { root } = initTestPlexus(new VHost({ name: "host" }));
 
-      // @ts-expect-error — VirtualMap brand prevents assigning a plain Map
       expect(() => {
+        // @ts-expect-error — VirtualMap brand prevents assigning a plain Map
         root.items = new Map();
       }).toThrow("cannot be assigned");
 

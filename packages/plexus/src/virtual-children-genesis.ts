@@ -13,6 +13,7 @@ import invariant from "tiny-invariant";
 import * as Y from "yjs";
 
 import { murmur32 } from "./crdt-uuid.js";
+import { GENESIS_BASE } from "./genesis-client.js";
 import { docPlexus } from "./plexus-registry.js";
 import { Plexus } from "./Plexus.js";
 import { getInternals, PlexusModel } from "./PlexusModel.js";
@@ -89,16 +90,12 @@ function murmurBytes(data: Uint8Array, seed: number): number {
   return h >>> 0;
 }
 
-/** Yjs clientIds are uint32: [0, 0xFFFFFFFF]. Genesis lives above this. */
-const MAX_UINT32 = 0xff_ff_ff_ff;
-
-/** Number of integers in (MAX_UINT32, MAX_SAFE_INTEGER]. */
-const GENESIS_RANGE = Number.MAX_SAFE_INTEGER - MAX_UINT32;
+/** Genesis hash space: [GENESIS_BASE, MAX_SAFE_INTEGER]. */
+const GENESIS_RANGE = Number.MAX_SAFE_INTEGER - GENESIS_BASE + 1;
 
 /**
  * Compute a deterministic genesis clientId for a virtual child.
- * Returns a value in (MAX_UINT32, MAX_SAFE_INTEGER] — structurally above
- * the uint32 range Yjs uses for real clientIds. Collision impossible.
+ * Returns a value in [GENESIS_BASE, MAX_SAFE_INTEGER] — the genesis namespace.
  */
 function computeVirtualGenesisId(
   parentUuid: string,
@@ -111,7 +108,7 @@ function computeVirtualGenesisId(
   const hi = murmur32(canonical, SEED_HI);
   const lo = murmur32(canonical, SEED_LO);
   const wide = (hi & 0x1f_ff_ff) * 0x1_00_00_00_00 + (lo >>> 0);
-  return (wide % GENESIS_RANGE) + MAX_UINT32 + 1;
+  return (wide % GENESIS_RANGE) + GENESIS_BASE;
 }
 
 /**
@@ -165,7 +162,7 @@ function computeContainerGenesisId(parentUuid: string, fieldName: string): numbe
   const hi = murmur32(canonical, SEED_HI);
   const lo = murmur32(canonical, SEED_LO);
   const wide = (hi & 0x1f_ff_ff) * 0x1_00_00_00_00 + (lo >>> 0);
-  return (wide % GENESIS_RANGE) + MAX_UINT32 + 1;
+  return (wide % GENESIS_RANGE) + GENESIS_BASE;
 }
 
 function materializeVirtualStruct(owner: PlexusModel, fieldName: string, value: Y.AbstractType<any>): void {

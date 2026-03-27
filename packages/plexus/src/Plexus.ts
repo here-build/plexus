@@ -27,6 +27,7 @@ const MAX_UINT32 = 0xff_ff_ff_ff;
 
 export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<string, Root> }> {
   /** Enable PLEXUS_TEST_SENTINEL — constructor throws the sentinel symbol for reachability testing. */
+  // eslint-disable-next-line sonarjs/public-static-readonly
   public static testSentinels: boolean = false;
 
   /** Set during controlled construction (sentinel-driven). Read by decorators init() to skip field initialization. */
@@ -34,6 +35,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
   static __isControlledConstruction__: boolean = false;
 
   /** Override in tests for deterministic UUIDs. Only used when PLEXUS_UUID_MODE=arbitrary. */
+  // eslint-disable-next-line sonarjs/public-static-readonly
   public static uuidMode: "arbitrary" | undefined = (() => {
     try {
       return process.env.PLEXUS_UUID_MODE as "arbitrary" | undefined;
@@ -41,6 +43,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
       return;
     }
   })();
+  // eslint-disable-next-line sonarjs/public-static-readonly
   public static getArbitraryUUID: () => string = nanoid;
   readonly rootDependenciesRepresentation: ReadonlyDeep<Record<string, Root>> = new Proxy(
     {},

@@ -25,6 +25,7 @@ export const curryMaybeReference =
 // plus it will avoid transaction events for mid-transaction stuff
 const docInTransactionMotion = new WeakSet();
 
+
 // Notification batching state
 export let isTransacting = false;
 export const pendingNotifications: Set<() => void> = new Set();

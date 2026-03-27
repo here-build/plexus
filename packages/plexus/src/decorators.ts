@@ -1,7 +1,7 @@
 import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
 import invariant from "tiny-invariant";
 
-import type {
+import {
   DiscriminateMap,
   type DiscriminatingIdentityDecorator,
   type DiscriminatingListDecorator,

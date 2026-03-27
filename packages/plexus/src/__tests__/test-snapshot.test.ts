@@ -1,6 +1,6 @@
-import { test, expect } from "vitest";
+import { test } from "vitest";
 
-import { Plexus, PlexusModel, syncing } from "..";
+import { PlexusModel, syncing } from "../index.js";
 
 @syncing("TestModel")
 class TestModel extends PlexusModel {

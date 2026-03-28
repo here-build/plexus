@@ -97,7 +97,7 @@ Ephemeral range collision (10 users, 1K reconnects each = 10K bases, 100-session
 | **2^32 (4B) — Plexus** | **1.2 × 10⁻²** | ~1.0 |
 | 2^40 (1T) | 4.5 × 10⁻⁵ | 9.1 × 10⁻³ |
 
-The block collision probability at 2^32 appears high, but overstates the risk: the 10K bases are accumulated over a year of reconnections, not concurrent. Collision only causes data corruption if two peers with overlapping blocks edit the same document *simultaneously*. For 10 concurrent peers with 100-session blocks, the effective collision probability is p ≈ 10² × 100 / 2^32 ≈ 2.3 × 10⁻⁶.
+**Committed identifiers are permanent.** Each committed session writes items under `base + sessionNumber + COMMITTED_BASE` that remain in the document's struct store for its entire lifetime. The collision space is the full history of all commits ever, not just concurrent peers. For a document accumulating 1M committed identifiers over its lifetime at 2^32: p ≈ 1.0 (certain collision). The committed range MUST be wider than the ephemeral range — Plexus uses `[2^33, 31 × 2^40)` (~2^45 values), giving p ≈ 1.4 × 10⁻² at 1M lifetime commits. Documents with >10M lifetime commits should use a wider committed range.
 
 Genesis range collision (content-addressed hash, independent of reconnections):
 

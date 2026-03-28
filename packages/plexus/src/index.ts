@@ -10,3 +10,4 @@ export * from "./Plexus.js";
 export * from "./dependency-blob.js";
 export * from "./plexus-registry.js";
 export * from "./walk.js";
+export { PlexusAwareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates, modifyAwarenessUpdate } from "./awareness.js";

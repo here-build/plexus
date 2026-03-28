@@ -607,7 +607,7 @@ export class Plexus<
 
     docTransactionOrigin.set(this.__liminalDocument__, SHADOW_TO_MAIN);
     this._stopBroadcastLoop();
-    this.awareness.clearField("liminal");
+    (this.awareness as PlexusAwareness).clearField("liminal");
     docLiminality.delete(this.doc);
     this.__undoManager__.stopCapturing();
   }
@@ -620,7 +620,7 @@ export class Plexus<
 
     docTransactionOrigin.set(this.__liminalDocument__, SHADOW_TO_MAIN);
     this._stopBroadcastLoop();
-    this.awareness.clearField("liminal");
+    (this.awareness as PlexusAwareness).clearField("liminal");
     docLiminality.delete(this.doc);
   }
 
@@ -634,7 +634,7 @@ export class Plexus<
   broadcastLiminalPreview(): void {
     if (!this.isLiminal) return;
     const delta = Y.encodeStateAsUpdate(this.__liminalDocument__, Y.encodeStateVector(this.doc));
-    this.awareness.setField("liminal", [this.__liminalHeight__, Math.floor(time.getUnixTime() / 1000), toBase64(delta)]);
+    (this.awareness as PlexusAwareness).setField("liminal", [this.__liminalHeight__, Math.floor(time.getUnixTime() / 1000), toBase64(delta)]);
   }
 
   // ── Adaptive liminal broadcast ─────────────────────────────────────

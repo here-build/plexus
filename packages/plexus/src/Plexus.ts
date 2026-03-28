@@ -336,6 +336,21 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
 
     this.awareness = new PlexusAwareness(doc);
 
+    // Auto-process peer liminal previews on awareness changes.
+    // When a peer's liminal field appears/changes/disappears, apply/clear the preview.
+    this.awareness.on("change", () => {
+      for (const peerId of this.awareness.getPeerIds()) {
+        const peer = this.awareness.getPeer(peerId);
+        this.applyPeerPreview(peerId, peer?.liminal ?? null);
+      }
+      // Clear previews for peers no longer in awareness
+      for (const peerId of this.__peerPreviews__.keys()) {
+        if (!this.awareness.getPeerIds().includes(peerId)) {
+          this.applyPeerPreview(peerId, null);
+        }
+      }
+    });
+
     // Strip genesis Items from UndoManager StackItems.
     // Genesis clientIds live in the 0x1F namespace (>= GENESIS_BASE = 31 × 2^40).
     // Liminal clientIds (0x01 namespace, [2^32, 2^33)) are NOT stripped — committed

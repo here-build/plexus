@@ -86,7 +86,29 @@ if (isGenesisClientId(clientId)) stackItem.clients.delete(clientId);
 
 **C2. Single partition scheme per document.** All participants must agree on the range boundaries. Heterogeneous schemes produce undefined conflict resolution behavior. Two independent systems sharing Yjs documents must coordinate their partition schemes or use non-overlapping ranges.
 
-**C3. Collision probability.** For random-base allocation within a range of size m, birthday-bound collision probability is p ≈ n²/2m. For 1000 ephemeral sessions (random base) in a 2^32 range: p ≈ 1.2 × 10⁻⁴. For content-addressed scaffold with 10K types in a 2^45 range: p ≈ 1.4 × 10⁻⁶. At 1M documents with 10K scaffolds each, expect ~1 collision.
+**C3. Collision probability.** Each peer reconnection picks a random base within the range; liminal sessions occupy base+1..base+N (a "block" of N consecutive identifiers). Two peers collide when their blocks overlap: p ≈ n² × blockSize / rangeSize for n bases.
+
+Ephemeral range collision (10 users, 1K reconnects each = 10K bases, 100-session blocks):
+
+| Range size | Base collision (p) | With 100-slot blocks (p) |
+|---|---|---|
+| 2^24 (16M) | ~1.0 (certain) | ~1.0 |
+| 2^28 (268M) | 1.9 × 10⁻¹ | ~1.0 |
+| **2^32 (4B) — Plexus** | **1.2 × 10⁻²** | ~1.0 |
+| 2^40 (1T) | 4.5 × 10⁻⁵ | 9.1 × 10⁻³ |
+
+The block collision probability at 2^32 appears high, but overstates the risk: the 10K bases are accumulated over a year of reconnections, not concurrent. Collision only causes data corruption if two peers with overlapping blocks edit the same document *simultaneously*. For 10 concurrent peers with 100-session blocks, the effective collision probability is p ≈ 10² × 100 / 2^32 ≈ 2.3 × 10⁻⁶.
+
+Genesis range collision (content-addressed hash, independent of reconnections):
+
+| Types per document | p at 2^32 | p at 2^40 | **p at 2^45 (Plexus)** |
+|---|---|---|---|
+| 100 | 1.2 × 10⁻⁶ | 4.6 × 10⁻⁹ | **1.4 × 10⁻¹⁰** |
+| 1K | 1.2 × 10⁻⁴ | 4.6 × 10⁻⁷ | **1.4 × 10⁻⁸** |
+| 10K | 1.2 × 10⁻² | 4.6 × 10⁻⁵ | **1.4 × 10⁻⁶** |
+| 100K (1M projects) | ~1.0 | 4.6 × 10⁻³ | **1.4 × 10⁻⁴** |
+
+At fleet scale (1M documents × 10K types): expect ~1 genesis collision at 2^45. At 2^32, genesis is unusable beyond 1K types.
 
 **C4. Wire format.** Identifiers above uint32 require variable-length encoding. Yjs uses lib0 varUint (supports up to 2^53). Encoded size increases by 1-2 bytes for high-range identifiers. Yjs internally processes all identifier arithmetic through float64 without truncation — bitwise operators (which truncate to int32) must be avoided for high-range values.
 

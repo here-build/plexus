@@ -126,6 +126,8 @@ At fleet scale (1M documents × 100K types): ~2 genesis collisions. For referenc
 
 **C5. Information leakage.** Monotonic allocation reveals session count and relative ordering to peers who receive operations from that range. Acceptable for collaborative editing; may be unacceptable for privacy-sensitive deployments.
 
+**C6. Identifier width is implementation-dependent.** Our implementation uses 53-bit safe integers (the JavaScript/Yjs constraint — `Number.MAX_SAFE_INTEGER = 2^53 - 1`). This dictates 2 prefix bits + 51-bit payload. Implementations on platforms with wider integers (64-bit, 128-bit) can use more prefix bits for finer-grained namespaces or more payload bits for lower collision probability. The technique is parameterized by the available identifier width, not bound to 53 bits. The collision analysis generalizes: safety threshold is `≥33 effective random bits` regardless of total width.
+
 ## 5. Related Work
 
 Shapiro et al. [3] formalize CRDTs using join-semilattices where replica identifiers participate in the merge function. Weidner et al. [4] compose CRDTs via semidirect products with an explicit arbitration order, demonstrating that the ordering used for conflict resolution can be semantically meaningful. Sanjuán et al. [5] use content-addressed hashing for Merkle-CRDTs, but for operation identity (deduplication), not conflict resolution priority. Attiya et al. [6] discuss tiebreaker semantics in their specification of collaborative text editing.

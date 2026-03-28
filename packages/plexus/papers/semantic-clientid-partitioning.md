@@ -24,18 +24,20 @@ Prefix  Range                     Size   Priority   Allocation       Purpose
 0b11    [3×2^51, 2^53)            2^51   highest    content hash     Deterministic scaffold
 ```
 
-Two leading bits encode the namespace; the remaining 51 bits are the payload. Each range has 2^51 values (2.25 × 10¹⁵) — uniform, no wasted space. Regular Yjs clients (random uint32) land in the lowest 2^32 of the regular range.
+Two leading bits encode the namespace; the remaining 51 bits are the payload. Each range has 2^51 values (2.25 × 10¹⁵) — uniform, no wasted space.
 
-Allocation varies by range: regular clients use Yjs's native random uint32, ephemeral sessions use a per-peer monotonic counter offset from a 51-bit random base, and scaffold uses content-addressed hashing:
+All clientIds derive from a **single 51-bit random value** X generated once per peer:
 
 ```
-regular:   Yjs default (random uint32, < 2^32)
-ephemeral: base = LIMINAL_BASE + random51(); session clientId = base + sessionCounter++
-committed: committedId = liminalId + 2^51          // prefix 0b01 → 0b10
-genesis:   GENESIS_BASE + hash(type, path) % 2^51  // deterministic, clock always 0
+X            = random51()                          // generated once
+regular:       doc.clientID = X                    // overwrite Yjs default
+ephemeral:     shadow.clientID = X + 2^51          // prefix 0b01, same payload
+session N:     shadow.clientID = X + 2^51 + N      // monotonic counter
+committed N:   X + 2^52 + N                        // prefix 0b10, same payload + offset
+genesis:       3×2^51 + hash(type, path) % 2^51    // independent, deterministic
 ```
 
-The random base provides collision resistance (51 bits of entropy); the counter provides monotonic ordering within a peer's sessions. These are not contradictory — the upper bits are random, the lower bits are sequential.
+One random value, four namespaces. The payload (lower 51 bits) is shared across regular and ephemeral — the prefix bits alone distinguish the namespace. Session counting consumes the lowest bits; the random entropy is in the upper bits.
 
 ### Three-Dimensional Operation Log
 
@@ -97,7 +99,7 @@ if (isGenesisClientId(clientId)) stackItem.clients.delete(clientId);
 
 **C2. Single partition scheme per document.** All participants must agree on the range boundaries. Heterogeneous schemes produce undefined conflict resolution behavior. Two independent systems sharing Yjs documents must coordinate their partition schemes or use non-overlapping ranges.
 
-**C3. Collision probability.** Committed identifiers are permanent and clustered. Each peer picks a 51-bit random base; sessions occupy `base+1..base+N` — consuming `⌈log₂(N)⌉` bits from the lower end. The collision model is birthday on bases with the effective range reduced by the block size.
+**C3. Collision probability.** Committed identifiers are permanent and clustered. Each peer's single 51-bit random value X determines all its clientIds; sessions occupy `X+1..X+N` — consuming `⌈log₂(N)⌉` bits from the lower end. The collision model is birthday on X values with the effective range reduced by the block size.
 
 Collision probability (10 users × 1K reconnects = 10K random bases, p < 0.01 required):
 

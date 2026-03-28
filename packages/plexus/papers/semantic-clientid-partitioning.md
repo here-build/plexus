@@ -17,14 +17,16 @@ This assumption is a convention, not a protocol requirement. Relaxing it require
 Partition the safe integer space into non-overlapping ranges, ordered by priority:
 
 ```
-Range                          Priority   Allocation       Purpose
-[0, 2^32)                      lowest     random (Yjs)     Regular client operations
-[2^32, 2^33)                   low        base + counter   Ephemeral sessions
-[2^33, 31 × 2^40)              medium     base + counter   Committed ephemeral
-[31 × 2^40, MAX_SAFE_INTEGER]  highest    content hash     Deterministic scaffold
+Prefix  Range                     Size   Priority   Allocation       Purpose
+0b00    [0, 2^51)                 2^51   lowest     random (Yjs)     Regular client operations
+0b01    [2^51, 2^52)              2^51   low        base + counter   Ephemeral sessions
+0b10    [2^52, 3×2^51)            2^51   medium     base + counter   Committed ephemeral
+0b11    [3×2^51, 2^53)            2^51   highest    content hash     Deterministic scaffold
 ```
 
-Each operation is assigned an identifier from the range matching its semantic role. The allocation strategy varies by range: regular clients use Yjs's native random uint32, ephemeral sessions use a per-peer monotonic counter offset from a random base (`initialLiminalId + sessionCount`), and scaffold uses content-addressed hashing for deterministic convergence.
+Two leading bits encode the namespace; the remaining 51 bits are the payload. Each range has 2^51 values (2.25 × 10¹⁵) — uniform, no wasted space. Regular Yjs clients (random uint32) land in the lowest 2^32 of the regular range.
+
+Allocation varies by range: regular clients use Yjs's native random uint32, ephemeral sessions use a per-peer monotonic counter offset from a 51-bit random base, and scaffold uses content-addressed hashing. Namespace conversion is a single addition: `committedId = liminalId + 2^51` (prefix 0b01 → 0b10).
 
 ### Three-Dimensional Operation Log
 
@@ -34,7 +36,7 @@ The monotonic counter within the ephemeral range creates a three-dimensional str
 2. **Session** — the incremental counter (`base + 1, base + 2, ...`) identifying which ephemeral session produced the operation
 3. **Namespace** — the range prefix (regular / ephemeral / committed / scaffold)
 
-Namespace conversion is arithmetic: `committedId = liminalId + LIMINAL_BASE`. Given any committed identifier, the originating ephemeral session is recoverable: `liminalId = committedId - LIMINAL_BASE`. This enables targeted invalidation — when an ephemeral session commits, peers can identify and clean up exactly the preview items from that session by computing the source ephemeral identifier from the committed one.
+Namespace conversion is a single addition: `committedId = liminalId + 2^51` (flipping the prefix from 0b01 to 0b10). Given any committed identifier, the originating ephemeral session is recoverable: `liminalId = committedId - 2^51`. This enables targeted invalidation — when an ephemeral session commits, peers can identify and clean up exactly the preview items from that session by computing the source ephemeral identifier from the committed one.
 
 ### Properties
 
@@ -86,42 +88,32 @@ if (isGenesisClientId(clientId)) stackItem.clients.delete(clientId);
 
 **C2. Single partition scheme per document.** All participants must agree on the range boundaries. Heterogeneous schemes produce undefined conflict resolution behavior. Two independent systems sharing Yjs documents must coordinate their partition schemes or use non-overlapping ranges.
 
-**C3. Collision probability.** Each peer reconnection picks a random base within the range; liminal sessions occupy base+1..base+N (a "block" of N consecutive identifiers). Two peers collide when their blocks overlap: p ≈ n² × blockSize / rangeSize for n bases.
-
-Ephemeral range collision (10 users, 1K reconnects each = 10K bases, 100-session blocks):
-
-| Range size | Base collision (p) | With 100-slot blocks (p) |
-|---|---|---|
-| 2^24 (16M) | ~1.0 (certain) | ~1.0 |
-| 2^28 (268M) | 1.9 × 10⁻¹ | ~1.0 |
-| **2^32 (4B) — Plexus** | **1.2 × 10⁻²** | ~1.0 |
-| 2^40 (1T) | 4.5 × 10⁻⁵ | 9.1 × 10⁻³ |
-
-**Committed identifiers are permanent** but clustered. Each peer picks a random base; sessions occupy `base+1..base+N` — the lower bits. The collision model is birthday on BASES with the range reduced by the block size. Sessions effectively consume `⌈log₂(N)⌉` bits of the range, leaving the upper bits as random entropy.
+**C3. Collision probability.** Committed identifiers are permanent and clustered. Each peer picks a 51-bit random base; sessions occupy `base+1..base+N` — consuming `⌈log₂(N)⌉` bits from the lower end. The collision model is birthday on bases with the effective range reduced by the block size.
 
 Collision probability (10 users × 1K reconnects = 10K random bases, p < 0.01 required):
 
-| Sessions/base | Bits consumed | Effective bits at 2^32 | p at 2^32 | Effective bits at 2^45 | p at 2^45 |
+| Sessions/base | Bits consumed | Effective bits at 2^32 | p at 2^32 | **Effective bits at 2^51** | **p at 2^51** |
 |---|---|---|---|---|---|
-| 1 | 0 | 32 | 1.2 × 10⁻² | 45 | 1.4 × 10⁻⁶ |
-| 10 | 4 | 28 | 1.2 × 10⁻¹ | 41 | 1.4 × 10⁻⁵ |
-| 100 | 7 | 25 | ~1.0 | 38 | 1.4 × 10⁻⁴ |
-| 1000 | 10 | 22 | ~1.0 | 35 | 1.4 × 10⁻³ |
+| 1 | 0 | 32 | 1.2 × 10⁻² | 51 | **2.2 × 10⁻⁸** |
+| 10 | 4 | 28 | 1.2 × 10⁻¹ | 47 | **2.2 × 10⁻⁷** |
+| 100 | 7 | 25 | ~1.0 | 44 | **2.2 × 10⁻⁶** |
+| 1000 | 10 | 22 | ~1.0 | 41 | **2.2 × 10⁻⁵** |
+| 10000 | 14 | 18 | ~1.0 | 38 | **2.2 × 10⁻⁴** |
 
-**Safety threshold: ≥33 effective random bits** for 10K bases at p < 1%. At 2^45, the system supports up to ~4000 sessions per reconnection (45 - 12 = 33 bits). At 2^32, even 10 sessions is marginal (28 bits). The committed range MUST be substantially wider than the ephemeral range.
+**Safety threshold: ≥33 effective random bits** for 10K bases at p < 1%. At 2^51, the system supports up to **262,144 sessions** per reconnection (51 - 18 = 33 bits) before crossing 1%. At 2^32, even 10 sessions is marginal. The uniform 2^51 range eliminates the need for asymmetric range sizing.
 
-Genesis range collision (content-addressed hash, independent of reconnections):
+Genesis range collision (content-addressed hash, 2^51 range):
 
-| Types per document | p at 2^32 | p at 2^40 | **p at 2^45 (Plexus)** |
-|---|---|---|---|
-| 100 | 1.2 × 10⁻⁶ | 4.6 × 10⁻⁹ | **1.4 × 10⁻¹⁰** |
-| 1K | 1.2 × 10⁻⁴ | 4.6 × 10⁻⁷ | **1.4 × 10⁻⁸** |
-| 10K | 1.2 × 10⁻² | 4.6 × 10⁻⁵ | **1.4 × 10⁻⁶** |
-| 100K (1M projects) | ~1.0 | 4.6 × 10⁻³ | **1.4 × 10⁻⁴** |
+| Types per document | **p at 2^51** |
+|---|---|
+| 100 | 2.2 × 10⁻¹² |
+| 1K | 2.2 × 10⁻⁸ |
+| 10K | **2.2 × 10⁻⁸** |
+| 100K (1M projects) | **2.2 × 10⁻⁶** |
 
-At fleet scale (1M documents × 10K types): expect ~1 genesis collision at 2^45. At 2^32, genesis is unusable beyond 1K types.
+At fleet scale (1M documents × 100K types): ~2 genesis collisions. For reference, at 2^32 with 10K types, collision is already 1.2% per document.
 
-**C4. Wire format.** Identifiers above uint32 require variable-length encoding. Yjs uses lib0 varUint (supports up to 2^53). Encoded size increases by 1-2 bytes for high-range identifiers. Yjs internally processes all identifier arithmetic through float64 without truncation — bitwise operators (which truncate to int32) must be avoided for high-range values.
+**C4. Wire format.** Identifiers above uint32 require variable-length encoding. Yjs uses lib0 varUint (supports up to 2^53). High-range identifiers (prefix 0b01–0b11) add 3 bytes to the wire encoding vs regular uint32. Entity UUIDs are 15 characters (1 prefix + 14 base63 body) encoding the full 51-bit payload + 32-bit clock = 83 bits without loss. JS bitwise operators truncate to int32 — all high-range arithmetic must use float64 operations (`Math.floor`, `%`), not `|`, `&`, `<<`, `>>>` on the full value.
 
 **C5. Information leakage.** Monotonic allocation reveals session count and relative ordering to peers who receive operations from that range. Acceptable for collaborative editing; may be unacceptable for privacy-sensitive deployments.
 
@@ -133,7 +125,7 @@ No prior work uses the replica identifier space as a priority channel encoding o
 
 ## 6. Conclusion
 
-Partitioning the replica identifier space into priority-ordered ranges transforms CRDT conflict resolution from arbitrary tiebreaking into categorical guarantees. The technique requires no protocol changes and no coordination. It applies to operation-based sequence CRDTs with identifier-based tiebreakers (YATA, RGA, Fugue) and has been validated in a production system with 1067 tests covering scalar and structural operations, multi-cycle commit/revert, peer sync, and undo/redo.
+Partitioning the replica identifier space into priority-ordered ranges transforms CRDT conflict resolution from arbitrary tiebreaking into categorical guarantees. The technique requires no protocol changes and no coordination. It applies to operation-based sequence CRDTs with identifier-based tiebreakers (YATA, RGA, Fugue) and has been validated in a production system with 1061 tests covering scalar and structural operations, multi-cycle commit/revert, peer sync, and undo/redo.
 
 The technique raises a broader question: what other CRDT metadata can carry semantic load without violating convergence guarantees? Replica identifiers, logical timestamps, and operation identifiers all participate in resolution — and all are conventionally treated as opaque. Semantic partitioning may be one instance of a general principle: encoding application-level invariants into the resolution algebra itself.
 

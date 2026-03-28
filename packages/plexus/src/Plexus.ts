@@ -41,7 +41,7 @@ import type { PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { maybeTransacting } from "./utils/utils.js";
-import { buildDeleteSetUpdate, extractCommittedDelta } from "./utils/yjs-algebra.js";
+import { buildDeleteSetUpdate, extractCommittedDelta, getMaxClock } from "./utils/yjs-algebra.js";
 import { getDependenciesMap, getMetaMap, getModelTypesMap } from "./yjs/getModels.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 
@@ -565,8 +565,25 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     Y.applyUpdate(this.doc, delta, COMMIT_DELTA_ORIGIN);
     this.__undoManager__.stopCapturing();
 
-    // Remove scaffolding. Committed Items survive — COMMIT_DELTA origin is not tracked by liminal UM.
-    while (this.__liminalUndoManager__.canUndo()) this.__liminalUndoManager__.undo();
+    // Remove scaffolding. Only needed if the session created Items (inserts/writes).
+    // Pure deletes have no limId structs — the committed delta's delete set handles them
+    // via main→shadow forwarding. UM undo on pure deletes would create ghost restorations.
+    const hasLiminalStructs = !!(this.__liminalDocument__.store as any).clients.get(limId)?.length;
+    if (hasLiminalStructs) {
+      // Track clock before/after UM undo. The UM may create NEW Items to "restore" deleted
+      // array elements (ghost Items from mixed insert+delete sessions). Delete the ghost range.
+      const shadowCid = this.__liminalDocument__.clientID;
+      const clockBefore = getMaxClock(this.__liminalDocument__, shadowCid);
+      while (this.__liminalUndoManager__.canUndo()) this.__liminalUndoManager__.undo();
+      const clockAfter = getMaxClock(this.__liminalDocument__, shadowCid);
+      if (clockAfter > clockBefore) {
+        Y.applyUpdate(
+          this.__liminalDocument__,
+          buildDeleteSetUpdate(this.__liminalDocument__, shadowCid, clockBefore, clockAfter - clockBefore),
+          FROM_MAIN,
+        );
+      }
+    }
     this.__liminalUndoManager__.stopCapturing();
 
     // Fresh clientId — main never saw the liminal clocks, so continuing with the same ID

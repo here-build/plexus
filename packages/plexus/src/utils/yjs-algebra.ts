@@ -30,22 +30,31 @@ export const getIndividualVector = (doc: Y.Doc, targetClient = doc.clientID) =>
  * Y.Map/XmlElement attributes revert to their previous non-deleted values.
  * When applied to a doc that doesn't have them, it's a no-op.
  */
-export function buildDeleteSetUpdate(doc: Y.Doc, clientId: number): Uint8Array {
+export function buildDeleteSetUpdate(doc: Y.Doc, clientId: number, startClock = 0, length?: number): Uint8Array {
   const clients = doc.store.clients as Map<number, any[]>;
   const structs = clients.get(clientId);
   if (!structs?.length) return new Uint8Array([0, 0]);
 
   const last = structs.at(-1)!;
-  const totalLen = last.id.clock + last.length;
+  const totalLen = length ?? last.id.clock + last.length - startClock;
+  if (totalLen <= 0) return new Uint8Array([0, 0]);
 
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, 0); // 0 structs
   encoding.writeVarUint(encoder, 1); // 1 delete-set client
   encoding.writeVarUint(encoder, clientId);
   encoding.writeVarUint(encoder, 1); // 1 range
-  encoding.writeVarUint(encoder, 0); // start clock
-  encoding.writeVarUint(encoder, totalLen); // length
+  encoding.writeVarUint(encoder, startClock);
+  encoding.writeVarUint(encoder, totalLen);
   return encoding.toUint8Array(encoder);
+}
+
+/** Get the max clock for a clientId in a doc's struct store (0 if absent). */
+export function getMaxClock(doc: Y.Doc, clientId: number): number {
+  const structs = (doc.store.clients as Map<number, any[]>).get(clientId);
+  if (!structs?.length) return 0;
+  const last = structs.at(-1)!;
+  return last.id.clock + last.length;
 }
 
 /**
@@ -65,7 +74,12 @@ export function extractCommittedDelta(shadow: Y.Doc, main: Y.Doc, limId: number,
   const committedId = limId + liminalBase;
   const clients = (shadow.store as any).clients as Map<number, any[]>;
   const structs = clients.get(limId);
-  if (!structs?.length) return new Uint8Array([0, 0]);
+
+  // Pure deletes (no limId structs): encode the delete set diff directly.
+  // Array splice etc. don't create Items under limId but DO mark existing Items deleted.
+  if (!structs?.length) {
+    return Y.encodeStateAsUpdate(shadow, Y.encodeStateVector(main));
+  }
 
   // 1. Build delete set for limId BEFORE rewrite (structs still under limId).
   // Cleans up preview Items on peers. On main this is a no-op.

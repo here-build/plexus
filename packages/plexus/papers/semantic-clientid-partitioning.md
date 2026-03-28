@@ -1,95 +1,119 @@
-# Semantic ClientId Partitioning: Priority-Ordered Conflict Resolution in CRDTs
+# Semantic Partitioning of Replica Identifiers for Priority-Ordered CRDT Conflict Resolution
 
 > Draft — positioned for PaPoC (workshop paper, ~4 pages)
 
 ## Abstract
 
-Conflict-free Replicated Data Types resolve concurrent writes using a total order derived from replica identifiers. All existing formalizations treat these identifiers as opaque — their only semantic property is uniqueness. We observe that partitioning the identifier space into priority-ordered ranges transforms the conflict resolution tiebreaker from an arbitrary per-replica decision into a deterministic per-category guarantee. We demonstrate the technique in a production CRDT system (Plexus/Yjs) with four identifier ranges: regular operations, ephemeral sessions, committed ephemeral, and deterministic scaffold — where the range encodes the operation's lifecycle stage and structural role, not its authorship.
+We show that partitioning CRDT replica identifiers into priority-ordered ranges transforms the conflict-resolution tiebreaker from an arbitrary per-replica decision into a deterministic per-category guarantee. Existing formalizations treat replica identifiers as opaque; we give them semantic load. We demonstrate the technique in a production system (Plexus/Yjs) with four ranges encoding lifecycle stage and structural role — regular operations, ephemeral sessions, committed ephemeral, and deterministic scaffold. The technique requires no protocol changes and no coordination, but assumes a cooperative deployment with a single agreed partition scheme per document.
 
 ## 1. Background
 
-CRDT conflict resolution requires a total order over concurrent operations. In operation-based CRDTs (CmRDTs), this typically involves comparing replica identifiers when operations share the same causal predecessor. The YATA algorithm [1], used in Yjs, resolves positional conflicts in sequences by comparing `clientId` values: higher clientId wins when two items have the same origin.
+CRDT conflict resolution requires a total order over concurrent operations. In operation-based sequence CRDTs (YATA [1], RGA [2]), when two items share the same causal predecessor, the algorithm compares replica identifiers as a final tiebreaker: higher identifier wins rightward placement (YATA) or temporal precedence (RGA). The standard assumption: identifiers are random unique integers. The resolution is deterministic but semantically meaningless — which peer happens to have a higher random number dictates the outcome.
 
-The standard assumption: clientIds are random unique integers. The resolution is deterministic (always the same winner) but semantically meaningless — which peer happens to have a higher random number dictates the outcome.
+This assumption is a convention, not a protocol requirement. Relaxing it requires no changes to the CRDT specification, yet it converts a source of non-determinism (which replica wins) into a deterministic structural guarantee (which *category* wins). The asymmetry between the triviality of the mechanism and the strength of the guarantee is the core observation.
 
-## 2. Observation
-
-ClientId comparison is the *last* tiebreaker in CRDT conflict resolution. It fires when all structural information (causal order, origin pointers, logical timestamps) is equal. The choice of tiebreaker value is unconstrained — any total order works.
-
-If we assign clientIds from priority-ordered ranges instead of random values, the tiebreaker becomes a category selector. Operations in higher ranges always win over operations in lower ranges when they conflict for the same position or key.
-
-## 3. Technique
+## 2. Technique
 
 Partition the safe integer space into non-overlapping ranges, ordered by priority:
 
 ```
-Range                          Priority   Purpose
-[0, 2^32)                      lowest     Regular client operations
-[2^32, 2^33)                   low        Ephemeral sessions (liminal)
-[2^33, 31 × 2^40)              medium     Committed ephemeral (permanent facts)
-[31 × 2^40, MAX_SAFE_INTEGER]  highest    Deterministic scaffold (genesis)
+Range                          Priority   Allocation       Purpose
+[0, 2^32)                      lowest     random (Yjs)     Regular client operations
+[2^32, 2^33)                   low        base + counter   Ephemeral sessions
+[2^33, 31 × 2^40)              medium     base + counter   Committed ephemeral
+[31 × 2^40, MAX_SAFE_INTEGER]  highest    content hash     Deterministic scaffold
 ```
 
-Each operation is assigned a clientId from the range matching its semantic role. Within a range, identifiers are monotonically increasing to preserve temporal ordering.
+Each operation is assigned an identifier from the range matching its semantic role. The allocation strategy varies by range: regular clients use Yjs's native random uint32, ephemeral sessions use a per-peer monotonic counter offset from a random base (`initialLiminalId + sessionCount`), and scaffold uses content-addressed hashing for deterministic convergence.
+
+### Three-Dimensional Operation Log
+
+The monotonic counter within the ephemeral range creates a three-dimensional structure:
+
+1. **Clock** — the standard Yjs Lamport clock (operation sequence within a session)
+2. **Session** — the incremental counter (`base + 1, base + 2, ...`) identifying which ephemeral session produced the operation
+3. **Namespace** — the range prefix (regular / ephemeral / committed / scaffold)
+
+Namespace conversion is arithmetic: `committedId = liminalId + LIMINAL_BASE`. Given any committed identifier, the originating ephemeral session is recoverable: `liminalId = committedId - LIMINAL_BASE`. This enables targeted invalidation — when an ephemeral session commits, peers can identify and clean up exactly the preview items from that session by computing the source ephemeral identifier from the committed one.
 
 ### Properties
 
-**P1. Category dominance.** An operation in range R_i always wins over an operation in range R_j when i > j and they conflict on the same CRDT position. No coordination required — the outcome is determined by the range assignment.
+**P1. Category dominance.** An operation in range R_i always wins over an operation in range R_j (i > j) when they conflict on the same CRDT position and the algorithm reaches the identifier tiebreaker. This assumes the CRDT uses a maximum-wins comparison; minimum-wins inverts the range ordering.
 
-**P2. Temporal ordering within range.** Monotonic identifiers within a range ensure that later operations in the same category win over earlier ones. Combined with P1, this gives a two-level priority: category first, then recency.
+**P2. Session ordering.** Monotonic allocation within a range ensures that later sessions produce higher identifiers. Combined with P1, this gives two-level priority: category first, then recency. This ordering is per-peer (each peer maintains its own counter), not global.
 
-**P3. Structural invariance.** The highest-priority range (genesis/scaffold) is never overridden by any user operation. Infrastructure created in this range is permanent by construction, not by access control.
+### Applicability
 
-**P4. Namespace isolation.** Operations in different ranges can be identified, filtered, and routed by simple integer comparison. Origin-based forwarding, UndoManager scope, and sync filtering can use range checks as constant-time discriminators.
+The technique applies to operation-based sequence CRDTs where replica identifiers serve as the final tiebreaker in positional conflict resolution:
 
-## 4. Applications
+| Algorithm | Identifier Role | Applicable |
+|---|---|---|
+| YATA (Yjs) | Final tiebreaker for same-origin inserts and map entries | **Yes** |
+| RGA | Secondary tiebreaker after Lamport timestamp | **Yes** |
+| Fugue | Final tiebreaker after structural checks | **Yes** |
+| Automerge | Secondary tiebreaker (string actorIds — requires prefix partitioning) | **With adaptation** |
+| Logoot/LSEQ | Embedded in position path construction | **No** — changes spatial distribution |
+| Woot/TreeDoc | Structural disambiguation, not identifier comparison | **No** |
+| State-based CRDTs | Merge via lattice join, identifiers not compared | **No** |
 
-### 4.1 Ephemeral State (Liminality)
+## 3. Applications
 
-Continuous gestures (slider drags, color pickers) produce high-frequency writes that should be visible locally but not committed to peers until the gesture completes. Assign these writes to the ephemeral range. On commit, rewrite their clientIds to the committed-ephemeral range.
+### 3.1 Ephemeral State (Liminality)
 
-The committed operations automatically win over any pre-gesture values (regular range) without explicit delete operations — the CRDT's own tiebreaker handles it. Uncommitted ephemeral operations are structurally below committed ones, so reverting is safe: removing ephemeral items leaves committed items as the winner.
+Continuous gestures (slider drags, color pickers) produce high-frequency writes that should be visible locally but not committed until the gesture completes. Assign these writes to the ephemeral range.
 
-### 4.2 Deterministic Scaffold (Genesis)
+On commit, rewrite their identifiers to the committed range. In Yjs, this is a temporary in-memory mutation of the struct store: rewrite `item.id`, `item.origin`, and `item.rightOrigin` for all items under the ephemeral identifier, encode the delta, then restore. The encoded delta carries items under the committed identifier with origin pointers to pre-ephemeral items that all peers have.
 
-Document structure (type maps, schema containers) must exist before user operations and must never be undone. Assign scaffold operations to the highest range using content-addressed hashing: `clientId = hash(type, path) + GENESIS_BASE`.
+The committed operations win over any pre-gesture values (regular range) via the CRDT's own tiebreaker — no explicit delete operations needed for scalar (Y.Map) attributes. For array operations, the committed delta carries the delete set.
 
-Two independent peers producing the same scaffold get identical CRDT items (same clientId, same clock). Sync is a structural no-op — the items already exist on both peers. UndoManager ignores them (filtered by range check). No user operation can override them (lower range).
+### 3.2 Deterministic Scaffold (Genesis)
 
-### 4.3 Undo Scope Filtering
+Document structure (type maps, schema containers) must exist before user operations and must never be undone. Assign scaffold operations to the highest range using content-addressed hashing.
 
-The UndoManager captures operations by transaction origin. But some captured operations should be stripped from the undo stack — scaffold creation, for instance. Range check on clientId provides a constant-time filter:
+Each scaffold element is produced in a throwaway Y.Doc with the deterministic identifier as its clientId. This guarantees clock = 0 for every scaffold item. Two independent peers computing the same scaffold produce identical items (same identifier, same clock, same content). Sync is a structural no-op — Yjs deduplicates identical items.
 
-```
+### 3.3 Undo Scope Filtering
+
+Some captured operations should not appear on the undo stack — scaffold creation, for instance. The identifier range provides a constant-time filter:
+
+```typescript
 if (isGenesisClientId(clientId)) stackItem.clients.delete(clientId);
 ```
 
-No origin tracking needed. The clientId itself carries the semantic.
+## 4. Constraints
 
-## 5. Constraints
+**C1. Cooperative deployment.** The technique assumes all participants are honest. A malicious peer can self-assign a scaffold-range identifier and create permanent, conflict-winning items. Enforcement requires a validation layer (server-side relay, authenticated sync) outside the CRDT. This is comparable to how CRDTs generally assume authenticated peer identity.
 
-**C1. Range exhaustion.** The ephemeral range must be large enough for all concurrent sessions. With `[2^32, 2^33)` (4 billion values) and monotonic allocation, exhaustion requires 4 billion liminal sessions — impractical.
+**C2. Single partition scheme per document.** All participants must agree on the range boundaries. Heterogeneous schemes produce undefined conflict resolution behavior. Two independent systems sharing Yjs documents must coordinate their partition schemes or use non-overlapping ranges.
 
-**C2. Cross-peer collision.** Two peers independently assigning clientIds in the same range could collide. For random allocation within a range, birthday-bound collision probability follows `p ≈ n²/2m` where n is the number of assignments and m is the range size. For 1000 sessions in a 2^32 range: `p ≈ 10^6 / 2^33 ≈ 1.2 × 10^{-4}`. For genesis (2^45 range, 10K scaffolds): `p ≈ 10^8 / 2^46 ≈ 1.4 × 10^{-6}`.
+**C3. Collision probability.** For random-base allocation within a range of size m, birthday-bound collision probability is p ≈ n²/2m. For 1000 ephemeral sessions (random base) in a 2^32 range: p ≈ 1.2 × 10⁻⁴. For content-addressed scaffold with 10K types in a 2^45 range: p ≈ 1.4 × 10⁻⁶. At 1M documents with 10K scaffolds each, expect ~1 collision.
 
-**C3. Wire format compatibility.** The technique requires clientIds larger than the standard uint32 range. Yjs uses variable-length integer encoding (lib0 varUint), which supports values up to 2^53. No protocol changes needed. Encoded size increases by 1-2 bytes for high-range clientIds.
+**C4. Wire format.** Identifiers above uint32 require variable-length encoding. Yjs uses lib0 varUint (supports up to 2^53). Encoded size increases by 1-2 bytes for high-range identifiers. Yjs internally processes all identifier arithmetic through float64 without truncation — bitwise operators (which truncate to int32) must be avoided for high-range values.
 
-## 6. Related Work
+**C5. Information leakage.** Monotonic allocation reveals session count and relative ordering to peers who receive operations from that range. Acceptable for collaborative editing; may be unacceptable for privacy-sensitive deployments.
 
-Shapiro et al. [2] formalize CRDTs using join-semilattices where replica identifiers participate in the merge function. Weidner et al. [3] compose CRDTs via semidirect products with an arbitration order. Both treat identifiers as opaque. Sanjuán et al. [4] use content-addressed hashing for Merkle-CRDTs but for operation identity (deduplication), not conflict resolution priority.
+## 5. Related Work
 
-To our knowledge, no prior work uses the replica identifier space as a semantic priority channel for conflict resolution.
+Shapiro et al. [3] formalize CRDTs using join-semilattices where replica identifiers participate in the merge function. Weidner et al. [4] compose CRDTs via semidirect products with an explicit arbitration order, demonstrating that the ordering used for conflict resolution can be semantically meaningful. Sanjuán et al. [5] use content-addressed hashing for Merkle-CRDTs, but for operation identity (deduplication), not conflict resolution priority. Attiya et al. [6] discuss tiebreaker semantics in their specification of collaborative text editing.
 
-## 7. Conclusion
+No prior work uses the replica identifier space as a priority channel encoding operation lifecycle stage.
 
-Partitioning the clientId space into priority-ordered ranges is a zero-cost technique (no protocol changes, no additional messages, no coordination) that transforms CRDT conflict resolution from arbitrary tiebreaking into categorical guarantees. The technique is general — any CRDT using replica identifiers for conflict resolution can benefit. We demonstrate it in a production system with four ranges covering regular operations, ephemeral state, committed state, and deterministic infrastructure.
+## 6. Conclusion
+
+Partitioning the replica identifier space into priority-ordered ranges transforms CRDT conflict resolution from arbitrary tiebreaking into categorical guarantees. The technique requires no protocol changes and no coordination. It applies to operation-based sequence CRDTs with identifier-based tiebreakers (YATA, RGA, Fugue) and has been validated in a production system with 1067 tests covering scalar and structural operations, multi-cycle commit/revert, peer sync, and undo/redo.
+
+The technique raises a broader question: what other CRDT metadata can carry semantic load without violating convergence guarantees? Replica identifiers, logical timestamps, and operation identifiers all participate in resolution — and all are conventionally treated as opaque. Semantic partitioning may be one instance of a general principle: encoding application-level invariants into the resolution algebra itself.
 
 ## References
 
 [1] Nicolaescu, Jahns, Derntl, Klamma. "Near Real-Time Peer-to-Peer Shared Editing on Extensible Data Types." ACM GROUP, 2016.
 
-[2] Shapiro, Preguiça, Baquero, Zawirski. "A Comprehensive Study of Convergent and Commutative Replicated Data Types." INRIA RR-7506, 2011.
+[2] Roh, Jeon, Kim, Lee. "Replicated Abstract Data Types: Building Blocks for Collaborative Applications." JPDC, 2011.
 
-[3] Weidner, Miller, Meiklejohn. "Composing and Decomposing Op-Based CRDTs with Semidirect Products." ICFP/PACMPL, 2020.
+[3] Shapiro, Preguiça, Baquero, Zawirski. "A Comprehensive Study of Convergent and Commutative Replicated Data Types." INRIA RR-7506, 2011.
 
-[4] Sanjuán, Pöyhtäri, Teixeira. "Merkle-CRDTs: Merkle-DAGs meet CRDTs." Protocol Labs, 2020.
+[4] Weidner, Miller, Meiklejohn. "Composing and Decomposing Op-Based CRDTs with Semidirect Products." ICFP/PACMPL, 2020.
+
+[5] Sanjuán, Pöyhtäri, Teixeira. "Merkle-CRDTs: Merkle-DAGs meet CRDTs." Protocol Labs, 2020.
+
+[6] Attiya, Burckhardt, Gotsman, Morrison, Yang, Zawirski. "Specification and Complexity of Collaborative Text Editing." ACM PODC, 2016.

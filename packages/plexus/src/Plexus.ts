@@ -66,7 +66,10 @@ const FROM_SHADOW = Symbol("from-shadow");
 /** Main update forwarded to shadow (prevents echo back). */
 const FROM_MAIN = Symbol("from-main");
 
-export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<string, Root> }> {
+export class Plexus<
+  Root extends PlexusModel<null> & { dependencies?: Record<string, Root> },
+  Awareness extends import("./proxy-runtime-types.js").AwarenessShape = import("./proxy-runtime-types.js").AwarenessShape,
+> {
   /** Enable PLEXUS_TEST_SENTINEL — constructor throws the sentinel symbol for reachability testing. */
   // eslint-disable-next-line sonarjs/public-static-readonly
   public static testSentinels: boolean = false;
@@ -256,8 +259,9 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
   private readonly __undoManager__: UndoManager;
   private __isUndoing__ = false;
 
-  /** Multi-channel awareness — owned by Plexus, exposed for providers and user state. */
-  readonly awareness!: PlexusAwareness;
+  /** Multi-channel awareness — owned by Plexus, exposed for providers and user state.
+   *  The Awareness type parameter provides type-safe field access. */
+  readonly awareness!: PlexusAwareness<Awareness>;
 
   /** Shadow doc. gc:false — origin chains must survive for committed delta integration. */
   private readonly __liminalDocument__ = new Y.Doc({ gc: false });

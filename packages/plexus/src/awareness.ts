@@ -31,6 +31,9 @@ import { ObservableV2 } from "lib0/observable";
 import * as time from "lib0/time";
 import type * as Y from "yjs";
 
+import { deserialize, serialize } from "./awareness-serde.js";
+import type { AwarenessShape } from "./proxy-runtime-types.js";
+
 // ── Constants ────────────────────────────────────────────────────────
 
 /** Stride between channels. Matches the 51-bit base width — parseChannelId uses modular arithmetic. */
@@ -73,7 +76,7 @@ type AwarenessEvents = {
 
 // ── PlexusAwareness ──────────────────────────────────────────────────
 
-export class PlexusAwareness extends ObservableV2<AwarenessEvents> {
+export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> extends ObservableV2<AwarenessEvents> {
   readonly doc: Y.Doc;
   readonly clientID: number;
 
@@ -144,8 +147,9 @@ export class PlexusAwareness extends ObservableV2<AwarenessEvents> {
 
   // ── Local state ──────────────────────────────────────────────────
 
-  /** Set a field value. Registers the field in the schema on first use. */
-  setField(field: string, value: any): void {
+  /** Set a field value. Registers the field in the schema on first use.
+   *  PlexusModel instances in the value are auto-serialized to reference markers. */
+  setField<K extends string & keyof Shape>(field: K, value: Shape[K]): void {
     let idx = this._fieldIndex.get(field);
     if (idx === undefined) {
       // New field — append to schema
@@ -155,32 +159,35 @@ export class PlexusAwareness extends ObservableV2<AwarenessEvents> {
       // Update channel 0 (schema)
       this._writeChannel(0, [...this._schema], "local");
     }
-    this._writeChannel(idx, value, "local");
+    this._writeChannel(idx, serialize(value, this.doc), "local");
   }
 
   /** Clear a field value. The field stays in the schema (append-only). */
-  clearField(field: string): void {
+  clearField(field: string & keyof Shape): void {
     const idx = this._fieldIndex.get(field);
     if (idx === undefined) return;
     this._writeChannel(idx, null, "local");
   }
 
-  /** Get a local field value. */
-  getField(field: string): any {
+  /** Get a local field value. Entity reference markers are auto-deserialized to live PlexusModel instances. */
+  getField<K extends string & keyof Shape>(field: K): Shape[K] | null | undefined {
     const idx = this._fieldIndex.get(field);
     if (idx === undefined) return undefined;
-    return this.states.get(channelId(this.clientID, idx)) ?? null;
+    const raw = this.states.get(channelId(this.clientID, idx));
+    if (raw === undefined) return null; // cleared field → null (not undefined)
+    if (raw === null) return null;
+    return deserialize(raw, this.doc) as Shape[K];
   }
 
-  /** Get all local field values as a plain object. */
-  getLocalState(): Record<string, any> | null {
+  /** Get all local field values as a plain object. Entity references are auto-deserialized. */
+  getLocalState(): Partial<Shape> | null {
     if (!this.states.has(this.clientID)) return null;
     const result: Record<string, any> = {};
     for (const [name, idx] of this._fieldIndex) {
       const val = this.states.get(channelId(this.clientID, idx));
-      if (val !== undefined && val !== null) result[name] = val;
+      if (val !== undefined && val !== null) result[name] = deserialize(val, this.doc);
     }
-    return result;
+    return result as Partial<Shape>;
   }
 
   /** Get the schema (field names in registration order). */
@@ -190,16 +197,16 @@ export class PlexusAwareness extends ObservableV2<AwarenessEvents> {
 
   // ── Peer state ───────────────────────────────────────────────────
 
-  /** Get merged state for a remote peer. */
-  getPeer(baseClientId: number): Record<string, any> | null {
+  /** Get merged state for a remote peer. Entity references are auto-deserialized. */
+  getPeer(baseClientId: number): Partial<Shape> | null {
     const schema = this.states.get(baseClientId) as string[] | undefined;
     if (!schema || !Array.isArray(schema)) return null;
     const result: Record<string, any> = {};
     for (const [i, element] of schema.entries()) {
       const val = this.states.get(channelId(baseClientId, i + 1));
-      if (val !== undefined && val !== null) result[element] = val;
+      if (val !== undefined && val !== null) result[element] = deserialize(val, this.doc);
     }
-    return result;
+    return result as Partial<Shape>;
   }
 
   /** Get all peer base clientIds (excludes self). */
@@ -214,8 +221,8 @@ export class PlexusAwareness extends ObservableV2<AwarenessEvents> {
     return peers;
   }
 
-  /** Iterate all peers as [baseClientId, mergedState] pairs. */
-  *peers(): Generator<[number, Record<string, any>]> {
+  /** Iterate all peers as [baseClientId, mergedState] pairs. Entity references are auto-deserialized. */
+  *peers(): Generator<[number, Partial<Shape>]> {
     for (const cid of this.states.keys()) {
       const { base, channel } = parseChannelId(cid);
       if (channel === 0 && base !== this.clientID) {

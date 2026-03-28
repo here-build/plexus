@@ -19,6 +19,24 @@ export type CrossProjectReferenceTuple = [entityId: string, dependencyId: string
 export type ReferenceTuple = LocalReferenceeTuple | CrossProjectReferenceTuple;
 
 export type AllowedPrimitive = string | number | boolean | bigint | null;
+
+/**
+ * Type constraint for awareness field values.
+ * JSON-serializable, but PlexusModel instances are valid leaves.
+ * Serialization replaces PlexusModel → { "\0": [uuid] } markers.
+ * Deserialization returns lazy proxies that resolve markers to live entities.
+ */
+export type AwarenessSerializable =
+  | string
+  | number
+  | boolean
+  | null
+  | PlexusModel
+  | readonly AwarenessSerializable[]
+  | { readonly [key: string]: AwarenessSerializable };
+
+/** Shape constraint for awareness fields — each field must be AwarenessSerializable. */
+export type AwarenessShape = Record<string, AwarenessSerializable>;
 export type AllowedYValue = AllowedPrimitive | ReferenceTuple;
 export type AllowedYJSValue = AllowedPrimitive | PlexusModel;
 export type AllowedYJSValueSet = Set<AllowedYJSValue>;

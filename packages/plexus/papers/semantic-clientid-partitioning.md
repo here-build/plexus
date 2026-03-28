@@ -97,7 +97,18 @@ Ephemeral range collision (10 users, 1K reconnects each = 10K bases, 100-session
 | **2^32 (4B) — Plexus** | **1.2 × 10⁻²** | ~1.0 |
 | 2^40 (1T) | 4.5 × 10⁻⁵ | 9.1 × 10⁻³ |
 
-**Committed identifiers are permanent.** Each committed session writes items under `base + sessionNumber + COMMITTED_BASE` that remain in the document's struct store for its entire lifetime. The collision space is the full history of all commits ever, not just concurrent peers. For a document accumulating 1M committed identifiers over its lifetime at 2^32: p ≈ 1.0 (certain collision). The committed range MUST be wider than the ephemeral range — Plexus uses `[2^33, 31 × 2^40)` (~2^45 values), giving p ≈ 1.4 × 10⁻² at 1M lifetime commits. Documents with >10M lifetime commits should use a wider committed range.
+**Committed identifiers are permanent.** Each committed session produces identifiers that remain in the document's struct store for its lifetime. The collision space is the full history of all commits, not just concurrent peers. Liminal sessions are the dominant collision driver — each multiplies the ID population, and birthday probability scales with n².
+
+Risk multiplier from liminal sessions (10 users × 1K reconnects = 10K bases):
+
+| Sessions/base | Lifetime IDs | p at 2^32 | p at 2^40 | p at 2^45 | Multiplier vs none |
+|---|---|---|---|---|---|
+| none | 10K | 1.2 × 10⁻² | 4.6 × 10⁻⁵ | 1.4 × 10⁻⁶ | 1× |
+| 10 | 100K | ~1.0 | 4.6 × 10⁻³ | 1.4 × 10⁻⁴ | 100× |
+| 100 | 1M | ~1.0 | 4.6 × 10⁻¹ | 1.4 × 10⁻² | 10,000× |
+| 1000 | 10M | ~1.0 | ~1.0 | ~1.0 | >100,000× |
+
+At 2^32, any liminal usage produces certain collision over document lifetime. At 2^45 (Plexus committed range), the system is safe up to ~100 sessions per reconnection (p ≈ 1.4%). Documents with >1M lifetime committed identifiers need wider ranges or periodic identifier compaction.
 
 Genesis range collision (content-addressed hash, independent of reconnections):
 

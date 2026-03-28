@@ -45,8 +45,11 @@ import { buildDeleteSetUpdate, extractCommittedDelta } from "./utils/yjs-algebra
 import { getDependenciesMap, getMetaMap, getModelTypesMap } from "./yjs/getModels.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 
+/** Collective TTL for liminal sessions (seconds). All clients independently
+ *  drop a peer's preview after this duration from startSec. Deterministic. */
+const LIMINAL_SESSION_TTL = 5 * 60; // 5 minutes
+
 // ── Origin Constants ─────────────────────────────────────────────────
-// Controls routing between shadow and main docs, and UndoManager tracking.
 
 /** Normal Plexus write on shadow → forwarded to main (UndoManager tracks this). */
 const SHADOW_TO_MAIN = Symbol("shadow→main");
@@ -337,13 +340,20 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     this.awareness = new PlexusAwareness(doc);
 
     // Auto-process peer liminal previews on awareness changes.
-    // When a peer's liminal field appears/changes/disappears, apply/clear the preview.
+    // Collective TTL: all clients independently drop a session after LIMINAL_SESSION_TTL
+    // seconds from startSec. Deterministic — no coordination needed.
     this.awareness.on("change", () => {
+      const nowSec = Math.floor(time.getUnixTime() / 1000);
       for (const peerId of this.awareness.getPeerIds()) {
         const peer = this.awareness.getPeer(peerId);
-        this.applyPeerPreview(peerId, peer?.liminal ?? null);
+        const liminal = peer?.liminal as [number, number, string] | null | undefined;
+        // TTL check: expired sessions are treated as null (collective drop)
+        if (liminal && nowSec - liminal[1] > LIMINAL_SESSION_TTL) {
+          this.applyPeerPreview(peerId, null);
+        } else {
+          this.applyPeerPreview(peerId, liminal ?? null);
+        }
       }
-      // Clear previews for peers no longer in awareness
       for (const peerId of this.__peerPreviews__.keys()) {
         if (!this.awareness.getPeerIds().includes(peerId)) {
           this.applyPeerPreview(peerId, null);

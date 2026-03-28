@@ -361,6 +361,13 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
       }
     });
 
+    // Abort liminal session on background tab — prevents stale preview state.
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden && this.isLiminal) this.revertLiminality();
+      });
+    }
+
     // Strip genesis Items from UndoManager StackItems.
     // Genesis clientIds live in the 0x1F namespace (>= GENESIS_BASE = 31 × 2^40).
     // Liminal clientIds (0x01 namespace, [2^32, 2^33)) are NOT stripped — committed
@@ -547,10 +554,11 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
 
   enterLiminality(): void {
     if (this.isLiminal) return;
-    this.__liminalDocument__.clientID++; // monotonic — later commits always win via clientId ordering
+    this.__liminalDocument__.clientID++;
     this.__liminalHeight__++;
     docLiminality.set(this.doc, this.__liminalDocument__);
     docTransactionOrigin.set(this.__liminalDocument__, LIMINAL_ORIGIN);
+    this._startBroadcastLoop();
   }
 
   commitLiminality(): void {
@@ -591,6 +599,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     this.__liminalDocument__.clientID++;
 
     docTransactionOrigin.set(this.__liminalDocument__, SHADOW_TO_MAIN);
+    this._stopBroadcastLoop();
     this.awareness.clearField("liminal");
     docLiminality.delete(this.doc);
     this.__undoManager__.stopCapturing();
@@ -600,27 +609,83 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     if (!this.isLiminal) return;
 
     while (this.__liminalUndoManager__.canUndo()) this.__liminalUndoManager__.undo();
-    this.__liminalDocument__.clientID++; // clock gap prevention
+    this.__liminalDocument__.clientID++;
 
     docTransactionOrigin.set(this.__liminalDocument__, SHADOW_TO_MAIN);
+    this._stopBroadcastLoop();
     this.awareness.clearField("liminal");
     docLiminality.delete(this.doc);
   }
 
   /**
    * Broadcast current liminal preview to peers via awareness.
-   * Call at your own cadence (requestAnimationFrame, throttled, adaptive pressure).
+   * Can be called manually or via startLiminalBroadcast() for adaptive auto-broadcast.
    * No-op when not liminal.
    *
    * Field format: [height, startSec, base64delta]
-   * - height: monotonic session counter — peers detect new sessions
-   * - startSec: session start time (seconds) — peers use for 60s expiry
-   * - base64delta: Yjs binary update from shadow against main's state vector
    */
   broadcastLiminalPreview(): void {
     if (!this.isLiminal) return;
     const delta = Y.encodeStateAsUpdate(this.__liminalDocument__, Y.encodeStateVector(this.doc));
     this.awareness.setField("liminal", [this.__liminalHeight__, Math.floor(time.getUnixTime() / 1000), toBase64(delta)]);
+  }
+
+  // ── Adaptive liminal broadcast ─────────────────────────────────────
+  //
+  // Uses PressureObserver (Chrome 125+) when available to adapt broadcast
+  // cadence to CPU pressure. Falls back to fixed requestAnimationFrame.
+  //
+  // Pressure levels → broadcast strategy:
+  //   nominal:  every frame (requestAnimationFrame)
+  //   fair:     every 2nd frame
+  //   serious:  every 4th frame
+  //   critical: every 8th frame
+
+  private __broadcastHandle__: number | null = null;
+  private __broadcastSkip__ = 1;
+  private __pressureObserver__: any = null;
+
+  /** Start auto-broadcasting liminal preview at adaptive cadence. Called at enterLiminality. */
+  private _startBroadcastLoop(): void {
+    if (this.__broadcastHandle__ !== null) return;
+    if (typeof requestAnimationFrame === "undefined") return; // Node/SSR — manual broadcast only
+
+    // PressureObserver: adapt skip factor based on CPU pressure
+    if (typeof globalThis !== "undefined" && "PressureObserver" in globalThis) {
+      try {
+        this.__pressureObserver__ = new (globalThis as any).PressureObserver(
+          (records: any[]) => {
+            const state = records.at(-1)?.state;
+            this.__broadcastSkip__ = state === "critical" ? 8 : state === "serious" ? 4 : state === "fair" ? 2 : 1;
+          },
+          { sampleInterval: 1000 },
+        );
+        this.__pressureObserver__.observe("cpu");
+      } catch {
+        // PressureObserver not supported or permission denied
+      }
+    }
+
+    let frame = 0;
+    const tick = () => {
+      if (!this.isLiminal) { this._stopBroadcastLoop(); return; }
+      if (frame++ % this.__broadcastSkip__ === 0) this.broadcastLiminalPreview();
+      this.__broadcastHandle__ = requestAnimationFrame(tick);
+    };
+    this.__broadcastHandle__ = requestAnimationFrame(tick);
+  }
+
+  /** Stop auto-broadcasting. Called at commit/revert. */
+  private _stopBroadcastLoop(): void {
+    if (this.__broadcastHandle__ !== null) {
+      cancelAnimationFrame(this.__broadcastHandle__);
+      this.__broadcastHandle__ = null;
+    }
+    if (this.__pressureObserver__) {
+      this.__pressureObserver__.disconnect();
+      this.__pressureObserver__ = null;
+    }
+    this.__broadcastSkip__ = 1;
   }
 
   // ── Peer preview receiver ───────────────────────────────────────────

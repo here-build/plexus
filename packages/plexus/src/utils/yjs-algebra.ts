@@ -58,6 +58,45 @@ export function getMaxClock(doc: Y.Doc, clientId: number): number {
 }
 
 /**
+ * Temporarily rewrite all Items under `fromId` to `toId` in the doc's struct store,
+ * execute a callback, then restore. The callback sees the store with rewritten IDs.
+ *
+ * Rewrites: item.id, item.origin (if referencing fromId), item.rightOrigin (if referencing fromId).
+ * Also swaps the clients Map key: clients.delete(fromId) → clients.set(toId, structs).
+ *
+ * Returns the callback's return value. Restoration happens in a finally block.
+ */
+export function withRewrittenClientId<T>(doc: Y.Doc, fromId: number, toId: number, fn: () => T): T {
+  const clients = (doc.store as any).clients as Map<number, any[]>;
+  const structs = clients.get(fromId);
+  if (!structs?.length) return fn();
+
+  // Rewrite: fromId → toId
+  clients.delete(fromId);
+  clients.set(toId, structs);
+  const saved: Array<{ id: any; origin: any; rightOrigin: any }> = [];
+  for (const s of structs) {
+    saved.push({ id: s.id, origin: s.origin, rightOrigin: s.rightOrigin });
+    s.id = new Y.ID(toId, s.id.clock);
+    if (s.origin?.client === fromId) s.origin = new Y.ID(toId, s.origin.clock);
+    if (s.rightOrigin?.client === fromId) s.rightOrigin = new Y.ID(toId, s.rightOrigin.clock);
+  }
+
+  try {
+    return fn();
+  } finally {
+    // Restore: toId → fromId
+    for (let i = 0; i < structs.length; i++) {
+      structs[i].id = saved[i].id;
+      structs[i].origin = saved[i].origin;
+      structs[i].rightOrigin = saved[i].rightOrigin;
+    }
+    clients.delete(toId);
+    clients.set(fromId, structs);
+  }
+}
+
+/**
  * Extract committed delta from shadow doc via clientId rewrite.
  *
  * Temporarily rewrites liminal Items (id + origin + rightOrigin) to the
@@ -85,29 +124,11 @@ export function extractCommittedDelta(shadow: Y.Doc, main: Y.Doc, limId: number,
   // Cleans up preview Items on peers. On main this is a no-op.
   const previewCleanup = buildDeleteSetUpdate(shadow, limId);
 
-  // 2. Rewrite: limId → committedId (temporary, in-place)
-  clients.delete(limId);
-  clients.set(committedId, structs);
-  const saved: Array<{ id: any; origin: any; rightOrigin: any }> = [];
-  for (const s of structs) {
-    saved.push({ id: s.id, origin: s.origin, rightOrigin: s.rightOrigin });
-    s.id = new Y.ID(committedId, s.id.clock);
-    if (s.origin?.client === limId) s.origin = new Y.ID(committedId, s.origin.clock);
-    if (s.rightOrigin?.client === limId) s.rightOrigin = new Y.ID(committedId, s.rightOrigin.clock);
-  }
+  // 2. Rewrite limId → committedId, encode against main's SV, restore.
+  const commitDelta = withRewrittenClientId(shadow, limId, committedId, () =>
+    Y.encodeStateAsUpdate(shadow, Y.encodeStateVector(main)),
+  );
 
-  // 3. Encode against main's state vector.
-  const commitDelta = Y.encodeStateAsUpdate(shadow, Y.encodeStateVector(main));
-
-  // 4. Restore: committedId → limId
-  for (let i = 0; i < structs.length; i++) {
-    structs[i].id = saved[i].id;
-    structs[i].origin = saved[i].origin;
-    structs[i].rightOrigin = saved[i].rightOrigin;
-  }
-  clients.delete(committedId);
-  clients.set(limId, structs);
-
-  // 5. Merge: committedId structs + limId delete set = one compound update
+  // 3. Merge: committedId structs + limId delete set = one compound update
   return Y.mergeUpdates([commitDelta, previewCleanup]);
 }

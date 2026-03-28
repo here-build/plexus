@@ -12,7 +12,7 @@
 import invariant from "tiny-invariant";
 import * as Y from "yjs";
 
-import { murmur32 } from "./crdt-uuid.js";
+import { encode as encodeUuid, murmur32 } from "./crdt-uuid.js";
 import { GENESIS_BASE } from "./genesis-client.js";
 import { docPlexus } from "./plexus-registry.js";
 import { Plexus } from "./Plexus.js";
@@ -20,6 +20,7 @@ import { getInternals, PlexusModel } from "./PlexusModel.js";
 import { serializeKey } from "./proxies/key-serialization.js";
 import type { AllowedVirtualMapKey, AllowedYValue } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
+import { getIndividualVector, withRewrittenClientId } from "./utils/yjs-algebra.js";
 
 // ── Constants ──
 
@@ -252,47 +253,49 @@ export function materializeVirtualChild<K extends AllowedVirtualMapKey, V extend
   genesisDepth++;
 
   try {
-    // ── Phase 1: content hash ──
-    // Run factory in isolation, materialize to a temp doc, capture the vector.
-    // This vector's content determines the genesis clientId.
+    // ── Optimized two-phase genesis ──
+    //
+    // Phase 1: Run factory in throwaway doc with clientId=0, hash individual vector.
+    // Phase 2: Reuse same doc — set clientId to genesisId, run factory again.
+    //
+    // Optimization over original: single throwaway doc (not two), hash uses
+    // individual client-0 vector (smaller, more stable than full doc encoding).
 
-    const vector0: Uint8Array = withNativeUUIDs(() => {
-      const tmpDoc1 = new Y.Doc({ guid: doc.guid });
-      Object.defineProperty(tmpDoc1, "clientID", {
-        get() {
-          // bypassing yjs guard "Changed the client-id because another client seems to be using it."
-          return 0;
-        },
-        set() {},
-      });
-      const entity1 = factory(mapKey);
-      docPlexus.set(tmpDoc1, null as any); // pass [referenceSymbol] invariant
-      entity1[referenceSymbol](tmpDoc1);
-      const internals = getInternals(entity1);
-      invariant(!internals.isDependency, "Genesis factory must not produce dependency entities");
-      // [referenceSymbol] calls __bootstrapObservation__ which registers onChange.
-      // Unobserve BEFORE setParentData — otherwise onChange fires on tmpDoc1
-      // and tries to deref the parent UUID which doesn't exist in tmpDoc1.
-      internals.unobserve?.();
-      // Manually set parent data on root entity's XmlElement
-      internals.yjsModel!.setParentData(ownerUuid, fieldName, serializedMapKey);
-      docPlexus.delete(tmpDoc1);
-      const vector = Y.encodeStateAsUpdate(tmpDoc1);
-      tmpDoc1.destroy();
-      return vector;
+    const tmpDoc = new Y.Doc({ guid: doc.guid });
+    let currentGenesisId = 0;
+    Object.defineProperty(tmpDoc, "clientID", {
+      get() {
+        return currentGenesisId;
+      },
+      set() {},
+      configurable: true,
     });
 
-    // ── Phase 2: deterministic create ──
-    // Fresh factory run, but now the temp doc uses the genesis clientId.
-    // This makes all Yjs Items deterministic.
+    // ── Phase 1: content hash ──
+    const clientVector: Uint8Array = withNativeUUIDs(() => {
+      const entity1 = factory(mapKey);
+      docPlexus.set(tmpDoc, null as any);
+      entity1[referenceSymbol](tmpDoc);
+      const internals = getInternals(entity1);
+      invariant(!internals.isDependency, "Genesis factory must not produce dependency entities");
+      internals.unobserve?.();
+      internals.yjsModel!.setParentData(ownerUuid, fieldName, serializedMapKey);
+      docPlexus.delete(tmpDoc);
+      return getIndividualVector(tmpDoc, 0);
+    });
 
+    const genesisId = computeVirtualGenesisId(ownerUuid, fieldName, serializedMapKey, clientVector);
+
+    // ── Phase 2: deterministic create ──
+    // Fresh doc with the computed genesis clientId. Single factory run produces
+    // correct UUIDs because clientId is set before entity materialization.
     const tmpDoc2 = new Y.Doc({ guid: doc.guid });
-    const genesisId = computeVirtualGenesisId(ownerUuid, fieldName, serializedMapKey, vector0);
     Object.defineProperty(tmpDoc2, "clientID", {
       get() {
         return genesisId;
       },
       set() {},
+      configurable: true,
     });
 
     let rootUuid: string;
@@ -302,24 +305,21 @@ export function materializeVirtualChild<K extends AllowedVirtualMapKey, V extend
       entity2[referenceSymbol](tmpDoc2);
       const internals = getInternals(entity2);
       invariant(!internals.isDependency, "Genesis factory must not produce dependency entities");
-      // Same as Phase 1: unobserve before setParentData.
       internals.unobserve?.();
       internals.yjsModel!.setParentData(ownerUuid, fieldName, serializedMapKey);
       docPlexus.delete(tmpDoc2);
       rootUuid = entity2.uuid;
-      const vector = Y.encodeStateAsUpdate(tmpDoc2);
-      tmpDoc2.destroy();
-      return vector;
+      return Y.encodeStateAsUpdate(tmpDoc2);
     });
 
+    tmpDoc.destroy();
+    tmpDoc2.destroy();
+
     // ── Apply ──
-    // Entities land in type sub-maps (remote → UndoManager ignores).
     Y.applyUpdate(doc, vector);
 
-    // Register the root UUID pointer in the parent's yjsMap.
-    // Uses GENESIS_ORIGIN (not Plexus origin) → UndoManager ignores.
     doc.transact(() => {
-      yjsMap.set(serializedMapKey, [rootUuid]);
+      yjsMap.set(serializedMapKey, [rootUuid!]);
     }, GENESIS_ORIGIN);
   } finally {
     genesisDepth--;

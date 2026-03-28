@@ -20,7 +20,8 @@
  * 6. Block liminal UndoManager's origin from shadow→main forwarding (undo doesn't clobber main)
  */
 
-import { toBase64 } from "lib0/buffer";
+import { fromBase64, toBase64 } from "lib0/buffer";
+import * as time from "lib0/time";
 import { nanoid } from "nanoid";
 import invariant from "tiny-invariant";
 import type { ReadonlyDeep } from "type-fest";
@@ -40,7 +41,7 @@ import type { PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { maybeTransacting } from "./utils/utils.js";
-import { extractCommittedDelta } from "./utils/yjs-algebra.js";
+import { buildDeleteSetUpdate, extractCommittedDelta } from "./utils/yjs-algebra.js";
 import { getDependenciesMap, getMetaMap, getModelTypesMap } from "./yjs/getModels.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 
@@ -281,6 +282,9 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
       if (origin === LIMINAL_ORIGIN) return;
       if (origin === FROM_MAIN) return;
       if (origin === this.__liminalUndoManager__) return;
+      // Block per-peer preview origins and their UM undo artifacts
+      if (typeof origin === "symbol" && origin !== SHADOW_TO_MAIN && origin !== COMMIT_DELTA_ORIGIN && origin !== FROM_SHADOW) return;
+      if (origin instanceof UndoManager && origin !== this.__undoManager__) return;
       Y.applyUpdate(doc, update, origin === SHADOW_TO_MAIN ? SHADOW_TO_MAIN : FROM_SHADOW);
     });
 
@@ -566,16 +570,70 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
    * Call at your own cadence (requestAnimationFrame, throttled, adaptive pressure).
    * No-op when not liminal.
    *
-   * The awareness field is `[height, base64delta]`:
-   * - height: monotonic session counter — peers detect session changes
-   * - base64delta: Yjs binary update encoded from shadow against main's state vector
+   * Field format: [height, startSec, base64delta]
+   * - height: monotonic session counter — peers detect new sessions
+   * - startSec: session start time (seconds) — peers use for 60s expiry
+   * - base64delta: Yjs binary update from shadow against main's state vector
    */
   broadcastLiminalPreview(): void {
     if (!this.isLiminal) return;
     const delta = Y.encodeStateAsUpdate(this.__liminalDocument__, Y.encodeStateVector(this.doc));
-    this.awareness.setField("liminal", [this.__liminalHeight__, toBase64(delta)]);
+    this.awareness.setField("liminal", [this.__liminalHeight__, Math.floor(time.getUnixTime() / 1000), toBase64(delta)]);
   }
 
+  // ── Peer preview receiver ───────────────────────────────────────────
+  //
+  // Per-peer UndoManager on the shadow doc. Each peer's preview is applied
+  // with a unique origin; the UM tracks only that origin. On session end,
+  // UM undo restores pre-preview values (the only Yjs-native way to un-delete
+  // superseded Y.Map Items). Preview origin uses FROM_MAIN to prevent
+  // shadow→main forwarding.
+  //
+  // On commit, the committed delta already carries a limId delete set
+  // (merged in extractCommittedDelta). Peers auto-clean via Yjs sync.
+  // The UM undo is still needed for the revert path.
+
+  private readonly __peerPreviews__ = new Map<number, { height: number; um: UndoManager; origin: symbol }>();
+
+  applyPeerPreview(peerId: number, data: [number, number, string] | null | undefined): void {
+    const existing = this.__peerPreviews__.get(peerId);
+
+    if (data == null) {
+      if (existing) {
+        while (existing.um.canUndo()) existing.um.undo();
+        existing.um.destroy();
+        this.__peerPreviews__.delete(peerId);
+      }
+      return;
+    }
+
+    const [height, , base64delta] = data;
+
+    if (existing && existing.height !== height) {
+      while (existing.um.canUndo()) existing.um.undo();
+      existing.um.destroy();
+      this.__peerPreviews__.delete(peerId);
+    }
+
+    let entry = this.__peerPreviews__.get(peerId);
+    if (!entry) {
+      // Per-peer origin — blocked from shadow→main by FROM_MAIN guard below.
+      // We apply with FROM_MAIN to prevent forwarding, but wrap in a transaction
+      // with the per-peer origin so the UM tracks it correctly.
+      const origin = Symbol(`peer-preview-${peerId}`);
+      const um = new UndoManager(getModelTypesMap(this.__liminalDocument__), {
+        trackedOrigins: new Set([origin]),
+        captureTimeout: 0,
+      });
+      entry = { height, um, origin };
+      this.__peerPreviews__.set(peerId, entry);
+    }
+
+    // Apply with per-peer origin (UM tracks it). FROM_MAIN wrapper prevents forwarding.
+    this.__liminalDocument__.transact(() => {
+      Y.applyUpdate(this.__liminalDocument__, fromBase64(base64delta), entry!.origin);
+    }, entry.origin);
+  }
 
   /**
    * Find all instances of ParentClass whose `field` references `node`.

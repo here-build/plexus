@@ -1,3 +1,4 @@
+import * as encoding from "lib0/encoding";
 import * as Y from "yjs";
 
 /**
@@ -22,20 +23,43 @@ export const getIndividualVector = (doc: Y.Doc, targetClient = doc.clientID) =>
   Y.encodeStateAsUpdate(doc, Y.encodeStateVector(getSelectiveStateVector(doc, targetClient)));
 
 /**
+ * Build a delete-set-only Yjs update that marks all Items under the given
+ * clientId as deleted. No structs — just the delete set.
+ *
+ * When applied to a doc that has these Items, they get deleted and the
+ * Y.Map/XmlElement attributes revert to their previous non-deleted values.
+ * When applied to a doc that doesn't have them, it's a no-op.
+ */
+export function buildDeleteSetUpdate(doc: Y.Doc, clientId: number): Uint8Array {
+  const clients = doc.store.clients as Map<number, any[]>;
+  const structs = clients.get(clientId);
+  if (!structs?.length) return new Uint8Array([0, 0]);
+
+  const last = structs.at(-1)!;
+  const totalLen = last.id.clock + last.length;
+
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, 0); // 0 structs
+  encoding.writeVarUint(encoder, 1); // 1 delete-set client
+  encoding.writeVarUint(encoder, clientId);
+  encoding.writeVarUint(encoder, 1); // 1 range
+  encoding.writeVarUint(encoder, 0); // start clock
+  encoding.writeVarUint(encoder, totalLen); // length
+  return encoding.toUint8Array(encoder);
+}
+
+/**
  * Extract committed delta from shadow doc via clientId rewrite.
  *
  * Temporarily rewrites liminal Items (id + origin + rightOrigin) to the
  * committed-liminal namespace, encodes a delta against main's state vector,
- * then restores.
+ * then restores. The result is merged with a delete set for the original
+ * liminal clientId — so peers who applied the preview automatically clean
+ * up the preview Items when the committed delta arrives via sync.
  *
  * IMPORTANT: The shadow doc must use a FRESH clientId per liminal session
  * (assigned in enterLiminality). This ensures only liminal Items are under
  * limId — prior normal writes use a different clientId and are untouched.
- *
- * @param shadow - Shadow doc containing liminal Items
- * @param main - Main doc (for state vector comparison)
- * @param limId - Current liminal clientId on shadow
- * @param liminalBase - LIMINAL_BASE offset for committed namespace
  */
 export function extractCommittedDelta(shadow: Y.Doc, main: Y.Doc, limId: number, liminalBase: number): Uint8Array {
   const committedId = limId + liminalBase;
@@ -43,7 +67,11 @@ export function extractCommittedDelta(shadow: Y.Doc, main: Y.Doc, limId: number,
   const structs = clients.get(limId);
   if (!structs?.length) return new Uint8Array([0, 0]);
 
-  // 1. Rewrite: limId → committedId (temporary, in-place)
+  // 1. Build delete set for limId BEFORE rewrite (structs still under limId).
+  // Cleans up preview Items on peers. On main this is a no-op.
+  const previewCleanup = buildDeleteSetUpdate(shadow, limId);
+
+  // 2. Rewrite: limId → committedId (temporary, in-place)
   clients.delete(limId);
   clients.set(committedId, structs);
   const saved: Array<{ id: any; origin: any; rightOrigin: any }> = [];
@@ -54,10 +82,10 @@ export function extractCommittedDelta(shadow: Y.Doc, main: Y.Doc, limId: number,
     if (s.rightOrigin?.client === limId) s.rightOrigin = new Y.ID(committedId, s.rightOrigin.clock);
   }
 
-  // 2. Encode against main's state vector.
-  const delta = Y.encodeStateAsUpdate(shadow, Y.encodeStateVector(main));
+  // 3. Encode against main's state vector.
+  const commitDelta = Y.encodeStateAsUpdate(shadow, Y.encodeStateVector(main));
 
-  // 3. Restore: committedId → limId
+  // 4. Restore: committedId → limId
   for (let i = 0; i < structs.length; i++) {
     structs[i].id = saved[i].id;
     structs[i].origin = saved[i].origin;
@@ -66,5 +94,6 @@ export function extractCommittedDelta(shadow: Y.Doc, main: Y.Doc, limId: number,
   clients.delete(committedId);
   clients.set(limId, structs);
 
-  return delta;
+  // 5. Merge: committedId structs + limId delete set = one compound update
+  return Y.mergeUpdates([commitDelta, previewCleanup]);
 }

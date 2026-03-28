@@ -128,24 +128,32 @@ All three operate in O(session size) — proportional to the number of Items cre
 
 Given the shadow document's struct store containing Items under clientId L (liminal), produce an encoded update where those Items appear under clientId C (committed), with all structural references remapped.
 
+The core operation is `withRewrittenClientId(doc, fromId, toId, callback)` — a reusable primitive that temporarily remaps a clientId in the struct store:
+
 ```
-extractCommittedDelta(shadow, mainStateVector, L, C):
-  1. structs ← shadow.store.clients.get(L)
-  2. shadow.store.clients.delete(L)
-  3. shadow.store.clients.set(C, structs)
+withRewrittenClientId(doc, L, C, callback):
+  1. structs ← doc.store.clients.get(L)
+  2. doc.store.clients.delete(L)
+  3. doc.store.clients.set(C, structs)
   4. For each Item in structs:
+     - Save original {id, origin, rightOrigin}
      - Rewrite item.id.client: L → C
      - Rewrite item.origin.client: L → C (if origin references L)
      - Rewrite item.rightOrigin.client: L → C (if rightOrigin references L)
-     // Non-liminal references (other peers' Items) are left intact —
-     // those Items already exist on main.
-  5. encodedDelta ← Y.encodeStateAsUpdate(shadow, mainStateVector)
-  6. Restore: reverse all rewrites (steps 2-4)
-  7. deleteSet ← buildDeleteSetUpdate(L, 0, maxClock(L))
-  8. Return Y.mergeUpdates([encodedDelta, deleteSet])
+  5. result ← callback()
+  6. Restore all saved values and swap clients Map key back
+  7. Return result
+
+extractCommittedDelta(shadow, mainStateVector, L, C):
+  1. deleteSet ← buildDeleteSetUpdate(L, 0, maxClock(L))
+  2. commitDelta ← withRewrittenClientId(shadow, L, C,
+       () => Y.encodeStateAsUpdate(shadow, mainStateVector))
+  3. Return Y.mergeUpdates([commitDelta, deleteSet])
 ```
 
-The rewrite is temporary in-place mutation — Items are rewritten, encoded, then restored. This is safe under JavaScript's single-threaded execution model and requires `Y.encodeStateAsUpdate` to be side-effect-free (no observers, no transactions).
+The rewrite is temporary in-place mutation with restoration in a `finally` block. Safe under JavaScript's single-threaded execution model; requires `Y.encodeStateAsUpdate` to be side-effect-free (no observers, no transactions).
+
+**Shared primitive.** `withRewrittenClientId` is also used by deterministic genesis [21] for extracting individual client vectors during the content-hash phase. The same encoding-level operation serves two independently-motivated features — liminality commit and genesis content addressing — a convergence discovered during implementation.
 
 ### 3.2 Targeted Delete Set Construction
 

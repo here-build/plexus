@@ -92,13 +92,17 @@ When a peer receives genesis items it has already materialized independently, Yj
 
 For *virtual children* — entities whose shape depends on a factory function and are materialized lazily on first access — deterministic genesis uses two phases:
 
-**Phase 1: Content hash.** Create a fresh throwaway document with clientId = 0. Run the factory, connect the resulting entity to the throwaway document, encode the state as a binary vector. Hash this vector (32-bit Murmur3). This hash captures the entity's shape.
+**Phase 1: Content hash.** Create a fresh throwaway document with clientId = 0. Run the factory, connect the resulting entity to the throwaway document. Extract the *individual client vector* — only the Items created by the factory (clientId = 0), not the full document encoding. Hash this vector (32-bit Murmur3). This hash captures the entity's shape with minimal input and is stable across encoding format changes.
 
 **Phase 2: Deterministic create.** Compute the genesis clientId from (parent UUID, field name, serialized map key, shape hash from Phase 1). Create a second throwaway document with this clientId. Run the factory again, encode, and apply to the real document.
 
-The two-phase approach is necessary because the genesis clientId must be an input to Phase 2 (it determines the Yjs item identifiers in the encoded vector), but the clientId should depend on the entity's content (to disambiguate structurally different entities at the same position). Phase 1 breaks this chicken-and-egg dependency by computing a content fingerprint first.
+The two-phase approach is necessary because the genesis clientId must be an input to Phase 2 (it determines the Yjs item identifiers AND the entity UUID strings stored in the encoded vector), but the clientId should depend on the entity's content. Phase 1 breaks this chicken-and-egg dependency by computing a content fingerprint first.
 
-The cost is two factory invocations and two throwaway documents per virtual child materialization. Scaffold genesis (document-level containers) uses a single phase because the content is fixed by the schema, not by a factory.
+**Why not single-phase with clientId rewriting?** The liminality system (companion paper [2]) uses a `withRewrittenClientId` primitive to remap Item identity (id, origin, rightOrigin) in the struct store. We attempted to apply this to genesis: run the factory once under clientId = 0, then rewrite to genesisId. This fails because entity UUIDs are stored as *string values* inside CRDT Items (XmlElement attributes), not as Item metadata. ClientId rewriting operates on the structural layer (Item identity) but cannot reach the content layer (string values). Liminality's rewrite works because the committed delta needs Items under a new clientId — the UUID strings inside are irrelevant. Genesis cannot use the same shortcut because the UUID IS the identity.
+
+The cost is two factory invocations per virtual child materialization. Scaffold genesis (document-level containers) uses a single phase because the content is fixed by the schema.
+
+**Shared primitive.** The `withRewrittenClientId` operation — temporarily remapping a clientId in the struct store, executing a callback, then restoring — is shared between the liminality commit path (Paper [2], `extractCommittedDelta`) and the genesis content-hash path (individual vector extraction). This convergence was discovered during implementation, not designed: two independently-motivated features decomposed into the same encoding-level primitive.
 
 ### 2.4 Factory Isolation
 

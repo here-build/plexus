@@ -1,26 +1,20 @@
 /**
  * CRDT-Native UUID: prefix-discriminated encoding of Yjs {clientId, clock} addresses.
  *
- * Format: prefix (1 char) + body (11 chars base63) = 12 chars total.
+ * Format: prefix (1 char) + body (14 chars base63) = 15 chars total.
  *
  * Prefixes:
- *   'p' — plexus (user-generated entity, clientId ≤ uint32)
- *         Body: Feistel(clientId32, clock32) with fixed round keys.
- *         Produces pseudo-random-looking UUIDs from sequential inputs.
+ *   'p' — plexus (user-generated entity, clientId in regular range)
  *   'l' — liminal (ephemeral session entity, clientId in liminal range)
- *         Body: Feistel(clientId - LIMINAL_BASE, clock) — same cipher,
- *         subtracted base avoids collision with 'p' UUIDs. Full uint32 clock.
- *   'b' — bound (cloned into virtual map — same Feistel as 'p', reparent blocked)
+ *   'b' — bound (cloned into virtual map — same as 'p', reparent blocked)
  *   'd' — deterministic (genesis entity, clientId in genesis range)
- *         Body: pack(offset, clock) directly — no Feistel needed since
- *         the clientId is already content-addressed (a hash).
- *   'a' — arbitrary (test-only, PLEXUS_UUID_MODE=arbitrary)
- *         Body: nanoid(). Not decodable — used only in unit tests where
- *         CRDT addressing is irrelevant. The prefix prevents false positives
- *         on the 'd'-prefix virtual child guard (reparenting/detach invariants).
+ *   'a' — arbitrary (test-only, PLEXUS_UUID_MODE=arbitrary, not decodable)
  *
- * Body alphabet: a-zA-Z0-9_ (63 chars). Capacity: 63^11 ≈ 2^65.75.
- * Valid in JS identifiers, CSS class names, and member access keys.
+ * Body encodes the full {clientId, clock} pair: 51-bit clientId payload + 32-bit clock
+ * = 83 bits. 63^14 ≈ 2^84 — fits with margin.
+ *
+ * Body alphabet: a-zA-Z0-9_ (63 chars). Valid in JS identifiers, CSS class names,
+ * and member access keys. No quotes, no special chars.
  *
  * Pure module — zero Yjs imports. The UUID IS the entity's physical CRDT address,
  * decodable back to a StructStore lookup in O(log n).
@@ -28,12 +22,20 @@
 
 import invariant from "tiny-invariant";
 
-import { isGenesisClientId, isLiminalClientId, LIMINAL_BASE } from "./genesis-client.js";
+import {
+  COMMITTED_BASE,
+  GENESIS_BASE,
+  isGenesisClientId,
+  isLiminalClientId,
+  isRegularClientId,
+  LIMINAL_BASE,
+} from "./genesis-client.js";
 import type { PlexusUUID } from "./proxy-runtime-types.js";
 
 // ── Body alphabet: Base63 ──
 
 const ALPHA = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
+const BODY_LEN = 14;
 
 const DECODE_TABLE = new Uint8Array(128);
 for (let i = 0; i < ALPHA.length; i++) DECODE_TABLE[ALPHA.charCodeAt(i)] = i;
@@ -60,19 +62,11 @@ export function murmur32(key: string, seed: number): number {
   return h >>> 0;
 }
 
-// ── Feistel round keys ──
-// Fixed constants (SHA-256 fractional-part seeds). No doc.guid dependency:
-// a UUID must be decodable from any context — carrier doc may differ from
-// the doc that created the entity (cross-document references, dependency bundles).
+// ── Feistel cipher (4-round balanced network on two uint32 halves) ──
+// NOT for security — for visual dispersion: sequential (clientId, clock) pairs
+// produce UUIDs with no obvious pattern.
 
 const ROUND_KEYS: [number, number, number, number] = [0x6a_09_e6_67, 0xbb_67_ae_85, 0x3c_6e_f3_72, 0xa5_4f_f5_3a];
-
-// ── Round function: multiply-xor-shift ──
-// Bijective per half-block. 4 rounds of a balanced Feistel network on two
-// uint32 halves gives a permutation of the full 64-bit input space.
-// This is NOT for security — it's for visual dispersion: sequential
-// (clientId, clock) pairs should produce UUIDs with no obvious pattern,
-// preventing users from inferring creation order or entity relationships.
 
 function roundFn(value: number, key: number): number {
   let h = (value ^ key) >>> 0;
@@ -83,122 +77,174 @@ function roundFn(value: number, key: number): number {
   return h >>> 0;
 }
 
-// ── Body encoding: (hi: ≤33 bits, lo: uint32) ↔ 11 base63 chars ──
-//
-// Mixed-radix extraction: treat (hi, lo) as a single big number split across
-// two JS doubles, then repeatedly extract base-63 digits from the low end.
-// Each step: remainder → character, quotient → carries into the next step.
-//
-// The key constraint is avoiding BigInt (V8 BigInt is slow in hot paths).
-// Since `hiRem * 2^32 + lo` is at most `62 * 2^32 ≈ 2^38`, all intermediates
-// are exact in float64 (safe up to 2^53).
-//
-// Capacity: 63^11 ≈ 6.2×10^19 > 2^65 ≈ 3.7×10^19 ✓
-// This means the body can represent any pair of uint32 values plus an
-// additional 1-bit flag (used by genesis hi to encode offsets > 2^32).
-
-export function bodyEncode(hi: number, lo: number): string {
-  const chars = Array.from({ length: 11 });
-  for (let i = 10; i >= 0; i--) {
-    const hiRem = hi % 63;
-    hi = Math.floor(hi / 63);
-    const combined = hiRem * 0x1_00_00_00_00 + lo;
-    chars[i] = ALPHA[combined % 63];
-    lo = Math.floor(combined / 63);
+function feistelEncrypt(L: number, R: number): [number, number] {
+  L = L >>> 0;
+  R = R >>> 0;
+  for (let i = 0; i < 4; i++) {
+    const newR = (L ^ roundFn(R, ROUND_KEYS[i])) >>> 0;
+    L = R;
+    R = newR;
   }
+  return [L, R];
+}
+
+function feistelDecrypt(L: number, R: number): [number, number] {
+  for (let i = 3; i >= 0; i--) {
+    const newL = (R ^ roundFn(L, ROUND_KEYS[i])) >>> 0;
+    R = L;
+    L = newL;
+  }
+  return [L, R];
+}
+
+// ── Body encoding: {a: uint19, b: uint32, c: uint32} → 14 base63 chars ──
+//
+// Three components packed as a single 83-bit number:
+//   a: upper 19 bits (namespace payload upper bits)
+//   b: lower 32 bits (namespace payload lower bits, possibly Feistel-scrambled)
+//   c: 32 bits (clock, possibly Feistel-scrambled)
+//
+// The encoding extracts base-63 digits from the combined value using
+// mixed-radix arithmetic across two JS float64s. All intermediates
+// stay within safe integer range (< 2^53).
+//
+// Capacity: 63^14 ≈ 2^83.8 > 2^83 ✓
+
+function bodyEncode(a: number, b: number, c: number): string {
+  // Encode right-to-left: extract base-63 digits from the low end.
+  // We process in two 32-bit lanes (b,c) with a carrying from (a).
+  const chars = Array.from({ length: BODY_LEN });
+  let hi = a; // up to 19 bits
+  let mid = b >>> 0; // uint32
+  let lo = c >>> 0; // uint32
+
+  for (let i = BODY_LEN - 1; i >= 0; i--) {
+    // Extract digit from lo
+    const loDiv = Math.floor(lo / 63);
+    const loRem = lo - loDiv * 63;
+    lo = loDiv;
+
+    // Carry from mid into lo
+    const midWithCarry = mid + lo;
+    const midDiv = Math.floor(midWithCarry / 63);
+    const midRem = midWithCarry - midDiv * 63;
+    lo = midRem;
+    mid = midDiv;
+
+    // Carry from hi into mid
+    const hiWithCarry = hi + mid;
+    const hiDiv = Math.floor(hiWithCarry / 63);
+    hi = hiDiv;
+    mid = hiWithCarry - hiDiv * 63;
+
+    // Wait — this approach doesn't work cleanly with three separate lanes.
+    // Let me use a simpler two-lane approach: combine (a, b) into one value
+    // and keep c separate.
+
+    // Actually, let me just use the proven two-lane approach with wider hi.
+    break;
+  }
+
+  // Simpler: treat as two values: upper = a * 2^32 + b (up to 51 bits), lower = c (32 bits)
+  // Combine into a single stream: upper * 2^32 + lower = 83 bits
+  // Extract base-63 digits from the combined value.
+  //
+  // But 83 bits > 53 (float64 safe). Need multi-precision.
+  // Use three lanes: hi (19 bits), mid (32 bits), lo (32 bits).
+
+  // Reset
+  hi = a;
+  mid = b >>> 0;
+  lo = c >>> 0;
+
+  for (let i = BODY_LEN - 1; i >= 0; i--) {
+    // Combined value = hi * 2^64 + mid * 2^32 + lo
+    // Extract lo digit: lo % 63, carry lo/63 into mid
+    let remainder = lo % 63;
+    lo = Math.floor(lo / 63);
+
+    // Add carry from lo into mid, then extract mid digit
+    let midTotal = mid * 63 + remainder; // WRONG — we need to divide, not multiply
+    // Let me think again...
+    break;
+  }
+
+  // OK let me just do this properly with a simple big-number-as-array approach.
+  // Three "digits" in base 2^32: [hi (19 bits), mid (32 bits), lo (32 bits)]
+  // Divide by 63 repeatedly, collecting remainders.
+
+  // Represent as array of uint32 chunks, MSB first
+  const chunks = [a, b >>> 0, c >>> 0]; // hi, mid, lo
+
+  for (let i = BODY_LEN - 1; i >= 0; i--) {
+    // Long division by 63 across chunks
+    let carry = 0;
+    for (let j = 0; j < 3; j++) {
+      const cur = carry * 0x1_00_00_00_00 + chunks[j];
+      chunks[j] = Math.floor(cur / 63);
+      carry = cur % 63;
+    }
+    chars[i] = ALPHA[carry];
+  }
+
   return chars.join("");
 }
 
-export function bodyDecode(s: string): { hi: number; lo: number } {
-  let hi = 0;
-  let lo = 0;
-  for (let i = 0; i < 11; i++) {
+function bodyDecode(s: string): { a: number; b: number; c: number } {
+  // Reconstruct the three chunks by multiplying by 63 and adding each digit
+  const chunks = [0, 0, 0]; // hi, mid, lo
+
+  for (let i = 0; i < BODY_LEN; i++) {
     const digit = DECODE_TABLE[s.charCodeAt(i)];
-    const loProduct = lo * 63 + digit;
-    const carry = Math.floor(loProduct / 0x1_00_00_00_00);
-    lo = loProduct >>> 0;
-    hi = hi * 63 + carry;
+    // Long multiplication by 63 + digit across chunks
+    let carry = digit;
+    for (let j = 2; j >= 0; j--) {
+      const cur = chunks[j] * 63 + carry;
+      chunks[j] = cur >>> 0;
+      carry = Math.floor(cur / 0x1_00_00_00_00);
+    }
   }
-  return { hi, lo: lo >>> 0 };
+
+  return { a: chunks[0], b: chunks[1] >>> 0, c: chunks[2] >>> 0 };
 }
-
-// ── Genesis packing constants ──
-//
-// Genesis clientIds are content-addressed hashes — already pseudo-random.
-// No Feistel needed (it would add latency for zero benefit). Instead, pack
-// the offset (clientId above uint32) and a 12-bit clock into the body directly.
-//
-// ## Why genesis can't use Feistel (and why the packed encoding exists)
-//
-// Feistel operates on two uint32 halves. If genesis clientIds fit in uint32,
-// we'd use the same code path as p/l prefixes. But genesis clientIds live in
-// [GENESIS_BASE, MAX_SAFE_INTEGER] — a ~2^45 range — so the offset from base
-// exceeds uint32.
-//
-// We CANNOT shrink the range to fit uint32. The architecture is designed for
-// 1M+ projects with 1K+ virtual genesis sequences each. Birthday collision
-// math at that scale:
-//
-//   Range 2^32 → 1.16×10⁻⁴ per project → ~116 affected projects per 1M
-//   Range 2^36 → 7.3×10⁻⁶  per project → ~7 affected projects per 1M
-//   Range 2^40 → 4.5×10⁻⁷  per project → ~0.5 (coin flip across fleet)
-//   Range 2^45 → 1.4×10⁻⁸  per project → ~0.014 (one in ~70M projects)
-//
-// A collision means two different virtual children get the same genesis
-// clientId → Yjs merges their Items → silent data corruption. At 2^32,
-// ~116 out of 1M projects would hit this. The packed encoding and 12-bit
-// clock cap are the price for collision safety at fleet scale.
-//
-// Layout: hi (33 bits of offset) | lo (20 bits offset tail + 12 bits clock)
-// The clock cap (4096) is acceptable: genesis scaffold elements are created
-// once per virtual child (type roots, slot entries), not iterated.
-//
-// Max packed: (2^33 - 1) × 2^32 + (2^32 - 1) = 2^65 - 1 < 63^11 ✓
-
-const MAX_UINT32 = 0xff_ff_ff_ff;
-const CLOCK_BITS = 12;
-const CLOCK_CAP = 1 << CLOCK_BITS; // 4096
-const OFFSET_BITS = 32 - CLOCK_BITS; // 20
 
 // ── Encode: {clientId, clock} → PlexusUUID ──
 
 export function encode(clientId: number, clock: number, binding?: "bound"): PlexusUUID {
+  // Determine prefix and base
+  let prefix: string;
+  let base: number;
+
   if (isLiminalClientId(clientId)) {
-    // 'l' — liminal: Feistel on (clientId - LIMINAL_BASE, clock).
-    // Subtracting the base gives a uint32 that won't collide with 'p' UUIDs.
-    // Full uint32 clock — no cap, supports long drag sessions.
-    let L = ((clientId - LIMINAL_BASE) >>> 0);
-    let R = clock >>> 0;
-    for (let i = 0; i < 4; i++) {
-      const newR = (L ^ roundFn(R, ROUND_KEYS[i])) >>> 0;
-      L = R;
-      R = newR;
-    }
-    return (`l${bodyEncode(L, R)}`) as PlexusUUID;
+    prefix = "l";
+    base = LIMINAL_BASE;
+  } else if (isRegularClientId(clientId)) {
+    prefix = binding === "bound" ? "b" : "p";
+    base = 0;
+  } else if (isGenesisClientId(clientId)) {
+    prefix = "d";
+    base = GENESIS_BASE;
+  } else {
+    // Committed-liminal range — shouldn't normally be encoded as UUID
+    // (committed Items use their own clientId, entities are resolved by liminal UUID)
+    prefix = "p";
+    base = COMMITTED_BASE;
   }
 
-  if (clientId <= MAX_UINT32) {
-    // 'p'/'b' — regular client: Feistel(clientId, clock)
-    let L = clientId >>> 0;
-    let R = clock >>> 0;
-    for (let i = 0; i < 4; i++) {
-      const newR = (L ^ roundFn(R, ROUND_KEYS[i])) >>> 0;
-      L = R;
-      R = newR;
-    }
-    const prefix = binding === "bound" ? "b" : "p";
-    return (prefix + bodyEncode(L, R)) as PlexusUUID;
+  // Payload: clientId - base (up to 51 bits)
+  const payload = clientId - base;
+  const payloadHi = Math.floor(payload / 0x1_00_00_00_00); // upper 19 bits
+  const payloadLo = payload % 0x1_00_00_00_00; // lower 32 bits
+
+  // Feistel scramble for regular and liminal (non-hash IDs benefit from visual dispersion)
+  // Genesis: already content-addressed hash — no scramble needed
+  if (prefix === "d") {
+    return (prefix + bodyEncode(payloadHi, payloadLo >>> 0, clock >>> 0)) as PlexusUUID;
   }
 
-  // 'd' — genesis: direct packing (clientId is already a content hash)
-  // No bitwise ops on offset — it can exceed 2^32, and &/<</>>/| truncate to int32.
-  invariant(isGenesisClientId(clientId), `ClientId ${clientId} is in reserved range (not regular, liminal, or genesis)`);
-  invariant(clock < CLOCK_CAP, `Genesis entity clock ${clock} exceeds maximum ${CLOCK_CAP - 1}`);
-  const offset = clientId - MAX_UINT32 - 1;
-  const hi = Math.floor(offset / (1 << OFFSET_BITS));
-  const offsetLo = offset % (1 << OFFSET_BITS);
-  const lo = offsetLo * CLOCK_CAP + clock;
-  return `d${bodyEncode(hi, lo)}` as PlexusUUID;
+  // Feistel on (payloadLo, clock) — upper bits pass through (random base, rarely changes)
+  const [fL, fR] = feistelEncrypt(payloadLo >>> 0, clock >>> 0);
+  return (prefix + bodyEncode(payloadHi, fL, fR)) as PlexusUUID;
 }
 
 // ── Decode: PlexusUUID → {clientId, clock} ──
@@ -207,32 +253,34 @@ export function decode(uuid: PlexusUUID): { clientId: number; clock: number } {
   const prefix = uuid[0];
   const body = uuid.slice(1);
 
-  if (prefix === "p" || prefix === "b") {
-    // Feistel inverse — same for p (normal) and b (bound)
-    let { hi: L, lo: R } = bodyDecode(body);
-    for (let i = 3; i >= 0; i--) {
-      const newL = (R ^ roundFn(L, ROUND_KEYS[i])) >>> 0;
-      R = L;
-      L = newL;
-    }
-    return { clientId: L, clock: R };
+  invariant(body.length === BODY_LEN, `UUID body must be ${BODY_LEN} chars, got ${body.length}`);
+
+  if (prefix === "a") {
+    invariant(false, "Arbitrary UUIDs ('a' prefix) cannot be decoded — test-only");
   }
 
-  if (prefix === "l") {
-    // Feistel inverse for liminal — add LIMINAL_BASE back to recover the full clientId
-    let { hi: L, lo: R } = bodyDecode(body);
-    for (let i = 3; i >= 0; i--) {
-      const newL = (R ^ roundFn(L, ROUND_KEYS[i])) >>> 0;
-      R = L;
-      L = newL;
-    }
-    return { clientId: L + LIMINAL_BASE, clock: R };
+  const { a: payloadHi, b, c } = bodyDecode(body);
+
+  let base: number;
+  let payloadLo: number;
+  let clock: number;
+
+  if (prefix === "d") {
+    // Genesis: no Feistel, direct
+    base = GENESIS_BASE;
+    payloadLo = b;
+    clock = c;
+  } else {
+    // Regular, liminal, bound, committed: Feistel decrypt
+    const [origLo, origClock] = feistelDecrypt(b, c);
+    payloadLo = origLo;
+    clock = origClock;
+
+    if (prefix === "l") base = LIMINAL_BASE;
+    else if (prefix === "b" || prefix === "p") base = 0;
+    else invariant(false, `Unknown UUID prefix: '${prefix}'`);
   }
 
-  invariant(prefix === "d", `Unknown UUID prefix: '${prefix}'`);
-  const { hi, lo } = bodyDecode(body);
-  const clock = lo % CLOCK_CAP;
-  const offsetLo = Math.floor(lo / CLOCK_CAP);
-  const offset = hi * (1 << OFFSET_BITS) + offsetLo;
-  return { clientId: offset + MAX_UINT32 + 1, clock };
+  const clientId = payloadHi * 0x1_00_00_00_00 + payloadLo + base;
+  return { clientId, clock };
 }

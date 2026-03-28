@@ -90,8 +90,8 @@ function murmurBytes(data: Uint8Array, seed: number): number {
   return h >>> 0;
 }
 
-/** Genesis hash space: [GENESIS_BASE, MAX_SAFE_INTEGER]. */
-const GENESIS_RANGE = Number.MAX_SAFE_INTEGER - GENESIS_BASE + 1;
+/** Genesis hash space: 2^51 values (matching genesis-client.ts). */
+const GENESIS_RANGE = 2 ** 51;
 
 /**
  * Compute a deterministic genesis clientId for a virtual child.
@@ -107,7 +107,7 @@ function computeVirtualGenesisId(
   const canonical = String.raw`${parentUuid}\0${fieldName}\0${serializedKey}\0${vectorHash.toString(36)}`;
   const hi = murmur32(canonical, SEED_HI);
   const lo = murmur32(canonical, SEED_LO);
-  const wide = (hi & 0x1f_ff_ff) * 0x1_00_00_00_00 + (lo >>> 0);
+  const wide = (hi & 0x7_ff_ff) * 0x1_00_00_00_00 + (lo >>> 0);
   return (wide % GENESIS_RANGE) + GENESIS_BASE;
 }
 
@@ -161,7 +161,7 @@ function computeContainerGenesisId(parentUuid: string, fieldName: string): numbe
   const canonical = `${parentUuid}\0${fieldName}\0__container__`;
   const hi = murmur32(canonical, SEED_HI);
   const lo = murmur32(canonical, SEED_LO);
-  const wide = (hi & 0x1f_ff_ff) * 0x1_00_00_00_00 + (lo >>> 0);
+  const wide = (hi & 0x7_ff_ff) * 0x1_00_00_00_00 + (lo >>> 0);
   return (wide % GENESIS_RANGE) + GENESIS_BASE;
 }
 

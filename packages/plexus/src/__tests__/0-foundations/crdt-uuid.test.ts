@@ -11,76 +11,22 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { bodyDecode, bodyEncode, decode, encode, murmur32 } from "../../crdt-uuid.js";
+import { decode, encode, murmur32 } from "../../crdt-uuid.js";
 import { GENESIS_BASE, LIMINAL_BASE } from "../../genesis-client.js";
 
 // ── Arbitraries ──
 
 const uint32 = fc.integer({ min: 0, max: 0xff_ff_ff_ff });
 
-// Genesis clientIds: [GENESIS_BASE, MAX_SAFE_INTEGER]
-const genesisClientId = fc.integer({ min: GENESIS_BASE, max: Number.MAX_SAFE_INTEGER });
-const genesisClock = fc.integer({ min: 0, max: 4095 }); // 12-bit cap
+// Genesis clientIds: [GENESIS_BASE, GENESIS_BASE + 2^51)
+const genesisClientId = fc.integer({ min: GENESIS_BASE, max: GENESIS_BASE + 2 ** 51 - 1 });
+const genesisClock = uint32; // no cap in new scheme
 
-// Liminal clientIds: [LIMINAL_BASE, LIMINAL_BASE + MAX_UINT32]
-const liminalClientId = fc.integer({ min: LIMINAL_BASE, max: LIMINAL_BASE + 0xff_ff_ff_ff });
-const liminalClock = uint32; // full uint32 clock for liminal
+// Liminal clientIds: [LIMINAL_BASE, LIMINAL_BASE + 2^51)
+const liminalClientId = fc.integer({ min: LIMINAL_BASE, max: LIMINAL_BASE + 2 ** 51 - 1 });
+const liminalClock = uint32;
 
 describe("CRDT-Native UUID Codec", () => {
-  describe("Body (base63) roundtrip", () => {
-    it("roundtrips zero values", () => {
-      const decoded = bodyDecode(bodyEncode(0, 0));
-      expect(decoded.hi).toBe(0);
-      expect(decoded.lo).toBe(0);
-    });
-
-    it("roundtrips max uint32 values", () => {
-      const decoded = bodyDecode(bodyEncode(0xff_ff_ff_ff, 0xff_ff_ff_ff));
-      expect(decoded.hi).toBe(0xff_ff_ff_ff);
-      expect(decoded.lo).toBe(0xff_ff_ff_ff);
-    });
-
-    it("roundtrips arbitrary values", () => {
-      const cases: [number, number][] = [
-        [1, 0],
-        [0, 1],
-        [12_345, 67_890],
-        [0x80_00_00_00, 0x80_00_00_00],
-        [0xde_ad_be_ef, 0xca_fe_ba_be],
-      ];
-      for (const [hi, lo] of cases) {
-        const decoded = bodyDecode(bodyEncode(hi, lo));
-        expect(decoded.hi).toBe(hi >>> 0);
-        expect(decoded.lo).toBe(lo >>> 0);
-      }
-    });
-
-    it("roundtrips any uint32 pair (fuzz)", () => {
-      fc.assert(
-        fc.property(uint32, uint32, (hi, lo) => {
-          const decoded = bodyDecode(bodyEncode(hi, lo));
-          return decoded.hi === hi >>> 0 && decoded.lo === lo >>> 0;
-        }),
-      );
-    });
-
-    it("always produces 11-char output (fuzz)", () => {
-      fc.assert(
-        fc.property(uint32, uint32, (hi, lo) => {
-          return bodyEncode(hi, lo).length === 11;
-        }),
-      );
-    });
-
-    it("output is always valid base63 (fuzz)", () => {
-      fc.assert(
-        fc.property(uint32, uint32, (hi, lo) => {
-          return /^\w{11}$/.test(bodyEncode(hi, lo));
-        }),
-      );
-    });
-  });
-
   describe("Feistel encode/decode roundtrip ('p' prefix)", () => {
     it("roundtrips with basic values", () => {
       const { clientId, clock } = decode(encode(1, 0));
@@ -133,8 +79,8 @@ describe("CRDT-Native UUID Codec", () => {
     });
 
     it("roundtrips max genesis values", () => {
-      const clientId = Number.MAX_SAFE_INTEGER;
-      const clock = 4095;
+      const clientId = GENESIS_BASE + 2 ** 51 - 1;
+      const clock = 0xff_ff_ff_ff;
       const result = decode(encode(clientId, clock));
       expect(result.clientId).toBe(clientId);
       expect(result.clock).toBe(clock);
@@ -157,27 +103,32 @@ describe("CRDT-Native UUID Codec", () => {
       );
     });
 
-    it("throws on clock exceeding cap", () => {
-      expect(() => encode(GENESIS_BASE, 4096)).toThrow("exceeds maximum");
-      expect(() => encode(GENESIS_BASE, 5000)).toThrow("exceeds maximum");
-    });
   });
 
   describe("output format", () => {
-    it("plexus UUIDs: always 12 chars, p + base63 (fuzz)", () => {
+    it("plexus UUIDs: always 15 chars, p + base63 (fuzz)", () => {
       fc.assert(
         fc.property(uint32, uint32, (clientId, clock) => {
           const uuid = encode(clientId, clock);
-          return uuid.length === 12 && /^p\w{11}$/.test(uuid);
+          return uuid.length === 15 && /^p\w{14}$/.test(uuid);
         }),
       );
     });
 
-    it("genesis UUIDs: always 12 chars, d + base63 (fuzz)", () => {
+    it("genesis UUIDs: always 15 chars, d + base63 (fuzz)", () => {
       fc.assert(
         fc.property(genesisClientId, genesisClock, (clientId, clock) => {
           const uuid = encode(clientId, clock);
-          return uuid.length === 12 && /^d\w{11}$/.test(uuid);
+          return uuid.length === 15 && /^d\w{14}$/.test(uuid);
+        }),
+      );
+    });
+
+    it("liminal UUIDs: always 15 chars, l + base63 (fuzz)", () => {
+      fc.assert(
+        fc.property(liminalClientId, liminalClock, (clientId, clock) => {
+          const uuid = encode(clientId, clock);
+          return uuid.length === 15 && /^l\w{14}$/.test(uuid);
         }),
       );
     });

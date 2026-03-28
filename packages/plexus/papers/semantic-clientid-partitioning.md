@@ -26,7 +26,16 @@ Prefix  Range                     Size   Priority   Allocation       Purpose
 
 Two leading bits encode the namespace; the remaining 51 bits are the payload. Each range has 2^51 values (2.25 × 10¹⁵) — uniform, no wasted space. Regular Yjs clients (random uint32) land in the lowest 2^32 of the regular range.
 
-Allocation varies by range: regular clients use Yjs's native random uint32, ephemeral sessions use a per-peer monotonic counter offset from a 51-bit random base, and scaffold uses content-addressed hashing. Namespace conversion is a single addition: `committedId = liminalId + 2^51` (prefix 0b01 → 0b10).
+Allocation varies by range: regular clients use Yjs's native random uint32, ephemeral sessions use a per-peer monotonic counter offset from a 51-bit random base, and scaffold uses content-addressed hashing:
+
+```
+regular:   Yjs default (random uint32, < 2^32)
+ephemeral: base = LIMINAL_BASE + random51(); session clientId = base + sessionCounter++
+committed: committedId = liminalId + 2^51          // prefix 0b01 → 0b10
+genesis:   GENESIS_BASE + hash(type, path) % 2^51  // deterministic, clock always 0
+```
+
+The random base provides collision resistance (51 bits of entropy); the counter provides monotonic ordering within a peer's sessions. These are not contradictory — the upper bits are random, the lower bits are sequential.
 
 ### Three-Dimensional Operation Log
 

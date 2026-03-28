@@ -189,7 +189,7 @@ describe("Cross-Document Notifications", () => {
         comments: [],
       });
       user1.posts["post1"] = post;
-      const postRef = post[referenceSymbol](doc1); // Materialize the post
+      const postRef = post[referenceSymbol](user1.__doc__!); // Materialize on shadow
 
       // Force sync of the new post entity
       syncDocs(doc1, doc2);
@@ -215,7 +215,7 @@ describe("Cross-Document Notifications", () => {
         author: null,
         comments: [],
       });
-      initialPost[referenceSymbol](doc1); // Materialize the post
+      initialPost[referenceSymbol](user1.__doc__!); // Materialize on shadow
       user1.posts["initial"] = initialPost;
 
       const doc2 = createPeerDoc(doc1);
@@ -251,7 +251,7 @@ describe("Cross-Document Notifications", () => {
         author: null,
         comments: [],
       });
-      initialPost[referenceSymbol](doc1); // Materialize the post
+      initialPost[referenceSymbol](user1.__doc__!); // Materialize on shadow
       user1.posts["tracked-post"] = initialPost;
 
       const doc2 = createPeerDoc(doc1);
@@ -490,7 +490,7 @@ describe("Cross-Document Notifications", () => {
         author: user1,
         comments: [],
       });
-      post[referenceSymbol](doc1); // Materialize the post
+      post[referenceSymbol](user1.__doc__!); // Materialize on shadow
       user1.posts["main"] = post;
 
       const doc2 = createPeerDoc(doc1);

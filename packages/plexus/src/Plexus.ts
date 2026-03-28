@@ -1,29 +1,66 @@
 /**
- * Plexus Document - Orchestrates YJS document state and undo/redo
+ * Plexus Document — shadow-primary CRDT orchestration.
+ *
+ * Architecture: two Y.Docs per Plexus instance.
+ * - **Shadow doc** — the working copy. All entities bind here. Reads and writes go through shadow.
+ * - **Main doc** — the committed store. Syncs to peers. Receives forwarded writes from shadow.
+ *
+ * Origin-based routing controls what flows between docs:
+ * - SHADOW_TO_MAIN: normal entity writes → forwarded to main (UndoManager tracks)
+ * - LIMINAL: drag/scrub writes → held on shadow (not forwarded)
+ * - COMMIT_DELTA: committed liminality → applied to main, forwarded to shadow
+ * - FROM_SHADOW/FROM_MAIN: echo prevention markers
+ *
+ * Liminality commit sequence (6 invariants, all required):
+ * 1. Fresh monotonic clientId per session (isolates liminal Items from prior writes)
+ * 2. ClientId rewrite → encode delta (action reproduction under committed namespace)
+ * 3. Apply to main FIRST (forwarding propagates to shadow while scaffolding is intact)
+ * 4. Undo liminal Items on shadow (scaffolding removal — committed Items survive)
+ * 5. Fresh clientId after commit (prevents clock gap on main)
+ * 6. Block liminal UndoManager's origin from shadow→main forwarding (undo doesn't clobber main)
  */
 
+import { toBase64 } from "lib0/buffer";
 import { nanoid } from "nanoid";
 import invariant from "tiny-invariant";
 import type { ReadonlyDeep } from "type-fest";
 import * as Y from "yjs";
 import { UndoManager } from "yjs";
 
-import { type DecodedBlob, decodeBlob, createBlobFromDoc } from "./dependency-blob.js";
+import { PlexusAwareness } from "./awareness.js";
+import { createBlobFromDoc, decodeBlob, type DecodedBlob } from "./dependency-blob.js";
 import { deref } from "./deref.js";
 import { documentEntityCaches } from "./entity-cache.js";
-import { declareDeterministicMap, GENESIS_BASE, isGenesisClientId } from "./genesis-client.js";
+import { declareDeterministicMap, isGenesisClientId, LIMINAL_BASE, newLiminalClientId } from "./genesis-client.js";
 import { entityClasses } from "./globals.js";
-import { docPlexus } from "./plexus-registry.js";
-import { getInternals, PlexusModel, type PlexusConstructor } from "./PlexusModel.js";
+import { docLiminality, docPlexus, docTransactionOrigin } from "./plexus-registry.js";
+import { getInternals, type PlexusConstructor, PlexusModel } from "./PlexusModel.js";
 import { PlexusWrapper } from "./PlexusWrapper.js";
-import type { AllowedYValue, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
+import type { PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { maybeTransacting } from "./utils/utils.js";
+import { extractCommittedDelta } from "./utils/yjs-algebra.js";
 import { getDependenciesMap, getMetaMap, getModelTypesMap } from "./yjs/getModels.js";
 import * as YJS_GLOBALS from "./YJS_GLOBALS.js";
-// MAX_UINT32 threshold: used for genesis Item filtering in UndoManager.
-const MAX_UINT32 = 0xff_ff_ff_ff;
+
+// ── Origin Constants ─────────────────────────────────────────────────
+// Controls routing between shadow and main docs, and UndoManager tracking.
+
+/** Normal Plexus write on shadow → forwarded to main (UndoManager tracks this). */
+const SHADOW_TO_MAIN = Symbol("shadow→main");
+
+/** Liminal write on shadow → NOT forwarded to main. */
+const LIMINAL_ORIGIN = Symbol("liminal");
+
+/** Committed delta applied to main + forwarded to shadow. */
+const COMMIT_DELTA_ORIGIN = Symbol("commit-delta");
+
+/** Shadow update forwarded to main without UndoManager tracking (genesis, lazy containers). */
+const FROM_SHADOW = Symbol("from-shadow");
+
+/** Main update forwarded to shadow (prevents echo back). */
+const FROM_MAIN = Symbol("from-main");
 
 export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<string, Root> }> {
   /** Enable PLEXUS_TEST_SENTINEL — constructor throws the sentinel symbol for reachability testing. */
@@ -215,6 +252,16 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
   private readonly __undoManager__: UndoManager;
   private __isUndoing__ = false;
 
+  /** Multi-channel awareness — owned by Plexus, exposed for providers and user state. */
+  readonly awareness!: PlexusAwareness;
+
+  /** Shadow doc. gc:false — origin chains must survive for committed delta integration. */
+  private readonly __liminalDocument__ = Object.assign(new Y.Doc({ gc: false }), {
+    clientID: newLiminalClientId(),
+  });
+  private readonly __liminalUndoManager__!: UndoManager;
+  private __liminalHeight__ = 0;
+
   // noinspection JSUnusedLocalSymbols
   protected constructor(
     public readonly doc: Y.Doc,
@@ -223,31 +270,67 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     invariant(!docPlexus.has(doc), `Plexus<document#${doc.clientID}>: already initialized, singleton violation`);
     docPlexus.set(doc, this);
 
-    // Set up type-scoped storage
+    const shadow = this.__liminalDocument__;
+
+    // Initial sync: main → shadow (full state)
+    Y.applyUpdate(shadow, Y.encodeStateAsUpdate(doc));
+
+    // Shadow → Main: forward everything except liminal, echoes, and undo scaffolding removal.
+    // SHADOW_TO_MAIN preserves origin (main UM captures). Everything else becomes FROM_SHADOW.
+    shadow.on("update", (update: Uint8Array, origin: any) => {
+      if (origin === LIMINAL_ORIGIN) return;
+      if (origin === FROM_MAIN) return;
+      if (origin === this.__liminalUndoManager__) return;
+      Y.applyUpdate(doc, update, origin === SHADOW_TO_MAIN ? SHADOW_TO_MAIN : FROM_SHADOW);
+    });
+
+    // Main → Shadow: forward everything except echoes.
+    doc.on("update", (update: Uint8Array, origin: any) => {
+      if (origin === SHADOW_TO_MAIN || origin === FROM_SHADOW) return;
+      Y.applyUpdate(shadow, update, FROM_MAIN);
+    });
+
+    docPlexus.set(shadow, this);
+    docTransactionOrigin.set(shadow, SHADOW_TO_MAIN);
+
     this.yTypes = getModelTypesMap(doc);
     this.yDependencies = getDependenciesMap(doc);
 
-    // Mark root and materialize
-    const rootInternals = getInternals(root);
-    rootInternals.isRoot = true;
-    // materialization of root should be explicitly done before UndoManager is spawned - otherwise we may accidentally
-    // drop root during undos
-    root[referenceSymbol](doc);
-    // Store root pointer and encoding guid in meta map for remote peer discovery
-    const meta = getMetaMap(doc);
-    meta.set(YJS_GLOBALS.meta.wellKnown.root, rootInternals.uuid!);
-
-    // Pre-create type sub-maps for ALL registered entity types BEFORE UndoManager connects.
-    // Uses genesis clientIds (deterministic, conflict-free across independent peers).
-    // Must happen before UndoManager so undo only removes entities, not type sub-maps.
+    // Genesis scaffold on main (forwarded to shadow). Must precede UndoManager — undo should
+    // only remove entities, not the type sub-maps that hold them.
     for (const type of entityClasses.keys()) {
       declareDeterministicMap(doc, [YJS_GLOBALS.types.key, type]);
     }
 
+    // Root materialization on shadow. connect() passes UUID string; bootstrap() passes entity.
+    if (typeof root === "string") {
+      root = deref(shadow, [root]) as Root;
+      getInternals(root).isRoot = true;
+    } else {
+      const rootInternals = getInternals(root);
+      rootInternals.isRoot = true;
+      root[referenceSymbol](shadow);
+    }
+    (this as { root: Root }).root = root;
+
+    // Root pointer on main (for remote peer discovery). After materialization — UUID is assigned there.
+    getMetaMap(doc).set(YJS_GLOBALS.meta.wellKnown.root, getInternals(root).uuid!);
+
+    // Main UndoManager. ignoreRemoteMapChanges: committed deltas use different clientIds per session —
+    // without it, redoItem's conflict detection treats successive commits as "remote" and refuses undo.
     this.__undoManager__ = new UndoManager(this.yTypes, {
       captureTimeout: 500,
-      trackedOrigins: new Set([Plexus]),
+      trackedOrigins: new Set([SHADOW_TO_MAIN, COMMIT_DELTA_ORIGIN]),
+      ignoreRemoteMapChanges: true,
     });
+
+    // Liminal UndoManager — tracks only LIMINAL writes on shadow. captureTimeout:0 = no batching.
+    this.__liminalUndoManager__ = new UndoManager(getModelTypesMap(shadow), {
+      trackedOrigins: new Set([LIMINAL_ORIGIN]),
+      captureTimeout: 0,
+    });
+
+    this.awareness = new PlexusAwareness(doc);
 
     // Strip genesis Items from UndoManager StackItems.
     // Genesis clientIds live in the 0x1F namespace (>= GENESIS_BASE = 31 × 2^40).
@@ -279,7 +362,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
           // Type sub-map event — entity added/deleted within a type
           if (evt.target instanceof Y.Map && evt.target !== this.yTypes) {
             for (const [id, change] of evt.changes.keys.entries()) {
-              const model = documentEntityCaches.get(doc).get(id)?.deref();
+              const model = documentEntityCaches.get(shadow).get(id)?.deref();
               if (!model) continue; // Entity may not be cached yet (e.g. from remote peer)
               const internals = getInternals(model);
               if (internals.isDependency) {
@@ -338,7 +421,6 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
    * Returns existing instance if one exists for this class, otherwise creates new.
    * Doc must be synced before calling - if no root found, throws with helpful hint.
    */
-  // it is bad to use Function; yet, it's impossible to use Constructor<> directly since constructor is protected.
 
   static connect(doc: Y.Doc) {
     // Return existing instance if one exists for this class
@@ -356,9 +438,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
 
     invariant(rootUuid, `Plexus<document#${doc.clientID}>.connect: no root found, await sync first`);
 
-    const root = deref(doc, [rootUuid]) as PlexusModel;
-    getInternals(root).isRoot = true;
-    return new this(doc, root);
+    return new this(doc, rootUuid as any);
   }
 
   /**
@@ -366,9 +446,9 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
    * Uses the types/{type} sub-map directly — no separate type index needed.
    */
   getAllOfType<T extends PlexusModel>(constructor: PlexusConstructor<T>): T[] {
-    const typeMap = this.yTypes.get(constructor.modelName);
+    const typeMap = getModelTypesMap(this.__liminalDocument__).get(constructor.modelName);
     if (!typeMap) return [];
-    return [...typeMap.keys()].map((uuid) => deref(this.doc, [uuid]) as T);
+    return [...typeMap.keys()].map((uuid) => deref(this.__liminalDocument__, [uuid]) as T);
   }
 
   /**
@@ -389,6 +469,9 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
   }
 
   undo() {
+    // Undo during liminality: revert the liminal session first, then undo on prime
+    if (this.isLiminal) this.revertLiminality();
+
     if (this.__isUndoing__) {
       this.__undoManager__.undo();
     } else {
@@ -399,6 +482,9 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
   }
 
   redo() {
+    // Redo during liminality: revert the liminal session first, then redo on prime
+    if (this.isLiminal) this.revertLiminality();
+
     if (this.__isUndoing__) {
       this.__undoManager__.redo();
     } else {
@@ -409,11 +495,10 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
   }
 
   /**
-   * Load an entity by ID from the main document.
-   * Used for comments, copy-paste, direct navigation.
+   * Load an entity by ID. Resolves from shadow doc (where entities live).
    */
   loadEntity<T extends PlexusModel>(entityId: string): T | null {
-    return deref(this.doc, [entityId]) as T | null;
+    return deref(this.__liminalDocument__, [entityId]) as T | null;
   }
 
   /**
@@ -424,8 +509,73 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
    * - Notification batching and flushing
    */
   transact<T>(fn: () => T): T {
-    return maybeTransacting(this.doc, fn);
+    return maybeTransacting(this.__liminalDocument__, fn);
   }
+
+  get isLiminal(): boolean {
+    return docLiminality.has(this.doc);
+  }
+
+  enterLiminality(): void {
+    if (this.isLiminal) return;
+    this.__liminalDocument__.clientID++; // monotonic — later commits always win via clientId ordering
+    this.__liminalHeight__++;
+    docLiminality.set(this.doc, this.__liminalDocument__);
+    docTransactionOrigin.set(this.__liminalDocument__, LIMINAL_ORIGIN);
+  }
+
+  commitLiminality(): void {
+    if (!this.isLiminal) return;
+
+    const limId = this.__liminalDocument__.clientID;
+    const delta = extractCommittedDelta(this.__liminalDocument__, this.doc, limId, LIMINAL_BASE);
+
+    // Apply to main FIRST. Main→shadow forwarding propagates committed Items to shadow while
+    // liminal scaffolding is intact (YATA origin references resolve in the pre-undo state).
+    this.__undoManager__.stopCapturing();
+    Y.applyUpdate(this.doc, delta, COMMIT_DELTA_ORIGIN);
+    this.__undoManager__.stopCapturing();
+
+    // Remove scaffolding. Committed Items survive — COMMIT_DELTA origin is not tracked by liminal UM.
+    while (this.__liminalUndoManager__.canUndo()) this.__liminalUndoManager__.undo();
+    this.__liminalUndoManager__.stopCapturing();
+
+    // Fresh clientId — main never saw the liminal clocks, so continuing with the same ID
+    // would create a clock gap and silently drop subsequent normal writes.
+    this.__liminalDocument__.clientID++;
+
+    docTransactionOrigin.set(this.__liminalDocument__, SHADOW_TO_MAIN);
+    this.awareness.clearField("liminal");
+    docLiminality.delete(this.doc);
+    this.__undoManager__.stopCapturing();
+  }
+
+  revertLiminality(): void {
+    if (!this.isLiminal) return;
+
+    while (this.__liminalUndoManager__.canUndo()) this.__liminalUndoManager__.undo();
+    this.__liminalDocument__.clientID++; // clock gap prevention
+
+    docTransactionOrigin.set(this.__liminalDocument__, SHADOW_TO_MAIN);
+    this.awareness.clearField("liminal");
+    docLiminality.delete(this.doc);
+  }
+
+  /**
+   * Broadcast current liminal preview to peers via awareness.
+   * Call at your own cadence (requestAnimationFrame, throttled, adaptive pressure).
+   * No-op when not liminal.
+   *
+   * The awareness field is `[height, base64delta]`:
+   * - height: monotonic session counter — peers detect session changes
+   * - base64delta: Yjs binary update encoded from shadow against main's state vector
+   */
+  broadcastLiminalPreview(): void {
+    if (!this.isLiminal) return;
+    const delta = Y.encodeStateAsUpdate(this.__liminalDocument__, Y.encodeStateVector(this.doc));
+    this.awareness.setField("liminal", [this.__liminalHeight__, toBase64(delta)]);
+  }
+
 
   /**
    * Find all instances of ParentClass whose `field` references `node`.

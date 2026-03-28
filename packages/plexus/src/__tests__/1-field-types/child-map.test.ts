@@ -689,7 +689,7 @@ describe("child.map edge cases", () => {
       // Clone the container
       const cloned = root.clone();
       // Materialize the clone using referenceSymbol
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<Container>(clonedId)!;
 
       // Cloned container should have different item instances
@@ -1124,7 +1124,7 @@ describe("child.map weird edge cases", () => {
       const { doc, root: root1, plexus } = initTestPlexus(p1);
 
       // Materialize p2 in same doc
-      const [p2Id] = p2[referenceSymbol](doc);
+      const [p2Id] = p2[referenceSymbol](root1.__doc__!);
       const root2 = plexus.loadEntity<ParentWithOwned>(p2Id)!;
 
       // keyItem has no parent (it's just a key)
@@ -1394,7 +1394,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone the container
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<EntityKeyMapContainer>(clonedId)!;
 
       // The owned child should be cloned (different ref, same data)
@@ -1434,7 +1434,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<SelfRefMapContainer>(clonedId)!;
 
       // Get the entries
@@ -1482,7 +1482,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<CloneArrayKeyContainer>(clonedId)!;
 
       // singleChild should be cloned (different ref, same data)
@@ -1519,7 +1519,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<MultiEntityArrayKeyContainer>(clonedId)!;
 
       // Children should be cloned
@@ -1557,7 +1557,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<CloneSetKeyContainer>(clonedId)!;
 
       // singleChild should be cloned
@@ -1597,7 +1597,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<MultiEntitySetKeyContainer>(clonedId)!;
 
       // Children should be cloned
@@ -1662,7 +1662,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone the tree
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<Tree>(clonedId)!;
 
       // Get the cloned leaves from the nested structure
@@ -1717,7 +1717,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<TreeWithArrayKey>(clonedId)!;
 
       // Get cloned leaves
@@ -1761,7 +1761,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<TreeWithSetKey>(clonedId)!;
 
       // Get cloned leaves (all different from originals)
@@ -1823,7 +1823,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<RootWithDeepKey>(clonedId)!;
 
       // Navigate to the cloned deep leaf
@@ -1866,7 +1866,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<MixedDepthTree>(clonedId)!;
 
       // Get cloned entities at different depths
@@ -1915,7 +1915,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<MixedKeyValueContainer>(clonedId)!;
 
       // Get the cloned itemA from the value position
@@ -1948,7 +1948,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<KeyOnlyContainer>(clonedId)!;
 
       // keyOnlyItem is ONLY a key, not a value - it was NOT cloned by the transaction
@@ -1984,7 +1984,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<UltraMixedContainer>(clonedId)!;
 
       // theChild should be cloned
@@ -2027,7 +2027,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<ContainerAsSelfKey>(clonedId)!;
 
       // The cloned container should have ITSELF as the key (not original)
@@ -2060,7 +2060,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<RepeatedKeyContainer>(clonedId)!;
 
       // theItem should be cloned
@@ -2090,7 +2090,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<SameKeyValueContainer>(clonedId)!;
 
       // Get the entry
@@ -2132,7 +2132,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<LookupTestContainer>(clonedId)!;
 
       // Get cloned items
@@ -2176,7 +2176,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<SetKeyLookupContainer>(clonedId)!;
 
       // Lookup with new Set of cloned items should work
@@ -2206,7 +2206,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<ArrayKeyLookupContainer>(clonedId)!;
 
       // Lookup with array of cloned items should work
@@ -2231,7 +2231,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<EmptySetKeyContainer>(clonedId)!;
 
       // Should have one entry with empty Set key
@@ -2259,7 +2259,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<EmptyArrayKeyContainer>(clonedId)!;
 
       // Should have one entry with empty Array key
@@ -2292,7 +2292,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<MixedArrayKeyContainer>(clonedId)!;
 
       const clonedItem = materializedClone.theItem;
@@ -2326,7 +2326,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<MixedSetKeyContainer>(clonedId)!;
 
       const clonedItem = materializedClone.theItem;
@@ -2365,7 +2365,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<OrderTestContainer>(clonedId)!;
 
       // zItem should be cloned
@@ -2404,7 +2404,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<DualChildMapContainer>(clonedId)!;
 
       const clonedShared = materializedClone.sharedKey;
@@ -2444,7 +2444,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<CrossRefContainer>(clonedId)!;
 
       // Get the cloned item from where it's a value
@@ -2478,7 +2478,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<MixedOwnershipContainer>(clonedId)!;
 
       // Get the cloned item from childMap
@@ -2517,7 +2517,7 @@ describe("child.map clone key rewriting", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<BothMapsKeyContainer>(clonedId)!;
 
       const clonedItem = materializedClone.theItem;
@@ -2557,7 +2557,7 @@ describe("child.map clone key rewriting", () => {
         items: new Map([[newItem, "new-value"]]),
       });
 
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<OverrideContainer>(clonedId)!;
 
       // existingChild should still be cloned
@@ -2594,7 +2594,7 @@ describe("child.map clone key rewriting", () => {
         indexed: new Map([[item, "added-via-override"]]),
       });
 
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<CrossFieldOverrideContainer>(clonedId)!;
 
       // primary should be cloned
@@ -2943,7 +2943,7 @@ describe("child.map advanced edge cases", () => {
 
       // Clone the container
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<SelfKeyContainer>(clonedId)!;
 
       // The cloned map should have a cloned item as both key and value
@@ -2991,7 +2991,7 @@ describe("child.map advanced edge cases", () => {
 
       // Clone
       const cloned = root.clone();
-      const [clonedId] = cloned[referenceSymbol](doc);
+      const [clonedId] = cloned[referenceSymbol](root.__doc__!);
       const materializedClone = plexus.loadEntity<CrossRefCloneContainer>(clonedId)!;
 
       const [[, clonedMapValue]] = [...materializedClone.forward.entries()];
@@ -3370,7 +3370,7 @@ describe("child.map advanced edge cases", () => {
       const { doc, root: root1, plexus } = initTestPlexus(parent1);
 
       // Materialize parent2 in same doc
-      const [p2Id] = parent2[referenceSymbol](doc);
+      const [p2Id] = parent2[referenceSymbol](root1.__doc__!);
       const root2 = plexus.loadEntity<FlexNode>(p2Id)!;
 
       // child belongs to parent1

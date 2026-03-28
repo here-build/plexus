@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 
-import { Plexus } from "../Plexus.js";
+import { docTransactionOrigin } from "../plexus-registry.js";
 import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReferenceTuple } from "../proxy-runtime-types.js";
 import { referenceSymbol } from "../proxy-runtime-types.js";
@@ -83,7 +83,7 @@ export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T):
       isTransacting = true;
     }
 
-    return doc.transact(fn, Plexus);
+    return doc.transact(fn, docTransactionOrigin.get(doc));
   } catch (error) {
     if (!wasAlreadyTransacting) {
       pendingNotifications.clear();

@@ -175,8 +175,8 @@ describe("Tuple Reference Format", () => {
     it("should create local references as single-element tuples", async () => {
       // Create a user
       const user = new TestUser({ name: "Alice", posts: [] });
-      const { plexus } = initTestPlexus(user);
-      const userRef = user[referenceSymbol](plexus.doc as any);
+      initTestPlexus(user);
+      const userRef = user[referenceSymbol](user.__doc__!);
 
       // Debug what we're actually getting
       console.log("userRef:", userRef, "type:", typeof userRef, "isArray:", Array.isArray(userRef));
@@ -218,14 +218,15 @@ describe("Tuple Reference Format", () => {
       });
 
       // Initialize with Plexus
-      const { doc } = initTestPlexus(user);
+      initTestPlexus(user);
+      const entityDoc = user.__doc__!;
 
       // Now add the post reference into the user's posts list (materializes post too)
-      post[referenceSymbol](doc);
+      post[referenceSymbol](entityDoc);
       user.posts.push(post);
 
-      // Verify storage format in YJS maps
-      const models = getModelsMap(doc);
+      // Verify storage format in YJS maps (on shadow, where entities live)
+      const models = getModelsMap(entityDoc);
       const userId = (user as any).uuid as string;
       const postId = (post as any).uuid as string;
       const userFields = models.get(userId);

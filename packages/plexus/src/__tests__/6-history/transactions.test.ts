@@ -69,7 +69,7 @@ describe("Plexus Transactions", () => {
     });
 
     it("should execute function within YJS transaction", () => {
-      const yjsTransactSpy = vi.spyOn(doc, "transact");
+      const yjsTransactSpy = vi.spyOn(root.__doc__!, "transact");
       let executed = false;
 
       plexus.transact(() => {
@@ -263,7 +263,7 @@ describe("Plexus Transactions", () => {
     });
 
     it("should not start new YJS transaction for nested calls", () => {
-      const yjsTransactSpy = vi.spyOn(doc, "transact");
+      const yjsTransactSpy = vi.spyOn(root.__doc__!, "transact");
 
       plexus.transact(() => {
         plexus.transact(() => {
@@ -514,12 +514,14 @@ describe("Plexus Transactions", () => {
   describe("Integration with YJS", () => {
     let doc: Y.Doc;
     let plexus: TestPlexus<TestEntity>;
+    let root: TestEntity;
 
     beforeEach(() => {
       entityClasses.set("TestEntity", TestEntity);
       const result = initTestPlexus(new TestEntity({ value: "initial", count: 0, child: null }));
       doc = result.doc;
       plexus = result.plexus;
+      root = result.root as TestEntity;
     });
 
     afterEach(() => {
@@ -527,18 +529,19 @@ describe("Plexus Transactions", () => {
     });
 
     it("should batch YJS operations in a single transaction", () => {
+      const shadowDoc = root.__doc__!;
       const updates: Uint8Array[] = [];
 
-      doc.on("update", (update) => {
+      shadowDoc.on("update", (update: Uint8Array) => {
         updates.push(update);
       });
 
       plexus.transact(() => {
-        // Multiple YJS operations
-        doc.getMap("test").set("key1", "value1");
-        doc.getMap("test").set("key2", "value2");
-        doc.getMap("test").set("key3", "value3");
-        doc.getArray("array").push(["item1", "item2", "item3"]);
+        // Multiple YJS operations on shadow (where entities live)
+        shadowDoc.getMap("test").set("key1", "value1");
+        shadowDoc.getMap("test").set("key2", "value2");
+        shadowDoc.getMap("test").set("key3", "value3");
+        shadowDoc.getArray("array").push(["item1", "item2", "item3"]);
       });
 
       // Should result in a single update event due to transaction
@@ -546,24 +549,25 @@ describe("Plexus Transactions", () => {
     });
 
     it("should maintain YJS transaction semantics with nested calls", () => {
+      const shadowDoc = root.__doc__!;
       const updates: Uint8Array[] = [];
 
-      doc.on("update", (update) => {
+      shadowDoc.on("update", (update: Uint8Array) => {
         updates.push(update);
       });
 
       plexus.transact(() => {
-        doc.getMap("test").set("outer", "start");
+        shadowDoc.getMap("test").set("outer", "start");
 
         plexus.transact(() => {
-          doc.getMap("test").set("middle", "value");
+          shadowDoc.getMap("test").set("middle", "value");
 
           plexus.transact(() => {
-            doc.getMap("test").set("inner", "deep");
+            shadowDoc.getMap("test").set("inner", "deep");
           });
         });
 
-        doc.getMap("test").set("outer", "end");
+        shadowDoc.getMap("test").set("outer", "end");
       });
 
       // Still just one YJS update

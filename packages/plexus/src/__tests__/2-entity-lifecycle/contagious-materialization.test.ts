@@ -166,7 +166,7 @@ describe("contagious materialization", () => {
       expect(cloned.children[1]).not.toBe(root.children[1]);
 
       // Materialize cloned tree
-      cloned[referenceSymbol](doc);
+      cloned[referenceSymbol](root.__doc__!);
 
       // After materialization, cloned entities should have UUIDs
       expect(cloned).to.have.property("uuid").that.is.a("string");
@@ -202,7 +202,7 @@ describe("contagious materialization", () => {
 
       // Clone and materialize
       const cloned = root.clone();
-      cloned[referenceSymbol](doc);
+      cloned[referenceSymbol](root.__doc__!);
 
       // Cloned item should be distinct
       expect(cloned.item).not.toBe(root.item);
@@ -274,7 +274,7 @@ describe("contagious materialization", () => {
 
       // Clone and materialize
       const cloned = root.clone();
-      cloned[referenceSymbol](doc);
+      cloned[referenceSymbol](root.__doc__!);
 
       // Verify map keys are cloned entities
       const clonedEntries = [...cloned.byName.entries()];
@@ -305,7 +305,7 @@ describe("contagious materialization", () => {
 
       // Clone and materialize
       const cloned = root.clone();
-      cloned[referenceSymbol](doc);
+      cloned[referenceSymbol](root.__doc__!);
 
       expect(cloned.children[0]).not.toBe(root.children[0]);
       expect(cloned.children[0]).to.have.property("uuid").that.is.a("string");
@@ -336,11 +336,11 @@ describe("contagious materialization", () => {
         outerMap: new Map([[new Set([leafB]), inner]]),
       });
 
-      const { root, doc } = initTestPlexus(container);
+      const { root } = initTestPlexus(container);
 
-      // Clone and materialize
+      // Clone and materialize against shadow (where entities live)
       const cloned = root.clone();
-      cloned[referenceSymbol](doc);
+      cloned[referenceSymbol](root.__doc__!);
 
       // Outer map's value should be the cloned inner
       const outerEntries = [...cloned.outerMap.entries()];
@@ -375,7 +375,7 @@ describe("contagious materialization", () => {
 
       // Clone and materialize — this exercises schema iteration order
       const cloned = root.clone();
-      cloned[referenceSymbol](doc);
+      cloned[referenceSymbol](root.__doc__!);
 
       expect(cloned.children).to.have.length(2);
       expect(cloned.byGroup.size).to.equal(1);
@@ -446,7 +446,7 @@ describe("contagious materialization", () => {
 
       // Clone and materialize
       const cloned = root.clone();
-      cloned[referenceSymbol](doc);
+      cloned[referenceSymbol](root.__doc__!);
 
       // mapA key should reference cloned itemA
       const [[mapAKey, mapAVal]] = [...cloned.mapA.entries()];

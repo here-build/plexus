@@ -12,7 +12,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import { decode, encode, murmur32 } from "../../crdt-uuid.js";
-import { GENESIS_BASE, LIMINAL_BASE } from "../../genesis-client.js";
+import { COMMITTED_BASE, GENESIS_BASE, LIMINAL_BASE } from "../../genesis-client.js";
 
 // ── Arbitraries ──
 
@@ -207,6 +207,36 @@ describe("CRDT-Native UUID Codec", () => {
       expect(lUuid[0]).toBe("l");
       expect(dUuid[0]).toBe("d");
       expect(new Set([pUuid, lUuid, dUuid]).size).toBe(3);
+    });
+  });
+
+  describe("committed-range rejection", () => {
+    it("encode throws for committed-range clientIds", () => {
+      expect(() => encode(COMMITTED_BASE, 0)).toThrow("committed-range");
+      expect(() => encode(COMMITTED_BASE + 1, 0)).toThrow("committed-range");
+      expect(() => encode(COMMITTED_BASE + 2 ** 51 - 1, 0)).toThrow("committed-range");
+    });
+
+    it("committed range does not silently produce a broken roundtrip", () => {
+      // This is the specific bug that was fixed: encode used prefix 'p' with
+      // COMMITTED_BASE, but decode used base=0 for 'p', so the roundtrip
+      // recovered (clientId - COMMITTED_BASE) instead of clientId.
+      // Now encode throws instead of silently corrupting.
+      const clientId = COMMITTED_BASE + 42;
+      expect(() => encode(clientId, 7)).toThrow();
+    });
+
+    it("adjacent ranges are correctly discriminated", () => {
+      // Regular range: just below LIMINAL_BASE
+      expect(encode(LIMINAL_BASE - 1, 0)[0]).toBe("p");
+      // Liminal range: at LIMINAL_BASE
+      expect(encode(LIMINAL_BASE, 0)[0]).toBe("l");
+      // Liminal range: just below COMMITTED_BASE
+      expect(encode(COMMITTED_BASE - 1, 0)[0]).toBe("l");
+      // Committed range: at COMMITTED_BASE — throws
+      expect(() => encode(COMMITTED_BASE, 0)).toThrow();
+      // Genesis range: at GENESIS_BASE
+      expect(encode(GENESIS_BASE, 0)[0]).toBe("d");
     });
   });
 

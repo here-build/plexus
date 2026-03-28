@@ -111,73 +111,13 @@ function feistelDecrypt(L: number, R: number): [number, number] {
 // Capacity: 63^14 ≈ 2^83.8 > 2^83 ✓
 
 function bodyEncode(a: number, b: number, c: number): string {
-  // Encode right-to-left: extract base-63 digits from the low end.
-  // We process in two 32-bit lanes (b,c) with a carrying from (a).
+  // Three uint32 chunks [a (19 bits), b (32 bits), c (32 bits)] = 83-bit big number.
+  // Long division by 63 extracts base-63 digits right-to-left.
+  // Max intermediate: 62 × 2^32 + (2^32 - 1) ≈ 2.7×10^11, within float64 safe range.
   const chars = Array.from({ length: BODY_LEN });
-  let hi = a; // up to 19 bits
-  let mid = b >>> 0; // uint32
-  let lo = c >>> 0; // uint32
+  const chunks = [a, b >>> 0, c >>> 0];
 
   for (let i = BODY_LEN - 1; i >= 0; i--) {
-    // Extract digit from lo
-    const loDiv = Math.floor(lo / 63);
-    const loRem = lo - loDiv * 63;
-    lo = loDiv;
-
-    // Carry from mid into lo
-    const midWithCarry = mid + lo;
-    const midDiv = Math.floor(midWithCarry / 63);
-    const midRem = midWithCarry - midDiv * 63;
-    lo = midRem;
-    mid = midDiv;
-
-    // Carry from hi into mid
-    const hiWithCarry = hi + mid;
-    const hiDiv = Math.floor(hiWithCarry / 63);
-    hi = hiDiv;
-    mid = hiWithCarry - hiDiv * 63;
-
-    // Wait — this approach doesn't work cleanly with three separate lanes.
-    // Let me use a simpler two-lane approach: combine (a, b) into one value
-    // and keep c separate.
-
-    // Actually, let me just use the proven two-lane approach with wider hi.
-    break;
-  }
-
-  // Simpler: treat as two values: upper = a * 2^32 + b (up to 51 bits), lower = c (32 bits)
-  // Combine into a single stream: upper * 2^32 + lower = 83 bits
-  // Extract base-63 digits from the combined value.
-  //
-  // But 83 bits > 53 (float64 safe). Need multi-precision.
-  // Use three lanes: hi (19 bits), mid (32 bits), lo (32 bits).
-
-  // Reset
-  hi = a;
-  mid = b >>> 0;
-  lo = c >>> 0;
-
-  for (let i = BODY_LEN - 1; i >= 0; i--) {
-    // Combined value = hi * 2^64 + mid * 2^32 + lo
-    // Extract lo digit: lo % 63, carry lo/63 into mid
-    let remainder = lo % 63;
-    lo = Math.floor(lo / 63);
-
-    // Add carry from lo into mid, then extract mid digit
-    let midTotal = mid * 63 + remainder; // WRONG — we need to divide, not multiply
-    // Let me think again...
-    break;
-  }
-
-  // OK let me just do this properly with a simple big-number-as-array approach.
-  // Three "digits" in base 2^32: [hi (19 bits), mid (32 bits), lo (32 bits)]
-  // Divide by 63 repeatedly, collecting remainders.
-
-  // Represent as array of uint32 chunks, MSB first
-  const chunks = [a, b >>> 0, c >>> 0]; // hi, mid, lo
-
-  for (let i = BODY_LEN - 1; i >= 0; i--) {
-    // Long division by 63 across chunks
     let carry = 0;
     for (let j = 0; j < 3; j++) {
       const cur = carry * 0x1_00_00_00_00 + chunks[j];
@@ -225,10 +165,9 @@ export function encode(clientId: number, clock: number, binding?: "bound"): Plex
     prefix = "d";
     base = GENESIS_BASE;
   } else {
-    // Committed-liminal range — shouldn't normally be encoded as UUID
-    // (committed Items use their own clientId, entities are resolved by liminal UUID)
-    prefix = "p";
-    base = COMMITTED_BASE;
+    // Committed-liminal range — must not be encoded as UUID.
+    // Committed Items use their own clientId; entities are resolved by their original UUID.
+    invariant(false, `Cannot encode committed-range clientId ${clientId} as UUID — use the original entity UUID`);
   }
 
   // Payload: clientId - base (up to 51 bits)

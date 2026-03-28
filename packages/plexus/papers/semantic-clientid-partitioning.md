@@ -97,18 +97,18 @@ Ephemeral range collision (10 users, 1K reconnects each = 10K bases, 100-session
 | **2^32 (4B) — Plexus** | **1.2 × 10⁻²** | ~1.0 |
 | 2^40 (1T) | 4.5 × 10⁻⁵ | 9.1 × 10⁻³ |
 
-**Committed identifiers are permanent.** Each committed session produces identifiers that remain in the document's struct store for its lifetime. The collision space is the full history of all commits, not just concurrent peers. Liminal sessions are the dominant collision driver — each multiplies the ID population, and birthday probability scales with n².
+**Committed identifiers are permanent** but clustered. Each peer picks a random base; sessions occupy `base+1..base+N` — the lower bits. The collision model is birthday on BASES with the range reduced by the block size. Sessions effectively consume `⌈log₂(N)⌉` bits of the range, leaving the upper bits as random entropy.
 
-Risk multiplier from liminal sessions (10 users × 1K reconnects = 10K bases):
+Collision probability (10 users × 1K reconnects = 10K random bases, p < 0.01 required):
 
-| Sessions/base | Lifetime IDs | p at 2^32 | p at 2^40 | p at 2^45 | Multiplier vs none |
+| Sessions/base | Bits consumed | Effective bits at 2^32 | p at 2^32 | Effective bits at 2^45 | p at 2^45 |
 |---|---|---|---|---|---|
-| none | 10K | 1.2 × 10⁻² | 4.6 × 10⁻⁵ | 1.4 × 10⁻⁶ | 1× |
-| 10 | 100K | ~1.0 | 4.6 × 10⁻³ | 1.4 × 10⁻⁴ | 100× |
-| 100 | 1M | ~1.0 | 4.6 × 10⁻¹ | 1.4 × 10⁻² | 10,000× |
-| 1000 | 10M | ~1.0 | ~1.0 | ~1.0 | >100,000× |
+| 1 | 0 | 32 | 1.2 × 10⁻² | 45 | 1.4 × 10⁻⁶ |
+| 10 | 4 | 28 | 1.2 × 10⁻¹ | 41 | 1.4 × 10⁻⁵ |
+| 100 | 7 | 25 | ~1.0 | 38 | 1.4 × 10⁻⁴ |
+| 1000 | 10 | 22 | ~1.0 | 35 | 1.4 × 10⁻³ |
 
-At 2^32, any liminal usage produces certain collision over document lifetime. At 2^45 (Plexus committed range), the system is safe up to ~100 sessions per reconnection (p ≈ 1.4%). Documents with >1M lifetime committed identifiers need wider ranges or periodic identifier compaction.
+**Safety threshold: ≥33 effective random bits** for 10K bases at p < 1%. At 2^45, the system supports up to ~4000 sessions per reconnection (45 - 12 = 33 bits). At 2^32, even 10 sessions is marginal (28 bits). The committed range MUST be substantially wider than the ephemeral range.
 
 Genesis range collision (content-addressed hash, independent of reconnections):
 

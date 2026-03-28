@@ -4,7 +4,7 @@
 
 ## Abstract
 
-CRDT maps restrict keys to strings — a constraint inherited from JSON, not from CRDT algebra. We present a key serialization algebra that embeds primitives, entity references, ordered tuples, and unordered sets into string keys with deterministic cross-peer serialization. Set keys are sorted after serialization, making `{A, B}` and `{B, A}` identical across peers. Combined with self-resolving entity identity [1] and deterministic genesis [2], the technique enables CRDT-native composite key addressing: junction-free relations and multi-dimensional lookups expressed as single map entries, without application-managed indexes.
+CRDT maps restrict keys to strings — a constraint inherited from JSON, not from CRDT algebra. We present a key serialization algebra that embeds primitives, entity references, ordered tuples, and unordered sets into string keys with deterministic cross-peer serialization. Set keys are sorted after serialization, making `{A, B}` and `{B, A}` identical across peers. With self-resolving entity identity [1], entity references in keys are decodable back to the CRDT operation log without a lookup table. The technique enables CRDT-native composite key addressing: junction-free relations and multi-dimensional lookups expressed as single map entries, without application-managed indexes.
 
 ## 1. The String Key Constraint
 
@@ -84,13 +84,13 @@ Deserialization splits on newlines, reads the type prefix, and resolves each ele
 
 **P3. Framework-compatible.** The serialized key is a plain string. It stores in Yjs Y.Map, Automerge maps, Loro maps, or any string-keyed CRDT map without protocol changes. Frameworks with aggressive key interning or columnar compression may see disproportionate performance impact from long composite keys.
 
-### 3.2 Composed (with companion techniques)
+### 3.2 Composed (with self-resolving entity identity [1])
 
-**P4. Decodable keys.** With self-resolving entity identity [1], every entity reference in a key can be resolved to a live entity via decode + binary search. No lookup table required.
+**P4. Decodable keys.** With self-resolving entity identity [1], every entity reference in a key can be resolved to a live entity via decode + binary search on the CRDT operation log. No lookup table or secondary index required. A serialized key received over any channel (network, clipboard, snapshot) is self-contained — every entity reference is a live pointer.
 
-**P5. Convergent genesis keys.** With deterministic genesis [2], entities referenced in keys converge independently across peers. Two peers constructing `Set{variantA, variantB}` where both variants are genesis entities produce identical key strings — because both variants have identical identifiers on both peers.
+**P5. Stable entity references.** Entity identifiers are derived from the creating operation's coordinates [1] and never change. A key referencing entity A remains valid regardless of how A's content evolves. This is structurally stronger than using mutable properties (names, paths) as key components.
 
-**P6. Positional priority.** With semantic identifier partitioning [3], genesis entities referenced in keys occupy the highest priority namespace. Scaffold keys cannot be displaced by concurrent user operations in sequence ordering.
+Note: when combined with deterministic genesis [2] and semantic identifier partitioning [3], structural entities referenced in keys gain additional properties — convergent creation and priority ordering — but these are contributions of the companion papers, not of the key algebra itself.
 
 ## 4. Applications
 
@@ -122,7 +122,7 @@ A visual component has style settings per variant combination:
 Map<Set<Variant>, StyleSettings>
 ```
 
-The set key `{hover, disabled}` serializes identically regardless of insertion order. Combined with deterministic genesis [2], the `StyleSettings` entity materializes with the same identity on every peer. This eliminates the ad hoc `JSON.stringify(combo.map(v => v.uuid).sort())` pattern found in production Yjs applications.
+The set key `{hover, disabled}` serializes identically regardless of insertion order. This eliminates the ad hoc `JSON.stringify(combo.map(v => v.uuid).sort())` pattern found in production Yjs applications. Two peers writing style settings for the same variant combination address the same map entry — their writes merge correctly via the underlying CRDT's per-key conflict resolution.
 
 Note: set-keyed maps provide exact-match lookups. Range queries ("find all entries whose key is a subset of this set") require additional application logic or a secondary index.
 
@@ -146,7 +146,7 @@ No separate edge entity. The edge exists because the set of nodes was addressed.
 
 **C4. Garbage collection interaction.** The technique requires `gc: false` in Yjs [1] to ensure referenced entities are retained. With GC enabled, entity references in keys become dangling when operations are collected. Three interaction modes exist: (a) `gc: false` — everything works; (b) GC with reference counting — map entries pin referenced entities (not currently implemented); (c) GC without reference counting — dangling keys are inevitable, application must tolerate partial resolution.
 
-**C5. Portability without companion papers.** The key serialization algebra (P1-P3) works with any CRDT framework using its native entity identifiers — Automerge objectIds, Loro TreeIds. The composed properties (P4-P6) require the companion techniques. Automerge and Loro can adopt the key algebra immediately, gaining composite and set-valued keys, while losing decodability (P4) and genesis convergence (P5) unless those frameworks develop equivalent mechanisms.
+**C5. Portability.** The key serialization algebra (P1-P3) works with any CRDT framework using its native entity identifiers — Automerge objectIds (`"{counter}@{actorId}"`), Loro TreeIds, or application-generated UUIDs. With Automerge objectIds, entity-keyed lookups already work (objectIds are resolvable via `doc.getObjectById()`). The decodability property (P4) specifically requires self-resolving identifiers [1] but the algebra itself does not.
 
 ## 6. Related Work
 
@@ -162,13 +162,13 @@ No separate edge entity. The edge exists because the set of nodes was addressed.
 
 **Weidner's CRDT-Valued Map** [12] formalizes lazy maps where every key implicitly has a value. With set keys, the logical keyspace is the powerset of the entity space — every possible combination of entities becomes a valid key.
 
-**Self-resolving entity identity** [1], **deterministic genesis** [2], and **semantic identifier partitioning** [3] are companion techniques. The key algebra is the composition layer: it works because identifiers are self-resolving (decodable), genesis entities converge (deterministic), and scaffold has priority (partitioned).
+**Self-resolving entity identity** [1] is the primary companion technique — it provides the decodable, cross-peer-stable entity references that make entity-addressed keys possible. Deterministic genesis [2] and semantic identifier partitioning [3] provide additional guarantees (convergent creation, priority ordering) for structural entities but are not required by the key algebra itself.
 
 ## 7. Conclusion
 
 CRDT maps have been string-keyed since their formalization. The CRDT algebra imposes no such restriction — it is inherited from the JSON data model. We provide a structured serialization that embeds richer key types into strings while preserving the properties needed for correct CRDT convergence.
 
-The standalone contribution — a key type algebra with entity references, ordered tuples, and unordered sets — is adoptable by any CRDT framework with string-keyed maps. The composed contribution — CRDT-native composite key addressing with decodable, convergent, priority-ordered keys — requires the companion techniques but eliminates junction entities, ad hoc key serialization, and application-managed secondary indexes for the common case.
+The core contribution — a key type algebra with entity references, ordered tuples, and unordered sets — is adoptable by any CRDT framework with string-keyed maps. With self-resolving entity identity [1], keys become decodable pointers — every entity reference in a key resolves directly to the CRDT operation log. The result eliminates junction entities, ad hoc key serialization, and the assumption that map keys must be opaque strings.
 
 Just a serialization algebra that makes the string key carry structural information it was never designed to hold.
 

@@ -17,11 +17,10 @@
  *
  * Channel clientId derivation:
  *   channel 0: baseClientId                        (schema + heartbeat)
- *   channel N: baseClientId + N * CHANNEL_STRIDE   (field value)
+ *   channel N: baseClientId + N   (field value)
  *
- * Receiver reconstruction:
- *   base    = rawClientId % CHANNEL_STRIDE
- *   channel = (rawClientId / CHANNEL_STRIDE) | 0
+ * With 51-bit bases, two users differ by ~2^50 in expectation.
+ * Stride of 1 is safe for any practical field count (< 256).
  */
 
 import * as decoding from "lib0/decoding";
@@ -34,8 +33,8 @@ import type * as Y from "yjs";
 
 // ── Constants ────────────────────────────────────────────────────────
 
-/** Stride between channels. Same value as LIMINAL_BASE — awareness clientIds are independent from doc clientIds. */
-const CHANNEL_STRIDE = 0x1_00_00_00_00; // 2^32
+/** Stride between channels. Matches the 51-bit base width — parseChannelId uses modular arithmetic. */
+const CHANNEL_STRIDE = 2 ** 51;
 
 /** Peers not heard from in 30s are considered offline. */
 export const outdatedTimeout = 30_000;
@@ -48,7 +47,7 @@ const channelId = (base: number, channel: number): number => base + channel * CH
 /** Extract base clientId and channel index from a raw awareness clientId. */
 const parseChannelId = (raw: number): { base: number; channel: number } => ({
   base: raw % CHANNEL_STRIDE,
-  channel: (raw / CHANNEL_STRIDE) | 0,
+  channel: Math.floor(raw / CHANNEL_STRIDE),
 });
 
 // ── Types ────────────────────────────────────────────────────────────

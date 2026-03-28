@@ -71,19 +71,19 @@ export function isGenesisClientId(clientId: number): boolean {
 }
 
 /**
- * Create a random liminal clientId for a new shadow doc.
+ * Generate a 51-bit random clientId in the regular range [0, 2^51).
  *
- * Generates a 51-bit random value + LIMINAL_BASE. The lower bits will be
- * consumed by monotonic session increments (clientID++), so the random
- * entropy is in the upper bits.
+ * Used as the base for ALL derived clientIds:
+ *   regular:   X                 (doc.clientID)
+ *   liminal:   X + LIMINAL_BASE (shadow.clientID, incremented per session)
+ *   committed: limId + 2^51     (prefix flip 0b01 → 0b10)
+ *
+ * 51 bits of entropy scales to 1M+ documents without collision (p ≈ 2×10⁻⁴).
  */
-export function newLiminalClientId(): number {
-  // Generate 51-bit random: two uint32s combined, masked to 51 bits.
-  // (hi & 0x7FFFF) keeps 19 bits; * 2^32 shifts left; + lo fills lower 32 bits = 51 bits.
+export function newClientId(): number {
   const buf = new Uint32Array(2);
   crypto.getRandomValues(buf);
-  const rand51 = (buf[0] & 0x7_ff_ff) * 0x1_00_00_00_00 + (buf[1] >>> 0);
-  return LIMINAL_BASE + rand51;
+  return (buf[0] & 0x7_ff_ff) * 0x1_00_00_00_00 + (buf[1] >>> 0);
 }
 
 // ── Genesis ClientId ─────────────────────────────────────────────────

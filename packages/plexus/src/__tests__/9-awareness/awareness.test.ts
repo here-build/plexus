@@ -120,11 +120,11 @@ describe("PlexusAwareness: multi-channel isolation", () => {
     // Channel 0: schema
     expect(aw.states.has(aw.clientID)).toBe(true);
     // Channel 1: cursor (base + 1 * 2^32)
-    const cursorCid = aw.clientID + 0x1_0000_0000;
+    const cursorCid = aw.clientID + 2 ** 51;
     expect(aw.states.has(cursorCid)).toBe(true);
     expect(aw.states.get(cursorCid)).toEqual({ x: 0, y: 0 });
     // Channel 2: name (base + 2 * 2^32)
-    const nameCid = aw.clientID + 0x2_0000_0000;
+    const nameCid = aw.clientID + 2 * 2 ** 51;
     expect(aw.states.has(nameCid)).toBe(true);
     expect(aw.states.get(nameCid)).toBe("Alice");
   });
@@ -133,8 +133,8 @@ describe("PlexusAwareness: multi-channel isolation", () => {
     aw.setField("cursor", { x: 0, y: 0 });
     aw.setField("name", "Alice");
 
-    const cursorCid = aw.clientID + 0x1_0000_0000;
-    const nameCid = aw.clientID + 0x2_0000_0000;
+    const cursorCid = aw.clientID + 2 ** 51;
+    const nameCid = aw.clientID + 2 * 2 ** 51;
 
     const cursorClockBefore = aw.meta.get(cursorCid)!.clock;
     const nameClockBefore = aw.meta.get(nameCid)!.clock;
@@ -161,7 +161,7 @@ describe("PlexusAwareness: multi-channel isolation", () => {
 
     // Only cursor channel should be in the update
     expect(updates.length).toBe(1);
-    const cursorCid = aw.clientID + 0x1_0000_0000;
+    const cursorCid = aw.clientID + 2 ** 51;
     expect(updates[0]).toEqual([cursorCid]);
   });
 });
@@ -210,7 +210,7 @@ describe("PlexusAwareness: peer sync", () => {
     awA.setField("cursor", { x: 100, y: 200 });
 
     // Sync only the cursor channel
-    const cursorCid = awA.clientID + 0x1_0000_0000;
+    const cursorCid = awA.clientID + 2 ** 51;
     const update = encodeAwarenessUpdate(awA, [cursorCid]);
     applyAwarenessUpdate(awB, update, "remote");
 
@@ -273,7 +273,7 @@ describe("PlexusAwareness: heartbeat and timeout", () => {
     aw.setField("name", "Alice");
 
     const ch0Clock = aw.meta.get(aw.clientID)!.clock;
-    const nameCid = aw.clientID + 0x1_0000_0000;
+    const nameCid = aw.clientID + 2 ** 51;
     const nameClock = aw.meta.get(nameCid)!.clock;
 
     // Channel 0 was written twice (constructor + setField schema update)
@@ -294,8 +294,8 @@ describe("PlexusAwareness: heartbeat and timeout", () => {
 
     // Simulate timeout cleanup by calling removeAwarenessStates
     // This removes channel 0; our wrapper should also clean field channels
-    const cursorCid = awA.clientID + 0x1_0000_0000;
-    const nameCid = awA.clientID + 0x2_0000_0000;
+    const cursorCid = awA.clientID + 2 ** 51;
+    const nameCid = awA.clientID + 2 * 2 ** 51;
 
     // Manually remove all of A's channels from B (simulating what timeout would do)
     removeAwarenessStates(awB, [awA.clientID, cursorCid, nameCid], "timeout");

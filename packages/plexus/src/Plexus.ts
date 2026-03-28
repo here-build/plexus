@@ -32,7 +32,7 @@ import { PlexusAwareness } from "./awareness.js";
 import { createBlobFromDoc, decodeBlob, type DecodedBlob } from "./dependency-blob.js";
 import { deref } from "./deref.js";
 import { documentEntityCaches } from "./entity-cache.js";
-import { declareDeterministicMap, isGenesisClientId, LIMINAL_BASE, newLiminalClientId } from "./genesis-client.js";
+import { declareDeterministicMap, isGenesisClientId, LIMINAL_BASE, newClientId } from "./genesis-client.js";
 import { entityClasses } from "./globals.js";
 import { docLiminality, docPlexus, docTransactionOrigin } from "./plexus-registry.js";
 import { getInternals, type PlexusConstructor, PlexusModel } from "./PlexusModel.js";
@@ -260,9 +260,7 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
   readonly awareness!: PlexusAwareness;
 
   /** Shadow doc. gc:false — origin chains must survive for committed delta integration. */
-  private readonly __liminalDocument__ = Object.assign(new Y.Doc({ gc: false }), {
-    clientID: newLiminalClientId(),
-  });
+  private readonly __liminalDocument__ = new Y.Doc({ gc: false });
   private readonly __liminalUndoManager__!: UndoManager;
   private __liminalHeight__ = 0;
 
@@ -274,7 +272,12 @@ export class Plexus<Root extends PlexusModel<null> & { dependencies?: Record<str
     invariant(!docPlexus.has(doc), `Plexus<document#${doc.clientID}>: already initialized, singleton violation`);
     docPlexus.set(doc, this);
 
+    // Overwrite doc clientId with 51-bit random. All derived clientIds flow from this:
+    // liminal = X + LIMINAL_BASE, committed = limId + 2^51, genesis = independent hash.
+    doc.clientID = newClientId();
+
     const shadow = this.__liminalDocument__;
+    shadow.clientID = doc.clientID + LIMINAL_BASE;
 
     // Initial sync: main → shadow (full state)
     Y.applyUpdate(shadow, Y.encodeStateAsUpdate(doc));

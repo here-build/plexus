@@ -423,6 +423,75 @@ as undoable actions. Built on `UndoManager` internally with a 500ms capture wind
 
 Structural operations (entity creation, container materialization) are automatically excluded from the undo history — only content changes are reversible.
 
+## Liminality (Ephemeral Gestures)
+
+Liminality holds operations on a shadow document — invisible to peers and undo history — until explicitly committed as a single atomic delta. A 10-second slider drag becomes one undo step instead of 600.
+
+```typescript
+// Enter liminal state (operations are now ephemeral)
+plexus.enterLiminality();
+
+// User drags a slider — hundreds of writes, all held on shadow
+for (const value of sliderFrames) {
+  entity.opacity = value;
+}
+
+// Commit: all writes become one atomic delta, one undo step
+plexus.commitLiminality();
+
+// Or revert: all writes discarded, zero trace in history
+plexus.revertLiminality();
+```
+
+### What Liminality Solves
+
+- **Gesture coalescing:** 600 slider ticks → 1 committed delta, 1 undo step
+- **Write amplification:** only the final value enters the permanent operation log
+- **Undo granularity:** commit boundary IS the undo boundary — not a 500ms timer
+- **Array operations:** insert/delete/splice during gestures handled correctly, including ghost Item cleanup
+
+### Peer Preview
+
+In-progress gestures are broadcast to peers via the awareness protocol — zero permanent operations:
+
+```typescript
+// Peers see the drag in real-time via awareness, not via CRDT sync
+plexus.enterLiminality();
+entity.x = 100; // peers see this as a preview
+entity.x = 200; // peers see this update
+plexus.commitLiminality(); // peers receive the final value via CRDT sync
+```
+
+Broadcast frequency adapts to CPU pressure via PressureObserver:
+- Low pressure → smooth 60fps previews
+- High pressure → throttled (preserve responsiveness)
+- Tab hidden → broadcast stops entirely
+
+Previews auto-expire after 5 minutes (collective TTL) or on disconnect (30s awareness timeout).
+
+### Structural Liminality (Arrays)
+
+Array operations during liminal sessions are handled via three-case dispatch:
+
+- **Insert-only:** UndoManager undo removes liminal Items; committed delta carries them under committed namespace
+- **Delete-only:** Skip UndoManager undo (would create ghost Items); committed delta is a delete-set-only update
+- **Mixed:** UndoManager undo + ghost Item detection via clock range + targeted delete set cleanup
+
+### API
+
+```typescript
+plexus.enterLiminality();          // start ephemeral session
+plexus.commitLiminality();         // atomic commit → one undo step
+plexus.revertLiminality();         // discard all liminal writes
+plexus.isLiminal;                  // true if in a liminal session
+```
+
+> **Constraints:**
+> - One active liminal session at a time per Plexus instance
+> - Shadow document uses `gc: false` (tombstones accumulate over sessions)
+> - State vector grows by one entry per committed session
+> - Ghost cleanup depends on Yjs UndoManager creating new Items for array deletion undo
+
 ## Querying
 
 ```typescript
@@ -512,6 +581,12 @@ plexus.parentsOf(node, ParentClass, field); // reverse lookup
 plexus.transact(fn);                      // batched transaction
 plexus.undo();                            // undo last change
 plexus.redo();                            // redo last undo
+
+// Liminality (ephemeral gestures)
+plexus.enterLiminality();                 // start ephemeral session
+plexus.commitLiminality();                // atomic commit → one undo step
+plexus.revertLiminality();                // discard all liminal writes
+plexus.isLiminal;                         // true if in liminal session
 
 // Cross-document
 plexus.addDependency(docId, stateVector); // link external doc

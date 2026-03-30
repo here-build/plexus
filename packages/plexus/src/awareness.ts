@@ -27,8 +27,8 @@ import * as decoding from "lib0/decoding";
 import * as encoding from "lib0/encoding";
 import * as f from "lib0/function";
 import * as math from "lib0/math";
-import { ObservableV2 } from "lib0/observable";
 import * as time from "lib0/time";
+import { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
 
 import { deserialize, serialize } from "./awareness-serde.js";
@@ -76,28 +76,18 @@ type AwarenessEvents = {
 
 // ── PlexusAwareness ──────────────────────────────────────────────────
 
-export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> extends ObservableV2<AwarenessEvents> {
-  readonly doc: Y.Doc;
-  readonly clientID: number;
-
-  /** Raw per-channelClientId state. Compatible with y-protocols encode/apply. */
-  readonly states = new Map<number, any>();
-
-  /** Raw per-channelClientId clock + timestamp. */
-  readonly meta = new Map<number, MetaEntry>();
-
+export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> extends Awareness {
   /** Schema: ordered field names. Channel 0 state = this array. */
   private readonly _schema: string[] = [];
 
   /** Field name → 1-based channel index. */
   private readonly _fieldIndex = new Map<string, number>();
 
-  private readonly _checkInterval: ReturnType<typeof setInterval>;
-
   constructor(doc: Y.Doc) {
-    super();
-    this.doc = doc;
-    this.clientID = doc.clientID;
+    super(doc);
+
+    // Stop the parent class heartbeat — we manage our own
+    clearInterval(this._checkInterval);
 
     // Initialize channel 0 with empty schema
     this._writeChannel(0, [], "local");
@@ -133,7 +123,7 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
     doc.on("destroy", () => this.destroy());
   }
 
-  destroy(): void {
+  override destroy(): void {
     this.emit("destroy", [this]);
     // Broadcast removal for all our channels
     const removed = this._removeLocalChannels();
@@ -141,8 +131,8 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
       this.emit("change", [{ added: [], updated: [], removed }, "local"]);
       this.emit("update", [{ added: [], updated: [], removed }, "local"]);
     }
-    super.destroy();
     clearInterval(this._checkInterval);
+    super.destroy();
   }
 
   // ── Local state ──────────────────────────────────────────────────
@@ -180,7 +170,7 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
   }
 
   /** Get all local field values as a plain object. Entity references are auto-deserialized. */
-  getLocalState(): Partial<Shape> | null {
+  override getLocalState(): Partial<Shape> | null {
     if (!this.states.has(this.clientID)) return null;
     const result: Record<string, any> = {};
     for (const [name, idx] of this._fieldIndex) {
@@ -193,6 +183,29 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
   /** Get the schema (field names in registration order). */
   getSchema(): readonly string[] {
     return this._schema;
+  }
+
+  // ── y-protocols compat shims ────────────────────────────────────
+
+  /** Set all fields at once. Overrides y-protocols to use multi-channel protocol. */
+  override setLocalState(state: Record<string, any> | null): void {
+    if (state === null) {
+      for (const field of this._schema) this.clearField(field as string & keyof Shape);
+      return;
+    }
+    for (const [field, value] of Object.entries(state)) {
+      this.setField(field as string & keyof Shape, value);
+    }
+  }
+
+  /** Set a single field. Overrides y-protocols to use multi-channel protocol. */
+  override setLocalStateField(field: string, value: any): void {
+    this.setField(field as string & keyof Shape, value);
+  }
+
+  /** Return the raw states map. Overrides y-protocols. */
+  override getStates(): Map<number, any> {
+    return this.states;
   }
 
   // ── Peer state ───────────────────────────────────────────────────

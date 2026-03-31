@@ -37,7 +37,7 @@ import { entityClasses } from "./globals.js";
 import { docLiminality, docPlexus, docTransactionOrigin } from "./plexus-registry.js";
 import { getInternals, type PlexusConstructor, PlexusModel } from "./PlexusModel.js";
 import { PlexusWrapper } from "./PlexusWrapper.js";
-import type { PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
+import type { AllowedYValue, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { maybeTransacting } from "./utils/utils.js";

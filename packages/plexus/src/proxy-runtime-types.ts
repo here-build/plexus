@@ -35,8 +35,8 @@ export type AwarenessSerializable =
   | readonly AwarenessSerializable[]
   | { readonly [key: string]: AwarenessSerializable };
 
-/** Shape constraint for awareness fields — each field must be AwarenessSerializable. */
-export type AwarenessShape = Record<string, AwarenessSerializable>;
+/** Shape constraint for awareness fields — each field must be AwarenessSerializable (or undefined for optional fields). */
+export type AwarenessShape = Record<string, AwarenessSerializable | undefined>;
 export type AllowedYValue = AllowedPrimitive | ReferenceTuple;
 export type AllowedYJSValue = AllowedPrimitive | PlexusModel;
 export type AllowedYJSValueSet = Set<AllowedYJSValue>;

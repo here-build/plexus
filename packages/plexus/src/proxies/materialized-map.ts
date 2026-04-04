@@ -216,6 +216,21 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       return backingStorage.has(mapKey);
     },
 
+    getOrInsert(mapKey: K, defaultValue: V): V {
+      const existing = backingStorage.get(mapKey);
+      if (existing !== undefined || backingStorage.has(mapKey)) return existing!;
+      this.set(mapKey, defaultValue);
+      return defaultValue;
+    },
+
+    getOrInsertComputed(mapKey: K, callbackfn: (key: K) => V): V {
+      const existing = backingStorage.get(mapKey);
+      if (existing !== undefined || backingStorage.has(mapKey)) return existing!;
+      const value = callbackfn(mapKey);
+      this.set(mapKey, value);
+      return value;
+    },
+
     delete(mapKey: K): boolean {
       invariant(!virtualFactory, "VirtualMap: .delete() is blocked — virtual children cannot be removed");
       if (!backingStorage.has(mapKey)) {

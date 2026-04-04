@@ -135,12 +135,20 @@ function getSegmentVector(type: "map" | "array", path: string[]): Uint8Array {
   return vector;
 }
 
+/** Guard transaction.local around applyUpdate — genesis is not a remote update. */
+function genesisApplyUpdate(doc: Y.Doc, update: Uint8Array): void {
+  const activeTxn = (doc as any)._transaction;
+  const savedLocal = activeTxn?.local;
+  Y.applyUpdate(doc, update);
+  if (activeTxn && savedLocal !== undefined) activeTxn.local = savedLocal;
+}
+
 export function declareDeterministicMap<V = any>(doc: Y.Doc, path: string[]): Y.Map<V> {
-  if (path.length > 1) Y.applyUpdate(doc, getSegmentVector("map", path));
+  if (path.length > 1) genesisApplyUpdate(doc, getSegmentVector("map", path));
   return path.slice(1).reduce<Y.Map<any>>((m, k) => m.get(k), doc.getMap(path[0])) as Y.Map<V>;
 }
 
 export function declareDeterministicArray<V = any>(doc: Y.Doc, path: string[]): Y.Array<V> {
-  if (path.length > 1) Y.applyUpdate(doc, getSegmentVector("array", path));
+  if (path.length > 1) genesisApplyUpdate(doc, getSegmentVector("array", path));
   return path.slice(1).reduce<any>((m, k) => m.get(k), doc.getMap(path[0])) as Y.Array<V>;
 }

@@ -595,14 +595,11 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
           case "child-set": {
             const sourceSet = this[schemaKey] as Set<AllowedYJSValue>;
             if (sourceSet.size > 0) {
-              wrapper.set(
-                schemaKey,
-                // @ts-expect-error todo (maybe report to yjs?) - type issue: yjs Array.from not supporting boolean
-                Y.Array.from(
-                  // @ts-expect-error same issue
-                  Array.from(sourceSet, boundMaybeReference),
-                ),
-              );
+              const yjsMap = new Y.Map<AllowedYValue>();
+              for (const item of sourceSet) {
+                yjsMap.set(serializeKey(item, doc), boundMaybeReference(item));
+              }
+              wrapper.set(schemaKey, yjsMap);
             }
             break;
           }

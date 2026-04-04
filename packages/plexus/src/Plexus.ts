@@ -276,11 +276,11 @@ export class Plexus<
     invariant(!docPlexus.has(doc), `Plexus<document#${doc.clientID}>: already initialized, singleton violation`);
     docPlexus.set(doc, this);
 
+    const shadow = this.__liminalDocument__;
+
     // Overwrite doc clientId with 51-bit random. All derived clientIds flow from this:
     // liminal = X + LIMINAL_BASE, committed = limId + 2^51, genesis = independent hash.
     doc.clientID = newClientId();
-
-    const shadow = this.__liminalDocument__;
     shadow.clientID = doc.clientID + LIMINAL_BASE;
 
     // Initial sync: main → shadow (full state)

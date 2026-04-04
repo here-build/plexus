@@ -195,8 +195,14 @@ function materializeVirtualStruct(owner: PlexusModel, fieldName: string, value: 
   const diff = Y.encodeStateAsUpdate(tmpDoc, sv);
   tmpDoc.destroy();
 
-  // Merge into real doc — Items carry genesis clientId, UndoManager ignores them
+  // Merge into real doc — Items carry genesis clientId, UndoManager ignores them.
+  // Guard transaction.local: applyUpdate forces local=false, but this is an intra-doc
+  // genesis operation, not a remote update. If we're inside a local transaction
+  // (e.g. maybeTransacting), restore the flag so Yjs doesn't reassign clientID.
+  const activeTxn = (doc as any)._transaction;
+  const savedLocal = activeTxn?.local;
   Y.applyUpdate(doc, diff);
+  if (activeTxn && savedLocal !== undefined) activeTxn.local = savedLocal;
 }
 
 export function materializeMapForField(owner: PlexusModel, fieldName: string): Y.Map<AllowedYValue> {

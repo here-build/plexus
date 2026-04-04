@@ -195,10 +195,11 @@ describe("Set Proxy Implementation", () => {
       // Check that YJS arrays were created
       const yprojectFields = getModelsMap(plexusDoc);
       const entityId = root.uuid;
-      const tagsArray = yprojectFields.get(entityId)?.getAttribute("tags") as Y.Array<any>;
+      const tagsMap = yprojectFields.get(entityId)?.getAttribute("tags") as Y.Map<any>;
 
-      expect(tagsArray).to.be.instanceOf(Y.Array).and.have.property("length", 2);
-      expect(tagsArray.toArray()).to.include.members(["tag1", "tag2"]);
+      expect(tagsMap).to.be.instanceOf(Y.Map);
+      expect(tagsMap.size).to.equal(2);
+      expect([...tagsMap.values()]).to.include.members(["tag1", "tag2"]);
     });
 
     it("should sync set changes through YJS", async () => {
@@ -221,9 +222,10 @@ describe("Set Proxy Implementation", () => {
       // Check YJS backing
       const yprojectFields = getModelsMap(plexusDoc);
       const entityId = root.uuid;
-      const tagsArray = yprojectFields.get(entityId)?.getAttribute("tags") as Y.Array<any> | undefined;
-      expect(tagsArray).to.have.property("length", 2);
-      expect(tagsArray?.toArray()).to.include.members(["tag1", "tag2"]);
+      const tagsMap = yprojectFields.get(entityId)?.getAttribute("tags") as Y.Map<any> | undefined;
+      expect(tagsMap).to.be.instanceOf(Y.Map);
+      expect(tagsMap?.size).to.equal(2);
+      expect([...tagsMap!.values()]).to.include.members(["tag1", "tag2"]);
     });
 
     it("should handle entity sets in materialized state", async () => {

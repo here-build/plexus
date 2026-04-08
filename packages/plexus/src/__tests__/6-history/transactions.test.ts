@@ -1,14 +1,17 @@
 import type { Mock } from "vitest";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Y from "yjs";
 
+import { reaction } from "mobx";
 import { syncing } from "../../decorators.js";
 import { entityClasses } from "../../globals.js";
+import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
-import { createTrackedFunction } from "../../tracking.js";
 import { isTransacting, pendingNotifications } from "../../utils/utils.js";
 import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
+
+beforeAll(() => { enableMobXIntegration(); });
 
 // Test entity class for basic transaction tests
 @syncing("TestEntity")
@@ -137,18 +140,10 @@ describe("Plexus Transactions", () => {
 
     it("should queue notifications during transaction", () => {
       const callback = vi.fn();
-      // Create a tracked function that accesses the entity
-      const tracked = createTrackedFunction(callback, () => {
-        // Access entity.value to register tracking
-        return root.value;
-      });
+      const dispose = reaction(() => root.value, callback);
 
-      // Execute to register tracking
-      const initialValue = tracked();
-      expect(initialValue).to.equal("initial");
-
-      // Clear any initial calls
-      callback.mockClear();
+      // reaction does not fire initially
+      expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(0);
 
       plexus.transact(() => {
         // Modify the entity we're tracking
@@ -164,18 +159,12 @@ describe("Plexus Transactions", () => {
       // After transaction, callback should be called
       expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(1);
       expect(pendingNotifications.size).to.equal(0);
+      dispose();
     });
 
     it("should batch multiple notifications for same callback", () => {
       const callback = vi.fn();
-      // Create tracked function that accesses multiple fields
-      const tracked = createTrackedFunction(callback, () => {
-        // Access multiple fields
-        return `${root.value}-${root.count}`;
-      });
-
-      tracked();
-      callback.mockClear();
+      const dispose = reaction(() => `${root.value}-${root.count}`, callback);
 
       plexus.transact(() => {
         // Multiple modifications
@@ -190,23 +179,16 @@ describe("Plexus Transactions", () => {
 
       // Should be called exactly once after transaction
       expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("should handle multiple different callbacks", () => {
       const callback1 = vi.fn();
       const callback2 = vi.fn();
       const callback3 = vi.fn();
-      const tracked1 = createTrackedFunction(callback1, () => root.value);
-      const tracked2 = createTrackedFunction(callback2, () => root.count);
-      const tracked3 = createTrackedFunction(callback3, () => root.value + root.count);
-
-      tracked1();
-      tracked2();
-      tracked3();
-
-      callback1.mockClear();
-      callback2.mockClear();
-      callback3.mockClear();
+      const dispose1 = reaction(() => root.value, callback1);
+      const dispose2 = reaction(() => root.count, callback2);
+      const dispose3 = reaction(() => root.value + root.count, callback3);
 
       plexus.transact(() => {
         root.value = "modified";
@@ -221,14 +203,14 @@ describe("Plexus Transactions", () => {
       expect(callback1).to.have.property("mock").with.property("calls").with.lengthOf(1);
       expect(callback2).to.have.property("mock").with.property("calls").with.lengthOf(1);
       expect(callback3).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose1();
+      dispose2();
+      dispose3();
     });
 
     it("should clear pending notifications even on error", () => {
       const callback = vi.fn();
-      const tracked = createTrackedFunction(callback, () => root.value);
-
-      tracked();
-      callback.mockClear();
+      const dispose = reaction(() => root.value, callback);
 
       expect(() => {
         plexus.transact(() => {
@@ -242,6 +224,7 @@ describe("Plexus Transactions", () => {
       expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(0);
       // But queue should be cleared
       expect(pendingNotifications.size).to.equal(0);
+      dispose();
     });
   });
 
@@ -332,17 +315,9 @@ describe("Plexus Transactions", () => {
       const callback1 = vi.fn();
       const callback2 = vi.fn();
       const callback3 = vi.fn();
-      const tracked1 = createTrackedFunction(callback1, () => root.value);
-      const tracked2 = createTrackedFunction(callback2, () => root.count);
-      const tracked3 = createTrackedFunction(callback3, () => root.value + root.count);
-
-      tracked1();
-      tracked2();
-      tracked3();
-
-      callback1.mockClear();
-      callback2.mockClear();
-      callback3.mockClear();
+      const dispose1 = reaction(() => root.value, callback1);
+      const dispose2 = reaction(() => root.count, callback2);
+      const dispose3 = reaction(() => root.value + root.count, callback3);
 
       plexus.transact(() => {
         root.value = "first";
@@ -369,6 +344,9 @@ describe("Plexus Transactions", () => {
       expect(callback1).to.have.property("mock").with.property("calls").with.lengthOf(1);
       expect(callback2).to.have.property("mock").with.property("calls").with.lengthOf(1);
       expect(callback3).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose1();
+      dispose2();
+      dispose3();
     });
   });
 
@@ -401,15 +379,14 @@ describe("Plexus Transactions", () => {
         }
       });
 
-      const tracked = createTrackedFunction(callback, () => root.value);
-      tracked();
-      callback.mockClear();
+      const dispose = reaction(() => root.value, callback);
 
       plexus.transact(() => {
         root.value = "trigger";
       });
 
       expect(callback).to.have.property("mock").with.property("calls").with.lengthOf.above(0);
+      dispose();
     });
 
     it("should handle empty transactions", () => {
@@ -423,9 +400,7 @@ describe("Plexus Transactions", () => {
 
     it("should handle transactions that only contain shadow sub-transactions", () => {
       const callback = vi.fn();
-      const tracked = createTrackedFunction(callback, () => "tracked");
-      tracked();
-      callback.mockClear();
+      const dispose = reaction(() => "tracked", callback);
 
       plexus.transact(() => {
         plexus.transact(() => {
@@ -435,28 +410,25 @@ describe("Plexus Transactions", () => {
 
       // No modifications, so no notifications
       expect(callback).to.have.property("mock").with.property("calls").with.lengthOf(0);
+      dispose();
     });
 
     it("should maintain correct state with concurrent tracking", () => {
       const callbacks: Array<() => void> = [];
-      const trackingFns: Array<() => void> = [];
+      const disposers: Array<() => void> = [];
 
-      // Create multiple tracked functions
+      // Create multiple reactions
       for (let i = 0; i < 10; i++) {
         const callback = vi.fn();
         callbacks.push(callback);
 
-        const tracked = createTrackedFunction(callback, () => {
-          // Each accesses the entity
-          return `${root.value}-${root.count}-${i}`;
-        });
+        const dispose = reaction(
+          () => `${root.value}-${root.count}-${i}`,
+          callback,
+        );
 
-        trackingFns.push(tracked);
+        disposers.push(dispose);
       }
-
-      // Execute all to register tracking
-      for (const fn of trackingFns) fn();
-      for (const cb of callbacks) (cb as any).mockClear();
 
       plexus.transact(() => {
         // Trigger modifications
@@ -475,6 +447,8 @@ describe("Plexus Transactions", () => {
       for (const cb of callbacks) {
         expect(cb).to.have.property("mock").with.property("calls").with.lengthOf(1);
       }
+
+      for (const dispose of disposers) dispose();
     });
 
     it("should handle notification errors gracefully", () => {
@@ -484,17 +458,9 @@ describe("Plexus Transactions", () => {
       });
       const anotherGoodCallback = vi.fn();
 
-      const tracked1 = createTrackedFunction(goodCallback, () => root.value);
-      const tracked2 = createTrackedFunction(badCallback, () => root.count);
-      const tracked3 = createTrackedFunction(anotherGoodCallback, () => `${root.value}-${root.count}`);
-
-      tracked1();
-      tracked2();
-      tracked3();
-
-      goodCallback.mockClear();
-      badCallback.mockClear();
-      anotherGoodCallback.mockClear();
+      const dispose1 = reaction(() => root.value, goodCallback);
+      const dispose2 = reaction(() => root.count, badCallback);
+      const dispose3 = reaction(() => `${root.value}-${root.count}`, anotherGoodCallback);
 
       // Should not throw even if notification throws
       expect(() => {
@@ -508,6 +474,9 @@ describe("Plexus Transactions", () => {
       expect(goodCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
       expect(badCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
       expect(anotherGoodCallback).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose1();
+      dispose2();
+      dispose3();
     });
   });
 
@@ -601,17 +570,14 @@ describe("Transaction Integration Tests", () => {
       changeLog.push(`Changed: ${todoList.name}, items: ${todoList.items.length}`);
     });
 
-    const tracked = createTrackedFunction(callback, () => {
-      return {
+    const dispose = reaction(
+      () => ({
         name: todoList.name,
         itemCount: todoList.items.length,
         tags: [...todoList.tags],
-      };
-    });
-
-    // Initial tracking
-    tracked();
-    callback.mockClear();
+      }),
+      callback,
+    );
 
     // Perform multiple operations in a transaction
     plexus.transact(() => {
@@ -654,6 +620,7 @@ describe("Transaction Integration Tests", () => {
     // For now just verify count
     expect([...todoList.tags]).to.include("urgent");
     expect([...todoList.tags]).to.include("work");
+    dispose();
   });
 
   it("should handle nested transactions with complex operations", () => {
@@ -664,9 +631,7 @@ describe("Transaction Integration Tests", () => {
       notifications.push("notified");
     });
 
-    const tracked = createTrackedFunction(callback, () => todoList.items.length);
-    tracked();
-    callback.mockClear();
+    const dispose = reaction(() => todoList.items.length, callback);
 
     // Helper to add a todo item
     const addTodo = (text: string, priority: number) => {
@@ -698,15 +663,14 @@ describe("Transaction Integration Tests", () => {
     // Single notification after all operations
     expect(notifications).to.deep.equal(["notified"]);
     expect(todoList.items).to.have.lengthOf(2);
+    dispose();
   });
 
   it("should rollback on error and not notify", () => {
     const { plexus, root: todoList } = initTestPlexus(new TodoList({ name: "My Tasks", items: [], tags: new Set() }));
 
     const callback = vi.fn();
-    const tracked = createTrackedFunction(callback, () => todoList.name);
-    tracked();
-    callback.mockClear();
+    const dispose = reaction(() => todoList.name, callback);
 
     const originalName = todoList.name;
 
@@ -726,6 +690,7 @@ describe("Transaction Integration Tests", () => {
     // This is expected behavior - the transaction completes the YJS operations
     // but our notification system doesn't fire on error
     expect(todoList.name).to.equal("Modified name"); // YJS doesn't rollback
+    dispose();
   });
 
   it("should handle concurrent tracked functions efficiently", () => {
@@ -735,33 +700,28 @@ describe("Transaction Integration Tests", () => {
     const nameCallbacks: Mock[] = [];
     const itemCallbacks: Mock[] = [];
     const tagCallbacks: Mock[] = [];
+    const disposers: Array<() => void> = [];
 
     // Track name changes
     for (let i = 0; i < 5; i++) {
       const callback = vi.fn();
       nameCallbacks.push(callback);
-      const tracked = createTrackedFunction(callback, () => todoList.name);
-      tracked();
+      disposers.push(reaction(() => todoList.name, callback));
     }
 
     // Track item count changes
     for (let i = 0; i < 5; i++) {
       const callback = vi.fn();
       itemCallbacks.push(callback);
-      const tracked = createTrackedFunction(callback, () => todoList.items.length);
-      tracked();
+      disposers.push(reaction(() => todoList.items.length, callback));
     }
 
     // Track tag changes
     for (let i = 0; i < 5; i++) {
       const callback = vi.fn();
       tagCallbacks.push(callback);
-      const tracked = createTrackedFunction(callback, () => [...todoList.tags].join(","));
-      tracked();
+      disposers.push(reaction(() => [...todoList.tags].join(","), callback));
     }
-
-    // Clear all initial calls
-    for (const cb of [...nameCallbacks, ...itemCallbacks, ...tagCallbacks]) cb.mockClear();
 
     // Single transaction with multiple changes
     plexus.transact(() => {
@@ -793,5 +753,7 @@ describe("Transaction Integration Tests", () => {
     for (const cb of tagCallbacks) {
       expect(cb).to.have.property("mock").with.property("calls").with.lengthOf(1);
     }
+
+    for (const dispose of disposers) dispose();
   });
 });

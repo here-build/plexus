@@ -8,13 +8,16 @@
  * - Transaction isolation
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { reaction } from "mobx";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
+import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
-import { createTrackedFunction } from "../../tracking.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
+
+beforeAll(() => { enableMobXIntegration(); });
 
 @syncing("Item")
 class Item extends PlexusModel {
@@ -39,14 +42,13 @@ describe("Transaction Batching", () => {
       root.counter = 0;
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => ({
+      const dispose = reaction(() => ({
         value: root.value,
         counter: root.counter,
-      }));
-      tracked();
+      }), notify);
 
       // Multiple mutations in one transaction
-      plexus.doc.transact(() => {
+      plexus.transact(() => {
         root.value = "changed";
         root.counter = 1;
         root.counter = 2;
@@ -55,16 +57,16 @@ describe("Transaction Batching", () => {
 
       // Should batch into single notification
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("batches array mutations in transaction", () => {
       const { root, plexus } = initTestPlexus(new Container());
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.items.length);
-      tracked();
+      const dispose = reaction(() => root.items.length, notify);
 
-      plexus.doc.transact(() => {
+      plexus.transact(() => {
         root.items.push(new Item({ name: "a" }));
         root.items.push(new Item({ name: "b" }));
         root.items.push(new Item({ name: "c" }));
@@ -72,16 +74,16 @@ describe("Transaction Batching", () => {
 
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
       expect(root.items).to.have.lengthOf(3);
+      dispose();
     });
 
     it("batches record mutations in transaction", () => {
       const { root, plexus } = initTestPlexus(new Container());
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => Object.keys(root.data).length);
-      tracked();
+      const dispose = reaction(() => Object.keys(root.data).length, notify);
 
-      plexus.doc.transact(() => {
+      plexus.transact(() => {
         root.data["a"] = "A";
         root.data["b"] = "B";
         root.data["c"] = "C";
@@ -89,6 +91,7 @@ describe("Transaction Batching", () => {
 
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
       expect(Object.keys(root.data)).to.have.lengthOf(3);
+      dispose();
     });
   });
 
@@ -136,16 +139,15 @@ describe("Transaction Batching", () => {
       const valueNotify = vi.fn(() => order.push("value"));
       const counterNotify = vi.fn(() => order.push("counter"));
 
-      const trackedValue = createTrackedFunction(valueNotify, () => root.value);
-      const trackedCounter = createTrackedFunction(counterNotify, () => root.counter);
-
-      trackedValue();
-      trackedCounter();
+      const dispose1 = reaction(() => root.value, valueNotify);
+      const dispose2 = reaction(() => root.counter, counterNotify);
 
       root.value = "changed";
       root.counter = 1;
 
       expect(order).to.deep.equal(["value", "counter"]);
+      dispose1();
+      dispose2();
     });
 
     it("nested property changes notify correctly", () => {
@@ -153,11 +155,11 @@ describe("Transaction Batching", () => {
       root.child = new Item({ name: "test", count: 0 });
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.child?.name);
-      tracked();
+      const dispose = reaction(() => root.child?.name, notify);
 
       root.child!.name = "changed";
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
   });
 

@@ -380,18 +380,18 @@ project.title = "Updated"; // Triggers reaction
 
 Plexus applies **highly granular Map and Set tracking**. It tracks structural access dynamically — calling `map.has("key")` or checking `set.size` binds observers exactly to those specific structural traits rather than the whole collection. An update to the value of `'another-key'` will not trigger a re-render for a component purely observing `.has('key')` or `.size`.
 
-### Lightweight Tracking
+### MobX Reaction Tracking
 
-For environments without MobX:
+With MobX integration enabled, use `reaction` for fine-grained tracking:
 
 ```typescript
-import { createTrackedFunction } from "@here.build/plexus";
+import { reaction } from "mobx";
 
-const track = createTrackedFunction(
-  () => console.log("Changed!"),
-  () => [project.title, project.members.length]
+const dispose = reaction(
+  () => [project.title, project.members.length],
+  () => console.log("Changed!")
 );
-track(); // "Changed!" is emitted once after every call
+// dispose() when no longer needed
 ```
 
 ## Transactions

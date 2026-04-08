@@ -3,18 +3,21 @@
  * Verifies that Map values are tracked as children with proper ownership.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { reaction } from "mobx";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
+import { enableMobXIntegration } from "../../mobx/index.js";
 import { getInternals, PlexusModel } from "../../PlexusModel.js";
 import { serializeKey } from "../../proxies/key-serialization.js";
 import type { YPlexusNode } from "../../proxy-runtime-types.js";
 import { AllowedYValue, referenceSymbol } from "../../proxy-runtime-types.js";
-import { createTrackedFunction } from "../../tracking.js";
 import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 import { getModelsMap } from "../getModelsMap.js";
+
+beforeAll(() => { enableMobXIntegration(); });
 
 function getParentRef(element: YPlexusNode | undefined): string[] | undefined {
   if (!element || element.length === 0) return undefined;
@@ -3064,21 +3067,15 @@ describe("child.map advanced edge cases", () => {
       root.items.set("key2", item2);
 
       let runCount = 0;
-      let lastValue: Item | undefined;
 
       // Track only key1 access
-      const tracked = createTrackedFunction(
+      const dispose = reaction(
+        () => root.items.get("key1"),
         () => runCount++,
-        () => {
-          lastValue = root.items.get("key1");
-          return lastValue;
-        },
       );
 
-      // Initial run establishes tracking (callback NOT called on first run)
-      tracked();
-      expect(runCount).to.equal(0); // No notification on initial run
-      expect(lastValue).to.equal(item1);
+      // No notification on initial setup
+      expect(runCount).to.equal(0);
 
       // Modifying key2 should NOT trigger notification
       root.items.set("key2", new Item({ name: "item2-updated" }));
@@ -3089,9 +3086,9 @@ describe("child.map advanced edge cases", () => {
       root.items.set("key1", newItem);
       expect(runCount).to.equal(1); // Notified!
 
-      // Re-run to get new value
-      tracked();
-      expect(lastValue).to.equal(newItem);
+      // Verify value updated
+      expect(root.items.get("key1")).to.equal(newItem);
+      dispose();
     });
 
     it("should track keys() iteration", () => {
@@ -3101,28 +3098,22 @@ describe("child.map advanced edge cases", () => {
       root.items.set("key1", new Item({ name: "item1" }));
 
       let runCount = 0;
-      let collectedKeys: string[] = [];
 
-      const tracked = createTrackedFunction(
+      const dispose = reaction(
+        () => [...root.items.keys()],
         () => runCount++,
-        () => {
-          collectedKeys = [...root.items.keys()];
-          return collectedKeys;
-        },
       );
 
-      // Initial run - no notification
-      tracked();
+      // No notification on initial setup
       expect(runCount).to.equal(0);
-      expect(collectedKeys).to.have.ordered.members(["key1"]);
 
       // Adding new key should trigger (keys changed)
       root.items.set("key2", new Item({ name: "item2" }));
       expect(runCount).to.equal(1);
 
-      // Re-run to establish tracking on current state
-      tracked();
-      expect(collectedKeys).to.have.ordered.members(["key1", "key2"]);
+      // Verify current keys
+      expect([...root.items.keys()]).to.have.ordered.members(["key1", "key2"]);
+      dispose();
     });
 
     it("should track values() iteration", () => {
@@ -3132,31 +3123,23 @@ describe("child.map advanced edge cases", () => {
       root.items.set("key1", new Item({ name: "item1" }));
 
       let runCount = 0;
-      let collectedNames: string[] = [];
 
-      const tracked = createTrackedFunction(
+      const dispose = reaction(
+        () => [...root.items.values()].map((v) => v.name),
         () => runCount++,
-        () => {
-          collectedNames = [...root.items.values()].map((v) => v.name);
-          return collectedNames;
-        },
       );
 
-      // Initial run - no notification
-      tracked();
+      // No notification on initial setup
       expect(runCount).to.equal(0);
-      expect(collectedNames).to.have.ordered.members(["item1"]);
 
       // Adding new value should trigger
       root.items.set("key2", new Item({ name: "item2" }));
       expect(runCount).to.equal(1);
 
-      // Re-run to establish tracking
-      tracked();
-
       // Updating existing value should trigger
       root.items.set("key1", new Item({ name: "item1-updated" }));
       expect(runCount).to.equal(2);
+      dispose();
     });
 
     it("should track size property", () => {
@@ -3164,34 +3147,25 @@ describe("child.map advanced edge cases", () => {
       const { root } = initTestPlexus(container);
 
       let runCount = 0;
-      let lastSize = 0;
 
-      const tracked = createTrackedFunction(
+      const dispose = reaction(
+        () => root.items.size,
         () => runCount++,
-        () => {
-          lastSize = root.items.size;
-          return lastSize;
-        },
       );
 
-      // Initial run - no notification
-      tracked();
-      expect([runCount, lastSize]).to.have.ordered.members([0, 0]);
+      // No notification on initial setup
+      expect([runCount, root.items.size]).to.have.ordered.members([0, 0]);
 
       // Adding item should trigger (size changed)
       root.items.set("key1", new Item({ name: "item1" }));
       expect(runCount).to.equal(1);
-
-      // Re-run to get current size and re-establish tracking
-      tracked();
-      expect(lastSize).to.equal(1);
+      expect(root.items.size).to.equal(1);
 
       // Deleting should trigger (size changed)
       root.items.delete("key1");
       expect(runCount).to.equal(2);
-
-      tracked();
-      expect(lastSize).to.equal(0);
+      expect(root.items.size).to.equal(0);
+      dispose();
     });
 
     it("should track has() for specific key", () => {
@@ -3199,38 +3173,28 @@ describe("child.map advanced edge cases", () => {
       const { root } = initTestPlexus(container);
 
       let runCount = 0;
-      let hasKey1 = false;
 
-      const tracked = createTrackedFunction(
+      const dispose = reaction(
+        () => root.items.has("key1"),
         () => runCount++,
-        () => {
-          hasKey1 = root.items.has("key1");
-          return hasKey1;
-        },
       );
 
-      // Initial run - no notification
-      tracked();
-      expect([runCount, hasKey1]).to.have.ordered.members([0, false]);
+      // No notification on initial setup
+      expect([runCount, root.items.has("key1")]).to.have.ordered.members([0, false]);
 
-      // Adding key1 should trigger (affects has() result)
+      // Adding key1 should trigger (affects has() result: false -> true)
       root.items.set("key1", new Item({ name: "item1" }));
       expect(runCount).to.equal(1);
+      expect(root.items.has("key1")).to.eq(true);
 
-      // Re-run to establish tracking
-      tracked();
-      expect(hasKey1).to.eq(true);
-
-      // Adding key2 should trigger (has() tracks KEYS_SYMBOL for key presence)
+      // Adding key2 should NOT trigger (has("key1") result unchanged: still true)
       root.items.set("key2", new Item({ name: "item2" }));
-      expect(runCount).to.equal(2);
+      expect(runCount).to.equal(1);
 
-      // Re-run to establish tracking
-      tracked();
-
-      // Deleting key1 should trigger
+      // Deleting key1 should trigger (affects has() result: true -> false)
       root.items.delete("key1");
-      expect(runCount).to.equal(3);
+      expect(runCount).to.equal(2);
+      dispose();
     });
   });
 

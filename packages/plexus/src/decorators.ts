@@ -410,7 +410,7 @@ const createHandlers = <
       }
       const setter = this.__schema__[context.name] === "val" ? set : setChild;
       /**
-       * ephemeral models may be constructed at mutation-tracking contexts (see createTrackedFunction),
+       * ephemeral models may be constructed at mutation-tracking contexts (e.g. inside a MobX reaction),
        * read events are always tracked (we need to know what was accessed to make decisions),
        * and the nature of construction behavior causes us to do some read requests anyway.
        * This means that need to explicitly initialize the class in a context that silences the mutation reporting.

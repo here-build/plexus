@@ -8,12 +8,15 @@
  * - Transitions between null and non-null states
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { reaction } from "mobx";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { syncing } from "../../decorators.js";
+import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
-import { createTrackedFunction } from "../../tracking.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
+
+beforeAll(() => { enableMobXIntegration(); });
 
 @syncing("Item")
 class Item extends PlexusModel {
@@ -246,22 +249,22 @@ describe("Null Handling Edge Cases", () => {
       root.nullableString = "initial";
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.nullableString);
-      tracked();
+      const dispose = reaction(() => root.nullableString, notify);
 
       root.nullableString = null;
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("notifies when nullable field changes from null", () => {
       const { root } = initTestPlexus(new NullableContainer());
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.nullableString);
-      tracked();
+      const dispose = reaction(() => root.nullableString, notify);
 
       root.nullableString = "set-from-null";
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("notifies when nullable child cleared", () => {
@@ -269,11 +272,11 @@ describe("Null Handling Edge Cases", () => {
       root.nullableChild = new Item({ name: "test" });
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.nullableChild);
-      tracked();
+      const dispose = reaction(() => root.nullableChild, notify);
 
       root.nullableChild = null;
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("notifies when array element set to null", () => {
@@ -281,11 +284,11 @@ describe("Null Handling Edge Cases", () => {
       root.children.push(new Item({ name: "test" }));
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.children[0]);
-      tracked();
+      const dispose = reaction(() => root.children[0], notify);
 
       root.children[0] = null;
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
   });
 

@@ -6,12 +6,15 @@
  * on Plexus record fields.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { reaction } from "mobx";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { syncing } from "../../decorators.js";
+import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
-import { createTrackedFunction } from "../../tracking.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
+
+beforeAll(() => { enableMobXIntegration(); });
 
 @syncing("Item")
 class Item extends PlexusModel {
@@ -232,11 +235,11 @@ describe("Record Enumeration", () => {
       root.primitiveRecord["initial"] = "value";
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => Object.keys(root.primitiveRecord));
-      tracked();
+      const dispose = reaction(() => Object.keys(root.primitiveRecord), notify);
 
       root.primitiveRecord["new"] = "newValue";
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("notifies when iterating keys and key removed", () => {
@@ -244,22 +247,22 @@ describe("Record Enumeration", () => {
       root.primitiveRecord["toRemove"] = "value";
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => Object.keys(root.primitiveRecord));
-      tracked();
+      const dispose = reaction(() => Object.keys(root.primitiveRecord), notify);
 
       delete root.primitiveRecord["toRemove"];
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("notifies when using 'in' operator and key presence changes", () => {
       const { root } = initTestPlexus(new Container());
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => "key" in root.primitiveRecord);
-      tracked();
+      const dispose = reaction(() => "key" in root.primitiveRecord, notify);
 
       root.primitiveRecord["key"] = "value";
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
   });
 

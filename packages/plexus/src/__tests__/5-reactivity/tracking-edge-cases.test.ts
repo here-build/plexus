@@ -5,12 +5,15 @@
  * Some tests may fail initially to identify bugs.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { reaction } from "mobx";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { syncing } from "../../decorators.js";
+import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
-import { createTrackedFunction } from "../../tracking.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
+
+beforeAll(() => { enableMobXIntegration(); });
 
 @syncing("Item")
 class Item extends PlexusModel {
@@ -31,12 +34,12 @@ describe("Tracking Edge Cases", () => {
       root.map.set("key", "initial");
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => [...root.map.values()]);
-      tracked();
+      const dispose = reaction(() => [...root.map.values()], notify);
 
       // Modifying existing key's value should notify values() subscribers
       root.map.set("key", "updated");
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("notifies values() subscribers when new key-value added", () => {
@@ -44,11 +47,11 @@ describe("Tracking Edge Cases", () => {
       root.map.set("existing", "value");
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => [...root.map.values()]);
-      tracked();
+      const dispose = reaction(() => [...root.map.values()], notify);
 
       root.map.set("new", "newValue");
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("notifies values() subscribers when value is deleted", () => {
@@ -56,11 +59,11 @@ describe("Tracking Edge Cases", () => {
       root.map.set("key", "value");
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => [...root.map.values()]);
-      tracked();
+      const dispose = reaction(() => [...root.map.values()], notify);
 
       root.map.delete("key");
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
   });
 
@@ -69,24 +72,24 @@ describe("Tracking Edge Cases", () => {
       const { root } = initTestPlexus(new Container());
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.items.length);
-      tracked();
+      const dispose = reaction(() => root.items.length, notify);
 
       // Extending array via index assignment should notify length subscribers
       root.items[0] = new Item({ name: "first" });
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("notifies length subscribers when array extended with gaps", () => {
       const { root } = initTestPlexus(new Container());
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.items.length);
-      tracked();
+      const dispose = reaction(() => root.items.length, notify);
 
       // Creating sparse array via index should notify
       root.items[5] = new Item({ name: "at-five" });
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("does NOT notify length subscribers when replacing existing element", () => {
@@ -94,12 +97,12 @@ describe("Tracking Edge Cases", () => {
       root.items.push(new Item({ name: "initial" }));
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.items.length);
-      tracked();
+      const dispose = reaction(() => root.items.length, notify);
 
       // Replacing existing element should NOT notify length (length unchanged)
       root.items[0] = new Item({ name: "replaced" });
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
+      dispose();
     });
   });
 
@@ -109,11 +112,11 @@ describe("Tracking Edge Cases", () => {
       root.record["existing"] = "value";
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => Object.keys(root.record));
-      tracked();
+      const dispose = reaction(() => Object.keys(root.record), notify);
 
       root.record["new"] = "newValue";
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("notifies Object.values() subscribers when value changed", () => {
@@ -121,11 +124,11 @@ describe("Tracking Edge Cases", () => {
       root.record["key"] = "initial";
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => Object.values(root.record));
-      tracked();
+      const dispose = reaction(() => Object.values(root.record), notify);
 
       root.record["key"] = "updated";
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("notifies Object.keys() subscribers when key removed", () => {
@@ -133,11 +136,11 @@ describe("Tracking Edge Cases", () => {
       root.record["key"] = "value";
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => Object.keys(root.record));
-      tracked();
+      const dispose = reaction(() => Object.keys(root.record), notify);
 
       delete root.record["key"];
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
   });
 
@@ -148,12 +151,12 @@ describe("Tracking Edge Cases", () => {
       root.map.set("other", "otherValue");
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.map.get("tracked"));
-      tracked();
+      const dispose = reaction(() => root.map.get("tracked"), notify);
 
       // Only the tracked key should trigger notification
       root.map.set("tracked", "updated");
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("does NOT notify get(key) subscribers when different key changes", () => {
@@ -162,12 +165,12 @@ describe("Tracking Edge Cases", () => {
       root.map.set("other", "otherValue");
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.map.get("tracked"));
-      tracked();
+      const dispose = reaction(() => root.map.get("tracked"), notify);
 
       // Changing a different key should NOT notify
       root.map.set("other", "updated");
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
+      dispose();
     });
   });
 
@@ -176,11 +179,11 @@ describe("Tracking Edge Cases", () => {
       const { root } = initTestPlexus(new Container());
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.map.has("key"));
-      tracked();
+      const dispose = reaction(() => root.map.has("key"), notify);
 
       root.map.set("key", "value");
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("notifies has() subscribers when key is deleted", () => {
@@ -188,11 +191,11 @@ describe("Tracking Edge Cases", () => {
       root.map.set("key", "value");
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.map.has("key"));
-      tracked();
+      const dispose = reaction(() => root.map.has("key"), notify);
 
       root.map.delete("key");
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("does NOT notify has() subscribers when value changes (key still exists)", () => {
@@ -200,12 +203,12 @@ describe("Tracking Edge Cases", () => {
       root.map.set("key", "initial");
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.map.has("key"));
-      tracked();
+      const dispose = reaction(() => root.map.has("key"), notify);
 
       // Value change should NOT notify has() (key presence unchanged)
       root.map.set("key", "updated");
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
+      dispose();
     });
   });
 
@@ -215,12 +218,12 @@ describe("Tracking Edge Cases", () => {
       root.items.push(new Item({ name: "initial" }));
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => Object.keys(root.items));
-      tracked();
+      const dispose = reaction(() => Object.keys(root.items), notify);
 
       // Replacing existing element should NOT notify Object.keys() (keys unchanged)
       root.items[0] = new Item({ name: "replaced" });
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
+      dispose();
     });
 
     it("notifies Object.keys() subscribers when array length changes via push", () => {
@@ -228,11 +231,11 @@ describe("Tracking Edge Cases", () => {
       root.items.push(new Item({ name: "first" }));
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => Object.keys(root.items));
-      tracked();
+      const dispose = reaction(() => Object.keys(root.items), notify);
 
       root.items.push(new Item({ name: "second" }));
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("notifies Object.keys() subscribers when array length changes via pop", () => {
@@ -241,11 +244,11 @@ describe("Tracking Edge Cases", () => {
       root.items.push(new Item({ name: "second" }));
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => Object.keys(root.items));
-      tracked();
+      const dispose = reaction(() => Object.keys(root.items), notify);
 
       root.items.pop();
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
   });
 
@@ -255,12 +258,12 @@ describe("Tracking Edge Cases", () => {
       root.record["key"] = "initial";
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => Object.keys(root.record));
-      tracked();
+      const dispose = reaction(() => Object.keys(root.record), notify);
 
       // Value-only change should NOT notify Object.keys() (keys unchanged)
       root.record["key"] = "updated";
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
+      dispose();
     });
   });
 
@@ -269,11 +272,11 @@ describe("Tracking Edge Cases", () => {
       const { root } = initTestPlexus(new Container());
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.map.size);
-      tracked();
+      const dispose = reaction(() => root.map.size, notify);
 
       root.map.set("key", "value");
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("notifies size subscribers when key is deleted", () => {
@@ -281,11 +284,11 @@ describe("Tracking Edge Cases", () => {
       root.map.set("key", "value");
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.map.size);
-      tracked();
+      const dispose = reaction(() => root.map.size, notify);
 
       root.map.delete("key");
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(1);
+      dispose();
     });
 
     it("does NOT notify size subscribers when value changes (size unchanged)", () => {
@@ -293,12 +296,12 @@ describe("Tracking Edge Cases", () => {
       root.map.set("key", "initial");
 
       const notify = vi.fn();
-      const tracked = createTrackedFunction(notify, () => root.map.size);
-      tracked();
+      const dispose = reaction(() => root.map.size, notify);
 
       // Value change should NOT notify size (size unchanged)
       root.map.set("key", "updated");
       expect(notify).to.have.property("mock").with.property("calls").with.lengthOf(0);
+      dispose();
     });
   });
 });

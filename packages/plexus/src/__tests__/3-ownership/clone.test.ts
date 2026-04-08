@@ -6,12 +6,15 @@
  * - clone(), assign(), clear() methods
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { reaction } from "mobx";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
+import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
-import { createTrackedFunction } from "../../tracking.js";
+
+beforeAll(() => { enableMobXIntegration(); });
 
 // =============================================================================
 // Test Models
@@ -255,17 +258,20 @@ describe("Clone semantics", () => {
       });
 
       const notifyChanges = vi.fn();
+      let cloned!: TestModel;
 
-      const trackedClone = createTrackedFunction(notifyChanges, () => {
-        return original.clone();
-      });
+      const dispose = reaction(
+        () => original.clone(),
+        (value) => { cloned = value; notifyChanges(); },
+        { fireImmediately: true },
+      );
 
-      const cloned = trackedClone();
       expect(cloned.name).to.equal("test");
 
       // Modifying fields that were accessed during clone should notify
       original.name = "changed";
       expect(notifyChanges).to.have.property("mock").with.property("calls").with.lengthOf.above(0);
+      dispose();
     });
 
     it("should properly handle edge case with shared references across child fields", () => {
@@ -1118,14 +1124,16 @@ describe("Assign behavior", () => {
 
       const notifyChanges = vi.fn();
 
-      const trackedRead = createTrackedFunction(notifyChanges, () => {
-        return model.items.length;
-      });
+      const dispose = reaction(
+        () => model.items.length,
+        notifyChanges,
+      );
 
-      expect(trackedRead()).to.equal(1);
+      expect(model.items.length).to.equal(1);
 
       model.items = ["new1", "new2"];
       expect(notifyChanges).to.have.property("mock").with.property("calls").with.lengthOf.above(0);
+      dispose();
     });
   });
 

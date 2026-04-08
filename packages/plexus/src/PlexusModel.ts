@@ -43,7 +43,7 @@ import {
 import { PLEXUS_CONTROLLED, PLEXUS_DERIVED, PLEXUS_TEST_SENTINEL } from "./sentinels.js";
 import { trackAccess, trackModification } from "./tracking.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
-import { curryMaybeReference, maybeTransacting, never } from "./utils/utils.js";
+import { curryMaybeReference, markEntityCreated, maybeTransacting, never } from "./utils/utils.js";
 import { genesisAllowlist } from "./virtual-children-genesis.js";
 import { getTypeMap } from "./yjs/getModels.js";
 
@@ -510,10 +510,11 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
           `Plexus<${this.__type__}#${this.uuid}>: impossible case. uuid conflict, already taken by different model`,
         );
       } else {
-        // this MAY and is allowed to happen during the undo operations that are removing some class from model;
-        // this is weird situation where Y.XmlElement technically belongs to doc, but exists in pre-GC limbo.
-        typeMap.set(this.uuid, internals.yjsModel.element);
-        internals.isDematerialized = false;
+        // With append-only shells (deleteFilter), the typeMap entry is always present.
+        invariant(
+          false,
+          `Plexus<${this.__type__}#${this.uuid}>: entity XmlElement exists but typeMap entry is missing. This should be unreachable with append-only entity shells.`,
+        );
       }
       return this.#reference;
     }
@@ -523,7 +524,12 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       internals.isWithinYjsModelSeed = true;
       // Check if entity is already stored (re-entry or re-materialization guard).
       let yprojectObjectInstance = internals.uuid ? typeMap.get(internals.uuid) : undefined;
-      if (!yprojectObjectInstance) {
+      if (yprojectObjectInstance) {
+        invariant(
+          internals.yjsModel,
+          `Plexus<${this.__type__}#${this.uuid}>: XmlElement exists in typeMap but yjsModel is missing. With append-only entity shells this should be unreachable.`,
+        );
+      } else {
         if (Plexus.uuidMode === "arbitrary") {
           internals.uuid = (internals.uuid ?? `a${Plexus.getArbitraryUUID()}`) as PlexusUUID;
         } else {
@@ -542,7 +548,6 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
         typeMap.set(internals.uuid, yprojectObjectInstance); // consumes predictedClock
         // yjsModel must be set before schema iteration to avoid circular self-reference issues
         internals.yjsModel = new PlexusWrapper(yprojectObjectInstance);
-        internals.isDematerialized = false; // Clear if re-materializing after undo
         documentEntityCaches.get(doc).set(this.uuid, new WeakRef(this));
         // Storage layout IS the type index — no separate typeIndex map needed
         // there may be instantation loops where we need to have internals.yjsModel materialized in that flow
@@ -550,10 +555,6 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
           const parentReference = internals.parent[referenceSymbol](doc);
           internals.yjsModel.setParentData(parentReference[0], internals.parentKey!, internals.parentMetadata);
         }
-      } else if (internals.isDematerialized) {
-        // Re-materialization of a dematerialized model (XmlElement exists but yjsModel was cleared)
-        internals.yjsModel = new PlexusWrapper(yprojectObjectInstance);
-        internals.isDematerialized = false;
       }
       const wrapper = internals.yjsModel!;
       for (const [schemaKey, type] of Object.entries(this.__schema__)) {
@@ -625,6 +626,12 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       }
       this.__bootstrapObservation__();
       documentEntityCaches.get(doc).set(this.uuid, new WeakRef<PlexusModel>(this));
+      // Record materialization boundary — items with clock < this are creation content
+      if (!internals.materializationClock) {
+        internals.materializationClock = Y.getState(doc.store, doc.clientID);
+        internals.materializationClient = doc.clientID;
+        markEntityCreated(doc);
+      }
       internals.isWithinYjsModelSeed = false;
       return this.#reference;
     });

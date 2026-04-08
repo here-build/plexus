@@ -2675,9 +2675,8 @@ describe("child.map advanced edge cases", () => {
       root.items.set("key1", item2); // Replace item1
 
       expect(root.items.get("key1")).to.include({ name: "second" });
-      // item1 is orphaned but NOT dematerialized - it still exists in memory
+      // item1 is orphaned — detached from tree but still alive
       expect(item1).to.have.property("parent", null);
-      expect(getInternals(item1).isDematerialized).to.not.be.ok;
 
       // item2 is adopted
       expect(item2).to.have.property("parent", root);

@@ -295,11 +295,6 @@ const createHandlers = <
           emptyEphemeralDependency.get(this);
         }
       }
-      invariant(
-        !internals.isDematerialized,
-        `Plexus<${this.__type__}#${safeUuid(this)}.${context.name}>: model was dematerialized by undo; check whether you are using fresh models directly vs via path from root`,
-      );
-      // Dematerialized models can still be read (returns presync state)
       trackAccess(this, context.name);
       switch (this.__schema__[context.name]) {
         case "val":
@@ -315,10 +310,6 @@ const createHandlers = <
       invariant(
         !internals.isDependency,
         `Plexus<${this.__type__}#${safeUuid(this)}.${context.name}>: dependencies are handled via special flow overriding this setter. This error should not happen`,
-      );
-      invariant(
-        !internals.isDematerialized,
-        `Plexus<${this.__type__}#${safeUuid(this)}.${context.name}>: model was dematerialized by undo; check whether you are using fresh models directly vs via path from root`,
       );
       if (this.__schema__[context.name] === "val") {
         set(context as any, this, value as Extract<T, AllowedYJSValue>);

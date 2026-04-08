@@ -95,7 +95,6 @@ export type Internals<Parent extends PlexusModel | null> =
       reference?: ReferenceTuple;
       backingStorage: Map<string, any>;
       isRoot?: boolean;
-      isDematerialized?: boolean;
       unobserve?: () => void;
       /**
        * How this entity was created — determines UUID prefix and lifecycle rules.
@@ -104,10 +103,18 @@ export type Internals<Parent extends PlexusModel | null> =
        * - "bound": cloned into virtual map (b-prefix, reparent/detach blocked)
        */
       binding?: "derived" | "bound";
+      /**
+       * Clock state after initial materialization completes (session-scoped).
+       * Items inside this entity's XmlElement with clock < this value are creation
+       * content — protected from undo by the deleteFilter.
+       * Items with clock >= this value are post-creation modifications — undoable.
+       */
+      materializationClock?: number;
+      /** The clientID that performed the materialization (for clock comparison). */
+      materializationClient?: number;
     }
   | {
       isDependency: true;
-      isDematerialized?: false;
       documentId: string;
       uuid: PlexusUUID;
       parent: Parent;

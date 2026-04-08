@@ -33,7 +33,7 @@ describe("Y.UndoManager tracking", () => {
     root = result.root;
   });
 
-  it("should dematerialize model removed by undo and rematerialize on redo", () => {
+  it("entity survives undo (append-only shell) and restores on redo", () => {
     const ref = new TestModel({ name: "first" });
     testPlexus.transact(() => {
       root.ref = ref;
@@ -42,17 +42,16 @@ describe("Y.UndoManager tracking", () => {
 
     testPlexus.undo();
 
-    // Model is dematerialized - root.ref is null
+    // Entity shell survives undo — NOT dematerialized
     expect(root.ref).to.eq(null);
-    // Accessing dematerialized model throws
-    expect(getInternals(ref).isDematerialized).to.eq(true);
-    expect(() => ref.name).to.throw("dematerialized by undo");
+    // Entity survives undo — append-only shell
+    // UUID is stable
+    expect(ref.uuid).to.be.ok;
 
     testPlexus.redo();
 
-    // Model is rematerialized
+    // Fully restored — same object, same UUID
     expect(root.ref).to.equal(ref);
-    expect(getInternals(ref).isDematerialized).to.not.be.ok;
     expect(ref.name).to.equal("second");
   });
 

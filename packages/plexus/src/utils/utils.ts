@@ -1,9 +1,23 @@
 import type * as Y from "yjs";
 
-import { docTransactionOrigin } from "../plexus-registry.js";
+import { docPlexus, docTransactionOrigin } from "../plexus-registry.js";
 import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReferenceTuple } from "../proxy-runtime-types.js";
 import { referenceSymbol } from "../proxy-runtime-types.js";
+
+/**
+ * Per-doc deferred stopCapturing.
+ * When entities are created, we schedule a deferred stopCapturing so that
+ * creation and subsequent user modifications end up as separate undo items.
+ * If another transaction starts before the deferred fires, it's cancelled
+ * (the new transaction merges naturally via captureTimeout).
+ */
+const pendingStopCapturing = new WeakMap<Y.Doc, boolean>();
+
+export function markEntityCreated(doc: Y.Doc): void {
+  if (pendingStopCapturing.has(doc)) return; // already scheduled
+  pendingStopCapturing.set(doc, true);
+}
 
 export function never(value: never): never {
   throw new Error(`Unexpected value: ${value}`);
@@ -24,7 +38,6 @@ export const curryMaybeReference =
 // doc transactions are rather expensive, even nested ones, and it's better to track them across the call chain efficiently
 // plus it will avoid transaction events for mid-transaction stuff
 const docInTransactionMotion = new WeakSet();
-
 
 // Notification batching state
 export let isTransacting = false;
@@ -75,6 +88,10 @@ export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T):
     return fn();
   }
 
+  // Entering a new transaction — cancel any pending deferred stopCapturing.
+  // The new transaction will merge with the previous one via captureTimeout.
+  pendingStopCapturing.delete(doc);
+
   try {
     docInTransactionMotion.add(doc);
 
@@ -94,6 +111,26 @@ export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T):
 
     // Reset flag only for outermost transaction
     if (!wasAlreadyTransacting) {
+      // If entities were created, break the undo capture so creation
+      // and subsequent modifications are separate undo items.
+      // If entities were created, schedule deferred stopCapturing.
+      // If the next synchronous code starts a new transaction before the
+      // deferred fires, the pending flag is consumed and stopCapturing is skipped
+      // (the transactions merge naturally via captureTimeout).
+      if (pendingStopCapturing.has(doc)) {
+        const capturedDoc = doc;
+        setTimeout(() => {
+          // Only fire if still pending and not mid-transaction
+          if (pendingStopCapturing.has(capturedDoc) && !docInTransactionMotion.has(capturedDoc)) {
+            pendingStopCapturing.delete(capturedDoc);
+            try {
+              docPlexus.get(capturedDoc)?.stopCapturing();
+            } catch {
+              /* UM may not exist during bootstrap */
+            }
+          }
+        }, 0);
+      }
       isTransacting = false;
       flushNotifications();
     }

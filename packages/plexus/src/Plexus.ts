@@ -37,7 +37,7 @@ import { entityClasses } from "./globals.js";
 import { docLiminality, docPlexus, docTransactionOrigin } from "./plexus-registry.js";
 import { getInternals, type PlexusConstructor, PlexusModel } from "./PlexusModel.js";
 import { PlexusWrapper } from "./PlexusWrapper.js";
-import type { AllowedYValue, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
+import type { AllowedYValue, AwarenessShape, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
 import { maybeTransacting } from "./utils/utils.js";
@@ -68,7 +68,7 @@ const FROM_MAIN = Symbol("from-main");
 
 export class Plexus<
   Root extends PlexusModel<null> & { dependencies?: Record<string, Root> },
-  Awareness extends import("./proxy-runtime-types.js").AwarenessShape = import("./proxy-runtime-types.js").AwarenessShape,
+  Awareness extends AwarenessShape = AwarenessShape,
 > {
   /** Enable PLEXUS_TEST_SENTINEL — constructor throws the sentinel symbol for reachability testing. */
   // eslint-disable-next-line sonarjs/public-static-readonly
@@ -255,6 +255,7 @@ export class Plexus<
     this.#dependencyEntityCache.set(cacheKey, model);
     return model;
   }
+
   protected readonly yTypes: Y.Map<Y.Map<YPlexusNode>>;
   private readonly __undoManager__: UndoManager;
   private __isUndoing__ = false;
@@ -293,7 +294,13 @@ export class Plexus<
       if (origin === FROM_MAIN) return;
       if (origin === this.__liminalUndoManager__) return;
       // Block per-peer preview origins and their UM undo artifacts
-      if (typeof origin === "symbol" && origin !== SHADOW_TO_MAIN && origin !== COMMIT_DELTA_ORIGIN && origin !== FROM_SHADOW) return;
+      if (
+        typeof origin === "symbol" &&
+        origin !== SHADOW_TO_MAIN &&
+        origin !== COMMIT_DELTA_ORIGIN &&
+        origin !== FROM_SHADOW
+      )
+        return;
       if (origin instanceof UndoManager && origin !== this.__undoManager__) return;
       Y.applyUpdate(doc, update, origin === SHADOW_TO_MAIN ? SHADOW_TO_MAIN : FROM_SHADOW);
     });
@@ -332,10 +339,65 @@ export class Plexus<
 
     // Main UndoManager. ignoreRemoteMapChanges: committed deltas use different clientIds per session —
     // without it, redoItem's conflict detection treats successive commits as "remote" and refuses undo.
+    //
+    // deleteFilter implements append-only entity shells:
+    // - Entity XmlElements in type sub-maps are never deleted (identity preservation)
+    // - Initial field values (created during materialization) are never deleted (floor state)
+    // - Post-materialization field writes ARE deleted (normal undo behavior)
+    //
+    // The filter discovers materialization boundaries dynamically: when it encounters
+    // an XmlElement Item in a typeMap, it records the clock. Items inside that XmlElement
+    // with clock ≤ materialization clock are protected (creation state).
+    // Structural check: is a Y.Map a type sub-map of yTypes?
+    // Type sub-maps are created via virtual genesis — permanent, never in undo cycle.
+    const yTypesRef = this.yTypes;
+    const isTypeSubMap = (parent: Y.AbstractType<any> | null): boolean => parent?.parent === yTypesRef;
+
+    const entityCaches = documentEntityCaches;
+    const shadowDoc = shadow;
     this.__undoManager__ = new UndoManager(this.yTypes, {
       captureTimeout: 500,
       trackedOrigins: new Set([SHADOW_TO_MAIN, COMMIT_DELTA_ORIGIN]),
       ignoreRemoteMapChanges: true,
+      deleteFilter: (item) => {
+        const parent = item.parent;
+        // Item.parent is AbstractType | ID | null — only AbstractType has structural meaning here
+        if (!(parent instanceof Y.AbstractType)) return true;
+
+        // 1. Entity shell in type sub-map → PROTECT (never delete entity identity)
+        if (isTypeSubMap(parent) && item.parentSub !== null) {
+          return false;
+        }
+
+        // 2. Creation content inside a protected XmlElement → PROTECT
+        //    Entity content is at most 2 levels deep:
+        //    Level 1: parent IS the XmlElement (attributes)
+        //    Level 2: parent is a Y.Map/Y.Array whose .parent is the XmlElement (containers)
+        const xmlEl: Y.XmlElement | null =
+          parent instanceof Y.XmlElement ? parent : parent.parent instanceof Y.XmlElement ? parent.parent : null;
+
+        if (xmlEl && isTypeSubMap(xmlEl.parent)) {
+          // _item.parentSub is the UUID (map key) — no public API for this
+          const uuid: string | null = (xmlEl as any)._item?.parentSub;
+          if (uuid) {
+            const model = entityCaches.get(shadowDoc).get(uuid)?.deref();
+            if (model) {
+              const internals = getInternals(model);
+              if (
+                !internals.isDependency &&
+                internals.materializationClock !== undefined &&
+                internals.materializationClient !== undefined &&
+                item.id.client === internals.materializationClient &&
+                item.id.clock < internals.materializationClock
+              ) {
+                return false; // creation content — protected
+              }
+            }
+          }
+        }
+
+        return true;
+      },
     });
 
     // Liminal UndoManager — tracks only LIMINAL writes on shadow. captureTimeout:0 = no batching.
@@ -420,11 +482,9 @@ export class Plexus<
               if (change.action === "add") {
                 const newElement = (evt.target as Y.Map<YPlexusNode>).get(id)!;
                 if (internals.yjsModel?.element !== newElement) {
-                  internals.isDematerialized = false;
-                  // old elements are not preserved; we need to regenerate the component logic
+                  // Entity re-appeared (e.g. peer sync). Re-wrap and re-observe.
                   internals.yjsModel = new PlexusWrapper(newElement);
                   model.__bootstrapObservation__();
-                  // we don't know what exactly changed due to transaction compression
                   undoManagerNotifications.get(newElement)?.({
                     attributesChanged: new Set(Object.keys(model.__schema__)),
                     childListChanged: true,
@@ -433,12 +493,9 @@ export class Plexus<
                 continue;
               }
               if (change.action === "delete") {
-                // todo we also need to de-materialize when node is removed from graph; yet, it's not fully clear how to track it
-                internals.isDematerialized = true;
-                for (const key of Object.keys(model.__schema__)) {
-                  // it is only needed for fixing tests that crash on serialization - otherwise behavior is same as per-object definitions were solving constructor-only problem
-                  delete model[key];
-                }
+                // With append-only shells + deleteFilter, this should rarely fire for
+                // local entities. May still occur for edge cases (external GC, dependency cleanup).
+                // Entity becomes detached but stays readable — no field deletion.
                 internals.unobserve?.();
                 internals.yjsModel = undefined;
               }
@@ -534,6 +591,14 @@ export class Plexus<
       this.__isUndoing__ = true;
       this.__undoManager__.redo();
       this.__isUndoing__ = false;
+    }
+  }
+
+  stopCapturing() {
+    if (this.isLiminal) {
+      this.__liminalUndoManager__.stopCapturing();
+    } else {
+      this.__undoManager__.stopCapturing();
     }
   }
 
@@ -634,7 +699,11 @@ export class Plexus<
   broadcastLiminalPreview(): void {
     if (!this.isLiminal) return;
     const delta = Y.encodeStateAsUpdate(this.__liminalDocument__, Y.encodeStateVector(this.doc));
-    (this.awareness as PlexusAwareness).setField("liminal", [this.__liminalHeight__, Math.floor(time.getUnixTime() / 1000), toBase64(delta)]);
+    (this.awareness as PlexusAwareness).setField("liminal", [
+      this.__liminalHeight__,
+      Math.floor(time.getUnixTime() / 1000),
+      toBase64(delta),
+    ]);
   }
 
   // ── Adaptive liminal broadcast ─────────────────────────────────────
@@ -675,7 +744,10 @@ export class Plexus<
 
     let frame = 0;
     const tick = () => {
-      if (!this.isLiminal) { this._stopBroadcastLoop(); return; }
+      if (!this.isLiminal) {
+        this._stopBroadcastLoop();
+        return;
+      }
       if (frame++ % this.__broadcastSkip__ === 0) this.broadcastLiminalPreview();
       this.__broadcastHandle__ = requestAnimationFrame(tick);
     };

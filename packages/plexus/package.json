@@ -67,12 +67,12 @@
     "typescript": "^6.0.2",
     "vitest": "^4.0.14",
     "y-protocols": "^1.0.6",
-    "yjs": "^13.6.27"
+    "yjs": "^13.6.30"
   },
   "peerDependencies": {
     "mobx": "^6.15.0",
     "y-protocols": "^1.0.6",
-    "yjs": "^13.6.27"
+    "yjs": "^13.6.30"
   },
   "peerDependenciesMeta": {
     "mobx": {

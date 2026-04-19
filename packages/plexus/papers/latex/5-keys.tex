@@ -1,0 +1,210 @@
+\input{shared-preamble}
+
+\title{Composite Entity-Addressed Keys for CRDT Maps}
+\author{%
+    Merkle, B.\thanks{Independent researcher, Here.build; x.com/merkle\_bonsai; Immunefi top--40 whitehat (ethical hacker); email: merklebonsai@pm.me}%
+    \and%
+    Rodionov, V.\thanks{Independent researcher, Here.build; email: v@here.build}%
+}
+\date{Draft --- preprint, April 2026}
+
+\hypersetup{%
+    pdftitle={Composite Entity-Addressed Keys for CRDT Maps},%
+    pdfauthor={Merkle, B.; Rodionov, V.}%
+}
+
+\plexusabstract{%
+    CRDT maps restrict keys to strings --- a constraint inherited from JSON, not from CRDT algebra. We present a key serialization algebra that embeds primitives, entity references, ordered tuples, and unordered sets into string keys with deterministic cross-peer serialization. Set keys are sorted after serialization, making \texttt{\{A, B\}} and \texttt{\{B, A\}} identical across peers. With self-resolving entity identity (\S 5 of \cite{plexus:arch}), entity references in keys are decodable back to the CRDT operation log without a lookup table. The technique enables CRDT-native composite key addressing: junction-free relations and multi-dimensional lookups expressed as single map entries, without application-managed indexes. Decodable entity references additionally enable referential GC without a reverse index (P6).%
+}
+
+\begin{document}
+
+\maketitle
+
+\section{The String Key Constraint}
+
+Every major CRDT map implementation restricts keys to strings:
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Framework} & \textbf{Key type} & \textbf{Source} \\
+\midrule
+Yjs Y.Map & \texttt{string} & Hard-coded in API \cite{plexus:partitioning} \\
+Automerge & \texttt{string} & JSON object model \cite{automerge:modeling} \\
+Loro & \texttt{string} & Hard-coded in API \cite{loro:whennot} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This restriction inherits from the JSON data model: JSON object keys are strings. CRDT frameworks that model ``JSON-like documents'' inherit the constraint. Notably, the CRDT algebra itself imposes no such restriction --- standard formalizations of OR-Map and LWW-Map parameterize over a key set K with no structural requirement beyond equality \cite{baquero2017pure, shapiro2011crdt}. The string constraint is a convention, not a necessity.
+
+The one production exception is Riak DT Map \cite{riakdtmap}, which uses composite keys \texttt{(name: binary, type: atom)} where \texttt{type} is one of \texttt{\{counter, set, register, flag, map\}} --- a fixed schema-level discriminator that distinguishes ``score as counter'' from ``score as set,'' not an arbitrary composite key.
+
+\subsection{What String Keys Cannot Express}
+
+\textbf{Entity-keyed lookups.} A design tool stores style overrides per component. The natural key is the component entity, but with string keys the application must serialize the entity's ID, handle key stability, and resolve keys back to entities via a lookup table or secondary index. Composite relationships compound this: a collaborative spreadsheet applies conditional formatting rules per cell, and the natural key is the tuple \texttt{(row, column, rule)} --- three entity references. String keys require an ad hoc serialization convention (\texttt{"\$\{rowId\}::\$\{colId\}::\$\{ruleId\}"}) that every consumer must implement identically.
+
+\textbf{Unordered set keys.} A visual component has style settings per \emph{combination} of active variants --- what does it look like when both \texttt{hover} and \texttt{disabled} are active? The natural key is the unordered set \texttt{\{hover, disabled\}}. String keys require sorting entity IDs, choosing a delimiter, and ensuring all peers use the same convention; the industry workaround is exactly this: \texttt{JSON.stringify(combo.map(v =\textgreater{} v.uuid).sort())}. A closely related case is many-to-many relationships, which in relational databases use junction tables with composite primary keys; in CRDTs this requires either a junction entity (doubling the operation count) or a manually-serialized composite string key.
+
+The universal pattern across frameworks is \texttt{Map\textless{}string\_serialized\_id, Data\textgreater{}} with secondary indexes built outside the CRDT \cite{automerge:modeling}. Loro explicitly advises against using CRDTs for \emph{``global invariants (referential integrity, cross-document totals)''} \cite{loro:whennot}. The technique here does not enforce global invariants --- it expresses structural relationships that converge by construction, which is a different concern.
+
+\section{Technique}
+
+The key serialization algebra is a layer above the CRDT map, not a modification to it. Composite keys serialize to plain strings and store in any existing string-keyed CRDT map. The CRDT's conflict resolution semantics are unchanged.
+
+\subsection{Key Type Algebra}
+
+Three constructors over a value domain:
+
+\begin{lstlisting}
+Key ::= Value(v)                      -- single value
+       | Array(v1, v2, ..., vn)       -- ordered composite (n >= 0)
+       | Set(v1, v2, ..., vn)         -- unordered composite (n >= 0, no duplicates)
+
+v   ::= string | number | boolean | bigint | null | EntityRef(id)
+\end{lstlisting}
+
+\texttt{EntityRef(id)} is a reference to a CRDT entity, where \texttt{id} is the entity's self-resolving identifier (\S 5 of \cite{plexus:arch}) --- a 15-character string encoding the creating operation's \texttt{\{clientId, clock\}} pair. Nesting is not supported: keys cannot contain other keys as elements (see \S 2.2).
+
+The constructors form a tagged union. The type tag (\texttt{Value}, \texttt{Array}, \texttt{Set}) is part of the serialized form, ensuring that \texttt{Value(42)} and \texttt{Array(42)} are distinct keys.
+
+Empty containers are valid: \texttt{Set()} represents ``no entities'' (e.g., base variant with no active states), \texttt{Array()} represents an empty tuple.
+
+\subsection{Serialization}
+
+Keys serialize to newline-delimited strings with a type prefix:
+
+\begin{lstlisting}
+Value key:    "Value\n" + serializeValue(v)
+Array key:    "Array\n" + serializeValue(v1) + "\n" + ... + "\n" + serializeValue(vn)
+Set key:      "Set\n"   + sort([serializeValue(v1), ..., serializeValue(vn)]).join("\n")
+\end{lstlisting}
+
+\textbf{Value serialization.} Primitives serialize via \texttt{JSON.stringify}, which escapes newlines to \texttt{\textbackslash\textbackslash n} --- ensuring the newline delimiter is unambiguous. Special cases handled explicitly: \texttt{NaN} $\to$ \texttt{"NaN"}, \texttt{Infinity} $\to$ \texttt{"Infinity"}, \texttt{-Infinity} $\to$ \texttt{"-Infinity"}, bigints via trailing \texttt{n} suffix (\texttt{42n}). Entity references serialize to their CRDT reference tuple: \texttt{["pRxK4mN7pQ2wJbL"]} for local entities, \texttt{["pRxK4mN7pQ2wJbL", "dep123"]} for cross-document references.
+
+\textbf{Set commutativity.} Set elements are serialized individually, then sorted lexicographically as strings. This produces identical key strings regardless of insertion order, without requiring a total order on the heterogeneous value domain. The sort operates on serialized forms (byte strings), which always have a total order.
+
+\textbf{Injectivity.} The serialization is injective (distinct keys produce distinct strings) under the following conditions:
+
+\begin{itemize}
+    \item (a) \texttt{JSON.stringify} is injective for the supported primitive types --- which holds except for \texttt{-0} vs \texttt{0} (both produce \texttt{"0"}) and numbers beyond \texttt{Number.MAX\_SAFE\_INTEGER} (precision loss). These edge cases should be validated at the serialization boundary.
+    \item (b) Entity identifiers are unique per the CRDT's own guarantee (\S 5 of \cite{plexus:arch}).
+    \item (c) The type prefix and newline delimiter are unambiguous because all value forms JSON-escape literal newlines. Literal backslashes in string payloads are themselves JSON-escaped (\texttt{"\textbackslash\textbackslash n"} encodes the two characters \texttt{\textbackslash n}), so the delimiter escape is unambiguous at all depths of backslash nesting.
+    \item (d) Empty containers across constructors are distinguishable by type prefix alone: \texttt{Array()} serializes to \texttt{"Array"} (no trailing elements), \texttt{Set()} to \texttt{"Set"}, \texttt{Value()} requires a value (empty not supported). No two empty container prefixes collide. Empty string values serialize unambiguously: \texttt{JSON.stringify("")} is \texttt{'""'}, which does not prefix-collide with any non-empty value.
+    \item (e) Set sort stability across implementations requires attention. The sort is over serialized byte strings --- total order by construction --- but the \emph{specific} order depends on the sort's collation. JavaScript's default \texttt{Array.prototype.sort()} uses UTF-16 code-unit order; Rust's and Go's default string sort uses UTF-8 byte order. For ASCII-only serialized forms (primitives, entity references, genesis paths in \texttt{[a-zA-Z0-9\_]+}) the two coincide. For Set elements containing non-ASCII string values (or surrogate-pair code points), JS and Rust sorts diverge. Mitigations, in order of preference: (i) normalize at the serialization layer --- NFC-normalize strings and require ASCII-only Set element forms via percent-escaping or equivalent; (ii) re-encode to UTF-16 inside the sort comparator on non-JS runtimes (correct but expensive per-comparison); (iii) document Set-key payloads as ASCII-only. This is a portability constraint on P3.
+\end{itemize}
+
+\textbf{Nesting prohibition.} Composite keys cannot contain other composite keys as elements. The flat newline-delimited format cannot parse nested containers unambiguously without adding an escaping or depth mechanism, which would complicate both injectivity analysis and framework compatibility. Applications needing nested structure should compose via entity references --- the nested structure lives as an entity, and the key holds the reference.
+
+\subsection{Resolution}
+
+Deserialization splits on newlines, reads the type prefix, and resolves each element. Entity references are decoded from the self-resolving identifier to \texttt{\{clientId, clock\}}, then resolved via binary search on the CRDT operation log (\S 5 of \cite{plexus:arch}). Resolution is O(log m) per entity reference, where m is the operation count for the relevant client --- with no auxiliary index or lookup table.
+
+\section{Properties}
+
+\subsection{Standalone (no companion dependencies)}
+
+\textbf{P1. Cross-peer determinism.} Two peers serializing the same key produce the same string. Set keys are order-independent by construction (sort-after-serialize). This holds for any CRDT map that accepts string keys.
+
+\textbf{P2. Collision-free under supported types.} Distinct keys produce distinct serialized strings, given: supported primitive types (excluding \texttt{-0} and unsafe integers), unique entity identifiers, and the tagged-union type prefix.
+
+\textbf{P3. Framework-compatible.} The serialized key is a plain string. It stores in Yjs Y.Map, Automerge maps, Loro maps, or any string-keyed CRDT map without protocol changes. Frameworks with aggressive key interning or columnar compression may see disproportionate performance impact from long composite keys.
+
+\subsection{Composed (with self-resolving entity identity, \S 5 of \cite{plexus:arch})}
+
+\textbf{P4. Decodable keys.} With self-resolving entity identity (\S 5 of \cite{plexus:arch}), every entity reference in a key can be resolved to a live entity via decode + binary search on the CRDT operation log. No lookup table or secondary index required. A serialized key received over any channel (network, clipboard, snapshot) is self-contained --- every entity reference is a live pointer.
+
+\textbf{P5. Stable entity references.} Entity identifiers are derived from the creating operation's coordinates (\S 5 of \cite{plexus:arch}) and never change. A key referencing entity A remains valid regardless of how A's content evolves. This is structurally stronger than using mutable properties (names, paths) as key components.
+
+\textbf{P6. Decodable keys enable referential GC without a reverse index.} Because every entity reference in every map key is decodable directly from the key string, garbage collection of deleted entities can scan map keys for references to the deleted entity and cascade-delete the affected entries --- without maintaining a reverse reference index. The scan is O(map size) worst case per deletion, which bounds applicability; for large high-cardinality maps a reverse index may still be preferable. But the option \emph{exists}, which is not true for CRDT maps using opaque string keys: there, the only way to find entries referencing a deleted entity is to deserialize every key on every deletion anyway, or to maintain an external index. Decodability makes the index optional rather than mandatory. This is a key-level scan, complementary to the whole-graph reachability signal of \S 4 of \cite{plexus:arch} --- the architecture paper's reachability walks the reference graph from root via schema-declared edges; P6 here is local to a single map's keys and operates without reference to the graph walk.
+
+Note: when combined with deterministic genesis \cite{plexus:genesis} and replica-identifier partitioning \cite{plexus:partitioning} (itself an adaptation of Yu et al.'s categorical-second-dimension technique to op-based CRDTs), structural entities referenced in keys gain additional properties --- convergent creation and priority ordering --- but these are contributions of the companion papers, not of the key algebra itself.
+
+\section{Applications}
+
+\subsection{Entity-Keyed Lookups}
+
+The simplest case --- one entity as a map key:
+
+\begin{lstlisting}
+Map<Component, StyleOverride>
+\end{lstlisting}
+
+The component's self-resolving identifier serves as the key. Stable across peers, survives serialization, resolves without a registry.
+
+\subsection{Composite Relationships (Tuples)}
+
+Two entities jointly own a configuration:
+
+\begin{lstlisting}
+Map<[Component, Slot], Binding>
+\end{lstlisting}
+
+The array key is an ordered composite --- \texttt{[A, B]} $\neq$ \texttt{[B, A]}. No junction entity is needed; the key carries the relation directly.
+
+\subsection{Multi-Dimensional Lookups (Sets)}
+
+A visual component has style settings per variant combination:
+
+\begin{lstlisting}
+Map<Set<Variant>, StyleSettings>
+\end{lstlisting}
+
+The set key \texttt{\{hover, disabled\}} serializes identically regardless of insertion order. This eliminates the ad hoc \texttt{JSON.stringify(combo.map(v =\textgreater{} v.uuid).sort())} pattern found in production Yjs applications. Two peers writing style settings for the same variant combination address the same map entry --- their writes merge correctly via the underlying CRDT's per-key conflict resolution.
+
+Note: set-keyed maps provide exact-match lookups. Range queries (``find all entries whose key is a subset of this set'') require additional application logic or a secondary index.
+
+\subsection{Hyperedges}
+
+A hyperedge connects N nodes. The edge identity is the set of connected nodes:
+
+\begin{lstlisting}
+Map<Set<Node>, EdgeData>
+\end{lstlisting}
+
+No separate edge entity is required: the set of nodes serves as the edge's address, so two peers creating an edge between the same nodes produce the same set key and the edge converges without coordination.
+
+\section{Constraints}
+
+\textbf{C1. Dangling references.} When a referenced entity is deleted, keys containing it become partially unresolvable. This mirrors the dangling foreign key problem in relational databases. P6 describes the referential-GC option that decodability enables; C4 enumerates the specific interaction with CRDT runtime GC.
+
+\textbf{C2. Set key cardinality.} A set of N entities produces a key string of approximately N $\times$ 17 characters (15-char identifier + delimiters). CRDT maps store the full key string per entry. High-cardinality sets (100+ elements) inflate storage and sync payloads. A content-addressed hash of the sorted set would be more compact at the cost of losing decodability.
+
+\textbf{C3. Primitive edge cases.} \texttt{-0} and \texttt{0} serialize identically via \texttt{JSON.stringify}. Numbers beyond \texttt{Number.MAX\_SAFE\_INTEGER} lose precision during serialization. The serialization boundary should validate these cases. BigInt serialization uses an unquoted \texttt{n} suffix, distinguished from string \texttt{"42n"} by the JSON quotes around the string form.
+
+\textbf{C4. Garbage collection interaction.} Referenced entities must be retained for the key to remain resolvable. Three interaction modes exist: (a) \texttt{gc: false} --- everything works at the cost of unbounded tombstone growth; (b) GC with reference scanning via P6's key-scan approach --- acceptable for small maps and periodic cleanup but non-trivial at high cardinality; (c) GC without reference scanning --- dangling keys are inevitable; applications must tolerate partial resolution. The cold-storage offload alternative of \S 4 of \cite{plexus:arch} generalizes (b) to tiered storage: unreachable entities move to a cold tier rather than being deleted, and their keyed references resolve via cold-tier fetch. This replaces the scan cost with a per-offload cost that amortizes well.
+
+\textbf{C5. Portability.} The key serialization algebra (P1-P3) works with any CRDT framework using its native entity identifiers --- Automerge objectIds (\texttt{"\{counter\}@\{actorId\}"}), Loro TreeIds, or application-generated UUIDs. With Automerge objectIds, entity-keyed lookups already work (objectIds are resolvable via \texttt{doc.getObjectById()}). The decodability property (P4) specifically requires self-resolving identifiers (\S 5 of \cite{plexus:arch}) but the algebra itself does not.
+
+\section{Related Work}
+
+\textbf{Riak DT Map} \cite{riakdtmap} is the only CRDT with \emph{compound structured keys} in production --- most production CRDT maps use string keys, and applications compose into those strings ad hoc. Our specific contribution is a structured encoding of \emph{decodable entity references} inside composite keys: the novelty is not composite keys per se (the industry workaround \texttt{JSON.stringify(combo.map(v =\textgreater{} v.uuid).sort())} is essentially the scalar case), but rather (a) a type-prefixed injective serialization that includes entity references as first-class elements, (b) the Set-key commutativity via sort-after-serialize, and (c) the referential-GC consequence (P6) that decodability enables. Riak DT Map's fixed schema discriminator does not compose with multi-entity references or set keys.
+
+\textbf{Kleppmann and Beresford} \cite{kleppmann2017automerge} formalize JSON CRDTs with string-keyed maps, establishing the convention this paper extends. For LWW-Map the serialized string is the LWW unit; for OR-Map it is the per-key tombstone unit. Convergence semantics of the underlying map are preserved regardless of the host CRDT's map variant.
+
+\textbf{Baquero, Almeida, and Shoker} \cite{baquero2017pure} define pure operation-based CRDTs with generic key types, demonstrating that the CRDT algebra does not require string keys. Our technique bridges this theoretical generality with the practical string-key constraint of deployed frameworks.
+
+\textbf{SynQL} \cite{synql2024} replicates relational foreign keys as string attributes --- the ``serialize entity ID to string'' pattern. It does not support composite or set-valued keys.
+
+\textbf{Shapiro et al.} \cite{shapiro2018integrity} prove that causal consistency suffices for referential integrity. Our entity references in keys are not enforced by the CRDT --- they are structural relationships expressed through serialization, not integrity constraints.
+
+\textbf{Weidner's CRDT-Valued Map} \cite{weidner2022collab} formalizes lazy maps where every key implicitly has a value. With set keys, the logical keyspace is the powerset of the entity space --- every possible combination of entities becomes a valid key.
+
+\textbf{Adjacent patterns outside CRDT research.} RDF triple/quad stores \cite{w3c:rdf11} model data as \texttt{(subject, predicate, object)} tuples --- composite keys with entity references as first-class components. Production RDF stores (Apache Jena, Oxigraph) serialize these tuples into string-keyed B-trees using pattern-specific encodings; our algebra generalizes this to arbitrary tuple/set shapes with a single serialization rule. Non-CRDT production systems such as Facebook's TAO and Datomic materialize similar \texttt{(entity, attribute, value)} composite structure in non-replicated settings; the contribution here is making this structure work under CRDT convergence. Yjs \texttt{RelativePosition} \cite{yjs:relativeposition} and Loro \texttt{ContainerID} serialize coordinate-derived identifiers into strings that are decodable into CRDT positions --- the structural cousin of our EntityRef, but scoped to position-within-sequence rather than entity-within-graph. TreeDoc / RGA position identifiers \cite{treedoc2009} likewise embed decodable structure into sort keys; the use case (list ordering) differs but the encoding pattern --- ``serialize a coordinate tuple into a totally-orderable string'' --- is the same.
+
+\textbf{Entity-oriented CRDT documents} \cite{plexus:arch} provide the architectural setting: a document is a flat registry of entity shells connected by a reference graph, with a concrete self-resolving UUID encoding (\S 5 of \cite{plexus:arch}) that makes references decodable, cross-peer-stable, and usable without a lookup table. Keys with \texttt{EntityRef} components are a natural extension of that graph into map-key positions. Deterministic genesis \cite{plexus:genesis} and replica-identifier partitioning \cite{plexus:partitioning} --- the latter an adaptation of Yu et al.'s categorical-second-dimension technique to op-based CRDTs --- provide additional guarantees (convergent creation, priority ordering) for structural entities but are not required by the key algebra itself.
+
+\section{Conclusion}
+
+CRDT maps have been string-keyed since their formalization. The CRDT algebra imposes no such restriction --- it is inherited from the JSON data model. We provide a structured serialization that embeds richer key types into strings while preserving the properties needed for correct CRDT convergence.
+
+The core contribution --- a key type algebra with entity references, ordered tuples, and unordered sets --- is adoptable by any CRDT framework with string-keyed maps. When it is composed with self-resolving entity identity (\S 5 of \cite{plexus:arch}), keys become decodable pointers: every entity reference in a key resolves directly to the CRDT operation log, and referential GC (P6) becomes tractable without a reverse reference index. Applications built on this composition no longer need junction entities, ad hoc key serialization conventions, or the assumption that map keys are opaque strings.
+
+The algebra itself is CRDT-external. P4 and P6, however, depend on the serialized key being able to round-trip into the host CRDT's operation-log coordinates --- a property that requires coordination between the key schema and the host's identity model. Opaque-string alternatives cannot deliver this, which is why the contribution is better described as a serialization convention that integrates with a coordinate-addressed CRDT identity layer than as a standalone string-encoding scheme.
+
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+\end{document}

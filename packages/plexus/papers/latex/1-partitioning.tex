@@ -1,0 +1,225 @@
+\input{shared-preamble}
+
+\title{Adapting Categorical CRDT Lifecycle to Op-Based CRDTs via Replica-Identifier Partitioning}
+\author{%
+    Merkle, B.\thanks{Independent researcher, Here.build; x.com/merkle\_bonsai; Immunefi top--40 whitehat (ethical hacker); email: merklebonsai@pm.me}%
+    \and%
+    Rodionov, V.\thanks{Independent researcher, Here.build; email: v@here.build}%
+}
+\date{Draft --- preprint, April 2026}
+
+\hypersetup{%
+    pdftitle={Adapting Categorical CRDT Lifecycle to Op-Based CRDTs via Replica-Identifier Partitioning},%
+    pdfauthor={Merkle, B.; Rodionov, V.}%
+}
+
+\plexusabstract{%
+    Yu et al.\cite{yu2019opodis} introduced a lifecycle-counter technique for state-based CRDTs, encoding per-operation state (undone vs.\ active) in a second timestamp dimension alongside the primary clock. The broader insight in that work is that a CRDT's resolution algebra admits categorical load on a second dimension without breaking convergence. Op-based CRDTs (YATA\cite{yata2016}, RGA\cite{rga2011}) lack an explicit second dimension in their standard formulation but expose a structurally similar feature --- the replica-identifier tiebreaker --- that established practice (notably Jahns' Yjs guidance\cite{jahns2020clientid}) treats as opaque. We show that partitioning the replica-identifier space into priority-ordered categorical ranges ports Yu's lifecycle-dimension semantics to op-based CRDTs without protocol changes. The construction also delivers a property Yu's per-operation carrier cannot: because the partition is a uniform order-preserving shift applied to each peer's identifier, the inter-peer tiebreaker is invariant across lifecycle stages --- a peer that wins ties in one stage wins in every stage, which is what makes multi-peer collaboration under categorical priorities well-behaved. The whole construction lives inside Lamport's permissive ``any total order''\cite{lamport1978} formulation, so convergence follows from the base algorithm's correctness. Deployed in Plexus/Yjs, where it underpins deterministic genesis convergence\cite{plexus:genesis}, ephemeral-session isolation\cite{plexus:liminal}, and lifecycle-aware undo filtering (developed in companion work).%
+}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+The core insight --- that a CRDT's resolution algebra admits categorical load on a second dimension without breaking convergence --- is Yu et al.'s\cite{yu2019opodis}, developed in the state-based setting. This paper adapts the insight to op-based CRDTs (YATA, RGA and their families) via a specific construction: partitioning the replica-identifier space into priority-ordered ranges. We describe the construction, the conditions under which it is safe, and how the companion papers in this stack use it.
+
+The partitioning scheme described here was built first: it is the identifier-allocation policy of \texttt{@here.build/plexus}, a publicly available op-based CRDT runtime on top of Yjs, and has been running in production use in applications built on here.build. Yu et al.'s categorical-second-dimension insight\cite{yu2019opodis} informed the implementation from the start. What follows is the retrospective generalization --- the invariants (§2.1) and host-CRDT assumptions (§2.3) that were implicit in the running code are made explicit here, along with the collision analysis (§3) that bounds its safety. The code is available at \url{https://github.com/here-build/plexus}.
+
+\subsection{Yu et al.'s second dimension (state-based)}
+
+State-based CRDTs have a well-defined algebra for concurrent operations: join-semilattice merge. They do not, in standard formulations, support undo --- Dolan\cite{dolan2020undoable} proves algebraic undo of general CRDTs is impossible beyond counters. Yu et al.\cite{yu2019opodis} attach a per-operation \textbf{undo-length counter} alongside the primary clock: even values mark an operation as active, odd values as undone. The counter is a second ordering dimension, carrying \emph{categorical lifecycle state} that the primary clock cannot. Primary-clock convergence is untouched; the counter only affects application-level interpretation.
+
+The broader move --- a second timestamp dimension carrying application-semantic load --- is the abstraction that matters. Yu's specific payload (undo state) is one instance; any categorical property orthogonal to causal ordering could sit on the same axis.
+
+\subsection{The op-based translation problem}
+
+Op-based CRDTs have a different shape. They don't have a single ``state'' object --- they have a stream of operations. Their resolution algorithm uses a lexicographic comparison over (Lamport clock, replica-identifier) where the replica-identifier is conventionally a \emph{uniqueness-only} tiebreaker. Established Yjs guidance is explicit: \emph{``clientIDs are session identifiers, not designed to be used for anything else''}\cite{jahns2020clientid}. The formal CRDT literature is silent on identifier assignment policy; the opaqueness norm is an implementation default, not a theorem.
+
+Direct application of Yu's technique --- attaching a new per-operation counter --- would require extending the op-based protocol with a new field on every operation, paying wire-format and compatibility costs on every existing deployment. The question is whether op-based CRDTs have a second dimension \emph{already available} that could carry the same semantic load without a protocol extension.
+
+\subsection{The construction}
+
+We observe that the replica-identifier tiebreaker is exactly that second dimension. The resolution algorithm already reads it, it is already stable across peers, and it is already causally independent of the clock. Lamport's 1978 formulation\cite{lamport1978} specified only ``an arbitrary total ordering of the processes'' --- a permissive formulation the field narrowed over subsequent decades into a convention of randomness.
+
+When the replica-identifier space is partitioned into priority-ordered categorical ranges, this existing axis carries Yu-style lifecycle semantics without a protocol change, a new field, or coordination. The construction is inside Lamport's permission (any total order includes priority-ordered ones); convergence follows from the base algorithm's convergence, because only the identifier each operation receives has changed, not the comparison function that consumes it.
+
+Yu's categorical-second-dimension insight and Lamport's permissiveness pre-date the work; we are not claiming those. The contribution has two parts: an \emph{adaptation} and an \emph{extension}.
+
+The present construction is general. Its invariants (P1--P3, §2.1) and convergence preservation (§2.2) depend only on assumptions stated abstractly (operation-based CRDT with numeric replica-identifier tiebreaker; §2.3 Applicability table) and hold across any runtime meeting them. The companion applications that build on this construction --- genesis\cite{plexus:genesis}, liminality\cite{plexus:liminal}, entity-oriented architecture\cite{plexus:arch}, composite keys\cite{plexus:keys} --- are concretely \emph{deployed} in Plexus/Yjs, and each addresses its portability commitments in its own constraints section and, where appropriate, in a dedicated appendix (notably the architecture paper's Appendix~A and the liminality paper's Appendices~A--C). The primitive of this paper is general; the applications it anchors are Yjs deployments with explicit portability analyses rather than demonstrated ports to Loro or Automerge.
+
+The adaptation is bringing Yu's lifecycle-dimension semantics to op-based CRDTs where folk guidance had foreclosed the technique. The extension is a consequence of the specific carrier we use. Yu attaches his second dimension as a per-operation counter; we attach ours to the per-peer replica identifier. Because the carrier is per-peer and the partition is a uniform order-preserving shift, our construction enjoys a property Yu's doesn't: the inter-peer tiebreaker is invariant across lifecycle stages (§2.1, P3). Who wins ties in one stage wins ties in every stage. This is what makes multi-peer collaboration under categorical priorities well-behaved --- users never get inconsistent winner-relationships depending on which lifecycle range their operations occupy.
+
+The paper describes the construction, its invariants (including P3), collision analysis, and the companion applications that motivated it: deterministic genesis convergence\cite{plexus:genesis}, liminal state commit-rewrite\cite{plexus:liminal}, entity-oriented document architecture with lifecycle-discriminated identity encoding\cite{plexus:arch}.
+
+\section{The Construction}
+
+Partition the replica-identifier space into non-overlapping ranges, ordered by priority. Yjs's identifier space is bounded by $2^{53} - 1$ (JavaScript safe integer); we use two leading bits as prefix, giving four equal ranges of $2^{51}$ each:
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Prefix} & \textbf{Range} & \textbf{Prio.} & \textbf{Purpose} \\
+\midrule
+\texttt{0b00} & $[0, 2^{51})$ & low & Regular ops \\
+\texttt{0b01} & $[2^{51}, 2^{52})$ & low & Ephemeral \\
+\texttt{0b10} & $[2^{52}, 3{\cdot}2^{51})$ & med & Committed \\
+\texttt{0b11} & $[3{\cdot}2^{51}, 2^{53})$ & high & Genesis \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All clientIds derive from a \textbf{single 51-bit random value} $X$ generated once per peer:
+
+{\footnotesize
+\begin{align*}
+X &= \texttt{random51()}\ \text{(once per peer)} \\
+\text{regular:} &\quad X \\
+\text{ephemeral}\ N: &\quad X + 2^{51} + N \\
+\text{committed}\ N: &\quad X + 2^{52} + N \\
+\text{genesis:} &\quad 3{\cdot}2^{51} + h(\mathit{type,path}) \bmod 2^{51}
+\end{align*}
+}
+
+The payload (lower 51 bits) is shared across the regular and ephemeral ranges --- only the prefix bits distinguish the namespace. Within a range, the counter $N$ occupies the lowest bits and the random entropy $X$ occupies the upper bits.
+
+The same scheme generalizes to other integer widths and partition counts. For identifier width $W$ and $k$ equally sized partition categories (with $k$ a power of 2), range $i$ occupies $[i \cdot 2^{W - \log_2 k}, (i+1) \cdot 2^{W - \log_2 k})$, and the formulas above scale by substitution. Non-power-of-2 $k$ is admissible via $\lceil \log_2 k \rceil$ prefix bits with the remaining prefix slots reserved --- the construction still works, though some identifier space is wasted. Wider integer platforms (native 64-bit, 128-bit) can spend additional bits on finer partitioning, lower collision probability, or both. The 2-prefix/51-payload split in particular reflects JavaScript's 53-bit safe integer constraint; the construction itself is agnostic to the width.
+
+\subsection{Invariants}
+
+\textbf{P1. Category precedence.} For operations $a \in R_i$ and $b \in R_j$ with $i < j$, $\mathrm{clientId}(a) < \mathrm{clientId}(b)$ by partition construction. Under max-wins tiebreaker comparison, $b$ wins when the resolution algorithm reaches the identifier comparison. (Min-wins inverts the range ordering.) The invariant's force depends on how often the tiebreaker is reached in the host algorithm --- §2.3 discusses this per-algorithm.
+
+\textbf{P2. Session ordering.} Monotonic allocation within a range ensures later sessions produce higher identifiers on the same peer. Combined with P1, this gives two-level priority: category first, then recency. Cross-peer ordering within a range is not guaranteed --- each peer maintains its own counter.
+
+\textbf{P3. Inter-peer order preservation.} The partition is a \emph{uniform shift} applied to every peer's underlying identifier. A peer's clientId in range $R_i$ is $X + \mathrm{base}_i$, where $X$ is the peer's 51-bit random base (the same $X$ reused across every stage the peer enters). Because the shift is order-preserving, the inter-peer tiebreaker is invariant across lifecycle stages: for any two peers $A$ and $B$,
+\[
+X_A > X_B \implies X_A + \mathrm{base}_i > X_B + \mathrm{base}_i
+\]
+for every range $i$.
+The tie-break rank between two peers is therefore the same in every range; the winner and loser of contested writes stay fixed across the regular, ephemeral, committed, and genesis stages.
+
+Yu's carrier is a per-operation counter and has no notion of ``peer A's tie-break rank'' to preserve across stages. Because our carrier is the per-peer replica identifier, and because the partition is an order-preserving shift, the inter-peer invariance comes out of the construction without further work. It matters in practice because multi-peer collaboration under categorical priorities would otherwise produce inconsistent winner-relationships depending on which lifecycle stage the conflict happened to sit in.
+
+\subsection{Convergence preservation}
+
+The construction leaves the CRDT's comparison function unchanged and modifies only the identifier-assignment policy; global identifier uniqueness is preserved, since the partitioned random range ($2^{51}$ per namespace) is larger than the default Yjs range ($2^{32}$) and strictly reduces collision probability (§3). Convergence is therefore inherited from the base algorithm.
+
+Companion papers develop applications that manipulate identifiers beyond assignment --- commit-time rewriting of item coordinates\cite{plexus:liminal} and deterministic content-addressed IDs for genesis entities\cite{plexus:genesis} --- and each establishes its own convergence claim over the primitive defined here.
+
+\subsection{Applicability}
+
+The construction applies to operation-based CRDTs where replica identifiers serve as a tiebreaker in concurrent conflict resolution:
+
+\begin{table*}[ht]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}lXX@{}}
+\toprule
+\textbf{Algorithm} & \textbf{Identifier role} & \textbf{Applicable} \\
+\midrule
+YATA (Yjs)\cite{yata2016} & Final tiebreaker for same-origin inserts and map entries & \textbf{Yes} \\
+RGA\cite{rga2011} & Secondary tiebreaker after Lamport timestamp & \textbf{Yes} (only when Lamport ties) \\
+Fugue & Final tiebreaker after structural checks & \textbf{Plausible} (unverified; only when structural checks tie) \\
+Automerge\cite{kleppmann2017automerge} & Secondary tiebreaker (string actorIds, requires prefix partitioning) & \textbf{With adaptation} (actorIds are hex strings; leading-byte prefix partitioning is direct) \\
+Logoot / LSEQ & Embedded in position-path construction & \textbf{No} --- changes spatial distribution \\
+Woot / TreeDoc & Structural disambiguation, not identifier comparison & \textbf{No} \\
+State-based CRDTs & Merge via lattice join, identifiers not compared & \textbf{No} \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+For algorithms where the tiebreaker is secondary (RGA, Fugue), category precedence manifests only in the subset of concurrent operations where primary ordering does not already disambiguate. The technique is useful precisely in that residual: primary ordering already covers the common case, and categorical priority supplies the lifecycle-sensitive resolution when it does not.
+
+\section{Collision Analysis}
+
+Because committed identifiers are permanent and session IDs are clustered around a single peer's random base, the collision model is \emph{birthday on $X$ values with the effective range reduced by session-block size}. Each peer's single 51-bit random value $X$ determines all its clientIds; sessions occupy $X+1 \ldots X+N$ --- consuming $\lceil \log_2(N) \rceil$ bits from the lower end.
+
+Collision probability (10 users $\times$ 1K reconnects = 10K random bases, $p < 0.01$ required). The $2^{32}$ columns are the default Yjs baseline; $2^{51}$ columns reflect the partitioned-range baseline used in the construction:
+
+\begin{table*}[ht]
+\centering
+\begin{tabular}{@{}rrrrrr@{}}
+\toprule
+\textbf{Sessions/base} & \textbf{Bits consumed} & \textbf{Effective bits at $2^{32}$} & \textbf{p at $2^{32}$} & \textbf{Effective bits at $2^{51}$} & \textbf{p at $2^{51}$} \\
+\midrule
+1 & 0 & 32 & $1.2 \times 10^{-2}$ & 51 & $\mathbf{2.2 \times 10^{-8}}$ \\
+10 & 4 & 28 & $1.2 \times 10^{-1}$ & 47 & $\mathbf{2.2 \times 10^{-7}}$ \\
+100 & 7 & 25 & ${\sim}1.0$ & 44 & $\mathbf{2.2 \times 10^{-6}}$ \\
+1000 & 10 & 22 & ${\sim}1.0$ & 41 & $\mathbf{2.2 \times 10^{-5}}$ \\
+10000 & 14 & 18 & ${\sim}1.0$ & 38 & $\mathbf{2.2 \times 10^{-4}}$ \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\textbf{Safety threshold: $\geq 33$ effective random bits} for 10K bases at $p < 1\%$. At $2^{51}$, the system supports up to ${\sim}262{,}144$ sessions per reconnection ($51 - 18 = 33$ bits) before crossing 1\%. At $2^{32}$, even 10 sessions is marginal. The uniform $2^{51}$ range eliminates the need for asymmetric range sizing.
+
+Genesis range collision (content-addressed hash, $2^{51}$ range):
+
+\begin{tabularx}{\linewidth}{@{}Xr@{}}
+\toprule
+\textbf{Types per document} & \textbf{p at $2^{51}$} \\
+\midrule
+100 & $2.2\times 10^{-12}$ \\
+1K & $2.2\times 10^{-8}$ \\
+10K & $2.2\times 10^{-8}$ \\
+100K (1M projects) & $2.2\times 10^{-6}$ \\
+\bottomrule
+\end{tabularx}
+
+\textbf{Failure mode.} A genesis collision means two distinct genesis paths hash to the same clientId. Yjs's StructStore identifies structs by \texttt{(clientID, clock)}; a second item with the same \texttt{(clientID, clock=0)} is treated as a duplicate of the first. The exact behavior (silent drop vs.\ integration error) depends on the integration path --- remote integration may differ from local creation. The observable outcome in either case: the application sees at most one genesis entity at the colliding identifier, and the probability is bounded but the failure is silent from the application's perspective. Applications relying on genesis must tolerate this bound or validate genesis-path uniqueness out-of-band.
+
+The collision analysis uses a non-cryptographic hash (Murmur3). Birthday bounds apply to random inputs. For adversarial inputs, targeted collisions are feasible in seconds of CPU --- mitigation requires either cryptographic hashing or a validation layer outside the CRDT (§4, C2).
+
+\section{Constraints}
+
+\textbf{C1. Cooperative deployment.} The construction assumes participants assign identifiers honestly. A malicious peer can self-assign any clientId --- including a genesis-range identifier producing conflict-winning items --- and the CRDT will integrate it without objection. Enforcement requires a validation layer (server-side relay, authenticated sync) outside the primitive; this is comparable to how CRDTs generally assume authenticated peer identity.
+
+\textbf{C2. Adversarial determinism.} Partitioning introduces an attack surface random-ID CRDTs do not have: an adversary with random IDs can only hope to win tiebreakers by chance, while an adversary under this scheme can guarantee wins on any contested write by selecting the highest available prefix. The opaqueness convention Jahns recommends\cite{jahns2020clientid} incidentally limits this attack (a random ID's expected priority outcome is, well, random); the construction trades that incidental limit for explicit priority semantics. Genesis integrity under adversarial inputs additionally requires either cryptographic hashing or out-of-band validation, since genesis-range assignment uses a non-cryptographic hash (Murmur3) vulnerable to targeted collisions (§3).
+
+\textbf{C3. Single partition scheme per document.} All participants must agree on the range boundaries. Heterogeneous schemes produce divergent priority outcomes --- convergence breaks. Agreement is a deployment-time invariant; the primitive does not check it.
+
+\textbf{C4. Wire format.} Identifiers above \texttt{uint32} require variable-length encoding. Yjs uses lib0 varUint (supports up to $2^{53}$). High-range identifiers (prefixes \texttt{0b01}--\texttt{0b11}) add 3 bytes to the wire encoding vs regular \texttt{uint32}. JavaScript bitwise operators truncate to int32 --- all high-range arithmetic must use float64 operations (\texttt{Math.floor}, \texttt{\%}), not \texttt{|}, \texttt{\&}, \texttt{<<}, \texttt{>>>} on the full value.
+
+\textbf{C5. Information leakage.} Monotonic allocation reveals session count and relative ordering to peers who receive operations from that range. Acceptable for collaborative editing; potentially unacceptable for privacy-sensitive deployments.
+
+\section{Applications}
+
+The primitive is used in Plexus for techniques developed in companion work:
+
+\begin{itemize}
+    \item \textbf{Deterministic genesis}\cite{plexus:genesis} --- highest-priority range with content-addressed identifiers for structural entities.
+    \item \textbf{Liminal state}\cite{plexus:liminal} --- ephemeral and committed ranges for deferred-persistence operation lifecycles.
+    \item \textbf{Entity-oriented CRDT documents}\cite{plexus:arch} --- flat-shell document model using the prefix bits for lifecycle discrimination, with the concrete self-resolving UUID encoding and priority-ordered resolution routing operations through structural liveness tiers.
+    \item \textbf{Composite entity-addressed keys}\cite{plexus:keys} --- extends decodable entity references into map-key positions with a structured serialization algebra.
+\end{itemize}
+
+Each companion paper establishes its own invariants and convergence claims over the primitive defined here. The primitive itself is intentionally small --- a construction plus its invariants --- so that downstream papers cite it uniformly without re-establishing its properties.
+
+\section{Related Work}
+
+\textbf{Yu et al.}\cite{yu2019opodis} is the direct intellectual source. Their per-operation undo-length counter adds a categorical second dimension to state-based CRDT operations --- active vs.\ undone --- without breaking convergence. We port that second-dimension pattern to op-based CRDTs using the replica-identifier tiebreaker as the carrier rather than a new counter field. The payload is different (general lifecycle priority rather than undo state specifically), but the structural move --- \emph{categorical semantics on a second axis, leaving the primary clock untouched} --- is the same.
+
+\textbf{Lamport}\cite{lamport1978} specified the identifier-as-tiebreaker pattern as ``any arbitrary total ordering of the processes.'' The construction here fits inside that specification; we are not extending Lamport's formulation but exercising its permissive clause, which the field had narrowed by convention.
+
+\textbf{Burckhardt}\cite{burckhardt2014} formalizes CRDT resolution as two axes --- \emph{visibility} (causal) and \emph{arbitration} (total). Burckhardt names the arbitration axis but leaves it unstructured beyond total-order; our technique gives that axis categorical structure without extending the framework. \textbf{Kulkarni et al.}\cite{kulkarni2014hlc} (hybrid logical clocks) and \textbf{Preguiça et al.}\cite{preguica2010dotted} (dotted version vectors) are adjacent precedents for multi-dimensional timestamps --- HLC attaches physical time; dot stores structure the identifier for causality tracking rather than arbitration priority. Different payloads; the pattern of ``structure a second axis, leave the primary clock untouched'' is shared across the lineage.
+
+\textbf{Shapiro et al.}\cite{shapiro2011crdt} formalize CRDTs using join-semilattices where replica identifiers participate in the merge function. \textbf{Weidner et al.}\cite{weidner2020semidirect} compose CRDTs via semidirect products with an explicit arbitration order, demonstrating that the ordering used for conflict resolution can be semantically meaningful.
+
+\textbf{Established framework guidance} treats replica identifiers as opaque. Jahns' Yjs community guidance\cite{jahns2020clientid} --- \emph{``clientIDs are session identifiers, not designed to be used for anything else''} --- is the most explicit articulation. The guidance is a reasonable default when resolution semantics are unknown; Yu's work demonstrates that with known semantics, structured assignment is safe and useful. The construction here applies that lesson to op-based CRDTs in ecosystems where the opaqueness norm had been treated as prescriptive.
+
+\section{Conclusion}
+
+This paper shows how to realize Yu et al.'s categorical-second-dimension technique in op-based CRDTs by partitioning the replica-identifier space into priority-ordered ranges. Yu established the semantic move in state-based CRDTs and Lamport's 1978 formulation already permitted structured replica orderings; the contribution here is the construction that makes Yu's categorical second dimension accessible in op-based systems without a protocol extension.
+
+The applications that motivated the adaptation --- deterministic genesis convergence\cite{plexus:genesis}, liminal state transitions\cite{plexus:liminal}, lifecycle-aware identity encoding\cite{plexus:arch} --- each exercise the second-axis semantics for a different purpose. Together they illustrate that the same pattern Yu used for undo-state carries well beyond undo: genesis priority, ephemeral-session isolation, persistence filtering, and UUID-prefix routing are all instances of ``categorical load on a second axis'' once the axis becomes available.
+
+Other CRDT metadata conventionally treated as opaque --- logical-clock bits, operation identifiers, causal dependencies --- may admit similar refinement, though that is outside the scope of this paper.
+
+Convergence preservation under the construction is argued at the invariant level (§2.2): unchanged comparison function, preserved identifier uniqueness. Formal verification --- e.g.\ via model-checking a YATA-plus-partitioning specification under concurrent liminal commits, genesis materialization, and partition-delayed sync, or via property-based testing against the Yjs and Loro reference implementations --- is future work. The invariants P1--P3 are stated in a form amenable to such mechanization.
+
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+\end{document}

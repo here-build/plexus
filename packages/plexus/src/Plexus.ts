@@ -37,6 +37,7 @@ import { entityClasses } from "./globals.js";
 import { docLiminality, docPlexus, docTransactionOrigin } from "./plexus-registry.js";
 import { getInternals, type PlexusConstructor, PlexusModel } from "./PlexusModel.js";
 import { PlexusWrapper } from "./PlexusWrapper.js";
+import { GENESIS_ORIGIN } from "./virtual-children-genesis.js";
 import type { AllowedYValue, AwarenessShape, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { referenceSymbol } from "./proxy-runtime-types.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
@@ -293,12 +294,17 @@ export class Plexus<
       if (origin === LIMINAL_ORIGIN) return;
       if (origin === FROM_MAIN) return;
       if (origin === this.__liminalUndoManager__) return;
-      // Block per-peer preview origins and their UM undo artifacts
+      // Block per-peer preview origins and their UM undo artifacts.
+      // GENESIS_ORIGIN is a plexus-internal origin that writes the virtual-map
+      // key→ref epilogue (see virtual-children-genesis.ts line 327-329); it must
+      // forward to main or the clock advance on shadow creates a pending-struct
+      // gap that silently drops subsequent writes on hydration.
       if (
         typeof origin === "symbol" &&
         origin !== SHADOW_TO_MAIN &&
         origin !== COMMIT_DELTA_ORIGIN &&
-        origin !== FROM_SHADOW
+        origin !== FROM_SHADOW &&
+        origin !== GENESIS_ORIGIN
       )
         return;
       if (origin instanceof UndoManager && origin !== this.__undoManager__) return;

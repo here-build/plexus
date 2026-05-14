@@ -9,16 +9,16 @@ import {
 } from "../protocol.js";
 
 describe("protocol — frame roundtrip", () => {
-  it("encodes + decodes a ready frame with empty prefix", () => {
-    const frame = encodeFrame("", messageReady);
-    const decoded = decodeFrame(frame, "");
+  it("encodes + decodes a ready frame", () => {
+    const frame = encodeFrame(messageReady);
+    const decoded = decodeFrame(frame);
     expect(decoded).toEqual({ kind: "match", type: messageReady, payload: null });
   });
 
-  it("encodes + decodes a sync frame with payload, empty prefix", () => {
+  it("encodes + decodes a sync frame with payload", () => {
     const payload = new Uint8Array([10, 20, 30, 40]);
-    const frame = encodeFrame("", messageSync, payload);
-    const decoded = decodeFrame(frame, "");
+    const frame = encodeFrame(messageSync, payload);
+    const decoded = decodeFrame(frame);
     expect(decoded.kind).toBe("match");
     if (decoded.kind === "match") {
       expect(decoded.type).toBe(messageSync);
@@ -26,10 +26,10 @@ describe("protocol — frame roundtrip", () => {
     }
   });
 
-  it("encodes + decodes an awareness frame with non-empty prefix", () => {
+  it("encodes + decodes an awareness frame", () => {
     const payload = new Uint8Array([1, 2, 3]);
-    const frame = encodeFrame("docA", messageAwareness, payload);
-    const decoded = decodeFrame(frame, "docA");
+    const frame = encodeFrame(messageAwareness, payload);
+    const decoded = decodeFrame(frame);
     expect(decoded.kind).toBe("match");
     if (decoded.kind === "match") {
       expect(decoded.type).toBe(messageAwareness);
@@ -38,25 +38,17 @@ describe("protocol — frame roundtrip", () => {
   });
 });
 
-describe("protocol — prefix multiplexing", () => {
-  it("frames addressed to a different prefix surface as wrong-prefix", () => {
-    const frame = encodeFrame("docA", messageReady);
-    const decoded = decodeFrame(frame, "docB");
-    expect(decoded).toEqual({ kind: "wrong-prefix", prefix: "docA" });
-  });
-
-  it("empty-prefix frame is not accepted by a non-empty-prefix receiver (and vice versa)", () => {
-    expect(decodeFrame(encodeFrame("", messageReady), "x").kind).toBe("wrong-prefix");
-    expect(decodeFrame(encodeFrame("x", messageReady), "").kind).toBe("wrong-prefix");
-  });
-});
-
 describe("protocol — forward compatibility", () => {
   it("unknown outer message type decodes as unknown-type, not throw", () => {
-    // Hand-build a frame with prefix="" and a varUint=99 type byte.
-    // VarUint 99 fits in one byte. VarString "" is one byte 0x00.
-    const synthetic = new Uint8Array([0x00, 99]);
-    const decoded = decodeFrame(synthetic, "");
-    expect(decoded).toEqual({ kind: "unknown-type", prefix: "", type: 99 });
+    // Hand-build a frame with a varUint=99 type byte. VarUint 99 fits in one byte.
+    const synthetic = new Uint8Array([99]);
+    const decoded = decodeFrame(synthetic);
+    expect(decoded).toEqual({ kind: "unknown-type", type: 99 });
+  });
+
+  it("type 5 (reserved) decodes as unknown-type", () => {
+    const synthetic = new Uint8Array([5]);
+    const decoded = decodeFrame(synthetic);
+    expect(decoded).toEqual({ kind: "unknown-type", type: 5 });
   });
 });

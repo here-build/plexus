@@ -8,8 +8,9 @@ import { YMessagePortProvider } from "@here.build/y-messageport";
 
 const doc = new Y.Doc();
 const provider = new YMessagePortProvider(doc, port);
-// optional: { prefix: "doc-1" } to multiplex multiple docs on one port
 // optional: { awareness: existingAwareness } to share a cursor tracker
+// One Y.Doc per port. To route multiple docs over one transport, use a
+// ControlChannel-style topology layer that transfers per-doc MessagePorts.
 
 provider.on("sync", (synced: boolean) => { /* initial replication done */ });
 
@@ -23,7 +24,7 @@ provider.destroy();         // detaches listeners on doc/awareness/port
 Outer envelope (this package):
 
 ```
-[ prefix: varString ] [ type: varUint ] [ payload: bytes... ]
+[ type: varUint ] [ payload: bytes... ]
 ```
 
 Outer message types:
@@ -35,18 +36,18 @@ Outer message types:
 | 3    | `messageAwareness`    | y-protocols awareness update                  |
 | 4    | `messageQueryAwareness` | (none — request full awareness from peer)   |
 
-`0` is reserved (never a valid message type) — varUint `0` is a clean mismatch sentinel rather than a silent type collision.
+`0` is reserved (never a valid message type) — varUint `0` is a clean mismatch sentinel rather than a silent type collision. `5` is reserved for forward-compat — currently decodes as `unknown-type` (non-fatal); see `protocol.ts` for the historical rationale (superseded by the ControlChannel design).
 
 Handshake: both sides post `messageReady` on construction. On receiving the peer's `messageReady`, each side fires `syncStep1` + `messageQueryAwareness` + (if any) its current awareness state. Symmetric — either side may construct first.
 
-Prefix multiplexing: distinct prefixes scope distinct Provider pairs on a shared port. Empty prefix is the default and the common case. Two Providers with the same prefix on the same port-pair pair up; sibling Providers on the same port see each other's frames as `wrong-prefix` and ignore them. `addEventListener("message")` is used rather than `port.onmessage` precisely because the latter is single-slot and would silently break multiplexing.
+One Y.Doc per port. The transport carries exactly one Y.Doc — no multiplexing on the wire. Routing multiple docs over a single transport is the responsibility of a topology layer (e.g. `y-control-channel`) that allocates per-doc `MessageChannel`s and transfers one port-end to each side. This gives free middleman-ignorance: proxies forward ports without ever decoding bytes. `addEventListener("message")` is used rather than `port.onmessage` because the latter is single-slot and would compose poorly with caller-attached listeners.
 
 ## Lifetime ownership
 
 The Provider owns nothing it didn't allocate:
 
 - **Y.Doc**: not owned. Caller's responsibility to destroy.
-- **MessagePort**: not owned. Caller created it, caller closes it. Critical for multiplexing — `destroy()`-closing a shared port would break siblings.
+- **MessagePort**: not owned. Caller created it, caller closes it. The topology layer that allocated the per-doc port is responsible for its closure.
 - **Awareness**: owned only when not supplied via options. If you pass `{ awareness }`, you own it.
 
 ### Lifecycle inside workers
@@ -77,7 +78,7 @@ The same symbol is used for awareness updates.
 
 ## Tests
 
-Default `pnpm test` runs the CI baseline in Node using the global `MessageChannel` (Node 15+ DOM-compatible surface): wire-protocol round-trip, two-Y.Doc sync, awareness propagation, prefix multiplexing, destroy idempotency. Browser-free, fast, runs on every CI push.
+Default `pnpm test` runs the CI baseline in Node using the global `MessageChannel` (Node 15+ DOM-compatible surface): wire-protocol round-trip, two-Y.Doc sync, awareness propagation, port-per-doc isolation, destroy idempotency. Browser-free, fast, runs on every CI push.
 
 Cross-browser matrix lives in `src/__visual__/` and runs via `pnpm visual` (Playwright). Not part of the default CI gate — needs `pnpm exec playwright install`. The matrix is a cross-product of:
 

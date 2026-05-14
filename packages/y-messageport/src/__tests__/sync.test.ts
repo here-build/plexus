@@ -129,9 +129,13 @@ describe("YMessagePortProvider — sync over Node MessageChannel", () => {
   });
 });
 
-describe("YMessagePortProvider — prefix multiplexing", () => {
-  it("two doc pairs share one MessageChannel without crosstalk", async () => {
-    const channel = new MessageChannel();
+describe("YMessagePortProvider — port-per-doc", () => {
+  it("two doc pairs on two MessageChannels don't crosstalk", async () => {
+    // The cohort decision: one Y.Doc per port. Topology layer (eventually
+    // ControlChannel) is responsible for handing the right port to the right
+    // Y.Doc; the Provider trusts the port it's given.
+    const ch1 = new MessageChannel();
+    const ch2 = new MessageChannel();
     const docA1 = new Y.Doc();
     const docA2 = new Y.Doc();
     const docB1 = new Y.Doc();
@@ -140,10 +144,10 @@ describe("YMessagePortProvider — prefix multiplexing", () => {
     docA1.getText("t").insert(0, "alpha");
     docA2.getText("t").insert(0, "beta");
 
-    const provA1 = new YMessagePortProvider(docA1, channel.port1, { prefix: "doc-1" });
-    const provA2 = new YMessagePortProvider(docA2, channel.port1, { prefix: "doc-2" });
-    const provB1 = new YMessagePortProvider(docB1, channel.port2, { prefix: "doc-1" });
-    const provB2 = new YMessagePortProvider(docB2, channel.port2, { prefix: "doc-2" });
+    const provA1 = new YMessagePortProvider(docA1, ch1.port1);
+    const provA2 = new YMessagePortProvider(docA2, ch2.port1);
+    const provB1 = new YMessagePortProvider(docB1, ch1.port2);
+    const provB2 = new YMessagePortProvider(docB2, ch2.port2);
 
     await until(
       () =>
@@ -256,7 +260,7 @@ describe("YMessagePortProvider — error resilience", () => {
     // Inject a malformed sync frame: payload has an unknown inner sub-type
     // (255 — readSyncMessage throws "Unknown message type").
     const badInner = new Uint8Array([255, 0]);
-    const badFrame = encodeFrame("", messageSync, badInner);
+    const badFrame = encodeFrame(messageSync, badInner);
     channel.port1.postMessage(badFrame, [badFrame.buffer]);
 
     await until(() => errors.length > 0);
@@ -283,9 +287,9 @@ describe("YMessagePortProvider — error resilience", () => {
     const errors: Array<[unknown, ErrorKind]> = [];
     provB.on("error", (err: unknown, kind: ErrorKind) => errors.push([err, kind]));
 
-    // varString length byte claims 200 bytes of prefix that don't exist —
-    // lib0 readVarString will throw.
-    const garbage = new Uint8Array([200, 1, 2, 3]);
+    // Lone varUint continuation byte with no follow-up — readVarUint reads
+    // past end-of-buffer and throws.
+    const garbage = new Uint8Array([0x80]);
     channel.port1.postMessage(garbage, [garbage.buffer]);
 
     await until(() => errors.some(([, k]) => k === "decode"));
@@ -309,7 +313,7 @@ describe("YMessagePortProvider — error resilience", () => {
     provB.on("error", (err: unknown, kind: ErrorKind) => errors.push([err, kind]));
 
     // Hand-craft a frame with outer type=99 (unknown to this version).
-    const frame = encodeFrame("", 99 as 1, undefined);
+    const frame = encodeFrame(99 as 1, undefined);
     channel.port1.postMessage(frame, [frame.buffer]);
 
     await until(() => errors.some(([, k]) => k === "unknown-type"));
@@ -360,7 +364,7 @@ describe("YMessagePortProvider — error resilience", () => {
 
     // Awareness payload claims a 10-byte inner blob but the buffer is truncated.
     const truncated = new Uint8Array([10, 1, 2]);
-    const badFrame = encodeFrame("", messageAwareness, truncated);
+    const badFrame = encodeFrame(messageAwareness, truncated);
     channel.port1.postMessage(badFrame, [badFrame.buffer]);
 
     await until(() => errors.length > 0);

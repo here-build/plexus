@@ -6,14 +6,13 @@
  * WebTransport datagram, etc.).
  *
  * Frame layout:
- *   [ prefix:       varString  ]   // "" when no multiplexing; UTF-8 otherwise
  *   [ messageType:  varUint    ]
  *   [ payload:      bytes...   ]   // body interpretation per messageType
  *
  * Message types (outer):
  *   1  messageReady       — handshake ping. Empty payload. Sent on construction;
  *                           receiving the peer's messageReady means it is alive
- *                           and listening on this prefix.
+ *                           and listening on this port.
  *   2  messageSync        — payload is a y-protocols sync sub-message
  *                           (syncStep1 / syncStep2 / update).
  *   3  messageAwareness   — payload is a y-protocols awareness update.
@@ -22,26 +21,32 @@
  *
  * Why "1" and not "0" for ready: matches the literal handshake spec ("send 1
  * on init; receiving a message with 1 means peer is ready"). Zero is reserved
- * — never a valid outer message type — so a peer-without-prefix talking to a
- * peer-with-prefix produces a clean mismatch at decode time rather than a
- * silent type collision.
+ * — never a valid outer message type — so a corrupted/empty buffer produces
+ * a clean mismatch at decode time rather than a silent type collision.
  *
  * Capacity: varUint is unbounded; the four message types fit in one byte.
  * Adding new outer message types is safe — old peers will read the varUint
  * and route it to a default-ignore branch (see `decodeFrame`).
  *
+ * Channel separation: this transport carries exactly one Y.Doc per port. The
+ * caller's topology layer (e.g. y-control-channel) is responsible for handing
+ * the right port to the right Y.Doc. Earlier versions of this package used a
+ * varString prefix on the envelope to multiplex multiple Y.Docs on one port;
+ * that was removed when the cohort-research synthesis showed every serious
+ * realtime tool (Liveblocks, Hocuspocus, Automerge, Supabase) puts the
+ * routing primitive at the room/doc API layer, not the wire — and per-doc
+ * ports give a free middleman-ignorance property (proxies forward ports
+ * without ever decoding bytes). See
+ * `docs/working-proposals/y-messageport-control-channel.md`.
+ *
  * Reserved type numbers (do NOT consume in this package):
- *   5  — reserved for app-defined "stateless" / ephemeral broadcast at the
- *        hub layer above this transport. Cohort precedent: Hocuspocus
- *        `stateless`, Automerge `DocHandle.broadcast`, Liveblocks
- *        `broadcastEvent`. Those primitives belong one layer up (the
- *        SharedWorker / WS-multiplexing hub that owns room/doc semantics),
- *        not at the wire. y-messageport is the wire; it has prefix
- *        multiplexing but no room concept. If a future hub package wants
- *        the slot, it claims 5 — and owns its own inner discriminator,
- *        because prefix-multiplexed ports have N consumers per port and a
- *        bare opaque payload would push the dispatch burden to each one.
- *        Today, frames with type 5 decode as `unknown-type` (non-fatal).
+ *   5  — historical reservation for a hub-layer broadcast primitive (cohort
+ *        precedent: Hocuspocus `stateless`, Automerge `DocHandle.broadcast`).
+ *        Superseded by the ControlChannel design which puts the primitive on
+ *        a sibling port instead of as an outer type here. Kept reserved so
+ *        existing v0 deployments that may have used it as an experimental
+ *        slot can roll forward without a conflicting redefinition. Today,
+ *        frames with type 5 decode as `unknown-type` (non-fatal).
  */
 
 import * as decoding from "lib0/decoding";
@@ -64,9 +69,8 @@ export type OuterMessageType =
  * list to avoid a structured-clone copy (the perf cliff described in the
  * browser-quirks notes).
  */
-export function encodeFrame(prefix: string, type: OuterMessageType, payload?: Uint8Array): Uint8Array {
+export function encodeFrame(type: OuterMessageType, payload?: Uint8Array): Uint8Array {
   const encoder = encoding.createEncoder();
-  encoding.writeVarString(encoder, prefix);
   encoding.writeVarUint(encoder, type);
   if (payload !== undefined) {
     encoding.writeVarUint8Array(encoder, payload);
@@ -77,25 +81,16 @@ export function encodeFrame(prefix: string, type: OuterMessageType, payload?: Ui
 export type DecodedFrame =
   | { kind: "match"; type: typeof messageSync | typeof messageAwareness; payload: Uint8Array }
   | { kind: "match"; type: typeof messageReady | typeof messageQueryAwareness; payload: null }
-  | { kind: "wrong-prefix"; prefix: string }
-  | { kind: "unknown-type"; prefix: string; type: number };
+  | { kind: "unknown-type"; type: number };
 
 /**
- * Decode a frame and route by prefix. The caller's `expectedPrefix` is the
- * one this Provider instance was constructed with; mismatching frames are
- * surfaced as `wrong-prefix` rather than thrown, so the caller can ignore
- * them silently (they belong to a sibling Provider sharing the port).
- *
- * Unknown outer types resolve to `unknown-type` for forward-compat — a future
- * version of this protocol can introduce new types without breaking old
- * receivers; they simply ignore frames they cannot interpret.
+ * Decode a frame. Unknown outer types resolve to `unknown-type` for
+ * forward-compat — a future version of this protocol can introduce new types
+ * without breaking old receivers; they simply ignore frames they cannot
+ * interpret.
  */
-export function decodeFrame(data: Uint8Array, expectedPrefix: string): DecodedFrame {
+export function decodeFrame(data: Uint8Array): DecodedFrame {
   const decoder = decoding.createDecoder(data);
-  const prefix = decoding.readVarString(decoder);
-  if (prefix !== expectedPrefix) {
-    return { kind: "wrong-prefix", prefix };
-  }
   const type = decoding.readVarUint(decoder);
   switch (type) {
     case messageSync:
@@ -105,6 +100,6 @@ export function decodeFrame(data: Uint8Array, expectedPrefix: string): DecodedFr
     case messageQueryAwareness:
       return { kind: "match", type, payload: null };
     default:
-      return { kind: "unknown-type", prefix, type };
+      return { kind: "unknown-type", type };
   }
 }

@@ -6,18 +6,17 @@
  * construction each posts `messageReady`, and on receiving the peer's
  * `messageReady` each fires syncStep1 + queryAwareness + own awareness state.
  *
- * Multiplexing: `prefix` scopes frames on a shared port. Wrong-prefix frames
- * are ignored — a sibling Provider on the same port handles them. `prefix=""`
- * is the default (no mux).
+ * One Y.Doc per port. Caller's topology layer (e.g. y-control-channel) is
+ * responsible for handing the right port to the right Y.Doc — typically via
+ * a per-doc MessageChannel transferred over a ControlChannel.
  *
  * Lifetime: the Provider owns nothing it didn't allocate. Not the Y.Doc, not
- * the MessagePort (caller closes — port may be shared across siblings), and
- * the Awareness only when one wasn't supplied via options.
+ * the MessagePort (caller created and closes it), and the Awareness only when
+ * one wasn't supplied via options.
  *
  * Listener model: `addEventListener("message", ...)` rather than
- * `port.onmessage = ...`. The setter is single-slot; assigning a second
- * handler silently breaks prefix-multiplexing. `addEventListener` composes
- * but requires explicit `port.start()`.
+ * `port.onmessage = ...`. The setter is single-slot; `addEventListener`
+ * composes with caller-attached listeners but requires explicit `port.start()`.
  */
 
 import { Observable } from "lib0/observable";
@@ -48,8 +47,6 @@ import {
 } from "./protocol.js";
 
 export interface YMessagePortProviderOptions {
-  /** Multiplexing tag. Default "" (single Y.Doc per port). */
-  prefix?: string;
   /** Externally-owned Awareness to reuse. If omitted, Provider creates+owns one. */
   awareness?: Awareness;
   /**
@@ -117,7 +114,6 @@ export class YMessagePortProvider extends Observable<Events> {
   readonly doc: Y.Doc;
   readonly port: MessagePort;
   readonly awareness: Awareness;
-  readonly prefix: string;
 
   private _synced = false;
   private _status: Status = "connecting";
@@ -139,7 +135,6 @@ export class YMessagePortProvider extends Observable<Events> {
     super();
     this.doc = doc;
     this.port = port;
-    this.prefix = options.prefix ?? "";
     this.awareness = options.awareness ?? new Awareness(doc);
     this._ownsAwareness = options.awareness === undefined;
 
@@ -231,7 +226,7 @@ export class YMessagePortProvider extends Observable<Events> {
 
   private _send(type: OuterMessageType, payload?: Uint8Array): void {
     if (this._destroyed) return;
-    const frame = detachable(encodeFrame(this.prefix, type, payload));
+    const frame = detachable(encodeFrame(type, payload));
     this.port.postMessage(frame, [frame.buffer]);
   }
 
@@ -259,12 +254,11 @@ export class YMessagePortProvider extends Observable<Events> {
     if (this._destroyed) return;
     let frame;
     try {
-      frame = decodeFrame(data, this.prefix);
+      frame = decodeFrame(data);
     } catch (err) {
       this.emit("error", [err, "decode"]);
       return;
     }
-    if (frame.kind === "wrong-prefix") return; // sibling Provider's traffic
     if (frame.kind === "unknown-type") {
       // Forward-compat: a newer peer sent a type we don't grok. Non-fatal —
       // surface so version skew is debuggable.

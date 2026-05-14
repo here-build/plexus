@@ -52,7 +52,7 @@ Construct once per port-end. Both sides post `hello` on construction.
 - `open(id: string): MessagePort` — allocate a fresh `MessageChannel`, transfer `port2` to peer in an `open` message, return `port1`. Duplicate `id` on the same side throws.
 - `close(id: string): void` — advisory. Peer receives a `close` event but does NOT auto-tear-down. Multi-tab scenarios depend on this.
 - `postStatus(hop: string, status: string): void` — forward an upstream hop's status. App-defined `hop` labels.
-- `lastSeenMs(): number` — wall-clock of the most recent inbound control message. Consumer applies its own liveness threshold.
+- `get lastSeenMs: number` — wall-clock of the most recent inbound control message. Consumer applies its own liveness threshold.
 - `destroy(): void` — stops heartbeat + detaches listeners. Does NOT close the underlying port (caller owns it).
 
 Events (`Observable` interface from `lib0`):

@@ -22,6 +22,7 @@ import { Observable } from "lib0/observable";
 import {
   type ControlMessage,
   PROTOCOL_VERSION,
+  type WarmupPriority,
   isControlMessage,
 } from "./protocol.js";
 
@@ -35,13 +36,29 @@ export interface ControlChannelOptions {
   heartbeatMs?: number;
 }
 
-export type ErrorKind =
+export type ControlChannelErrorKind =
   | "wrong-payload-shape"
   | "duplicate-open"
   | "messageerror"
   | "peer-error";
 
-type Events = "hello" | "open" | "close" | "status" | "ping" | "pong" | "error";
+/**
+ * Typed event-payload map. Export so consumers can wrap with a typed emitter
+ * (lib0's `Observable.emit` is untyped upstream).
+ */
+export interface ControlChannelEvents {
+  hello: [];
+  open: [id: string, port: MessagePort];
+  close: [id: string];
+  warmup: [id: string, priority: WarmupPriority];
+  setFocus: [focused: boolean];
+  status: [hop: string, status: string];
+  ping: [nonce: number];
+  pong: [nonce: number];
+  error: [error: unknown, kind: ControlChannelErrorKind, raw?: unknown];
+}
+
+type Events = keyof ControlChannelEvents;
 
 export class ControlChannel extends Observable<Events> {
   readonly port: MessagePort;
@@ -65,7 +82,7 @@ export class ControlChannel extends Observable<Events> {
 
     this._onMessage = (ev) => this._handleMessage(ev);
     this._onMessageError = (ev) => {
-      this.emit("error", [new Error("messageerror"), "messageerror" as ErrorKind, ev]);
+      this.emit("error", [new Error("messageerror"), "messageerror" as ControlChannelErrorKind, ev]);
     };
 
     this.port.addEventListener("message", this._onMessage as EventListener);
@@ -97,7 +114,7 @@ export class ControlChannel extends Observable<Events> {
     }
     if (this._openLocal.has(id)) {
       const err = new Error(`ControlChannel: duplicate open id "${id}"`);
-      this.emit("error", [err, "duplicate-open" as ErrorKind]);
+      this.emit("error", [err, "duplicate-open" as ControlChannelErrorKind]);
       throw err;
     }
     this._openLocal.add(id);
@@ -119,6 +136,27 @@ export class ControlChannel extends Observable<Events> {
   }
 
   /**
+   * Preload hint. No port allocation, no sticky reference — repeated calls
+   * with the same id are idempotent and may update the priority tier
+   * (low → high upgrade or high → low downgrade). Worker policy decides
+   * what the tiers mean; ControlChannel just shuttles the message.
+   */
+  warmup(id: string, priority: WarmupPriority): void {
+    if (this._destroyed) return;
+    this._post({ kind: "warmup", id, priority });
+  }
+
+  /**
+   * Per-client window-focus signal. Worker aggregates across attached
+   * clients to decide whether `warmup-high` may upgrade to WS-open. Cheap
+   * to spam; only state changes matter to policy.
+   */
+  setFocus(focused: boolean): void {
+    if (this._destroyed) return;
+    this._post({ kind: "setFocus", focused });
+  }
+
+  /**
    * Forward an upstream-hop's status to the peer. `hop` is an app-defined
    * label (e.g. "ws", "worker", "iframe"). Consumer composes UI status from
    * the set of received hop statuses — see the multi-hop status pattern in
@@ -130,7 +168,7 @@ export class ControlChannel extends Observable<Events> {
   }
 
   /** Last time any control message arrived. Consumer applies its own liveness threshold. */
-  lastSeenMs(): number {
+  get lastSeenMs(): number {
     return this._lastSeenMs;
   }
 
@@ -160,7 +198,7 @@ export class ControlChannel extends Observable<Events> {
     if (!isControlMessage(data)) {
       this.emit("error", [
         new TypeError("ControlChannel: payload is not a ControlMessage"),
-        "wrong-payload-shape" as ErrorKind,
+        "wrong-payload-shape" as ControlChannelErrorKind,
         data,
       ]);
       return;
@@ -175,7 +213,7 @@ export class ControlChannel extends Observable<Events> {
         if (this._openRemote.has(data.id)) {
           this.emit("error", [
             new Error(`ControlChannel: peer sent duplicate open id "${data.id}"`),
-            "duplicate-open" as ErrorKind,
+            "duplicate-open" as ControlChannelErrorKind,
           ]);
           return;
         }
@@ -183,7 +221,7 @@ export class ControlChannel extends Observable<Events> {
         if (!port) {
           this.emit("error", [
             new Error("ControlChannel: open message arrived without a transferred port"),
-            "wrong-payload-shape" as ErrorKind,
+            "wrong-payload-shape" as ControlChannelErrorKind,
           ]);
           return;
         }
@@ -194,6 +232,12 @@ export class ControlChannel extends Observable<Events> {
       case "close":
         this._openRemote.delete(data.id);
         this.emit("close", [data.id]);
+        return;
+      case "warmup":
+        this.emit("warmup", [data.id, data.priority]);
+        return;
+      case "setFocus":
+        this.emit("setFocus", [data.focused]);
         return;
       case "ping":
         // Echo immediately. Liveness is observed by lastSeenMs on either side.
@@ -207,7 +251,7 @@ export class ControlChannel extends Observable<Events> {
         this.emit("status", [data.hop, data.status]);
         return;
       case "error":
-        this.emit("error", [new Error(data.reason), "peer-error" as ErrorKind]);
+        this.emit("error", [new Error(data.reason), "peer-error" as ControlChannelErrorKind]);
         return;
     }
   }

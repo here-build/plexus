@@ -14,7 +14,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ControlChannel } from "../ControlChannel.js";
-import type { ErrorKind } from "../ControlChannel.js";
+import type { ControlChannelErrorKind } from "../ControlChannel.js";
 
 async function until(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
   const start = Date.now();
@@ -132,8 +132,8 @@ describe("ControlChannel — open / close", () => {
     const ch = new MessageChannel();
     const a = new ControlChannel(ch.port1, { heartbeatMs: 0 });
 
-    const errors: Array<[unknown, ErrorKind]> = [];
-    a.on("error", (err: unknown, kind: ErrorKind) => errors.push([err, kind]));
+    const errors: Array<[unknown, ControlChannelErrorKind]> = [];
+    a.on("error", (err: unknown, kind: ControlChannelErrorKind) => errors.push([err, kind]));
 
     a.open("doc:dup");
     expect(() => a.open("doc:dup")).toThrow(/duplicate open/);
@@ -144,20 +144,97 @@ describe("ControlChannel — open / close", () => {
   });
 });
 
+describe("ControlChannel — warmup / setFocus", () => {
+  it("warmup() delivers id + priority to peer; repeat calls re-emit", async () => {
+    const ch = new MessageChannel();
+    const a = new ControlChannel(ch.port1, { heartbeatMs: 0 });
+    const b = new ControlChannel(ch.port2, { heartbeatMs: 0 });
+
+    const seen: Array<[string, "low" | "high"]> = [];
+    b.on("warmup", (id: string, priority: "low" | "high") => seen.push([id, priority]));
+
+    a.warmup("doc:x", "low");
+    a.warmup("doc:x", "high"); // upgrade — peer sees both, policy is its problem
+    a.warmup("doc:y", "low");
+
+    await until(() => seen.length >= 3);
+    expect(seen).toEqual([
+      ["doc:x", "low"],
+      ["doc:x", "high"],
+      ["doc:y", "low"],
+    ]);
+
+    a.destroy();
+    b.destroy();
+  });
+
+  it("setFocus() delivers focused state to peer", async () => {
+    const ch = new MessageChannel();
+    const a = new ControlChannel(ch.port1, { heartbeatMs: 0 });
+    const b = new ControlChannel(ch.port2, { heartbeatMs: 0 });
+
+    const seen: boolean[] = [];
+    b.on("setFocus", (focused: boolean) => seen.push(focused));
+
+    a.setFocus(true);
+    a.setFocus(false);
+    a.setFocus(true);
+
+    await until(() => seen.length >= 3);
+    expect(seen).toEqual([true, false, true]);
+
+    a.destroy();
+    b.destroy();
+  });
+
+  it("malformed warmup payload (bad priority) emits wrong-payload-shape", async () => {
+    const ch = new MessageChannel();
+    const a = new ControlChannel(ch.port1, { heartbeatMs: 0 });
+    const b = new ControlChannel(ch.port2, { heartbeatMs: 0 });
+
+    const errors: Array<[unknown, ControlChannelErrorKind]> = [];
+    b.on("error", (err: unknown, kind: ControlChannelErrorKind) => errors.push([err, kind]));
+
+    // Bypass typed API: post a warmup with a non-enum priority.
+    ch.port1.postMessage({ kind: "warmup", id: "doc:z", priority: "urgent" });
+
+    await until(() => errors.some(([, k]) => k === "wrong-payload-shape"));
+
+    a.destroy();
+    b.destroy();
+  });
+
+  it("malformed setFocus payload (non-boolean) emits wrong-payload-shape", async () => {
+    const ch = new MessageChannel();
+    const a = new ControlChannel(ch.port1, { heartbeatMs: 0 });
+    const b = new ControlChannel(ch.port2, { heartbeatMs: 0 });
+
+    const errors: Array<[unknown, ControlChannelErrorKind]> = [];
+    b.on("error", (err: unknown, kind: ControlChannelErrorKind) => errors.push([err, kind]));
+
+    ch.port1.postMessage({ kind: "setFocus", focused: "yes" });
+
+    await until(() => errors.some(([, k]) => k === "wrong-payload-shape"));
+
+    a.destroy();
+    b.destroy();
+  });
+});
+
 describe("ControlChannel — heartbeat", () => {
   it("ping/pong round-trip + lastSeenMs advances", async () => {
     const ch = new MessageChannel();
     const a = new ControlChannel(ch.port1, { heartbeatMs: 20 });
     const b = new ControlChannel(ch.port2, { heartbeatMs: 0 });
 
-    const beforeA = a.lastSeenMs();
-    const beforeB = b.lastSeenMs();
+    const beforeA = a.lastSeenMs;
+    const beforeB = b.lastSeenMs;
 
     // Wait long enough for at least one ping cycle to traverse a → b → a.
     await new Promise((r) => setTimeout(r, 80));
 
-    expect(a.lastSeenMs()).toBeGreaterThan(beforeA);
-    expect(b.lastSeenMs()).toBeGreaterThan(beforeB);
+    expect(a.lastSeenMs).toBeGreaterThan(beforeA);
+    expect(b.lastSeenMs).toBeGreaterThan(beforeB);
 
     a.destroy();
     b.destroy();
@@ -195,8 +272,8 @@ describe("ControlChannel — error resilience", () => {
     const a = new ControlChannel(ch.port1, { heartbeatMs: 0 });
     const b = new ControlChannel(ch.port2, { heartbeatMs: 0 });
 
-    const errors: Array<[unknown, ErrorKind]> = [];
-    b.on("error", (err: unknown, kind: ErrorKind) => errors.push([err, kind]));
+    const errors: Array<[unknown, ControlChannelErrorKind]> = [];
+    b.on("error", (err: unknown, kind: ControlChannelErrorKind) => errors.push([err, kind]));
 
     // Hostile/buggy peer behavior: bypass the ControlChannel API and post a
     // raw object directly on the underlying port.
@@ -220,9 +297,9 @@ describe("ControlChannel — error resilience", () => {
     const b = new ControlChannel(ch.port2, { heartbeatMs: 0 });
 
     const opens: string[] = [];
-    const errors: Array<[unknown, ErrorKind]> = [];
+    const errors: Array<[unknown, ControlChannelErrorKind]> = [];
     b.on("open", (id: string) => opens.push(id));
-    b.on("error", (err: unknown, kind: ErrorKind) => errors.push([err, kind]));
+    b.on("error", (err: unknown, kind: ControlChannelErrorKind) => errors.push([err, kind]));
 
     // First open from a — legitimate.
     a.open("doc:x");
@@ -237,6 +314,72 @@ describe("ControlChannel — error resilience", () => {
     await until(() => errors.some(([, k]) => k === "duplicate-open"));
     // No new open event for the duplicate.
     expect(opens.length).toBe(1);
+
+    a.destroy();
+    b.destroy();
+  });
+});
+
+describe("ControlChannel — open without port", () => {
+  it("peer-sent open without a transferred port emits wrong-payload-shape", async () => {
+    const ch = new MessageChannel();
+    const a = new ControlChannel(ch.port1, { heartbeatMs: 0 });
+    const b = new ControlChannel(ch.port2, { heartbeatMs: 0 });
+
+    const errors: Array<[unknown, ControlChannelErrorKind]> = [];
+    const opens: string[] = [];
+    b.on("error", (err: unknown, kind: ControlChannelErrorKind) => errors.push([err, kind]));
+    b.on("open", (id: string) => opens.push(id));
+
+    // Hand-craft an `open` frame with no transferred port.
+    ch.port1.postMessage({ kind: "open", id: "doc:no-port" });
+
+    await until(() => errors.some(([, k]) => k === "wrong-payload-shape"));
+    expect(opens).toHaveLength(0);
+
+    a.destroy();
+    b.destroy();
+  });
+});
+
+describe("ControlChannel — heartbeat lifetime", () => {
+  it("heartbeat stops firing after destroy()", async () => {
+    const ch = new MessageChannel();
+    const a = new ControlChannel(ch.port1, { heartbeatMs: 20 });
+    const b = new ControlChannel(ch.port2, { heartbeatMs: 0 });
+
+    let pings = 0;
+    b.on("ping", () => pings++);
+
+    await until(() => pings >= 2);
+    a.destroy();
+    const after = pings;
+
+    await new Promise((r) => setTimeout(r, 80));
+    expect(pings).toBe(after);
+
+    b.destroy();
+  });
+});
+
+describe("ControlChannel — liveness invariants", () => {
+  it("lastSeenMs does NOT advance on a wrong-payload-shape frame", async () => {
+    const ch = new MessageChannel();
+    const a = new ControlChannel(ch.port1, { heartbeatMs: 0 });
+    const b = new ControlChannel(ch.port2, { heartbeatMs: 0 });
+
+    // Wait for initial hello to settle baseline.
+    await new Promise((r) => setTimeout(r, 20));
+    const baseline = b.lastSeenMs;
+
+    await new Promise((r) => setTimeout(r, 30));
+    ch.port1.postMessage({ kind: "not-real" });
+
+    const errors: Array<[unknown, ControlChannelErrorKind]> = [];
+    b.on("error", (err: unknown, kind: ControlChannelErrorKind) => errors.push([err, kind]));
+    await until(() => errors.some(([, k]) => k === "wrong-payload-shape"));
+
+    expect(b.lastSeenMs).toBe(baseline);
 
     a.destroy();
     b.destroy();

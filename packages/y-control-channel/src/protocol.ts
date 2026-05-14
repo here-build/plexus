@@ -17,10 +17,20 @@
 
 export const PROTOCOL_VERSION = "y-control/1";
 
+/**
+ * Warmup priority tier. `low` = cheap unconditional preload (IDB hydrate,
+ * snapshot fetch). `high` = metered work (WebSocket open + initial sync);
+ * worker policy may gate `high` on focus + budget. Application-policy
+ * vocabulary — ControlChannel just shuttles it.
+ */
+export type WarmupPriority = "low" | "high";
+
 export type ControlMessage =
   | { kind: "hello"; proto: typeof PROTOCOL_VERSION }
   | { kind: "open"; id: string } // MessagePort accompanies in transfer list
   | { kind: "close"; id: string } // advisory — receiver decides what to do
+  | { kind: "warmup"; id: string; priority: WarmupPriority } // preload hint, no port
+  | { kind: "setFocus"; focused: boolean } // per-client window-focus signal
   | { kind: "ping"; nonce: number }
   | { kind: "pong"; nonce: number }
   | { kind: "status"; hop: string; status: string } // app-defined hop names
@@ -41,6 +51,14 @@ export function isControlMessage(value: unknown): value is ControlMessage {
     case "open":
     case "close":
       return typeof (value as { id?: unknown }).id === "string";
+    case "warmup": {
+      const v = value as { id?: unknown; priority?: unknown };
+      return (
+        typeof v.id === "string" && (v.priority === "low" || v.priority === "high")
+      );
+    }
+    case "setFocus":
+      return typeof (value as { focused?: unknown }).focused === "boolean";
     case "ping":
     case "pong":
       return typeof (value as { nonce?: unknown }).nonce === "number";

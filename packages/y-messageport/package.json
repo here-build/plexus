@@ -1,7 +1,7 @@
 {
   "name": "@here.build/y-messageport",
   "version": "0.1.0",
-  "description": "Yjs sync + awareness provider over MessagePort. Universal bus extender — wires any Y.Doc to any MessagePort, with optional prefix multiplexing.",
+  "description": "Yjs sync + awareness provider over MessagePort. One Y.Doc per port. Pair with @here.build/y-control-channel for multi-doc routing.",
   "keywords": [
     "yjs",
     "y-protocols",
@@ -24,6 +24,11 @@
       "types": "./dist/protocol.d.ts",
       "import": "./dist/protocol.js",
       "default": "./dist/protocol.js"
+    },
+    "./mobx": {
+      "types": "./dist/mobx.d.ts",
+      "import": "./dist/mobx.js",
+      "default": "./dist/mobx.js"
     }
   },
   "main": "./dist/index.js",
@@ -49,6 +54,7 @@
     "@here.build/tsconfig": "workspace:^",
     "@types/node": "24.0.0",
     "eslint": "9.39.2",
+    "mobx": "6.15.0",
     "prettier": "3.8.1",
     "tslib": "2.8.1",
     "typescript": "6.0.2",
@@ -57,7 +63,13 @@
     "yjs": "13.6.30"
   },
   "peerDependencies": {
+    "mobx": "^6.15.0",
     "y-protocols": "^1.0.6",
     "yjs": "^13.6.30"
+  },
+  "peerDependenciesMeta": {
+    "mobx": {
+      "optional": true
+    }
   }
 }

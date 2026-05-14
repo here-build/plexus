@@ -3,5 +3,7 @@ export {
   YMessagePortProviderOrigin,
   type YMessagePortProviderOptions,
   type Status,
-  type ErrorKind,
+  type YMessagePortErrorKind,
+  type YMessagePortEvents,
 } from "./YMessagePortProvider.js";
+export { type OuterMessageType } from "./protocol.js";

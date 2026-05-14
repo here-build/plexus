@@ -74,7 +74,7 @@ export type Status = "connecting" | "connected" | "disconnected" | "sync-timeout
  *                         (forward-compat). Non-fatal — frame is ignored.
  * - `wrong-payload-shape` — receive event whose `data` was not a Uint8Array.
  */
-export type ErrorKind =
+export type YMessagePortErrorKind =
   | "decode"
   | "sync"
   | "awareness"
@@ -82,7 +82,21 @@ export type ErrorKind =
   | "unknown-type"
   | "wrong-payload-shape";
 
-type Events = "sync" | "status" | "error";
+/**
+ * Typed event-payload map. `Observable<Events>`'s emit signature is untyped
+ * upstream; we export this so consumers can wrap with a typed emitter.
+ *
+ *   provider.on("error", (...args) => {
+ *     const [err, kind] = args as YMessagePortEvents["error"];
+ *   });
+ */
+export interface YMessagePortEvents {
+  sync: [synced: boolean];
+  status: [{ status: Status }];
+  error: [error: unknown, kind: YMessagePortErrorKind];
+}
+
+type Events = keyof YMessagePortEvents;
 
 /**
  * Origin tag for transactions we apply from peer updates. Exported so consumers
@@ -159,7 +173,7 @@ export class YMessagePortProvider extends Observable<Events> {
       this._send(messageAwareness, encodeAwarenessUpdate(this.awareness, changed));
     };
     this._onPageHide = () => {
-      removeAwarenessStates(this.awareness, [this.doc.clientID], "window unload");
+      removeAwarenessStates(this.awareness, [this.doc.clientID], TRANSACTION_ORIGIN);
     };
 
     this.doc.on("update", this._onDocUpdate);
@@ -271,6 +285,13 @@ export class YMessagePortProvider extends Observable<Events> {
 
     switch (frame.type) {
       case messageReady:
+        // Re-receipt after a prior sync means the peer restarted (e.g. tab
+        // reload, worker eviction + reconnect). Flip back to unsynced and
+        // re-run the handshake so consumers observe the gap.
+        if (this._synced) {
+          this._synced = false;
+          this.emit("sync", [false]);
+        }
         this._sendSyncStep1();
         this._send(messageQueryAwareness);
         this._broadcastLocalAwareness();

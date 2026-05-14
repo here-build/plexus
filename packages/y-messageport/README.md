@@ -59,7 +59,7 @@ If you construct a Provider inside a worker, you must invoke `provider.destroy()
 There is no `connection-close` event. Two reasons, neither is "missing feature":
 
 1. **`MessagePort` has no close notification at the platform level.** Unlike WebSocket's `close` DOM event, MessagePort gives the receiver no signal when the sender is gone. If you need one, ship it in-band before calling `destroy()`.
-2. **Yjs has no ecosystem-wide "I'm offline" signal type.** Each provider invents its own. The `status` event here mirrors y-websocket's convention (`connecting` / `connected` / `disconnected`), scoped to this single hop. Aggregating liveness across multiple hops (`tab ↔ SharedWorker ↔ WebSocket ↔ server`) into a single boolean is a known anti-pattern — Firebase's `.info/connected` is the canonical horror story (flaps after sleep, lies after auth failure, lags 30+s after real disconnect). If you need multi-hop status, expose per-hop signals and let the consumer apply a threshold; don't collapse them at the transport.
+2. **Yjs has no single ecosystem-wide "I'm offline" signal.** Each provider exposes its own — y-websocket has `status` plus `connection-close`; y-webrtc has its own surface; y-indexeddb has none. The `status` event here mirrors y-websocket's `connecting` / `connected` / `disconnected`, scoped to this single hop. Aggregating liveness across multiple hops (`tab ↔ SharedWorker ↔ WebSocket ↔ server`) into a single boolean is a known anti-pattern — Firebase's `.info/connected` is the canonical horror story (flaps after sleep, lies after auth failure, lags 30+s after real disconnect). If you need multi-hop status, expose per-hop signals and let the consumer apply a threshold; don't collapse them at the transport.
 
 ## Origin filtering
 

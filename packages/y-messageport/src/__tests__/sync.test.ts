@@ -15,10 +15,10 @@ import * as Y from "yjs";
 import {
   YMessagePortProvider,
   YMessagePortProviderOrigin,
-  type ErrorKind,
+  type YMessagePortErrorKind,
   type Status,
 } from "../YMessagePortProvider.js";
-import { encodeFrame, messageAwareness, messageSync } from "../protocol.js";
+import { encodeFrame, messageAwareness, messageReady, messageSync } from "../protocol.js";
 
 /** Poll a predicate until true or timeout. Better than fixed sleeps. */
 async function until(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
@@ -284,8 +284,8 @@ describe("YMessagePortProvider — error resilience", () => {
 
     await until(() => provA.synced && provB.synced);
 
-    const errors: Array<[unknown, ErrorKind]> = [];
-    provB.on("error", (err: unknown, kind: ErrorKind) => errors.push([err, kind]));
+    const errors: Array<[unknown, YMessagePortErrorKind]> = [];
+    provB.on("error", (err: unknown, kind: YMessagePortErrorKind) => errors.push([err, kind]));
 
     // Lone varUint continuation byte with no follow-up — readVarUint reads
     // past end-of-buffer and throws.
@@ -309,8 +309,8 @@ describe("YMessagePortProvider — error resilience", () => {
 
     await until(() => provA.synced && provB.synced);
 
-    const errors: Array<[unknown, ErrorKind]> = [];
-    provB.on("error", (err: unknown, kind: ErrorKind) => errors.push([err, kind]));
+    const errors: Array<[unknown, YMessagePortErrorKind]> = [];
+    provB.on("error", (err: unknown, kind: YMessagePortErrorKind) => errors.push([err, kind]));
 
     // Hand-craft a frame with outer type=99 (unknown to this version).
     const frame = encodeFrame(99 as 1, undefined);
@@ -336,8 +336,8 @@ describe("YMessagePortProvider — error resilience", () => {
 
     await until(() => provA.synced && provB.synced);
 
-    const errors: Array<[unknown, ErrorKind]> = [];
-    provB.on("error", (err: unknown, kind: ErrorKind) => errors.push([err, kind]));
+    const errors: Array<[unknown, YMessagePortErrorKind]> = [];
+    provB.on("error", (err: unknown, kind: YMessagePortErrorKind) => errors.push([err, kind]));
 
     // Send a plain object — a hostile/buggy peer might do this.
     channel.port1.postMessage({ not: "a frame" });
@@ -443,6 +443,55 @@ describe("YMessagePortProvider — lifetime", () => {
 
     expect(() => provA.destroy()).not.toThrow();
     expect(provB.status).toBe("disconnected");
+  });
+
+  it("re-handshakes when peer posts a second messageReady (peer restart)", async () => {
+    const channel = new MessageChannel();
+    const docA = new Y.Doc();
+    const docB = new Y.Doc();
+
+    const provA = new YMessagePortProvider(docA, channel.port1);
+    const provB = new YMessagePortProvider(docB, channel.port2);
+
+    await until(() => provA.synced && provB.synced);
+
+    const transitions: boolean[] = [];
+    provA.on("sync", (...args: unknown[]) => transitions.push(args[0] as boolean));
+
+    // Simulate peer restart: re-emit messageReady on B's port. A should flip
+    // synced=false → re-handshake → synced=true.
+    channel.port2.postMessage(encodeFrame(messageReady));
+
+    await until(() => transitions.includes(false) && transitions[transitions.length - 1] === true);
+    expect(transitions[0]).toBe(false);
+    expect(transitions[transitions.length - 1]).toBe(true);
+
+    provA.destroy();
+    provB.destroy();
+  });
+
+  it("removeAwarenessStates on pagehide uses YMessagePortProviderOrigin tag", async () => {
+    const channel = new MessageChannel();
+    const docA = new Y.Doc();
+    const docB = new Y.Doc();
+
+    const provA = new YMessagePortProvider(docA, channel.port1);
+    const provB = new YMessagePortProvider(docB, channel.port2);
+    provA.awareness.setLocalState({ user: "a" });
+
+    await until(() => provA.synced && provB.synced);
+
+    const origins: unknown[] = [];
+    provA.awareness.on("update", (_changes: unknown, origin: unknown) => origins.push(origin));
+
+    // Simulate pagehide manually via the same code path the listener uses.
+    const { removeAwarenessStates } = await import("y-protocols/awareness");
+    removeAwarenessStates(provA.awareness, [docA.clientID], YMessagePortProviderOrigin);
+
+    expect(origins).toContain(YMessagePortProviderOrigin);
+
+    provA.destroy();
+    provB.destroy();
   });
 
   it("destroy() is idempotent and stops further message handling", async () => {

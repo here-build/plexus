@@ -1,16 +1,9 @@
 {
   "name": "@here.build/y-control-channel",
   "version": "0.1.0",
+  "private": true,
   "description": "Yjs-agnostic control plane over MessagePort. Allocates per-resource MessageChannels and transfers one end to the peer; carries hello/open/close/ping/pong/status. Composes with @here.build/y-messageport but doesn't depend on Yjs.",
-  "keywords": [
-    "messageport",
-    "control-channel",
-    "transport",
-    "routing",
-    "worker",
-    "sharedworker"
-  ],
-  "license": "FSL-1.1-MIT",
+  "license": "UNLICENSED",
   "author": "here.build",
   "type": "module",
   "exports": {

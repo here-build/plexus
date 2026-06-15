@@ -135,10 +135,7 @@ and spawns them on-demand via a factory:
 
 ```typescript
 @syncing.virtual((key: string) => new Config({ key }))
-accessor
-configs!
-:
-VirtualMap<string, Config>;
+accessor configs!: VirtualMap<string, Config>;
 
 // Accessing a key spawns the entity deterministically.
 // It appears on first access in a conflict-free, deterministic manner.
@@ -168,23 +165,17 @@ and during the CRDT merge, it will not overwrite itself, but merge safely.
 Maps use structural equality for keys — Sets, Arrays, Dates, tuples, and PlexusModel references all work:
 
 ```typescript
-@syncing.map
-accessor
-byDimensions: Map<Set<string>, number> = new Map();
+@syncing.map accessor byDimensions: Map<Set<string>, number> = new Map();
 
 // Order doesn't matter for Set keys
 map.set(new Set(["a", "b"]), 42);
 map.get(new Set(["b", "a"])); // 42
 
 // Arrays/tuples are order-sensitive
-@syncing.map
-accessor
-events: Map<[Date, string], Event> = new Map();
+@syncing.map accessor events: Map<[Date, string], Event> = new Map();
 
 // Models as keys
-@syncing.map
-accessor
-scores: Map<User, number> = new Map();
+@syncing.map accessor scores: Map<User, number> = new Map();
 ```
 
 This **differs** from native JS `Map` behavior intentionally.

@@ -24,7 +24,7 @@ wsProvider.on("status", ({ status }) => control.postStatus("ws", status));
 
 Routing per-doc traffic over a single shared port via prefix multiplexing is the obvious bad solution: every middleman has to decode bytes to know which doc a frame belongs to. Per-doc `MessagePort`s transferred via this control plane give a free **middleman-ignorance property** — proxies forward ports without ever looking at the bytes that flow through them.
 
-Cohort precedent (Liveblocks rooms, Hocuspocus documents, Automerge `DocHandle`s, Supabase channels) puts routing primitives at the application API layer, not on the wire. See `docs/working-proposals/y-messageport-control-channel.md` for the synthesis.
+Cohort precedent (Liveblocks rooms, Hocuspocus documents, Automerge `DocHandle`s, Supabase channels) puts routing primitives at the application API layer, not on the wire. See `docs/package-specific/y-control-channel/y-messageport-control-channel.md` for the synthesis.
 
 ## Control message taxonomy
 
@@ -96,4 +96,4 @@ Default 30 s. Set `heartbeatMs: 0` to disable. Doc ports stay quiet between Yjs 
 ## See also
 
 - `@here.build/y-messageport` — Yjs sync + awareness Provider over a single MessagePort.
-- `docs/working-proposals/y-messageport-control-channel.md` — design synthesis.
+- `docs/package-specific/y-control-channel/y-messageport-control-channel.md` — design synthesis.

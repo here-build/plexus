@@ -1,6 +1,6 @@
 /**
  * Verification tests for the ref-wiring spec
- * (docs/proposals/in-flight/ref-wiring-via-componentdataquery.md).
+ * (here.build/docs/proposals/in-flight/ref-wiring-via-componentdataquery.md).
  *
  * The spec adds a single field to ComponentDataQuery:
  *   @syncing.map accessor nodeRefs!: Map<ArgSlot | ReturnSlot, TplNode | null>

@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  // Build-only: exclude tests so they never emit into dist. Lint/type-discovery
+  // still see them via tsconfig.json.
+  "exclude": ["node_modules", "dist", "src/__tests__/**/*"]
+}

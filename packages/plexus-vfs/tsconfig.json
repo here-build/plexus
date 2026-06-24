@@ -1,0 +1,22 @@
+{
+  "extends": [
+    "@here.build/tsconfig/purpose/lib",
+    "@here.build/tsconfig/env/browser"
+  ],
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "declaration": true,
+    "types": ["node"],
+    // Record index access genuinely yields `T | undefined` at runtime (the
+    // Plexus record proxy returns undefined for absent keys). This makes the
+    // type match reality, so our `=== undefined` guards aren't flagged as
+    // "unnecessary" and missing-key bugs surface as type errors.
+    "noUncheckedIndexedAccess": true
+  },
+  // Includes tests too, so typed-linting (projectService) has a program for
+  // every file. The BUILD uses tsconfig.build.json, which excludes tests so
+  // they never emit into dist.
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

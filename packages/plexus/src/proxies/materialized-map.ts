@@ -1,3 +1,4 @@
+import { PathMap } from "@here.build/collections";
 import invariant from "tiny-invariant";
 import type * as Y from "yjs";
 
@@ -22,7 +23,6 @@ import {
   VALUES_SYMBOL,
 } from "../tracking.js";
 import { deserializeKey, serializeKey } from "./key-serialization.js";
-import { PathMap } from "./PathMap.js";
 import { bucketCount, telemetry } from "../telemetry.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
@@ -161,14 +161,16 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
     }
   }
 
-  const mapLike = {
+  type This = Map<K, V> & ReadonlyField<Map<K, V>>;
+
+  const self: This = {
     get size() {
       trackAccess(owner, key);
       trackAccess(self, ENTRIES_LENGTH_SYMBOL);
       return backingStorage.size;
     },
 
-    get(this: Map<K, V>, mapKey: K): V | undefined {
+    get(this: This, mapKey: K): V | undefined {
       trackAccess(owner, key);
       trackAccess(self, backingStorage.getCanonicalKey(mapKey));
       if (virtualFactory && !backingStorage.has(mapKey)) {
@@ -180,7 +182,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       return backingStorage.get(mapKey);
     },
 
-    set(this: Map<K, V>, mapKey: K, value: V): Map<K, V> {
+    set(this: This, mapKey: K, value: V): This {
       invariant(!virtualFactory, "VirtualMap: .set() is blocked — use .get(key) to auto-materialize");
       if (backingStorage.get(mapKey) === value) {
         return this;
@@ -415,9 +417,8 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       attachObserver(map);
     },
   };
-  Reflect.setPrototypeOf(mapLike, Map.prototype);
-  Object.freeze(mapLike);
+  Reflect.setPrototypeOf(self, Map.prototype);
+  Object.freeze(self);
 
-  const self = mapLike as unknown as Map<K, V> & ReadonlyField<Map<K, V>>;
   return self;
 };

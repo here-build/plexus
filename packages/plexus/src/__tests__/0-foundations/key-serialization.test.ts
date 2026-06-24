@@ -5,8 +5,9 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
+import { PathMap } from "@here.build/collections";
+
 import { deserializeKey, serializeKey } from "../../proxies/key-serialization.js";
-import { PathMap } from "../../proxies/PathMap.js";
 
 describe("key-serialization", () => {
   const doc = new Y.Doc();
@@ -120,8 +121,8 @@ describe("key-serialization", () => {
       const set = new Set([Infinity, 42n, -Infinity]);
       const serialized = serializeKey(set, doc);
 
-      // Values should be sorted: -Infinity, Infinity (numbers), then 42n (bigint by string)
-      // Actually canonicalSort sorts by type then value...
+      // serializeKey sorts the serialized value-lines (code-unit order), giving a
+      // deterministic, cross-peer-stable member order.
       const lines = serialized.split("\n");
       expect(lines[0]).to.equal("Set");
       expect(lines).to.include.members(["Infinity", "-Infinity", "42n"]);

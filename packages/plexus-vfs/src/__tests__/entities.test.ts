@@ -2,7 +2,6 @@ import { Plexus } from "@here.build/plexus";
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import { binToBytes, bytesToBin } from "../bin.js";
 import { PlexusDir, PlexusFile, PlexusFS } from "../entities.js";
 
 function makeFS(): PlexusFS {
@@ -26,11 +25,12 @@ describe("PlexusFS entities", () => {
     expect([...back]).to.deep.equal([...raw]);
   });
 
-  it("preserves every byte 0x00–0xFF through the latin1 seam", () => {
+  it("preserves every byte 0x00–0xFF through storage", () => {
+    const fs = makeFS();
     const all = new Uint8Array(256);
     for (let i = 0; i < 256; i++) all[i] = i;
-    const round = binToBytes(bytesToBin(all));
-    expect([...round]).to.deep.equal([...all]);
+    fs.writeFile("all.bin", all);
+    expect([...fs.readFile("all.bin")]).to.deep.equal([...all]);
   });
 
   it("handles large binary content (chunked encode, no stack blow-up)", () => {
@@ -131,7 +131,7 @@ describe("PlexusFS entities", () => {
     expect(fs.stat("f.txt").ino).to.equal(fstat.ino);
   });
 
-  it("text/bytes convenience accessors project through the seam", () => {
+  it("text/bytes convenience accessors project onto the content field", () => {
     const file = new PlexusFile();
     file.text = "café"; // multibyte UTF-8
     expect(file.text).to.equal("café");

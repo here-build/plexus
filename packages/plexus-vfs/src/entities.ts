@@ -1,6 +1,5 @@
 import { docPlexus, PlexusModel, syncing } from "@here.build/plexus";
 
-import { binToBytes, bytesToBin, uint32FromUUID } from "./bin.js";
 import { basename, joinPath, splitPath } from "./path.js";
 
 /**
@@ -29,14 +28,15 @@ function transact<T>(node: PlexusModel, fn: () => T): T {
 }
 
 /**
- * A file. Content is the raw byte sequence held as a latin1 string (1 char = 1
- * byte) — the single storage seam (see ./bin). All the ergonomic accessors
- * (`bytes`/`text`) project through that seam.
+ * A file. Content is the raw byte sequence, stored directly as a `Uint8Array`
+ * `@syncing` val (CRDT-backed via plexus-core's typed-array proxy). The
+ * ergonomic accessors (`bytes`/`text`) project onto it; `content` itself is the
+ * live, per-index-reactive proxy.
  */
 @syncing("@here.build/plexus-vfs:File")
 export class PlexusFile extends PlexusModel {
-  /** latin1 byte-string. The one field that changes when real Uint8Array storage lands. */
-  @syncing accessor content: string = "";
+  /** Raw file bytes. A `Uint8Array` @syncing val — in-place mutations sync per index. */
+  @syncing accessor content: Uint8Array = new Uint8Array(0);
   /** Bumped on every content write (ms since epoch). */
   @syncing accessor mtimeMs: number = 0;
 
@@ -50,12 +50,12 @@ export class PlexusFile extends PlexusModel {
     return entityPath(this);
   }
 
-  /** The content as raw bytes. */
+  /** The content as raw bytes — a detached copy (mutate freely; use the setter to persist). */
   get bytes(): Uint8Array {
-    return binToBytes(this.content);
+    return this.content.slice();
   }
   set bytes(b: Uint8Array) {
-    this.content = bytesToBin(b);
+    this.content = b;
     this.mtimeMs = Date.now();
   }
 
@@ -190,7 +190,7 @@ export class PlexusFS extends PlexusDir {
       if (existing instanceof PlexusFile) {
         existing.bytes = bytes;
       } else {
-        dir.entries[name] = new PlexusFile({ content: bytesToBin(bytes), mtimeMs: Date.now() });
+        dir.entries[name] = new PlexusFile({ content: bytes, mtimeMs: Date.now() });
       }
     });
   }
@@ -245,7 +245,7 @@ export class PlexusFS extends PlexusDir {
     delete dir.entries[name];
   }
 
-  /** stat — for this string-only VFS lstat is identical (no symlinks). */
+  /** stat — for this VFS lstat is identical (no symlinks). */
   stat(path: string): Stats {
     const node = this.lookup(path);
     if (node === null) throw new FsError("ENOENT", path);
@@ -275,6 +275,24 @@ export interface Stats {
   isFile(): boolean;
   isDirectory(): boolean;
   isSymbolicLink(): boolean;
+}
+
+/**
+ * Stable uint32 from a PlexusUUID string (FNV-1a). iso-git folds `stat.ino` into
+ * its index; it only needs to be stable per entity across reads, not globally
+ * unique. FNV-1a over the UUID chars gives exactly that.
+ */
+function uint32FromUUID(uuid: string): number {
+  let h = 0x81_1c_9d_c5;
+  for (let i = 0; i < uuid.length; i++) {
+    // charCodeAt (UTF-16 code units) is correct here: PlexusUUIDs are ASCII, so
+    // there are no surrogate pairs and the per-unit read is surrogate-safe.
+    // eslint-disable-next-line unicorn/prefer-code-point
+    h ^= uuid.charCodeAt(i);
+    // h * 16777619 (the FNV prime) via shifts, kept in uint32 by the final >>> 0
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h >>> 0;
 }
 
 function makeStats(node: PlexusFile | PlexusDir): Stats {

@@ -12,11 +12,11 @@
  *  - `readFile` returns a `Uint8Array` by default; a `{ encoding: 'utf8' }`
  *    option (or the bare string `'utf8'`) makes it return a `string`. iso-git
  *    reads `.git/config`, refs, etc. as utf8 and object files as raw bytes.
- *  - `writeFile` accepts `Uint8Array | string` and stores it faithfully (the
- *    latin1 seam preserves binary git objects exactly).
+ *  - `writeFile` accepts `Uint8Array | string` and stores it faithfully (raw
+ *    `Uint8Array` storage preserves binary git objects exactly).
  *  - Errors are PLAIN `Error`s carrying `.code` ∈ {ENOENT,EEXIST,ENOTDIR,EISDIR}.
  *
- * Symlinks: this string-only VFS has no symlink concept, but iso-git's `bindFs`
+ * Symlinks: this VFS has no symlink concept, but iso-git's `bindFs`
  * binds `readlink`/`symlink` UNCONDITIONALLY (it does `fs.readlink.bind(fs)` with
  * no presence guard — the "optional" contract is only that it never *calls* them
  * unless it meets a symlink mode in the tree, which it won't here). So the

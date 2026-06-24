@@ -1,7 +1,7 @@
 {
   "name": "@here.build/plexus-vfs",
   "version": "0.1.0",
-  "description": "Plexus-backed virtual filesystem — a drop-in `fs` for isomorphic-git. STRING-ONLY interim: file content is stored as a latin1 byte-string (1 char = 1 byte) so arbitrary binary round-trips faithfully through the single binToBytes/bytesToBin seam.",
+  "description": "Plexus-backed virtual filesystem — a drop-in `fs` for isomorphic-git. File content is stored directly as a CRDT-synced `Uint8Array` field, so arbitrary binary round-trips faithfully.",
   "license": "FSL-1.1-MIT",
   "author": "here.build",
   "type": "module",

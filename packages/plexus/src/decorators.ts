@@ -19,6 +19,7 @@ import { buildArrayProxy } from "./proxies/materialized-array.js";
 import { buildMapProxy } from "./proxies/materialized-map.js";
 import { buildRecordProxy } from "./proxies/materialized-record.js";
 import { buildSetProxy } from "./proxies/materialized-set.js";
+import { buildTypedArrayProxy } from "./proxies/materialized-typed-array.js";
 import {
   type AllowedPrimitive,
   type AllowedVirtualMapKey,
@@ -153,16 +154,22 @@ const set = <
   if (storedValue === value) {
     return;
   }
+  // clone-on-set: a Uint8Array is stored as a private copy so a caller that
+  // mutates the buffer they passed in cannot retro-corrupt our state (yjs does
+  // NOT copy on setAttribute — only on transaction/sync). backingStorage and the
+  // yjs attribute must hold the SAME copy so reads agree and the proxy is stable.
+  // eslint-disable-next-line unicorn/prefer-spread -- .slice() copies the Uint8Array; spread would make a number[]
+  const valueToStore = value instanceof Uint8Array ? value.slice() : value;
   maybeTransacting(object.__doc__, () => {
-    if (value == undefined) {
+    if (valueToStore == undefined) {
       internals.backingStorage.delete(context.name);
     } else {
-      internals.backingStorage.set(context.name, value);
+      internals.backingStorage.set(context.name, valueToStore);
     }
-    if (value == undefined) {
+    if (valueToStore == undefined) {
       object.__yjsFieldsMap__?.delete(context.name);
     } else {
-      object.__yjsFieldsMap__?.set(context.name, maybeReference(value, object.__doc__!));
+      object.__yjsFieldsMap__?.set(context.name, maybeReference(valueToStore, object.__doc__!));
     }
     trackModification(object, context.name);
   });
@@ -263,6 +270,16 @@ const createBackingStructuresMap = new DefaultedMap((key: string) => ({
 
 const emptyEphemeralDependency = new DefaultedWeakMap(() => Object.freeze({}));
 
+/**
+ * Per-key → per-owner cache of `Uint8Array` val proxies (reference stability,
+ * mirroring `createBackingStructuresMap`). Only val/child-val fields whose stored
+ * value is a Uint8Array ever read from this; every other primitive path is
+ * untouched.
+ */
+const typedArrayProxies = new DefaultedMap(
+  (key: string) => new DefaultedWeakMap((owner: PlexusModel) => buildTypedArrayProxy({ owner, key })),
+);
+
 // this madman grade stuff is needed as we may have inheriting decorators overriding type,
 // yet decorator factories are using parent declaration, not child declaration.
 // by making that behavior dynamic, we make overriding possible
@@ -302,8 +319,19 @@ const createHandlers = <
       trackAccess(this, context.name);
       switch (this.__schema__[context.name]) {
         case "val":
-        case "child-val":
-          return internals.backingStorage.get(context.name) ?? null;
+        case "child-val": {
+          const stored = internals.backingStorage.get(context.name);
+          // Uint8Array reads as a write-tracking proxy (cached per owner+key for
+          // reference stability). Every other primitive / PlexusModel path is
+          // returned raw, byte-identical to before.
+          if (stored instanceof Uint8Array) {
+            // Dynamic-dispatch getter: a Uint8Array val reads as its tracking
+            // proxy (typed as Uint8Array — `.slice()` is the detached-copy hatch).
+            // `as T` matches the existing deref/val-set cast idiom.
+            return typedArrayProxies.get(context.name).get(this) as T;
+          }
+          return stored ?? null;
+        }
         default:
           /** see "We are doing dynamic schema retrieval..." comment below in init()*/
           return backingStructures[this.__schema__[context.name]].get(this);

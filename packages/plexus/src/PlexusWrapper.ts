@@ -1,5 +1,6 @@
 import type * as Y from "yjs";
 
+import { PlexusUnstorableValueError } from "./errors.js";
 import type { Storageable, YPlexusNode } from "./proxy-runtime-types.js";
 
 /**
@@ -53,7 +54,25 @@ export class PlexusWrapper {
   }
 
   set(key: string, value: Storageable): void {
-    this.element.setAttribute(key, value);
+    try {
+      this.element.setAttribute(key, value);
+    } catch (error) {
+      // yjs's `typeMapSet` throws a bare, unattributed "Unexpected content type"
+      // for any value outside its storable set (it switches on an EXACT
+      // `value.constructor`). Re-present it as a door naming the entity, field,
+      // and offending type. Genuine binary is normalized to a plain `Uint8Array`
+      // upstream (see `maybeReference`), so a `Uint8Array`/`Buffer` never lands here.
+      if (error instanceof Error && error.message === "Unexpected content type") {
+        const valueType =
+          value == null
+            ? "null"
+            : typeof value === "object"
+              ? ((value as { constructor?: { name?: string } }).constructor?.name ?? "object")
+              : typeof value;
+        throw new PlexusUnstorableValueError(this.nodeName, key, valueType);
+      }
+      throw error;
+    }
   }
 
   delete(key: string): void {

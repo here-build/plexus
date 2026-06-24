@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
-import { PlexusTypedArrayAliasError } from "../../errors.js";
+import { PlexusTypedArrayAliasError, PlexusUnstorableValueError } from "../../errors.js";
 import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
@@ -322,5 +322,37 @@ describe("Uint8Array val field", () => {
     expect(notify).not.toHaveBeenCalled(); // label reader stayed asleep
 
     dispose();
+  });
+
+  // ── Serialization boundary: subclass normalization + the unstorable door ────
+
+  it("normalizes a Node Buffer (Uint8Array subclass) to a plain Uint8Array on store", () => {
+    // isomorphic-git and other Node consumers hand us a Buffer, whose
+    // `.constructor` is Buffer, not Uint8Array — yjs's typeMapSet switches on the
+    // EXACT constructor and would otherwise throw "Unexpected content type" deep
+    // in its internals. Materializing this holder at all proves the normalization.
+    const holder = new BlobHolder({ content: Buffer.from([0, 255, 128, 1]), label: "x" });
+    const { root } = initTestPlexus<BlobHolder>(holder);
+
+    expect(Array.from(root.content)).to.deep.equal([0, 255, 128, 1]);
+    // stored as the plain class, not the Buffer subclass
+    expect(root.content.slice().constructor).to.equal(Uint8Array);
+
+    // the live-set path normalizes a Buffer too
+    root.content = Buffer.from([9, 8]);
+    expect(Array.from(root.content)).to.deep.equal([9, 8]);
+    expect(root.content.slice().constructor).to.equal(Uint8Array);
+  });
+
+  it("rejects an unstorable val value with a PlexusUnstorableValueError door", () => {
+    const holder = new BlobHolder({ content: new Uint8Array([1]), label: "x" });
+    const { root } = initTestPlexus<BlobHolder>(holder);
+
+    // A function can't be stored in a CRDT field — yjs throws a bare "Unexpected
+    // content type"; the boundary re-presents it as a door naming entity/field/type.
+    // (label is typed `string`; cast to bypass the type guard for the test.)
+    expect(() => {
+      (root as unknown as { label: unknown }).label = () => "nope";
+    }).to.throw(PlexusUnstorableValueError);
   });
 });

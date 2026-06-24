@@ -156,10 +156,12 @@ const set = <
   }
   // clone-on-set: a Uint8Array is stored as a private copy so a caller that
   // mutates the buffer they passed in cannot retro-corrupt our state (yjs does
-  // NOT copy on setAttribute — only on transaction/sync). backingStorage and the
-  // yjs attribute must hold the SAME copy so reads agree and the proxy is stable.
-  // eslint-disable-next-line unicorn/prefer-spread -- .slice() copies the Uint8Array; spread would make a number[]
-  const valueToStore = value instanceof Uint8Array ? value.slice() : value;
+  // NOT copy on setAttribute — only on transaction/sync). `new Uint8Array(value)`
+  // both isolates AND normalizes a subclass (e.g. a Node Buffer, whose `.slice()`
+  // would alias shared memory and keep the wrong constructor) to the plain
+  // Uint8Array the CRDT layer stores. backingStorage and the yjs attribute hold
+  // the SAME copy so reads agree and the proxy is stable.
+  const valueToStore = value instanceof Uint8Array ? new Uint8Array(value) : value;
   maybeTransacting(object.__doc__, () => {
     if (valueToStore == undefined) {
       internals.backingStorage.delete(context.name);

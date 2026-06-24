@@ -181,3 +181,35 @@ export class PlexusTypedArrayAliasError extends PlexusError {
     );
   }
 }
+
+/**
+ * A val/attribute write whose value the CRDT layer (yjs) cannot store. yjs's
+ * `typeMapSet` accepts only a fixed content set — primitives, plain objects/
+ * arrays, `Date`, `Uint8Array`, or a Y type — and matches by EXACT constructor,
+ * so a function, symbol, `Map`/`Set`, or other class instance falls through to a
+ * bare, unattributed "Unexpected content type". This door names the field, the
+ * offending type, and what a Plexus field CAN hold.
+ *
+ * (A `Uint8Array` SUBCLASS such as a Node `Buffer` is NOT this error — the
+ * serialization boundary normalizes those to a plain `Uint8Array`. See
+ * `maybeReference`.)
+ */
+export class PlexusUnstorableValueError extends PlexusError {
+  constructor(
+    public readonly entityType: string,
+    public readonly field: string,
+    public readonly valueType: string,
+  ) {
+    super(
+      `Plexus<${entityType}.${field}>: cannot store a value of type ${valueType} — a Plexus field holds a primitive (string/number/boolean/bigint), a Uint8Array, a plain JSON object/array, or a reference to another PlexusModel`,
+      "Unstorable val value:",
+      {
+        entityType,
+        field,
+        valueType,
+        // The door's action: the channels that actually persist.
+        fix: "store a primitive / Uint8Array / plain JSON value; reference another PlexusModel (it serializes to a reference automatically); or model the data as a child entity",
+      },
+    );
+  }
+}

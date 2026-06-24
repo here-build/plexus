@@ -28,13 +28,27 @@ export function never(value: never): never {
 export const isTupleReference = (val: any): val is ReferenceTuple =>
   Array.isArray(val) && val.length > 0 && val.length <= 2 && typeof val[0] === "string";
 
-export const maybeReference = (val: AllowedYJSValue, doc: Y.Doc): AllowedYValue =>
-  (val instanceof PlexusModel ? val[referenceSymbol](doc) : val) ?? null;
+/**
+ * Normalize a `Uint8Array`-like to the exact shape the CRDT layer stores. yjs's
+ * `typeMapSet` switches on an EXACT `value.constructor`, so a subclass — most
+ * often a Node `Buffer`, which isomorphic-git and friends hand in — is an
+ * `instanceof Uint8Array` yet fails that switch ("Unexpected content type"). Copy
+ * any non-plain Uint8Array into a plain one; a plain Uint8Array (the common case)
+ * passes through untouched.
+ */
+const toStorableBytes = (val: Uint8Array): Uint8Array =>
+  val.constructor === Uint8Array ? val : new Uint8Array(val);
+
+export const maybeReference = (val: AllowedYJSValue, doc: Y.Doc): AllowedYValue => {
+  if (val instanceof PlexusModel) return val[referenceSymbol](doc) ?? null;
+  if (val instanceof Uint8Array) return toStorableBytes(val);
+  return val ?? null;
+};
 
 export const curryMaybeReference =
   (doc: Y.Doc) =>
   (val: AllowedYJSValue): AllowedYValue =>
-    (val instanceof PlexusModel ? val[referenceSymbol](doc) : val) ?? null;
+    maybeReference(val, doc);
 
 // doc transactions are rather expensive, even nested ones, and it's better to track them across the call chain efficiently
 // plus it will avoid transaction events for mid-transaction stuff

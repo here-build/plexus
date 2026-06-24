@@ -15,6 +15,46 @@ import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
 import { materializeMapForField } from "../virtual-children-genesis.js";
 import { serializeKey, deserializeKey } from "./key-serialization.js";
+import { type AssertNever, type MethodsOf } from "./method-classification.js";
+
+/**
+ * Every `Set` method this proxy intercepts, classified so the check below breaks
+ * the build if the JS Set surface grows a method we don't handle — the same net
+ * that caught the Uint8Array base64 methods. `size` (a getter), `assign` (a
+ * Plexus bulk-write), and the materialization symbol aren't Set methods, so they
+ * sit outside this inventory.
+ */
+const SET_METHODS = {
+  /** Mutate the set → adopt/orphan + sync. */
+  mutating: ["add", "clear", "delete"],
+  /** Read-only — forwarded to the live backing set (new sets / booleans / iterators). */
+  readonly: [
+    "has",
+    "forEach",
+    "entries",
+    "keys",
+    "values",
+    "union",
+    "intersection",
+    "difference",
+    "symmetricDifference",
+    "isSubsetOf",
+    "isSupersetOf",
+    "isDisjointFrom",
+    Symbol.iterator,
+  ],
+} as const satisfies Record<string, ReadonlyArray<MethodsOf<Set<AllowedYJSValue>>>>;
+
+// Compile error if a Set method is left unclassified — keeps the switch honest as
+// the language adds Set operations.
+type _SetMethodsExhaustive = AssertNever<
+  Exclude<MethodsOf<Set<AllowedYJSValue>>, (typeof SET_METHODS)[keyof typeof SET_METHODS][number]>
+>;
+
+// Runtime dispatch tables, derived from the classification so the proxy's routing
+// and the exhaustiveness guard share one source and can't drift.
+const SET_MUTATING = new Set<PropertyKey>(SET_METHODS.mutating);
+const SET_READONLY = new Set<PropertyKey>(SET_METHODS.readonly);
 
 export type MaterializedSetProxyInitTarget = {
   owner: PlexusModel;
@@ -99,12 +139,20 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
 
   const self = new Proxy(Object.seal(backingSet), {
     get(_, elementKey) {
-      switch (elementKey) {
-        case "size":
+      // Read-only Set methods (SET_METHODS.readonly): a uniform read-through to the
+      // backing set, gated by the classification so dispatch and the exhaustiveness
+      // guard share one source. `has` depends on key membership; the rest read all
+      // values.
+      if (SET_READONLY.has(elementKey)) {
+        return (...args: unknown[]) => {
           trackAccess(owner, key);
-          trackAccess(self, ENTRIES_LENGTH_SYMBOL);
-          return backingSet.size;
-        case "add":
+          trackAccess(self, elementKey === "has" ? KEYS_SYMBOL : ACCESS_ALL_SYMBOL);
+          return (backingSet as unknown as Record<PropertyKey, (...a: unknown[]) => unknown>)[elementKey](...args);
+        };
+      }
+      // Mutating Set methods (SET_METHODS.mutating): bespoke adopt/orphan + sync.
+      if (SET_MUTATING.has(elementKey)) {
+        if (elementKey === "add") {
           return (value: T) => {
             if (backingSet.has(value)) return false;
 
@@ -126,7 +174,8 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
             });
             return true;
           };
-        case "clear":
+        }
+        if (elementKey === "clear") {
           return () => {
             if (backingSet.size === 0) return;
             maybeTransacting(owner.__doc__!, () => {
@@ -142,6 +191,34 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
               getYjsMap()?.clear();
             });
           };
+        }
+        if (elementKey === "delete") {
+          return (value: T) => {
+            if (!backingSet.delete(value)) return false;
+
+            if (isChildField) {
+              value?.[informOrphanizationSymbol]?.();
+            }
+
+            maybeTransacting(owner.__doc__, () => {
+              trackModification(self, KEYS_SYMBOL);
+              trackModification(self, ENTRIES_LENGTH_SYMBOL);
+              if (owner.__doc__) {
+                const sk = serializeKey(value, owner.__doc__);
+                serializedToElement.delete(sk);
+                getYjsMap()?.delete(sk);
+              }
+            });
+            return true;
+          };
+        }
+      }
+      // Structural reads + Plexus-custom bulk ops (not Set.prototype methods).
+      switch (elementKey) {
+        case "size":
+          trackAccess(owner, key);
+          trackAccess(self, ENTRIES_LENGTH_SYMBOL);
+          return backingSet.size;
         case "assign":
           return (newValues: Iterable<T>) => {
             const newValuesSet = new Set(newValues);
@@ -191,76 +268,8 @@ export const buildSetProxy = <T extends AllowedYJSValue>({
               }
             });
           };
-        case "delete":
-          return (value: T) => {
-            if (!backingSet.delete(value)) return false;
-
-            if (isChildField) {
-              value?.[informOrphanizationSymbol]?.();
-            }
-
-            maybeTransacting(owner.__doc__, () => {
-              trackModification(self, KEYS_SYMBOL);
-              trackModification(self, ENTRIES_LENGTH_SYMBOL);
-              if (owner.__doc__) {
-                const sk = serializeKey(value, owner.__doc__);
-                serializedToElement.delete(sk);
-                getYjsMap()?.delete(sk);
-              }
-            });
-            return true;
-          };
-        case "entries":
-          return () => {
-            trackAccess(owner, key);
-            trackAccess(self, ACCESS_ALL_SYMBOL);
-            return backingSet.entries();
-          };
-        case "values":
-        case "keys":
-          return () => {
-            trackAccess(owner, key);
-            trackAccess(self, ACCESS_ALL_SYMBOL);
-            return backingSet.values();
-          };
-        case Symbol.iterator:
-          return () => {
-            trackAccess(owner, key);
-            trackAccess(self, ACCESS_ALL_SYMBOL);
-            return backingSet[Symbol.iterator]();
-          };
         case Symbol.toStringTag:
           return "Set";
-        case "forEach":
-          return (callbackfn: (value: T, value2: T, set: Set<T>) => void, thisArg?: any) => {
-            trackAccess(owner, key);
-            trackAccess(self, ACCESS_ALL_SYMBOL);
-            // eslint-disable-next-line unicorn/no-array-method-this-argument,unicorn/no-array-for-each
-            return backingSet.forEach(callbackfn, thisArg);
-          };
-        case "has":
-          return (value: T) => {
-            trackAccess(owner, key);
-            trackAccess(self, KEYS_SYMBOL);
-            return backingSet.has(value);
-          };
-        case "union":
-        case "intersection":
-        case "difference":
-        case "symmetricDifference":
-          return (other: Set<AllowedYJSValue>) => {
-            trackAccess(owner, key);
-            trackAccess(self, ACCESS_ALL_SYMBOL);
-            return backingSet[elementKey](other);
-          };
-        case "isDisjointFrom":
-        case "isSubsetOf":
-        case "isSupersetOf":
-          return (other: Set<AllowedYJSValue>) => {
-            trackAccess(owner, key);
-            trackAccess(self, ACCESS_ALL_SYMBOL);
-            return backingSet[elementKey](other);
-          };
         case materializationSymbol:
           return () => {
             const map = getYjsMap();

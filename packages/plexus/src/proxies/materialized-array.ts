@@ -3,7 +3,6 @@ import type * as Y from "yjs";
 
 import { deref } from "../deref.js";
 import { PlexusDuplicateChildError } from "../errors.js";
-import { mutableArrayMethods } from "../globals.js";
 import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import {
@@ -13,6 +12,7 @@ import {
   requestAdoptionSymbol,
   validateAdoptionSymbol,
 } from "../proxy-runtime-types.js";
+import { bucketCount, telemetry } from "../telemetry.js";
 import {
   ACCESS_ALL_SYMBOL,
   ENTRIES_LENGTH_SYMBOL,
@@ -21,10 +21,66 @@ import {
   trackModification,
   VALUES_SYMBOL,
 } from "../tracking.js";
-import { bucketCount, telemetry } from "../telemetry.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
 import { materializeArrayForField } from "../virtual-children-genesis.js";
+import { type AssertNever, type MethodsOf } from "./method-classification.js";
+
+/**
+ * Every `Array` method this proxy intercepts, classified so the check below
+ * breaks the build if the JS Array surface grows a method we don't handle — the
+ * same net that caught the Uint8Array base64 methods. `length` (a getter),
+ * `clear`/`assign` (Plexus bulk-writes), and the materialization symbol aren't
+ * Array methods, so they sit outside this inventory.
+ */
+const ARRAY_METHODS = {
+  /** Mutate in place → re-sync the Y.Array. */
+  mutating: ["copyWithin", "fill", "pop", "push", "reverse", "shift", "sort", "splice", "unshift"],
+  /** Read-only — forwarded to the live backing array (values / new arrays / iterators). */
+  readonly: [
+    "at",
+    "concat",
+    "entries",
+    "every",
+    "filter",
+    "find",
+    "findIndex",
+    "findLast",
+    "findLastIndex",
+    "flat",
+    "flatMap",
+    "forEach",
+    "includes",
+    "indexOf",
+    "join",
+    "keys",
+    "lastIndexOf",
+    "map",
+    "reduce",
+    "reduceRight",
+    "slice",
+    "some",
+    "toLocaleString",
+    "toReversed",
+    "toSorted",
+    "toSpliced",
+    "toString",
+    "values",
+    "with",
+    Symbol.iterator,
+  ],
+} as const satisfies Record<string, ReadonlyArray<MethodsOf<Array<AllowedYJSValue>>>>;
+
+// Compile error if an Array method is left unclassified — keeps the proxy honest
+// as the language adds Array operations.
+type _ArrayMethodsExhaustive = AssertNever<
+  Exclude<MethodsOf<Array<AllowedYJSValue>>, (typeof ARRAY_METHODS)[keyof typeof ARRAY_METHODS][number]>
+>;
+
+/** The in-place mutators — derived from the classification above so they can't drift. */
+const mutableArrayMethods = new Set<string | symbol>(ARRAY_METHODS.mutating);
+/** The read-only methods — likewise derived, so the dispatch reads the classification. */
+const arrayReadonlyMethods = new Set<string | symbol>(ARRAY_METHODS.readonly);
 
 // Track if we've shown the copyWithin warning for child arrays (one-time per session)
 let copyWithinChildArrayWarningShown = false;
@@ -690,64 +746,69 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
       // eslint-disable-next-line sonarjs/no-in-misuse
       if (elementKey in Array.prototype) {
         if (typeof Array.prototype[elementKey] === "function") {
-          return mutableArrayMethods.has(elementKey)
-            ? (...args) => {
-                const array = backingArray;
-                const resultingArray = [...array];
-                const result = resultingArray[elementKey](...args);
-                if (resultingArray.length === array.length && resultingArray.every((val, i) => val === array[i])) {
-                  return result;
+          // Mutating methods (ARRAY_METHODS.mutating): clone → mutate → resync.
+          if (mutableArrayMethods.has(elementKey)) {
+            return (...args) => {
+              const array = backingArray;
+              const resultingArray = [...array];
+              const result = resultingArray[elementKey](...args);
+              if (resultingArray.length === array.length && resultingArray.every((val, i) => val === array[i])) {
+                return result;
+              }
+
+              ensureYjsArray();
+              const yjsArray = getYjsArray();
+              return maybeTransacting(yjsArray?.doc, () => {
+                // DUPLICATE VALIDATION: Check if the array method created duplicates
+                // This shouldn't happen with standard array methods, but validates against potential bugs
+                if (isChildField) {
+                  PlexusDuplicateChildError.uniquenessInvariant(resultingArray, owner, key, String(elementKey));
                 }
 
-                ensureYjsArray();
-                const yjsArray = getYjsArray();
-                return maybeTransacting(yjsArray?.doc, () => {
-                  // DUPLICATE VALIDATION: Check if the array method created duplicates
-                  // This shouldn't happen with standard array methods, but validates against potential bugs
-                  if (isChildField) {
-                    PlexusDuplicateChildError.uniquenessInvariant(resultingArray, owner, key, String(elementKey));
-                  }
+                // Calculate what needs to be added/removed
+                const removedItems = setDifference(new Set(backingArray), new Set(resultingArray));
+                const addedItems = setDifference(new Set(resultingArray), new Set(backingArray));
 
-                  // Calculate what needs to be added/removed
-                  const removedItems = setDifference(new Set(backingArray), new Set(resultingArray));
-                  const addedItems = setDifference(new Set(resultingArray), new Set(backingArray));
-
-                  // VALIDATE FIRST: Check all added items can be adopted before any state changes
-                  if (isChildField) {
-                    for (const item of addedItems) {
-                      item?.[validateAdoptionSymbol]?.(owner, key);
-                    }
-                  }
-
-                  // Now safe to orphan removed items and adopt added items
-                  for (const item of removedItems) {
-                    item?.[informOrphanizationSymbol]?.();
-                  }
+                // VALIDATE FIRST: Check all added items can be adopted before any state changes
+                if (isChildField) {
                   for (const item of addedItems) {
-                    item?.[requestAdoptionSymbol]?.(owner, key);
+                    item?.[validateAdoptionSymbol]?.(owner, key);
                   }
-                  // backing array update should happen AFTER removed/added items calculation as it uses previous version of backing array
-                  backingArray.splice(0, backingArray.length, ...resultingArray);
+                }
 
-                  // todo optimized update strategy
-                  yjsArray?.delete(0, yjsArray.length);
-                  yjsArray?.push(resultingArray.map((element) => maybeReference(element, owner.__doc__!)));
-                  trackModification(self, ACCESS_ALL_SYMBOL);
-                  return result;
-                });
-              }
-            : (...args) => {
-                // Non-mutating array methods that iterate over all elements
-                trackAccess(owner, key);
-                trackAccess(self, ACCESS_ALL_SYMBOL);
-                return backingArray[elementKey](...args);
-              };
-        } else {
-          // Report keyset access to this array for Array.prototype property access
-          trackAccess(owner, key);
-          trackAccess(self, elementKey);
-          return Array.prototype[elementKey];
+                // Now safe to orphan removed items and adopt added items
+                for (const item of removedItems) {
+                  item?.[informOrphanizationSymbol]?.();
+                }
+                for (const item of addedItems) {
+                  item?.[requestAdoptionSymbol]?.(owner, key);
+                }
+                // backing array update should happen AFTER removed/added items calculation as it uses previous version of backing array
+                backingArray.splice(0, backingArray.length, ...resultingArray);
+
+                // todo optimized update strategy
+                yjsArray?.delete(0, yjsArray.length);
+                yjsArray?.push(resultingArray.map((element) => maybeReference(element, owner.__doc__!)));
+                trackModification(self, ACCESS_ALL_SYMBOL);
+                return result;
+              });
+            };
+          }
+          // Read-only methods (ARRAY_METHODS.readonly): delegate to the backing
+          // array. Gated by the classification so dispatch can't drift from the guard.
+          if (arrayReadonlyMethods.has(elementKey)) {
+            return (...args) => {
+              trackAccess(owner, key);
+              trackAccess(self, ACCESS_ALL_SYMBOL);
+              return backingArray[elementKey](...args);
+            };
+          }
         }
+        // Non-function prototype members, and any fn prop outside the classified
+        // surface (e.g. `constructor`): return it directly with keyset tracking.
+        trackAccess(owner, key);
+        trackAccess(self, elementKey);
+        return Array.prototype[elementKey];
       }
       // ARRAY ELEMENT ACCESS: arr[0] → deref(yArray.get(0))
       // Converts YJS References back to live entity objects

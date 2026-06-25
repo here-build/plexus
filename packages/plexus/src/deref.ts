@@ -5,6 +5,7 @@ import * as Y from "yjs";
 
 import { decode } from "./crdt-uuid.js";
 import { documentEntityCaches } from "./entity-cache.js";
+import { isLiminalClientId, LIMINAL_BASE } from "./genesis-client.js";
 import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
 import { Plexus } from "./Plexus.js";
@@ -14,6 +15,14 @@ import { PlexusWrapper } from "./PlexusWrapper.js";
 import type { AllowedYJSValue, AllowedYValue, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
 import { isTupleReference } from "./utils/utils.js";
 import { getModelTypesMap } from "./yjs/getModels.js";
+
+/** Resolve the struct at (clientId, clock), or null if that client/clock isn't present. */
+function resolveItem(doc: Y.Doc, clientId: number, clock: number): Y.Item | null {
+  // getState returns 0 for an absent client, so this guards both "client missing"
+  // and "clock out of range" without getItem throwing.
+  if (clock >= Y.getState(doc.store, clientId)) return null;
+  return Y.getItem(doc.store, Y.createID(clientId, clock));
+}
 
 export function deref<T extends AllowedYJSValue>(
   doc: Y.Doc,
@@ -60,10 +69,17 @@ export function deref<T extends AllowedYJSValue>(
     // decode reverses the Feistel cipher to recover {clientId, clock},
     // then getItem does a binary search in the StructStore.
     const { clientId, clock } = decode(entityId as PlexusUUID);
-    const item = Y.getItem(doc.store, Y.createID(clientId, clock));
+    // Liminal-UUID resolution strategy: a struct minted in a liminal session is
+    // promoted from the liminal base to the committed (materialized) base on commit,
+    // but the UUID still encodes the liminal id. Try the materialized base first, fall
+    // back to the liminal base; take the first existing. (genesis/regular UUIDs are
+    // never promoted, so they resolve directly.)
+    const item = isLiminalClientId(clientId)
+      ? (resolveItem(doc, clientId + LIMINAL_BASE, clock) ?? resolveItem(doc, clientId, clock))
+      : Y.getItem(doc.store, Y.createID(clientId, clock));
     invariant(
-      item.content instanceof Y.ContentType,
-      `Plexus<model#${entityId}>: decoded item is not a ContentType (got ${item.content?.constructor?.name})`,
+      item != null && item.content instanceof Y.ContentType,
+      `Plexus<model#${entityId}>: decoded item is not a ContentType (got ${item?.content?.constructor?.name})`,
     );
     entityModel = item.content.type as YPlexusNode;
   }

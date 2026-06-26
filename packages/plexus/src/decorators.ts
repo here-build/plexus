@@ -1,6 +1,7 @@
 import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
 import invariant from "tiny-invariant";
 
+import { atomic } from "./atomic.js";
 import {
   DiscriminateMap,
   type DiscriminatingIdentityDecorator,
@@ -585,6 +586,12 @@ const buildDecorator = (kind: GenericRecordSchema[string]) =>
   );
 
 export const syncing = Object.assign(syncingDecorator, {
+  /**
+   * `@syncing.atomic` — method decorator that runs the method body as ONE
+   * atomic Plexus transaction (one yjs update, one undo step). See `atomic.ts`
+   * for the full mechanism and the documented edge cases.
+   */
+  atomic,
   child: Object.assign(buildDecorator("child-val") as DiscriminatingIdentityDecorator, {
     record: buildDecorator("child-record") as DiscriminatingRecordDecorator,
     set: buildDecorator("child-set") as DiscriminatingSetDecorator,

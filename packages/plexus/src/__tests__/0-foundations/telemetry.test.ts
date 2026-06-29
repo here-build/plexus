@@ -26,12 +26,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { syncing } from "../../decorators.js";
 import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
-import {
-  COLLECTION_ENTITY_TYPE,
-  setTelemetryAdapter,
-  telemetry,
-  TRACKER_KIND,
-} from "../../telemetry.js";
+import { COLLECTION_ENTITY_TYPE, setTelemetryAdapter, telemetry, TRACKER_KIND } from "../../telemetry.js";
 import {
   ACCESS_ALL_SYMBOL,
   ENTRIES_LENGTH_SYMBOL,

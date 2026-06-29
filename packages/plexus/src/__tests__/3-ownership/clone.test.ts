@@ -14,7 +14,9 @@ import { syncing } from "../../decorators.js";
 import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 
-beforeAll(() => { enableMobXIntegration(); });
+beforeAll(() => {
+  enableMobXIntegration();
+});
 
 // =============================================================================
 // Test Models
@@ -262,7 +264,10 @@ describe("Clone semantics", () => {
 
       const dispose = reaction(
         () => original.clone(),
-        (value) => { cloned = value; notifyChanges(); },
+        (value) => {
+          cloned = value;
+          notifyChanges();
+        },
         { fireImmediately: true },
       );
 
@@ -1124,10 +1129,7 @@ describe("Assign behavior", () => {
 
       const notifyChanges = vi.fn();
 
-      const dispose = reaction(
-        () => model.items.length,
-        notifyChanges,
-      );
+      const dispose = reaction(() => model.items.length, notifyChanges);
 
       expect(model.items.length).to.equal(1);
 

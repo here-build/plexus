@@ -17,7 +17,10 @@ class Root extends PlexusModel {
   @syncing accessor value: string = "";
 }
 
-class ForeignDoc { clientID = 1; guid = "foreign"; }
+class ForeignDoc {
+  clientID = 1;
+  guid = "foreign";
+}
 
 describe("yjs module identity invariant", () => {
   it("accepts a doc from the same yjs", () => {
@@ -25,7 +28,9 @@ describe("yjs module identity invariant", () => {
   });
 
   it("bootstrap rejects a doc from a foreign yjs", () => {
-    expect(() => Plexus.bootstrap(new Root(), undefined, new ForeignDoc() as unknown as Y.Doc)).toThrow(/duplicate yjs/);
+    expect(() => Plexus.bootstrap(new Root(), undefined, new ForeignDoc() as unknown as Y.Doc)).toThrow(
+      /duplicate yjs/,
+    );
   });
 
   it("connect rejects a doc from a foreign yjs", () => {

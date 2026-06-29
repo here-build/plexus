@@ -24,7 +24,13 @@ export * from "./Plexus.js";
 export * from "./dependency-blob.js";
 export * from "./plexus-registry.js";
 export * from "./walk.js";
-export { PlexusAwareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates, modifyAwarenessUpdate } from "./awareness.js";
+export {
+  PlexusAwareness,
+  encodeAwarenessUpdate,
+  applyAwarenessUpdate,
+  removeAwarenessStates,
+  modifyAwarenessUpdate,
+} from "./awareness.js";
 export {
   LIMINAL_BASE,
   COMMITTED_BASE,

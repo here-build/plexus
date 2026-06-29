@@ -423,7 +423,8 @@ export class Plexus<
 
         if (xmlEl && isTypeSubMap(xmlEl.parent)) {
           // _item.parentSub is the UUID (map key) — no public API for this
-          const uuid: string | null = (xmlEl as unknown as { _item?: { parentSub: string | null } })._item?.parentSub ?? null;
+          const uuid: string | null =
+            (xmlEl as unknown as { _item?: { parentSub: string | null } })._item?.parentSub ?? null;
           if (uuid) {
             const model = entityCaches.get(shadowDoc).get(uuid)?.deref();
             if (model) {
@@ -567,7 +568,10 @@ export class Plexus<
    */
 
   static connect(doc: Y.Doc) {
-    invariant(doc instanceof Y.Doc, "Plexus.connect: doc is not from Plexus's yjs (duplicate yjs module in node_modules)");
+    invariant(
+      doc instanceof Y.Doc,
+      "Plexus.connect: doc is not from Plexus's yjs (duplicate yjs module in node_modules)",
+    );
     // Return existing instance if one exists for this class
     const existing = docPlexus.get(doc);
     if (existing) {
@@ -601,7 +605,10 @@ export class Plexus<
    * Returns existing instance if one exists for this class.
    */
   static bootstrap(root: PlexusModel, documentId: string = nanoid(), doc: Y.Doc = new Y.Doc({ guid: documentId })) {
-    invariant(doc instanceof Y.Doc, "Plexus.bootstrap: doc is not from Plexus's yjs (duplicate yjs module in node_modules)");
+    invariant(
+      doc instanceof Y.Doc,
+      "Plexus.bootstrap: doc is not from Plexus's yjs (duplicate yjs module in node_modules)",
+    );
     // Return existing instance if one exists for this class
     const existing = docPlexus.get(doc);
     if (existing) {
@@ -740,7 +747,9 @@ export class Plexus<
     // Remove scaffolding. Only needed if the session created Items (inserts/writes).
     // Pure deletes have no limId structs — the committed delta's delete set handles them
     // via main→shadow forwarding. UM undo on pure deletes would create ghost restorations.
-    const hasLiminalStructs = !!(this.__liminalDocument__.store as unknown as { clients: Map<number, { length: number }> }).clients.get(limId)?.length;
+    const hasLiminalStructs = !!(
+      this.__liminalDocument__.store as unknown as { clients: Map<number, { length: number }> }
+    ).clients.get(limId)?.length;
     if (hasLiminalStructs) {
       // Track clock before/after UM undo. The UM may create NEW Items to "restore" deleted
       // array elements (ghost Items from mixed insert+delete sessions). Delete the ghost range.

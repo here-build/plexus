@@ -15,7 +15,9 @@ import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 
-beforeAll(() => { enableMobXIntegration(); });
+beforeAll(() => {
+  enableMobXIntegration();
+});
 
 @syncing("Layer")
 class Layer extends PlexusModel {

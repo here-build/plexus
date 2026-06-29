@@ -44,7 +44,9 @@ function syncDocs(doc1: Y.Doc, doc2: Y.Doc) {
 
 describe("REPARENTING — copy-on-set should prevent sharing", () => {
   it("aliasing one field into another yields independent bytes", () => {
-    const { root } = initTestPlexus<TwoBlob>(new TwoBlob({ a: new Uint8Array([1, 1, 1]), b: new Uint8Array([2, 2, 2]) }));
+    const { root } = initTestPlexus<TwoBlob>(
+      new TwoBlob({ a: new Uint8Array([1, 1, 1]), b: new Uint8Array([2, 2, 2]) }),
+    );
 
     root.b = root.a;
     root.a[0] = 99;
@@ -75,7 +77,9 @@ describe("CLONE — should copy bytes, not share the buffer", () => {
 
 describe("CONTAINERS — does copy-on-set reach list elements?", () => {
   it("distinct buffers round-trip and stay independent", () => {
-    const { root } = initTestPlexus<BlobList>(new BlobList({ items: [new Uint8Array([1, 1]), new Uint8Array([2, 2])] }));
+    const { root } = initTestPlexus<BlobList>(
+      new BlobList({ items: [new Uint8Array([1, 1]), new Uint8Array([2, 2])] }),
+    );
 
     expect(root.items.length).to.equal(2);
     root.items[0][0] = 99;
@@ -106,7 +110,9 @@ describe("CONTAINERS — does copy-on-set reach list elements?", () => {
 
 describe("EPHEMERAL — Uint8Array edits inside a liminality session", () => {
   it("a byte change made during liminality REVERTS on revertLiminality", () => {
-    const { plexus, root } = initTestPlexus<BlobHolder>(new BlobHolder({ content: new Uint8Array([1, 2, 3]), label: "x" }));
+    const { plexus, root } = initTestPlexus<BlobHolder>(
+      new BlobHolder({ content: new Uint8Array([1, 2, 3]), label: "x" }),
+    );
 
     plexus.enterLiminality();
     root.content[0] = 99;
@@ -117,7 +123,9 @@ describe("EPHEMERAL — Uint8Array edits inside a liminality session", () => {
   });
 
   it("a byte change made during liminality PERSISTS on commit and is one undo step", () => {
-    const { plexus, root } = initTestPlexus<BlobHolder>(new BlobHolder({ content: new Uint8Array([1, 2, 3]), label: "x" }));
+    const { plexus, root } = initTestPlexus<BlobHolder>(
+      new BlobHolder({ content: new Uint8Array([1, 2, 3]), label: "x" }),
+    );
 
     plexus.enterLiminality();
     root.content[0] = 99;
@@ -131,7 +139,9 @@ describe("EPHEMERAL — Uint8Array edits inside a liminality session", () => {
 
 describe("MATERIALIZATION — remote reassignment", () => {
   it("a remote field reassignment yields the new bytes on the peer", () => {
-    const { doc: docA, root: rootA } = initTestPlexus<BlobHolder>(new BlobHolder({ content: new Uint8Array([1, 2, 3]), label: "a" }));
+    const { doc: docA, root: rootA } = initTestPlexus<BlobHolder>(
+      new BlobHolder({ content: new Uint8Array([1, 2, 3]), label: "a" }),
+    );
     const docB = new Y.Doc({ guid: docA.guid });
     syncDocs(docA, docB);
     const { root: rootB } = connectTestPlexus<BlobHolder>(docB);

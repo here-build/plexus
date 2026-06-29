@@ -36,8 +36,7 @@ export const isTupleReference = (val: any): val is ReferenceTuple =>
  * any non-plain Uint8Array into a plain one; a plain Uint8Array (the common case)
  * passes through untouched.
  */
-const toStorableBytes = (val: Uint8Array): Uint8Array =>
-  val.constructor === Uint8Array ? val : new Uint8Array(val);
+const toStorableBytes = (val: Uint8Array): Uint8Array => (val.constructor === Uint8Array ? val : new Uint8Array(val));
 
 export const maybeReference = (val: AllowedYJSValue, doc: Y.Doc): AllowedYValue => {
   if (val instanceof PlexusModel) return val[referenceSymbol](doc) ?? null;

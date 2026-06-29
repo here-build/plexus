@@ -28,11 +28,7 @@ import { syncing } from "../../decorators.js";
 import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { PlexusAwareness, encodeAwarenessUpdate, applyAwarenessUpdate } from "../../awareness.js";
-import {
-  bucketBytes,
-  bucketCount,
-  setTelemetryAdapter,
-} from "../../telemetry.js";
+import { bucketBytes, bucketCount, setTelemetryAdapter } from "../../telemetry.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 import { CapturingTelemetryAdapter } from "../_helpers/test-telemetry.js";
 

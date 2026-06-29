@@ -299,10 +299,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
    * @example
    *   for (const cc of state.parentsOf(CustomCode, "_references")) { ... }
    */
-  *parentsOf<P extends PlexusModel>(
-    parentClass: PlexusConstructor<P>,
-    field: string,
-  ): Generator<P> {
+  *parentsOf<P extends PlexusModel>(parentClass: PlexusConstructor<P>, field: string): Generator<P> {
     const doc = this.__doc__;
     if (!doc) return;
     const plexus = docPlexus.get(doc);

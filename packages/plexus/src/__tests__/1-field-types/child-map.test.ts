@@ -17,7 +17,9 @@ import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 import { getModelsMap } from "../getModelsMap.js";
 
-beforeAll(() => { enableMobXIntegration(); });
+beforeAll(() => {
+  enableMobXIntegration();
+});
 
 function getParentRef(element: YPlexusNode | undefined): string[] | undefined {
   if (!element) return undefined;

@@ -71,7 +71,9 @@ describe("y-websocket cross-doc field update on locally-constructed child", () =
     await new Promise<void>((r) => wss.once("listening", r));
     const port = (wss.address() as { port: number }).port;
     wss.on("connection", (conn, req) => setupWSConnection(conn, req));
-    cleanups.push(() => { wss.close(); });
+    cleanups.push(() => {
+      wss.close();
+    });
 
     const ROOM = `wsrepro-${Math.random().toString(36).slice(2)}`;
     const wsUrl = `ws://localhost:${port}`;
@@ -83,8 +85,16 @@ describe("y-websocket cross-doc field update on locally-constructed child", () =
     const providerA = new WebsocketProvider(wsUrl, ROOM, docA, {
       WebSocketPolyfill: WebSocket as unknown as typeof globalThis.WebSocket,
     });
-    cleanups.push(() => { try { providerA.destroy(); } catch { /* see clientID-swap analysis */ } });
-    await new Promise<void>((r) => (providerA as unknown as { once: (e: string, fn: () => void) => void }).once("synced", () => r()));
+    cleanups.push(() => {
+      try {
+        providerA.destroy();
+      } catch {
+        /* see clientID-swap analysis */
+      }
+    });
+    await new Promise<void>((r) =>
+      (providerA as unknown as { once: (e: string, fn: () => void) => void }).once("synced", () => r()),
+    );
 
     // ── Client side (connect) ────────────────────────────────────────
     // Same guid as authority — Plexus uses CRDT-native UUIDs derived
@@ -93,8 +103,16 @@ describe("y-websocket cross-doc field update on locally-constructed child", () =
     const providerB = new WebsocketProvider(wsUrl, ROOM, docB, {
       WebSocketPolyfill: WebSocket as unknown as typeof globalThis.WebSocket,
     });
-    cleanups.push(() => { try { providerB.destroy(); } catch { /* see clientID-swap analysis */ } });
-    await new Promise<void>((r) => (providerB as unknown as { once: (e: string, fn: () => void) => void }).once("synced", () => r()));
+    cleanups.push(() => {
+      try {
+        providerB.destroy();
+      } catch {
+        /* see clientID-swap analysis */
+      }
+    });
+    await new Promise<void>((r) =>
+      (providerB as unknown as { once: (e: string, fn: () => void) => void }).once("synced", () => r()),
+    );
 
     const plexusB = Plexus.connect(docB) as Plexus<Root>;
     const rootB = plexusB.root;

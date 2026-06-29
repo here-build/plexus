@@ -1,8 +1,4 @@
-import type {
-  TelemetryAdapter,
-  TelemetryAttributes,
-  TelemetrySpan,
-} from "../../telemetry.js";
+import type { TelemetryAdapter, TelemetryAttributes, TelemetrySpan } from "../../telemetry.js";
 
 /**
  * Capturing telemetry adapter for tests. Records every emit; query via the
@@ -59,9 +55,7 @@ export class CapturingTelemetryAdapter implements TelemetryAdapter {
 
   /** Histogram samples matching `name`, optionally filtered by attrs. */
   histogramValues(name: string, attrFilter?: TelemetryAttributes): number[] {
-    return this.histogramEvents
-      .filter((e) => e.name === name && matchesAttrs(e.attrs, attrFilter))
-      .map((e) => e.value);
+    return this.histogramEvents.filter((e) => e.name === name && matchesAttrs(e.attrs, attrFilter)).map((e) => e.value);
   }
 
   /** Clear all captured events without reinstalling the adapter. */
@@ -79,7 +73,10 @@ export class CapturedSpan implements TelemetrySpan {
   ended = false;
   endedAt: number | null = null;
 
-  constructor(readonly name: string, initialAttrs?: TelemetryAttributes) {
+  constructor(
+    readonly name: string,
+    initialAttrs?: TelemetryAttributes,
+  ) {
     if (initialAttrs) Object.assign(this.attributes, initialAttrs);
   }
 

@@ -2,7 +2,9 @@ import { Plexus } from "@here.build/plexus";
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import { PlexusDir, PlexusFile, PlexusFS } from "../entities.js";
+import { PlexusDir } from "../models/PlexusDir.js";
+import { PlexusFS } from "../models/PlexusFS.js";
+import { PlexusFile } from "../models/PlexusFile.js";
 
 function makeFS(): PlexusFS {
   const fs = new PlexusFS();

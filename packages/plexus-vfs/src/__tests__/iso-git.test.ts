@@ -1,28 +1,17 @@
-import { Plexus } from "@here.build/plexus";
 import git from "isomorphic-git";
 import { describe, expect, it } from "vitest";
-import * as Y from "yjs";
-
-import { PlexusFS } from "../entities.js";
-import { createFsClient } from "../fs-client.js";
-
-function makeClient() {
-  const plexusFs = new PlexusFS();
-  Plexus.bootstrap(plexusFs, undefined, new Y.Doc());
-  const fs = createFsClient(plexusFs);
-  return { plexusFs, fs };
-}
+import { PlexusFS } from "../models/PlexusFS.js";
 
 const author = { name: "VFS Test", email: "vfs@here.build" };
 
 describe("isomorphic-git drop-in conformance", () => {
   it("exposes an enumerable `promises` property (iso-git's detection signal)", () => {
-    const { fs } = makeClient();
+    const fs = new PlexusFS();
     expect(Object.prototype.propertyIsEnumerable.call(fs, "promises")).to.equal(true);
   });
 
   it("init → write → add → commit → log round-trips a real repo", async () => {
-    const { fs } = makeClient();
+    const fs = new PlexusFS();
     const dir = "/";
 
     await git.init({ fs, dir });
@@ -43,7 +32,7 @@ describe("isomorphic-git drop-in conformance", () => {
   });
 
   it("listFiles reflects the committed index", async () => {
-    const { fs } = makeClient();
+    const fs = new PlexusFS();
     const dir = "/";
     await git.init({ fs, dir });
 
@@ -58,7 +47,7 @@ describe("isomorphic-git drop-in conformance", () => {
   });
 
   it("multiple commits build a log history", async () => {
-    const { fs } = makeClient();
+    const fs = new PlexusFS();
     const dir = "/";
     await git.init({ fs, dir });
 
@@ -75,7 +64,7 @@ describe("isomorphic-git drop-in conformance", () => {
   });
 
   it("checkout round-trips committed content back onto the working tree", async () => {
-    const { plexusFs, fs } = makeClient();
+    const fs = new PlexusFS();
     const dir = "/";
     await git.init({ fs, dir });
 
@@ -86,7 +75,7 @@ describe("isomorphic-git drop-in conformance", () => {
 
     // Mutate the working tree, then checkout to restore from the commit.
     await fs.promises.writeFile("/file.txt", "dirty edit");
-    expect(plexusFs.resolve("file.txt")).to.not.equal(null);
+    expect(fs.resolve("file.txt")).to.not.equal(null);
 
     await git.checkout({ fs, dir, force: true });
 
@@ -95,7 +84,7 @@ describe("isomorphic-git drop-in conformance", () => {
   });
 
   it("readFile honors the utf8 encoding option vs raw bytes", async () => {
-    const { fs } = makeClient();
+    const fs = new PlexusFS();
     await fs.promises.writeFile("/x", "t**bytes**");
     const asBytes = await fs.promises.readFile("/x");
     const asText = await fs.promises.readFile("/x", { encoding: "utf8" });
@@ -105,7 +94,7 @@ describe("isomorphic-git drop-in conformance", () => {
   });
 
   it("git objects (binary) survive raw byte storage — re-reading a blob", async () => {
-    const { fs } = makeClient();
+    const fs = new PlexusFS();
     const dir = "/";
     await git.init({ fs, dir });
 
@@ -129,7 +118,7 @@ describe("isomorphic-git drop-in conformance", () => {
   // ── Broader drop-in surface: prove a real spread of git operations work ──────
 
   it("statusMatrix reports committed / modified / untracked states", async () => {
-    const { fs } = makeClient();
+    const fs = new PlexusFS();
     const dir = "/";
     await git.init({ fs, dir, defaultBranch: "main" });
 
@@ -152,7 +141,7 @@ describe("isomorphic-git drop-in conformance", () => {
   });
 
   it("branch + checkout switches the working tree and index between refs", async () => {
-    const { fs } = makeClient();
+    const fs = new PlexusFS();
     const dir = "/";
     await git.init({ fs, dir, defaultBranch: "main" });
 
@@ -179,7 +168,7 @@ describe("isomorphic-git drop-in conformance", () => {
   });
 
   it("git.remove drops a file from the next commit's tree", async () => {
-    const { fs } = makeClient();
+    const fs = new PlexusFS();
     const dir = "/";
     await git.init({ fs, dir, defaultBranch: "main" });
 
@@ -196,7 +185,7 @@ describe("isomorphic-git drop-in conformance", () => {
   });
 
   it("readCommit + readTree expose the committed object graph", async () => {
-    const { fs } = makeClient();
+    const fs = new PlexusFS();
     const dir = "/";
     await git.init({ fs, dir, defaultBranch: "main" });
 
@@ -213,7 +202,7 @@ describe("isomorphic-git drop-in conformance", () => {
   });
 
   it("tag + listTags round-trips a ref", async () => {
-    const { fs } = makeClient();
+    const fs = new PlexusFS();
     const dir = "/";
     await git.init({ fs, dir, defaultBranch: "main" });
 
@@ -226,7 +215,7 @@ describe("isomorphic-git drop-in conformance", () => {
   });
 
   it("a deep nested tree commits and lists every file (mkdir -p stress)", async () => {
-    const { fs } = makeClient();
+    const fs = new PlexusFS();
     const dir = "/";
     await git.init({ fs, dir, defaultBranch: "main" });
 

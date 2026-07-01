@@ -10,10 +10,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./fs-client": {
-      "types": "./dist/fs-client.d.ts",
-      "import": "./dist/fs-client.js"
     }
   },
   "main": "./dist/index.js",

@@ -104,6 +104,18 @@ class Foo extends PlexusModel {
     throw new Error("boom");
   }
 
+  /**
+   * Opt-in rollback over a CHILD list. By design: a fresh entity's genesis is
+   * DEFERRED to flush (phase 1), and rollback skips flush entirely — so the
+   * creation never happens. Nothing reaches the doc; the entity's identity was
+   * never committed ("don't rely on uuid until we're done").
+   */
+  @syncing.atomic({ rollbackIf: () => true })
+  pushItemThenThrow(): void {
+    this.items.push(new Bar({ label: "ghost" }));
+    throw new Error("boom");
+  }
+
   /** Single val set — used to probe the ephemeral (doc-less receiver) path. */
   @syncing.atomic
   justSet(): void {
@@ -299,6 +311,21 @@ describe("@syncing.atomic method decorator", () => {
     // Predicate matched → the buffered array-inserts were DISCARDED (never reached the
     // wire) and the overlay was inversed back to the pre-body array via snapshot-splice.
     expect([...root.tags]).toEqual([]);
+    expect(shadowUpdates).toBe(0);
+  });
+
+  it("(array) rollbackIf on a child-list push undoes the entity CREATION entirely — no genesis, wire pure", () => {
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+
+    expect(() => root.pushItemThenThrow()).toThrow("boom");
+
+    // By design: genesis is deferred to flush phase 1, and rollback skips flush entirely.
+    // So the fresh entity is NEVER materialized — zero shadow updates means not even the
+    // genesis transaction fired. The overlay was inversed, so the list is empty again.
+    // Identity was never committed → "don't rely on uuid until we're done" holds by construction.
+    expect(root.items.length).toBe(0);
     expect(shadowUpdates).toBe(0);
   });
 

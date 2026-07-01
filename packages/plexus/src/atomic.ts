@@ -1,6 +1,8 @@
 /**
- * `@syncing.atomic` — run a PlexusModel method body as ONE atomic Plexus
- * transaction on the RECEIVER'S doc. "Atomic" here means exactly:
+ * `@syncing.atomic` — run a PlexusModel method body as ONE atomic Plexus transaction on the RECEIVER'S doc.
+ * This is early implementation that will be superseded by buffered cross-doc transactions with rollbacks.
+ *
+ * "Atomic" here means exactly:
  *   - ONE yjs transaction (one `update` event),
  *   - ONE undo unit (a single `undo()` reverts the whole body), and
  *   - peers see all-or-nothing of THAT update (the update is delivered whole).

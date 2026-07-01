@@ -351,6 +351,8 @@ Plexus.getArbitraryUUID = () => `test-${counter++}`;
 
 `.documentId` returns the Y.Doc guid (`undefined` for unmaterialized or dependency entities).
 
+> **Singletons & the ordinal protocol.** Plexus entities are guaranteed singletons — one object per entity, *including across materialization* — so an entity's **pointer identity never changes**. If you need to identify entities **within a session** without a doc-synced UUID (e.g. ephemeral, not-yet-materialized models, whose `.uuid` would throw), use the [`ordinal`](../common/collections/src/ordinal/) protocol (`ordinal.id(entity)`): a stable, process-local handle keyed off that pointer identity, available *before* materialization.
+
 ### Navigation
 
 ```typescript

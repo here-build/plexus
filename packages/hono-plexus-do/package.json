@@ -16,6 +16,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js",
+      "default": "./dist/client.js"
+    },
     "./leader": {
       "types": "./dist/leader-sync-do.d.ts",
       "import": "./dist/leader-sync-do.js",

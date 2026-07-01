@@ -2,6 +2,7 @@ import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
 import invariant from "tiny-invariant";
 
 import { atomic } from "./atomic.js";
+import { emitOrDefer } from "./atomic-buffer.js";
 import {
   DiscriminateMap,
   type DiscriminatingIdentityDecorator,
@@ -162,18 +163,46 @@ const set = <
   // owned Uint8Array. The yjs attribute below gets the raw bytes via
   // `maybeReference` (which unwraps the proxy through its brand).
   const valueToStore = isTypedArray(value) ? wrapByteVal(value, object, context.name) : value;
-  maybeTransacting(object.__doc__, () => {
+  // Overlay = the synchronous backingStorage mirror (authoritative for reads).
+  const writeOverlay = () => {
     if (valueToStore == undefined) {
       internals.backingStorage.delete(context.name);
     } else {
       internals.backingStorage.set(context.name, valueToStore);
     }
-    if (valueToStore == undefined) {
-      object.__yjsFieldsMap__?.delete(context.name);
-    } else {
-      object.__yjsFieldsMap__?.set(context.name, maybeReference(valueToStore, object.__doc__!));
-    }
-    trackModification(object, context.name);
+  };
+  emitOrDefer(object.__doc__, {
+    // Non-atomic path: exactly the original choreography, verbatim.
+    applyNow: () =>
+      maybeTransacting(object.__doc__, () => {
+        writeOverlay();
+        if (valueToStore == undefined) {
+          object.__yjsFieldsMap__?.delete(context.name);
+        } else {
+          object.__yjsFieldsMap__?.set(context.name, maybeReference(valueToStore, object.__doc__!));
+        }
+        trackModification(object, context.name);
+      }),
+    overlay: writeOverlay,
+    commit: () => {
+      if (valueToStore == undefined) {
+        object.__yjsFieldsMap__?.delete(context.name);
+      } else {
+        object.__yjsFieldsMap__?.set(context.name, maybeReference(valueToStore, object.__doc__!));
+      }
+      trackModification(object, context.name);
+    },
+    revertOverlay: () => {
+      // Silent restore. The overlay write was applied WITHOUT `trackModification`
+      // (deferred to `commit`), so no observer was ever invalidated by it. Undoing
+      // it must therefore also be silent — a `trackModification` here would fire a
+      // spurious re-run for a value that, from any observer's view, never changed.
+      if (storedValue == undefined) {
+        internals.backingStorage.delete(context.name);
+      } else {
+        internals.backingStorage.set(context.name, storedValue);
+      }
+    },
   });
 };
 const setChild = <

@@ -24,8 +24,13 @@
  *   Layer 1  raw `doc.transact`   — the bare yjs primitive
  *   Layer 2  `maybeTransacting`   — the internal helper
  *   Layer 3  `Plexus.transact`    — `maybeTransacting(liminalDoc, fn)`
- *   Layer 4  `@syncing.atomic`    — `maybeTransacting(this.__doc__, body)`
- * Layers 2–4 are literally the same call → identical throw behavior.
+ * Layers 1–3 share this machinery → identical throw behavior (partial COMMITS).
+ *
+ * Layer 4  `@syncing.atomic` is the ODD ONE OUT: the spec-based engine
+ * (`atomic-buffer.ts`) does NOT hold a transaction open — it DEFERS every yjs
+ * write into a buffer and, on throw, DISCARDS the buffer (wire stays pure) and
+ * replays the overlay inverses. So layer 4 is a REAL all-or-nothing rollback,
+ * diverging from layers 1–3. The layer-4 and nested-atomic rows below pin that.
  *
  * ─── THE FOUR OBSERVERS (recorded per cell) ─────────────────────────────────
  *   (a) MODEL     — the entity itself (read-overlay / backingStorage)
@@ -240,7 +245,11 @@ describe("throw inside a transaction — complete behavior characterization", ()
     expect(seen).toEqual([0]);
   });
 
-  it("layer 4 (@syncing.atomic): partial COMMITS, ONE shadow update, observer STALE — the decorator INHERITS, doesn't add", () => {
+  it("layer 4 (@syncing.atomic): ROLLS BACK — the decorator DIVERGES from layers 2/3, no commit, no update", () => {
+    // NOTE: unlike layers 1–3 (raw yjs / maybeTransacting / Plexus.transact, which
+    // commit the partial), the spec-based @syncing.atomic engine DEFERS every yjs
+    // write into a buffer and DISCARDS it on throw. So the pre-throw write never
+    // reaches the wire and the overlay is restored — a real all-or-nothing rollback.
     const shadow = root.__doc__!;
     let shadowUpdates = 0;
     shadow.on("update", () => shadowUpdates++);
@@ -248,9 +257,9 @@ describe("throw inside a transaction — complete behavior characterization", ()
 
     expect(() => root.atomicThrowAfterOne()).toThrow("boom");
 
-    expect(root.a).toBe(1);
-    expect(shadowUpdates).toBe(1);
-    expect(seen).toEqual([0]);
+    expect(root.a).toBe(0); // rolled back (buffer discarded)
+    expect(shadowUpdates).toBe(0); // nothing committed → wire pure
+    expect(seen).toEqual([0]); // observer sees no net change
   });
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -503,12 +512,13 @@ describe("throw inside a transaction — complete behavior characterization", ()
     expect(seen).toEqual(["0,0"]); // observer saw NEITHER — outer cleared the whole batch
   });
 
-  it("inner-nested throw via @syncing.atomic: outer atomic body's write ALSO commits when the inner atomic throws", () => {
+  it("inner-nested throw via @syncing.atomic: the inner defers into the outer buffer, so BOTH writes roll back", () => {
     expect(() => root.outerAtomic()).toThrow("boom");
 
-    // Inner threw, but the outer atomic held the single transaction — both land.
-    expect(root.a).toBe(1); // outer write committed
-    expect(root.b).toBe(1); // inner pre-throw write committed
+    // The nested atomic defers into the OUTERMOST buffer; the inner throw escapes to
+    // the outer runAtomic, which discards the whole buffer → both writes roll back.
+    expect(root.a).toBe(0); // outer write rolled back
+    expect(root.b).toBe(0); // inner pre-throw write rolled back
   });
 
   it("throw CAUGHT inside the callback: the transaction completes NORMALLY → flush fires → observer SEES the write", () => {

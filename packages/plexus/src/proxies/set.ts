@@ -1,5 +1,6 @@
 import type * as Y from "yjs";
 
+import { emitOrDefer } from "../atomic-buffer.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import {
   type AllowedYJSKeyValue,
@@ -157,21 +158,61 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
           return (value: T) => {
             if (backingSet.has(value)) return false;
 
-            if (isChildField) {
-              value?.[requestAdoptionSymbol]?.(owner, key);
-            }
-
-            backingSet.add(value);
-            ensureYjsMap();
-            maybeTransacting(owner.__doc__!, () => {
-              trackModification(self, KEYS_SYMBOL);
-              trackModification(self, ENTRIES_LENGTH_SYMBOL);
+            const writeYjs = () => {
               const yjsMap = getYjsMap();
               if (yjsMap && owner.__doc__) {
                 const sk = serializeKey(value, owner.__doc__);
                 serializedToElement.set(sk, value);
                 yjsMap.set(sk, maybeReference(value, owner.__doc__!));
               }
+            };
+            emitOrDefer(owner.__doc__, {
+              // Non-atomic path: exactly the original choreography, verbatim.
+              applyNow: () => {
+                // Adoption materializes the child onto the owner's doc and writes
+                // the parent edge (see PlexusModel.informAdoption) — real yjs writes.
+                if (isChildField) {
+                  value?.[requestAdoptionSymbol]?.(owner, key);
+                }
+                backingSet.add(value);
+                ensureYjsMap();
+                maybeTransacting(owner.__doc__!, () => {
+                  trackModification(self, KEYS_SYMBOL);
+                  trackModification(self, ENTRIES_LENGTH_SYMBOL);
+                  writeYjs();
+                });
+              },
+              overlay: () => {
+                // Fail-fast on illegal adoption (cycle, cross-doc, self) BEFORE any
+                // state change — pure check, no yjs write. The materialization +
+                // parent-edge writes are deferred to `commit`. Optional-chained on the
+                // symbol (not `instanceof`) to match the original choreography and
+                // avoid a runtime dependency on the type-only PlexusModel import.
+                if (isChildField) {
+                  value?.[validateAdoptionSymbol]?.(owner, key);
+                }
+                backingSet.add(value);
+              },
+              commit: () => {
+                // Adoption (materialize child + parent edge) is deferred here so its
+                // yjs writes nest into the single flush transaction (context already
+                // restored → its internal maybeTransacting shadows in).
+                if (isChildField) {
+                  value?.[requestAdoptionSymbol]?.(owner, key);
+                }
+                ensureYjsMap();
+                trackModification(self, KEYS_SYMBOL);
+                trackModification(self, ENTRIES_LENGTH_SYMBOL);
+                writeYjs();
+              },
+              revertOverlay: () => {
+                // Adoption was deferred to `commit` and never ran on the throw path,
+                // so the child was neither materialized nor adopted — just undo the
+                // overlay add. Silent: the overlay `add` fired no `trackModification`
+                // (deferred to `commit`), so no observer saw it; undoing it must be
+                // silent too, or we'd fire a spurious re-run for a net-zero change.
+                backingSet.delete(value);
+              },
             });
             return true;
           };

@@ -30,6 +30,11 @@ class Foo extends PlexusModel {
   @syncing.child.set
   accessor bars!: Set<Bar>;
 
+  // A value collection whose mutations are NOT routed through the atomic buffer
+  // yet — used to exercise the unrouted-mutation-kind boundary detector.
+  @syncing.map
+  accessor meta!: Map<string, number>;
+
   /**
    * Atomic body exercising every covered mutation kind:
    *  - val set (`count`)
@@ -74,7 +79,17 @@ class Foo extends PlexusModel {
     other.value = 99; // OTHER doc → its own transaction, NOT batched
   }
 
-  /** Throws after a partial write — exercises the no-rollback / suppressed-flush caveat. */
+  /**
+   * Mutates via an UNROUTED kind (`Map.set`) — not wired into the deferred buffer,
+   * so it writes yjs eagerly during the body and trips the leak detector.
+   */
+  @syncing.atomic
+  touchUnrouted(): void {
+    this.count = 1; // routed → deferred
+    this.meta.set("k", 1); // UNROUTED → eager yjs write on the receiver's doc
+  }
+
+  /** Throws after a partial write — exercises spec rollback (buffer discarded). */
   @syncing.atomic
   throwMidway(): void {
     this.count = 1;
@@ -105,7 +120,7 @@ describe("@syncing.atomic method decorator", () => {
     entityClasses.set("AtomicFoo", Foo);
     entityClasses.set("AtomicBar", Bar);
     entityClasses.set("AtomicOther", Other);
-    const result = initTestPlexus(new Foo({ count: 0, bars: new Set() }));
+    const result = initTestPlexus(new Foo({ count: 0, bars: new Set(), meta: new Map() }));
     doc = result.doc;
     plexus = result.plexus;
     root = result.root;
@@ -237,6 +252,28 @@ describe("@syncing.atomic method decorator", () => {
     warnSpy.mockRestore();
   });
 
+  it("unrouted mutation kind is detected: warns once AND is NOT batched", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+
+    root.touchUnrouted();
+
+    // The routed val set batches into one transaction; the unrouted Map.set opened
+    // its OWN eager transaction during the body → two updates, not one.
+    expect(shadowUpdates).toBeGreaterThan(1);
+    expect(root.count).toBe(1);
+    expect(root.meta.get("k")).toBe(1);
+
+    const warnedUnrouted = warnSpy.mock.calls.some(
+      ([message]) => typeof message === "string" && message.includes("NOT yet routed through the atomic buffer"),
+    );
+    expect(warnedUnrouted).toBe(true);
+
+    warnSpy.mockRestore();
+  });
+
   it("cross-doc mutation is NOT batched: warns once AND lands as a separate transaction", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -303,16 +340,22 @@ describe("@syncing.atomic method decorator", () => {
     expect(mainUpdates).toBeGreaterThan(0);
   });
 
-  it("throw mid-body leaves partial writes (no rollback) but suppresses the notification flush", () => {
+  it("throw mid-body ROLLS BACK: the wire stays pure and the overlay is restored", () => {
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+
     const notify = vi.fn();
     const dispose = reaction(() => root.count, notify);
 
     expect(() => root.throwMidway()).toThrow("boom");
 
-    // No rollback — the pre-throw write is committed (same as Plexus.transact).
-    expect(root.count).toBe(1);
-    // But the Plexus notification flush was suppressed on throw: the pending
-    // observer notification was discarded, so the reaction never fired.
+    // Spec rollback: the yjs writes were BUFFERED and discarded on throw, so the
+    // pre-throw write never reached the wire and the overlay was restored.
+    expect(root.count).toBe(0);
+    // Nothing was committed → no yjs update fired (wire-pure rollback).
+    expect(shadowUpdates).toBe(0);
+    // The value returned to its pre-body state, so the reaction sees no net change.
     expect(notify).not.toHaveBeenCalled();
 
     dispose();

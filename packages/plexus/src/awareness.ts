@@ -35,47 +35,15 @@ import { deserialize, serialize } from "./awareness-serde.js";
 import type { AwarenessShape } from "./proxy-runtime-types.js";
 import { bucketCount, telemetry } from "./telemetry.js";
 
-// ── Constants ────────────────────────────────────────────────────────
-
-/** Stride between channels. Matches the 51-bit base width — parseChannelId uses modular arithmetic. */
 const CHANNEL_STRIDE = 2 ** 51;
-
-/** Peers not heard from in 30s are considered offline. */
 export const outdatedTimeout = 30_000;
 
-// ── Channel math ─────────────────────────────────────────────────────
-
-/** Derive the awareness clientId for a given channel index. */
 const channelId = (base: number, channel: number): number => base + channel * CHANNEL_STRIDE;
 
-/** Extract base clientId and channel index from a raw awareness clientId. */
 const parseChannelId = (raw: number): { base: number; channel: number } => ({
   base: raw % CHANNEL_STRIDE,
   channel: Math.floor(raw / CHANNEL_STRIDE),
 });
-
-// ── Types ────────────────────────────────────────────────────────────
-
-interface MetaEntry {
-  clock: number;
-  lastUpdated: number;
-}
-
-type AwarenessEventData = {
-  added: number[];
-  updated: number[];
-  removed: number[];
-};
-
-type AwarenessEvents = {
-  destroy: (awareness: PlexusAwareness) => void;
-  /** Fires on any accepted state change (including clock-only bumps). Providers listen to this. */
-  update: (changes: AwarenessEventData, origin: any) => void;
-  /** Fires only when state actually differs (deepEqual). UI listens to this. */
-  change: (changes: AwarenessEventData, origin: any) => void;
-};
-
-// ── PlexusAwareness ──────────────────────────────────────────────────
 
 export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> extends Awareness {
   /** Schema: ordered field names. Channel 0 state = this array. */
@@ -87,7 +55,7 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
   constructor(doc: Y.Doc) {
     super(doc);
 
-    // Stop the parent class heartbeat — we manage our own
+    // parent Awareness class starts the heartbeat - we need to stop it first
     clearInterval(this._checkInterval);
 
     // Initialize channel 0 with empty schema
@@ -135,9 +103,6 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
     clearInterval(this._checkInterval);
     super.destroy();
   }
-
-  // ── Local state ──────────────────────────────────────────────────
-
   /** Set a field value. Registers the field in the schema on first use.
    *  PlexusModel instances in the value are auto-serialized to reference markers. */
   setField<K extends string & keyof Shape>(field: K, value: Shape[K]): void {
@@ -199,8 +164,6 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
     return this._schema;
   }
 
-  // ── y-protocols compat shims ────────────────────────────────────
-
   /** Set all fields at once. Overrides y-protocols to use multi-channel protocol. */
   override setLocalState(state: Record<string, any> | null): void {
     if (state === null) {
@@ -221,8 +184,6 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
   override getStates(): Map<number, any> {
     return this.states;
   }
-
-  // ── Peer state ───────────────────────────────────────────────────
 
   /**
    * Merged remote-peer state with channel values left in their raw
@@ -270,8 +231,6 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
       }
     }
   }
-
-  // ── Internal ─────────────────────────────────────────────────────
 
   /** Write to a specific channel (local). */
   private _writeChannel(channelIndex: number, state: any, origin: any): void {

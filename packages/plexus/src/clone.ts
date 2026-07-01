@@ -1,7 +1,6 @@
 import invariant from "tiny-invariant";
 
-import type { ConcretePlexusConstructor } from "./PlexusModel.js";
-import { getInternals, PlexusModel, safeUuid } from "./PlexusModel.js";
+import { type ConcretePlexusConstructor, getInternals, PlexusModel, safeUuid } from "./PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue } from "./proxy-runtime-types.js";
 import { __untracked__, ACCESS_ALL_SYMBOL, trackAccess } from "./tracking.js";
 

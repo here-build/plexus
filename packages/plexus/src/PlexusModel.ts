@@ -18,8 +18,9 @@ import {
 import { docPlexus } from "./plexus-registry.js";
 import { Plexus } from "./Plexus.js";
 import { PlexusWrapper } from "./PlexusWrapper.js";
-import { serializeKey, deserializeKey } from "./proxies/materialized-map.js";
+import { serializeKey, deserializeKey } from "./proxies/map.js";
 import {
+  type AllowedYJSKeyValue,
   type AllowedYJSMapKey,
   type AllowedYJSValue,
   type AllowedYJSValueList,
@@ -43,7 +44,8 @@ import {
 import { PLEXUS_CONTROLLED, PLEXUS_DERIVED, PLEXUS_TEST_SENTINEL } from "./sentinels.js";
 import { trackAccess, trackModification } from "./tracking.js";
 import { undoManagerNotifications } from "./utils/undoManagerNotifications.js";
-import { curryMaybeReference, markEntityCreated, maybeTransacting, never } from "./utils/utils.js";
+import { wrapByteVal } from "./proxies/typed-array.js";
+import { curryMaybeReference, isTypedArray, markEntityCreated, maybeTransacting, never } from "./utils/utils.js";
 import { genesisAllowlist } from "./virtual-children-genesis.js";
 import { getTypeMap } from "./yjs/getModels.js";
 
@@ -614,7 +616,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
           }
           case "set":
           case "child-set": {
-            const sourceSet = this[schemaKey] as Set<AllowedYJSValue>;
+            const sourceSet = this[schemaKey] as Set<AllowedYJSKeyValue>;
             if (sourceSet.size > 0) {
               const yjsMap = new Y.Map<AllowedYValue>();
               for (const item of sourceSet) {
@@ -632,7 +634,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
             if (mapProxy.size > 0) {
               const entries: [string, AllowedYValue | null][] = [];
               for (const [key, val] of mapProxy.entries()) {
-                // Use serializeKey to match materialized-map.ts format (Set:, Array:, Value: prefixes)
+                // Use serializeKey to match map.ts format (Set:, Array:, Value: prefixes)
                 const serializedKey = serializeKey(key, doc);
                 entries.push([serializedKey, boundMaybeReference(val)]);
               }
@@ -688,9 +690,17 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       }
       switch (type) {
         case "val":
-        case "child-val":
-          internals.backingStorage.set(key, deref(this.__doc__!, internals.yjsModel.get(key) as AllowedYValue));
+        case "child-val": {
+          // A byte val is stored AS its live write-through proxy; wrap the raw
+          // bytes deref hands back (bytes are not references, deref returns them
+          // as-is). Every other primitive is stored raw.
+          const materialized = deref(this.__doc__!, internals.yjsModel.get(key) as AllowedYValue);
+          internals.backingStorage.set(
+            key,
+            isTypedArray(materialized) ? wrapByteVal(materialized, this, key) : materialized,
+          );
           break;
+        }
         case "record":
         case "child-record":
         case "set":
@@ -728,7 +738,10 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
         if (this.__schema__[key] === "val" || this.__schema__[key] === "child-val") {
           const oldValue = internals.backingStorage.get(key);
           const yjsValue = internals.yjsModel!.get(key) as AllowedYValue;
-          const newValue = deref(this.__doc__!, yjsValue);
+          const derefed = deref(this.__doc__!, yjsValue);
+          // A byte val is stored AS its live write-through proxy (a fresh proxy per
+          // remote change, so held references may go stale — bytes are a value).
+          const newValue = isTypedArray(derefed) ? wrapByteVal(derefed, this, key) : derefed;
           if (newValue !== oldValue) {
             internals.backingStorage.set(key, newValue);
             trackModification(this, key);

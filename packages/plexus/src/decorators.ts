@@ -16,11 +16,11 @@ import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
 import { Plexus } from "./Plexus.js";
 import { getInternals, type PlexusConstructor, PlexusModel, safeUuid } from "./PlexusModel.js";
-import { buildArrayProxy } from "./proxies/materialized-array.js";
-import { buildMapProxy } from "./proxies/materialized-map.js";
-import { buildRecordProxy } from "./proxies/materialized-record.js";
-import { buildSetProxy } from "./proxies/materialized-set.js";
-import { buildTypedArrayProxy } from "./proxies/materialized-typed-array.js";
+import { buildArrayProxy } from "./proxies/array.js";
+import { buildMapProxy } from "./proxies/map.js";
+import { buildRecordProxy } from "./proxies/record.js";
+import { buildSetProxy } from "./proxies/set.js";
+import { wrapByteVal } from "./proxies/typed-array.js";
 import {
   type AllowedPrimitive,
   type AllowedVirtualMapKey,
@@ -35,7 +35,7 @@ import {
   type VirtualMap,
 } from "./proxy-runtime-types.js";
 import { __untracked__, trackAccess, trackModification } from "./tracking.js";
-import { maybeReference, maybeTransacting } from "./utils/utils.js";
+import { isTypedArray, maybeReference, maybeTransacting } from "./utils/utils.js";
 import { assertGenesisIsolation } from "./virtual-children-genesis.js";
 
 try {
@@ -155,14 +155,13 @@ const set = <
   if (storedValue === value) {
     return;
   }
-  // clone-on-set: a Uint8Array is stored as a private copy so a caller that
-  // mutates the buffer they passed in cannot retro-corrupt our state (yjs does
-  // NOT copy on setAttribute — only on transaction/sync). `new Uint8Array(value)`
-  // both isolates AND normalizes a subclass (e.g. a Node Buffer, whose `.slice()`
-  // would alias shared memory and keep the wrong constructor) to the plain
-  // Uint8Array the CRDT layer stores. backingStorage and the yjs attribute hold
-  // the SAME copy so reads agree and the proxy is stable.
-  const valueToStore = value instanceof Uint8Array ? new Uint8Array(value) : value;
+  // Bytes are a special primitive: the val stores a live write-through proxy
+  // directly (reference-stable, so in-place mutation stays reactive). `wrapByteVal`
+  // copies for isolation (a caller mutating the buffer they passed can't
+  // retro-corrupt our state) and normalizes subclasses (a Node Buffer) to a plain
+  // owned Uint8Array. The yjs attribute below gets the raw bytes via
+  // `maybeReference` (which unwraps the proxy through its brand).
+  const valueToStore = isTypedArray(value) ? wrapByteVal(value, object, context.name) : value;
   maybeTransacting(object.__doc__, () => {
     if (valueToStore == undefined) {
       internals.backingStorage.delete(context.name);
@@ -273,16 +272,6 @@ const createBackingStructuresMap = new DefaultedMap((key: string) => ({
 
 const emptyEphemeralDependency = new DefaultedWeakMap(() => Object.freeze({}));
 
-/**
- * Per-key → per-owner cache of `Uint8Array` val proxies (reference stability,
- * mirroring `createBackingStructuresMap`). Only val/child-val fields whose stored
- * value is a Uint8Array ever read from this; every other primitive path is
- * untouched.
- */
-const typedArrayProxies = new DefaultedMap(
-  (key: string) => new DefaultedWeakMap((owner: PlexusModel) => buildTypedArrayProxy({ owner, key })),
-);
-
 // this madman grade stuff is needed as we may have inheriting decorators overriding type,
 // yet decorator factories are using parent declaration, not child declaration.
 // by making that behavior dynamic, we make overriding possible
@@ -322,19 +311,12 @@ const createHandlers = <
       trackAccess(this, context.name);
       switch (this.__schema__[context.name]) {
         case "val":
-        case "child-val": {
-          const stored = internals.backingStorage.get(context.name);
-          // Uint8Array reads as a write-tracking proxy (cached per owner+key for
-          // reference stability). Every other primitive / PlexusModel path is
-          // returned raw, byte-identical to before.
-          if (stored instanceof Uint8Array) {
-            // Dynamic-dispatch getter: a Uint8Array val reads as its tracking
-            // proxy (typed as Uint8Array — `.slice()` is the detached-copy hatch).
-            // `as T` matches the existing deref/val-set cast idiom.
-            return typedArrayProxies.get(context.name).get(this) as T;
-          }
-          return stored ?? null;
-        }
+        case "child-val":
+          // Uniform primitive read. A Uint8Array val is stored AS its live
+          // write-through proxy (wrapped at ingest — the setter / materialization),
+          // so it needs no special-casing here; every other primitive / PlexusModel
+          // is returned raw.
+          return (internals.backingStorage.get(context.name) ?? null) as T;
         default:
           /** see "We are doing dynamic schema retrieval..." comment below in init()*/
           return backingStructures[this.__schema__[context.name]].get(this);

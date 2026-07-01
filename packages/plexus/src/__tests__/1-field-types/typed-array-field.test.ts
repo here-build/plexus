@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { reaction } from "mobx";
+import { autorun, reaction } from "mobx";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
@@ -248,18 +248,35 @@ describe("Uint8Array val field", () => {
     dispose();
   });
 
-  it("NEGATIVE: a per-index reaction does not fire on an unrelated index write", () => {
+  it("ALL-OR-NOTHING: a reader of one index re-runs on a write to a DIFFERENT index", () => {
+    // The buffer is one atom `(owner, "content")`; there is no per-index tracking.
+    // A reader of content[0] therefore wakes on a content[1] write — bytes are an
+    // opaque payload revised as a unit, so sub-buffer precision would be false.
+    // (Value-gated `reaction` wouldn't see it — content[0] is unchanged — so count
+    // re-computations with `autorun` to prove the dependency woke.)
     const holder = new BlobHolder({ content: new Uint8Array([1, 2, 3, 4]), label: "x" });
     const { root } = initTestPlexus<BlobHolder>(holder);
 
-    const notify = vi.fn();
-    const dispose = reaction(() => root.content[0], notify);
+    const compute = vi.fn(() => root.content[0]);
+    const dispose = autorun(compute);
+    expect(compute).toHaveBeenCalledTimes(1); // initial run
 
-    root.content[1] = 99; // a different index — content[0] reader must stay asleep
-    expect(notify).not.toHaveBeenCalled();
+    root.content[1] = 99; // a DIFFERENT index still wakes the content[0] reader
+    expect(compute).toHaveBeenCalledTimes(2);
 
-    root.content[0] = 99; // the observed index — now it fires
-    expect(notify).toHaveBeenCalledTimes(1);
+    dispose();
+  });
+
+  it("ALL-OR-NOTHING: a mutating method wakes an index reader (whole-buffer atom)", () => {
+    const holder = new BlobHolder({ content: new Uint8Array([1, 2, 3, 4]), label: "x" });
+    const { root } = initTestPlexus<BlobHolder>(holder);
+
+    const compute = vi.fn(() => root.content[0]);
+    const dispose = autorun(compute);
+    expect(compute).toHaveBeenCalledTimes(1);
+
+    root.content.fill(0); // bulk write — the index reader wakes
+    expect(compute).toHaveBeenCalledTimes(2);
 
     dispose();
   });
@@ -284,10 +301,9 @@ describe("Uint8Array val field", () => {
     syncDocs(docA, docB);
     const { root: rootB } = connectTestPlexus<BlobHolder>(docB);
 
-    // A per-index reader on doc B. Every proxy read also tracks owner+key (the
-    // decorator getter), and B's model observer fires owner+key on a remote
-    // change — so the reader wakes even though the remote path doesn't fire the
-    // granular self+index tracker that LOCAL writes do.
+    // An index reader on doc B. Reads depend on the field atom `(owner, "content")`
+    // and B's model observer fires that same atom on a remote change, so the reader
+    // wakes — reactivity is all-or-nothing and identical for local and remote.
     const notify = vi.fn();
     const dispose = reaction(() => rootB.content[0], notify);
 
@@ -300,6 +316,29 @@ describe("Uint8Array val field", () => {
     dispose();
   });
 
+  it("ALL-OR-NOTHING (remote): a content[0] reader wakes on a remote write to content[1]", () => {
+    // The same all-or-nothing grain holds remotely: a remote write to a DIFFERENT
+    // index wakes an index reader on the peer, because the model observer fires the
+    // whole field atom `(owner, "content")` — never a per-index tracker.
+    const holder = new BlobHolder({ content: new Uint8Array([1, 2, 3, 4]), label: "a" });
+    const { doc: docA, root: rootA } = initTestPlexus<BlobHolder>(holder);
+    const docB = new Y.Doc({ guid: docA.guid });
+    syncDocs(docA, docB);
+    const { root: rootB } = connectTestPlexus<BlobHolder>(docB);
+
+    const compute = vi.fn(() => rootB.content[0]);
+    const dispose = autorun(compute);
+    expect(compute).toHaveBeenCalledTimes(1);
+
+    rootA.content[1] = 99; // remote write to a DIFFERENT index
+    syncDocs(docA, docB);
+
+    expect(rootB.content[1]).to.equal(99);
+    expect(compute).toHaveBeenCalledTimes(2); // content[0] reader woke coarsely
+
+    dispose();
+  });
+
   it("NEGATIVE: a remote byte change does not wake a sibling-field reaction", () => {
     const holder = new BlobHolder({ content: new Uint8Array([1, 2, 3, 4]), label: "start" });
     const { doc: docA, root: rootA } = initTestPlexus<BlobHolder>(holder);
@@ -307,11 +346,9 @@ describe("Uint8Array val field", () => {
     syncDocs(docA, docB);
     const { root: rootB } = connectTestPlexus<BlobHolder>(docB);
 
-    // Remote byte changes fire only owner+"content" (the field key), so a reader
-    // of a SIBLING field stays asleep — remote reactivity is field-scoped.
-    // (Per-INDEX isolation is local-only: remotely, owner+key wakes every content
-    // reader coarsely, so a content[1] reader WOULD wake on a remote content[0]
-    // change — that's safe over-firing, not tested as a negative here.)
+    // Byte changes fire only `(owner, "content")` (the field atom), so a reader of a
+    // SIBLING field stays asleep — reactivity is field-scoped (all-or-nothing WITHIN
+    // the buffer, but never crossing to another field).
     const notify = vi.fn();
     const dispose = reaction(() => rootB.label, notify);
 

@@ -1,14 +1,56 @@
-import { PlexusDependencyError, PlexusTypedArrayAliasError } from "../errors.js";
-import { getInternals, type PlexusModel } from "../PlexusModel.js";
-import {
-  ACCESS_ALL_SYMBOL,
-  ENTRIES_LENGTH_SYMBOL,
-  trackAccess,
-  trackModification,
-  VALUES_SYMBOL,
-} from "../tracking.js";
-import { type AssertNever, type MethodsOf } from "./method-classification.js";
+import { PlexusTypedArrayAliasError } from "../errors.js";
+import { type PlexusModel } from "../PlexusModel.js";
+import { bytesProxyRawSymbol } from "../proxy-runtime-types.js";
+import { trackAccess, trackModification } from "../tracking.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
+import { type AssertNever, type MethodsOf } from "./method-classification.js";
+
+/**
+ * Write-focused proxy over a single `Uint8Array` val field.
+ *
+ * Bytes are just a special kind of primitive: this proxy IS the value stored in
+ * the field's `backingStorage` slot (not a lazily-cached wrapper over a raw
+ * mirror). It owns its bytes privately and is returned verbatim by the val
+ * getter.
+ *
+ * Reactivity is ALL-OR-NOTHING on the whole buffer — the field is one atom,
+ * `(owner, key)`, exactly like every other scalar val. There is no per-index or
+ * per-value tracking: any read (index, iteration, length, read-only method)
+ * depends on `(owner, key)`; any in-place write (index write, mutating method)
+ * fires `(owner, key)`. So a reader of `blob[0]` wakes on a write to `blob[5]`,
+ * and this holds identically for local and remote changes (the model's observer
+ * fires the same `(owner, key)` atom on a remote byte change). Sub-buffer
+ * granularity would be false precision: bytes are an opaque payload, revised as a
+ * unit.
+ *
+ * Uint8Array is problematic to be represented in the right manner here due to the conflict of requirements.
+ * It is quite tricky but feasible to guard the Uint8Array, but the underlying buffer is structurally impossible
+ * to make guarded; so, we're relying here on a convention that user must treat ArrayBuffer returned by .buffer
+ * as readonly, which is mildly enforced by types, yet potentially overridable.
+ *
+ * However, for storage we need to clone the value specifically instead of linking directly, as using
+ * the typed array from the input as-is posess potential structural risks of uncontrolled divergence.
+ * The isolating copy happens once at ingest (the val setter / materialization); this proxy then OWNS
+ * that copy and mutates it via fresh arrays.
+ *
+ * Unlike the collection proxies (array/record/set/map), bytes are NOT entities:
+ * there is no child-ownership, no adoption/orphanization, no reference/deref, no nested Y.Array.
+ * So this proxy never touches the `Internals` struct — it holds the bytes and pushes fresh copies
+ * straight to the scalar val at `owner.__yjsFieldsMap__.get(key)` on write.
+ *
+ * Every write produces a brand-new array.
+ * yjs snapshots the buffer on transaction/sync (`new ContentBinary(new Uint8Array(c))`),
+ * so mutating an array already handed to yjs in place would retro-corrupt committed items and undo history.
+ * We never do that — every write replaces `bytes` with a fresh array before handing it to yjs.
+ *
+ * This is acknowledged as a typical tradeoff problem - we make individual updates significantly larger,
+ * while preserving the crdt log length at a reasonable size. There may be better optimizations, but not for today.
+ *
+ * `instanceof Uint8Array` holds via a `getPrototypeOf` trap
+ * (NOT a real Uint8Array target — a real one's non-configurable indexed slots trip Proxy
+ * invariants the moment the trapped length differs from the target's).
+ */
+
 
 // `.slice()` on a Uint8Array returns a Uint8Array (a detached byte copy); the
 // spread the rule prefers yields a `number[]` — the wrong type. The rule is
@@ -16,38 +58,11 @@ import { maybeReference, maybeTransacting } from "../utils/utils.js";
 /* eslint-disable unicorn/prefer-spread */
 
 /**
- * Write-focused proxy over a single `Uint8Array` val field.
- *
- * Unlike the collection proxies (array/record/set/map), bytes are NOT entities:
- * there is no child-ownership, no adoption/orphanization, no reference/deref, no
- * nested Y.Array. The backing is the lone scalar val stored at
- * `owner.__yjsFieldsMap__.get(key)` (a yjs `ContentBinary` Uint8Array), mirrored
- * in `internals.backingStorage` and kept live by the *model-level* observer
- * PlexusModel installs at bootstrap (a remote attribute change refreshes
- * `backingStorage.set(key, …)` — so a scalar val needs no observer of its own,
- * see `currentBytes`).
- *
- * Every write produces a brand-new array. yjs snapshots the buffer on
- * transaction/sync (`new ContentBinary(new Uint8Array(c))`), so mutating an
- * array already handed to yjs in place would retro-corrupt committed items and
- * undo history. We never do that — `writeBytes` always stores a fresh array.
- *
- * `instanceof Uint8Array` holds via a `getPrototypeOf` trap (NOT a real
- * Uint8Array target — a real one's non-configurable indexed slots trip Proxy
- * invariants the moment the trapped length differs from the target's).
- */
-
-export type MaterializedTypedArrayProxyInitTarget = {
-  owner: PlexusModel;
-  key: string;
-};
-
-/**
- * Read-only TypedArray methods, forwarded to the live bytes. The copy-returning
- * ones (`slice`, `toReversed`, `toSorted`, `with`) double as the detach hatch:
- * `content.slice()` is a real, owned `Uint8Array` for native consumers
- * (crypto/TextDecoder) — no bespoke `toNative()` needed. `slice` COPIES (unlike
- * `subarray`, which views the shared buffer and is therefore banned).
+ * Read-only TypedArray methods, forwarded to the live bytes.
+ * The copy-returning ones (`slice`, `toReversed`, `toSorted`, `with`) double as the detach hatch:
+ * `content.slice()` is a real, owned `Uint8Array` for native consumers (crypto/TextDecoder)
+ * — no bespoke `toNative()` needed. `slice` COPIES
+ * (unlike `subarray`, which views the shared buffer and is therefore banned).
  */
 const UINT8ARRAY_METHODS = {
   /**
@@ -111,39 +126,25 @@ const READ_ONLY_METHODS = new Set<string | symbol>(UINT8ARRAY_METHODS.readonly);
 const MUTATING_METHODS = new Set<string | symbol>(UINT8ARRAY_METHODS.mutating);
 const BANNED = new Set<string | symbol>(UINT8ARRAY_METHODS.banned);
 
-export const buildTypedArrayProxy = ({ owner, key }: MaterializedTypedArrayProxyInitTarget): Uint8Array => {
-  const internals = getInternals(owner);
+export const buildTypedArrayProxy = (initial: Uint8Array, owner: PlexusModel, key: string): Uint8Array => {
   // A dependency entity is read-only and never reaches this proxy by construction
-  // (the val getter guards `isDependency` upstream); a typed loud throw if it does.
-  PlexusDependencyError.invariant(!internals.isDependency, owner, "accessed");
+  // (the val getter guards `isDependency` upstream), so no guard is needed here.
+  //
+  // The proxy OWNS its bytes: `initial` is already an isolated copy (the ingest
+  // site — the val setter / materialization — copies before wrapping), so no
+  // further clone is needed here.
+  let bytes = initial;
 
-  /**
-   * The live stored bytes. Reads from `backingStorage` (the model observer keeps
-   * it in sync with remote changes — a scalar val is a plain XmlElement
-   * attribute, caught by `PlexusModel`'s own `element.observe`). Falls back to an
-   * empty array when the field is currently null/absent so reads never throw.
-   */
-  const currentBytes = (): Uint8Array => {
-    const stored = internals.backingStorage.get(key) as unknown;
-    return stored instanceof Uint8Array ? stored : new Uint8Array(0);
-  };
-
-  /**
-   * Commit a fresh array as the new field value. Mirrors the val `set()` helper
-   * but does NOT fire the field-key tracker (`owner`+`key`): that key means
-   * "the whole field was reassigned" and is fired by the decorator `set` helper.
-   * In-place mutations fire granular `self`+symbol trackers at the call site, so
-   * a `content[1]` write never wakes a `content[0]` reader (see mobx/index.ts).
-   */
-  const writeBytes = (next: Uint8Array): void => {
+  // Commit a fresh array as the new value: replace the owned bytes, push a copy to
+  // the scalar yjs attribute, and fire the field atom `(owner, key)` — all in ONE
+  // transaction, mirroring the val setter (decorators.ts `set`). Reactivity is
+  // all-or-nothing, so every in-place write funnels through here and wakes the
+  // whole field.
+  const commit = (next: Uint8Array): void => {
     maybeTransacting(owner.__doc__, () => {
-      // Same write path as the val `set()` helper: raw into backingStorage, and
-      // `maybeReference` into the yjs attribute (identity for bytes, since a
-      // Uint8Array isn't a PlexusModel — kept for canonical-path fidelity). yjs
-      // preserves the instance on local read-back, so the model observer's
-      // `newValue !== oldValue` guard no-ops and never double-fires owner+key.
-      internals.backingStorage.set(key, next);
+      bytes = next;
       owner.__yjsFieldsMap__?.set(key, maybeReference(next, owner.__doc__!));
+      trackModification(owner, key);
     });
   };
 
@@ -159,6 +160,11 @@ export const buildTypedArrayProxy = ({ owner, key }: MaterializedTypedArrayProxy
     },
     get(_t, prop, receiver) {
       switch (true) {
+        // The serialization egress (`maybeReference`) unwraps to raw bytes here —
+        // our `constructor` reads as `Uint8Array`, so a value check can't tell us
+        // from a plain buffer.
+        case prop === bytesProxyRawSymbol:
+          return bytes;
         // Aliasing escapes — refuse with a door that routes to `.slice()`.
         case BANNED.has(prop):
           return () => {
@@ -174,20 +180,16 @@ export const buildTypedArrayProxy = ({ owner, key }: MaterializedTypedArrayProxy
           return "Uint8Array";
       }
 
-      const bytes = currentBytes();
       switch (true) {
-        // length/size reads depend on structure, not values.
+        // Every read depends on the whole field atom `(owner, key)` — all-or-nothing.
         case prop === "length":
         case prop === "byteLength":
         case prop === "byteOffset":
         case prop === "BYTES_PER_ELEMENT":
           trackAccess(owner, key);
-          trackAccess(self, ENTRIES_LENGTH_SYMBOL);
           return Reflect.get(bytes, prop);
         case prop === Symbol.iterator:
-          // Iterating reads every value → depend on VALUES.
           trackAccess(owner, key);
-          trackAccess(self, VALUES_SYMBOL);
           return bytes[Symbol.iterator].bind(bytes);
         case MUTATING_METHODS.has(prop):
           return (...args: unknown[]) => {
@@ -195,9 +197,7 @@ export const buildTypedArrayProxy = ({ owner, key }: MaterializedTypedArrayProxy
             // method reference can't apply against a stale snapshot.
             const next = bytes.slice();
             const result = next[prop](...args);
-            writeBytes(next);
-            // Bulk change → ACCESS_ALL wakes per-index and whole-value readers alike.
-            trackModification(self, ACCESS_ALL_SYMBOL);
+            commit(next); // fires `(owner, key)`
             // sort/reverse/fill/copyWithin return the array (→ the proxy);
             // `set` returns undefined.
             return result === next ? receiver : result;
@@ -205,17 +205,15 @@ export const buildTypedArrayProxy = ({ owner, key }: MaterializedTypedArrayProxy
         case READ_ONLY_METHODS.has(prop):
           return (...args: unknown[]) => {
             trackAccess(owner, key);
-            trackAccess(self, VALUES_SYMBOL);
             return bytes[prop](...args);
           };
       }
 
-      // Numeric index read → depend on just that index.
+      // Numeric index read → depends on the whole field (all-or-nothing).
       if (typeof prop === "string") {
         const idx = Number(prop);
         if (Number.isInteger(idx) && idx >= 0) {
           trackAccess(owner, key);
-          trackAccess(self, String(idx));
           return bytes[idx];
         }
       }
@@ -231,15 +229,11 @@ export const buildTypedArrayProxy = ({ owner, key }: MaterializedTypedArrayProxy
           // `& 0xff` faithfully matches a real Uint8Array's ToUint8 coercion
           // (truncate + mod 256; NaN → 0).
           const numeric = Number(value) & 0xff;
-          const bytes = currentBytes();
           // No-op write (same byte) doesn't fire — mirrors the array proxy.
           if (bytes[idx] === numeric) return true;
           const next = bytes.slice();
           next[idx] = numeric;
-          writeBytes(next);
-          // The specific index, plus VALUES for whole-value (iterator) readers.
-          trackModification(self, String(idx));
-          trackModification(self, VALUES_SYMBOL);
+          commit(next); // fires `(owner, key)`
           return true;
         }
       }
@@ -248,7 +242,6 @@ export const buildTypedArrayProxy = ({ owner, key }: MaterializedTypedArrayProxy
       return false;
     },
     has(_t, prop) {
-      const bytes = currentBytes();
       if (typeof prop === "string") {
         const idx = Number(prop);
         if (Number.isInteger(idx) && idx >= 0) {
@@ -262,12 +255,10 @@ export const buildTypedArrayProxy = ({ owner, key }: MaterializedTypedArrayProxy
       // `length` — that's an inherited prototype getter). All reported keys must
       // be `configurable: true` here (the target is the extensible `{}`), or the
       // getOwnPropertyDescriptor invariant throws.
-      const bytes = currentBytes();
       return Reflect.ownKeys(bytes);
     },
     getOwnPropertyDescriptor(_t, prop) {
       if (typeof prop === "string") {
-        const bytes = currentBytes();
         const idx = Number(prop);
         if (Number.isInteger(idx) && idx >= 0 && idx < bytes.length) {
           // configurable: true is REQUIRED — the property isn't on the real
@@ -292,4 +283,15 @@ export const buildTypedArrayProxy = ({ owner, key }: MaterializedTypedArrayProxy
   });
 
   return self as unknown as Uint8Array;
+};
+
+/**
+ * Ingest a raw (or already-proxied) byte value into the live write-through proxy
+ * that a val field stores directly in `backingStorage`. Copies for isolation
+ * (copy-on-set: a caller mutating the buffer they passed can't retro-corrupt our
+ * state) and normalizes any subclass / proxy to a plain owned `Uint8Array`.
+ */
+export const wrapByteVal = (value: Uint8Array, owner: PlexusModel, key: string): Uint8Array => {
+  const raw = (value as { [bytesProxyRawSymbol]?: Uint8Array })[bytesProxyRawSymbol] ?? value;
+  return buildTypedArrayProxy(new Uint8Array(raw), owner, key);
 };

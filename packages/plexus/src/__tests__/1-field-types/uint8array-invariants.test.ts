@@ -6,15 +6,15 @@ import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 
-// ── Adversarial: does Uint8Array's copy-on-set hold the SAME invariants that
-//    Y.Text breaks — and at WHICH layers does copy-on-set actually apply? ─────
+// ── Adversarial: at WHICH layers does Uint8Array's copy-on-set actually apply? ─
 //
-// Uint8Array is the sibling val primitive. Unlike Y.Text it is copy-on-set
-// (decorators.ts:164 — `value instanceof Uint8Array ? new Uint8Array(value) : value`),
-// so the aliasing/clone/same-instance breaks that corrupt Y.Text SHOULD be
-// caught by the copy. This suite checks whether that copy discipline reaches
-// every layer (scalar set, container element, clone, liminality) or only the
-// scalar setter. Any non-green is a copy-on-set GAP. (GC is out of scope.)
+// A Uint8Array val is stored copy-on-set (decorators.ts — `value instanceof
+// Uint8Array ? new Uint8Array(value) : value`), so a caller mutating the buffer
+// they passed in must NOT retro-corrupt our state, and the same instance placed
+// in two fields must yield independent bytes. This suite checks whether that copy
+// discipline reaches every layer (scalar set, container element, clone,
+// liminality) or only the scalar setter. Any non-green is a copy-on-set GAP.
+// (GC is out of scope.)
 
 beforeAll(() => {
   enableMobXIntegration();
@@ -59,7 +59,7 @@ describe("REPARENTING — copy-on-set should prevent sharing", () => {
     const { root } = initTestPlexus<TwoBlob>(new TwoBlob({ a: shared, b: shared }));
 
     root.a[0] = 99;
-    expect(root.b[0]).to.equal(5); // independent — and NO Yjs crash (the Y.Text failure mode)
+    expect(root.b[0]).to.equal(5); // independent copies — mutating a must not touch b
   });
 });
 

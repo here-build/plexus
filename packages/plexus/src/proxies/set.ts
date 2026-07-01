@@ -9,6 +9,7 @@ import {
   type ReadonlyField,
   informOrphanizationSymbol,
   materializationSymbol,
+  referenceSymbol,
   requestAdoptionSymbol,
   validateAdoptionSymbol } from "../proxy-runtime-types.js";
 import { bucketCount, telemetry } from "../telemetry.js";
@@ -184,33 +185,50 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
               },
               overlay: () => {
                 // Fail-fast on illegal adoption (cycle, cross-doc, self) BEFORE any
-                // state change — pure check, no yjs write. The materialization +
-                // parent-edge writes are deferred to `commit`. Optional-chained on the
-                // symbol (not `instanceof`) to match the original choreography and
-                // avoid a runtime dependency on the type-only PlexusModel import.
+                // state change — pure check, no yjs write. Materialization is deferred
+                // to `materialize` (phase 1); the parent-edge write to `commit` (phase
+                // 2). Optional-chained on the symbol (not `instanceof`) to match the
+                // original choreography and avoid a runtime dependency on the type-only
+                // PlexusModel import.
                 if (isChildField) {
                   value?.[validateAdoptionSymbol]?.(owner, key);
                 }
                 backingSet.add(value);
               },
+              materialize: () => {
+                // Phase 1 — GENESIS of the CHILD entity, run OUTSIDE the flush
+                // transaction so its materialization keeps its own origin (via
+                // `[referenceSymbol]`'s own `maybeTransacting`) instead of being
+                // swallowed into the user's tx — the bug this rework exists to fix.
+                // This is the same call `informAdoption` makes at PlexusModel.ts:414-415;
+                // running it here means the phase-2 `requestAdoption` finds the child
+                // already materialized (yjsModel set) and only writes the parent edge.
+                // NOTE: the OWNER's field-map materialization (`ensureYjsMap`) is NOT
+                // genesis of a new entity — it is part of the user's own edit, so it
+                // stays in `commit` and rides the user transaction.
+                if (isChildField) {
+                  value?.[referenceSymbol]?.(owner.__doc__!);
+                }
+              },
               commit: () => {
-                // Adoption (materialize child + parent edge) is deferred here so its
-                // yjs writes nest into the single flush transaction (context already
-                // restored → its internal maybeTransacting shadows in).
+                // Phase 2 — the child is already materialized (phase 1), so this only
+                // creates the owner's field map, writes the parent edge, and the field
+                // entry, all inside the single flush transaction.
+                ensureYjsMap();
                 if (isChildField) {
                   value?.[requestAdoptionSymbol]?.(owner, key);
                 }
-                ensureYjsMap();
                 trackModification(self, KEYS_SYMBOL);
                 trackModification(self, ENTRIES_LENGTH_SYMBOL);
                 writeYjs();
               },
               revertOverlay: () => {
-                // Adoption was deferred to `commit` and never ran on the throw path,
-                // so the child was neither materialized nor adopted — just undo the
-                // overlay add. Silent: the overlay `add` fired no `trackModification`
-                // (deferred to `commit`), so no observer saw it; undoing it must be
-                // silent too, or we'd fire a spurious re-run for a net-zero change.
+                // Materialization + adoption were deferred (phases 1/2) and never ran on
+                // a rollback, so the child was neither materialized nor adopted — just
+                // undo the overlay add. Silent: the overlay `add` fired no
+                // `trackModification` (deferred to `commit`), so no observer saw it;
+                // undoing it must be silent too, or we'd fire a spurious re-run for a
+                // net-zero change.
                 backingSet.delete(value);
               },
             });

@@ -3,53 +3,74 @@
  * See `docs/working-proposals/syncing-atomic-spec-based-transactions.md`.
  *
  * ───────────────────────────────────────────────────────────────────────────
- * WHY A BUFFER (and not just holding a transaction open)
+ * WHY A BUFFER — POSTPONEMENT, not "hold a transaction open"
  * ───────────────────────────────────────────────────────────────────────────
- * The earlier `@syncing.atomic` was a thin wrapper that got "one transaction"
- * by HOLDING `doc.transact` open across the method body — every nested yjs write
- * shadowed into it. That is correct for batching, but it cannot ROLL BACK: by
- * the time the body throws, yjs has already committed the partial writes (yjs
- * transactions never roll back). "Atomic" was therefore a claim about delivery,
- * not an all-or-nothing guarantee.
+ * The buffer's job is to decouple *when intent is expressed* (the method body,
+ * running in program order so it can read its own writes) from *when and where
+ * each effect executes* (the flush). Postponement is the point — rollback is a
+ * bonus it happens to enable.
  *
- * This engine instead DEFERS the yjs writes. During the body, each routed
- * mutation site applies its local overlay IMMEDIATELY (so the body reads its own
- * writes) but BUFFERS the yjs write as a thunk. On success we replay the whole
- * buffer inside ONE `maybeTransacting(doc)` → one yjs transaction, one `update`,
- * one undo item — the same observable batching as before. On throw we DISCARD
- * the buffer: yjs was never touched, so the wire is pure (real rollback), and we
- * replay the overlay inverses in reverse to return the local mirror to its
- * pre-body state.
+ * The decisive reason to postpone is GENESIS. Materializing a fresh entity is a
+ * deterministic re-derivation with its OWN origin; it must NOT be swallowed into
+ * the user's transaction, or it corrupts undo granularity and broadcasts to peers
+ * as if the user had authored it. So the flush runs in TWO phases:
+ *
+ *   phase 1 — `materialize`: genesis / entity materialization, run OUTSIDE any
+ *             transaction (each carries its own origin via `[referenceSymbol]`);
+ *   phase 2 — `commit`: the inert, pre-validated yjs writes, replayed inside ONE
+ *             `maybeTransacting(doc)` → one transaction, one `update`, one undo
+ *             item.
+ *
+ * During the body each routed mutation applies its local OVERLAY immediately (so
+ * the body reads its own writes) and BUFFERS the deferred effect. Splitting
+ * validation (eager, at overlay) from the writes (phase 2) makes the commit
+ * inert: nothing fallible is left to throw mid-flush.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * THROW SEMANTICS — commit-on-crash is the DEFAULT
+ * ───────────────────────────────────────────────────────────────────────────
+ * A throwing body does NOT roll back by default. This matches both hosts we sit
+ * between: JavaScript (an exception never unwinds the effects of statements that
+ * already ran) and yjs (`transact` finalizes in `finally`, never rolls back). So
+ * the writes buffered BEFORE the throw are flushed, then the error rethrows.
+ *
+ * Rollback is OPT-IN, per decorated method, via an error predicate:
+ * `@syncing.atomic({ rollbackIf: (error) => boolean })`. When the predicate
+ * matches the thrown error, the frame's buffered slice is discarded (yjs was
+ * never touched → the wire stays pure) and its overlay writes are inversed to
+ * restore the local mirror. The error rethrows either way.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * THE STACK — nested frames, one flush
+ * ───────────────────────────────────────────────────────────────────────────
+ * A nested `@syncing.atomic` on the same doc shares the outer buffer but owns a
+ * SAVEPOINT SLICE (the buffer length on entry). Only the OUTERMOST frame flushes
+ * ("consume queued changes in the outer tx only"). On throw a frame consults its
+ * OWN `rollbackIf`: matched → revert only its slice; otherwise commit-on-crash —
+ * leave the slice for the outer flush.
  *
  * ───────────────────────────────────────────────────────────────────────────
  * WHY THE CORE WRITE PATH IS UNCHANGED (`applyNow`)
  * ───────────────────────────────────────────────────────────────────────────
- * Every routed site passes its ORIGINAL choreography verbatim as `applyNow`.
- * When no atomic context is active for the doc (the overwhelming common case —
- * `@syncing.atomic` is a rarely-used, opt-in decorator), `emitOrDefer` runs
- * exactly `applyNow()` and nothing else. So non-atomic mutations are byte-for-
- * byte what they were before routing; only a mutation performed INSIDE an atomic
- * body takes the deferred branch.
- *
- * ───────────────────────────────────────────────────────────────────────────
- * TRANSITIVE DEFERRAL (why only a few sites need routing)
- * ───────────────────────────────────────────────────────────────────────────
- * A deferred `commit` thunk runs at FLUSH time, by which point the atomic
- * context has already been restored to its previous value. So any yjs write the
- * thunk triggers transitively (entity materialization via `[referenceSymbol]`,
- * `ensureYjsMap`, parent-edge writes) sees NO active context, runs its normal
- * `maybeTransacting`, and — because we replay inside one open flush transaction —
- * shadows into that single transaction. Routing the leaf mutation is enough; its
- * downstream yjs writes are carried along for free.
+ * Every routed site passes its ORIGINAL choreography verbatim as `applyNow`. When
+ * no atomic context is active for the doc (the overwhelming common case),
+ * `emitOrDefer` runs exactly `applyNow()` and nothing else. Non-atomic mutations
+ * are byte-for-byte what they were before routing.
  */
 
 import type * as Y from "yjs";
 
 import { maybeTransacting } from "./utils/utils.js";
 
-/** A single buffered mutation: its deferred yjs write and the inverse of its overlay. */
+/** A single buffered mutation: its two-phase deferred effect and overlay inverse. */
 interface DeferredOp {
-  /** The yjs write + `trackModification`. Replayed once, in order, at flush. */
+  /**
+   * Phase 1 — materialization / genesis. Runs OUTSIDE the flush transaction so
+   * re-derivation keeps its own origin (not swallowed into the user's tx).
+   * Optional: primitive writes have nothing to materialize.
+   */
+  readonly materialize?: () => void;
+  /** Phase 2 — the inert, pre-validated yjs write + `trackModification`, inside the one flush tx. */
   readonly commit: () => void;
   /** Undo of the immediate overlay write. Replayed in REVERSE on rollback. */
   readonly revertOverlay: () => void;
@@ -75,51 +96,97 @@ export const isDeferring = (doc: Y.Doc | null | undefined): boolean =>
 /**
  * The write choreography every routed mutation site funnels through.
  *
- *  - `applyNow`  — the site's ORIGINAL, unchanged code (its own `maybeTransacting`
- *                  wrapper included). Runs verbatim when not deferring.
- *  - `overlay`   — the synchronous local-mirror write only (backingStorage /
- *                  backing collection). Runs IMMEDIATELY in defer mode so the body
- *                  reads its own writes. NO yjs, NO `trackModification`.
- *  - `commit`    — the yjs write + `trackModification`. Buffered in defer mode.
- *  - `revertOverlay` — the inverse of `overlay` (+ its `trackModification`), used
- *                  only on rollback.
+ *  - `applyNow`   — the site's ORIGINAL, unchanged code (its own `maybeTransacting`
+ *                   wrapper included). Runs verbatim when not deferring.
+ *  - `overlay`    — the synchronous local-mirror write only (backingStorage /
+ *                   backing collection). Runs IMMEDIATELY in defer mode so the body
+ *                   reads its own writes. NO yjs, NO `trackModification`.
+ *  - `materialize`— optional phase-1 genesis (entity / field-map materialization).
+ *                   Buffered; runs OUTSIDE the flush tx.
+ *  - `commit`     — phase-2 yjs write + `trackModification`. Buffered; runs inside
+ *                   the one flush tx.
+ *  - `revertOverlay` — the inverse of `overlay`, used only on rollback. Silent (the
+ *                   overlay fired no `trackModification`, so its inverse mustn't either).
  */
 export function emitOrDefer(
   doc: Y.Doc | null | undefined,
   ops: {
     applyNow: () => void;
     overlay: () => void;
+    materialize?: () => void;
     commit: () => void;
     revertOverlay: () => void;
   },
 ): void {
   if (isDeferring(doc)) {
     ops.overlay();
-    current!.buffer.push({ commit: ops.commit, revertOverlay: ops.revertOverlay });
+    current!.buffer.push({ materialize: ops.materialize, commit: ops.commit, revertOverlay: ops.revertOverlay });
   } else {
     ops.applyNow();
   }
 }
 
 /**
+ * Undo overlay writes from `buffer[from..]` in REVERSE, then drop them so they
+ * never commit. A failing inverse must not mask the error that triggered the
+ * rollback, so each inverse is isolated (L1).
+ */
+function revertBufferFrom(buffer: DeferredOp[], from: number): void {
+  for (let i = buffer.length - 1; i >= from; i--) {
+    try {
+      buffer[i]!.revertOverlay();
+    } catch {
+      // Best-effort mirror restore. The original throw is what the caller must see;
+      // a broken inverse cannot be allowed to replace it.
+    }
+  }
+  buffer.length = from;
+}
+
+/**
+ * Flush a root context: phase 1 (materialize, outside any tx) then phase 2 (all
+ * commits inside ONE transaction). Skipped entirely when nothing was buffered — a
+ * needless empty transaction would cancel a pending `stopCapturing` and silently
+ * merge the next edit into this undo item (L2).
+ */
+function flush(context: AtomicContext): void {
+  const { buffer, doc } = context;
+  if (buffer.length === 0) return;
+  // Phase 1 — genesis OUTSIDE the transaction (each op carries its own origin).
+  for (const op of buffer) op.materialize?.();
+  // Phase 2 — one transaction of inert, pre-validated writes.
+  maybeTransacting(doc, () => {
+    for (const op of buffer) op.commit();
+  });
+}
+
+/**
  * Run `body` as one atomic transaction on `doc`.
  *
- *  - Success: replay every buffered `commit` inside ONE `maybeTransacting(doc)`
- *    → one yjs transaction, one `update`, one undo item.
- *  - Throw: DISCARD the buffer (yjs never written → wire-pure), replay the overlay
- *    inverses in reverse to restore the local mirror, then rethrow. Reactions
- *    flush naturally via the inverse writes' `trackModification`, batched by the
- *    surrounding `maybeTransacting` (an empty yjs transaction — no `update`).
+ *  - Success: flush the buffer (phase 1 outside the tx, phase 2 in one tx).
+ *  - Throw with no matching `rollbackIf`: commit-on-crash — flush what was buffered
+ *    before the throw, then rethrow (matches JS + yjs finalization semantics).
+ *  - Throw matching `rollbackIf`: discard the buffer (yjs never written → wire-pure),
+ *    restore the local mirror by inversing the overlays in reverse, then rethrow.
  *
- * Nested same-doc calls just run `body`; their mutations defer into the outer
- * buffer and the OUTERMOST call owns the single flush.
+ * Nested same-doc calls share the outer buffer but own a savepoint slice; the
+ * OUTERMOST call owns the single flush.
  */
-export function runAtomic<T>(doc: Y.Doc, body: () => T): T {
-  // Nested same-doc: defer into the already-open buffer; outer owns the flush.
-  if (current !== null && current.doc === doc) {
-    return body();
+export function runAtomic<T>(doc: Y.Doc, body: () => T, rollbackIf?: (error: unknown) => boolean): T {
+  // NESTED (same doc): share the outer buffer, own a savepoint slice.
+  if (isDeferring(doc)) {
+    const { buffer } = current!;
+    const savepoint = buffer.length;
+    try {
+      return body();
+    } catch (error) {
+      // This frame's own predicate decides its slice; commit-on-crash otherwise.
+      if (rollbackIf?.(error)) revertBufferFrom(buffer, savepoint);
+      throw error;
+    }
   }
 
+  // ROOT frame: open a fresh deferral context for this doc.
   const context: AtomicContext = { doc, buffer: [] };
   const previous = current;
   current = context;
@@ -129,22 +196,17 @@ export function runAtomic<T>(doc: Y.Doc, body: () => T): T {
     result = body();
   } catch (error) {
     current = previous;
-    // Rollback: yjs untouched (wire-pure). Restore overlays in reverse so the
-    // local mirror returns to its pre-body state. Batch the notifications.
-    if (context.buffer.length > 0) {
-      maybeTransacting(doc, () => {
-        for (let i = context.buffer.length - 1; i >= 0; i--) {
-          context.buffer[i]!.revertOverlay();
-        }
-      });
+    if (rollbackIf?.(error)) {
+      // ROLLBACK: discard everything, restore the mirror. Wire stays pure.
+      revertBufferFrom(context.buffer, 0);
+      throw error;
     }
+    // COMMIT-ON-CRASH (default): flush what was buffered before the throw, rethrow.
+    flush(context);
     throw error;
   }
 
   current = previous;
-  // Commit: replay the whole buffer as ONE transaction.
-  maybeTransacting(doc, () => {
-    for (const op of context.buffer) op.commit();
-  });
+  flush(context);
   return result;
 }

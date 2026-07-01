@@ -1,45 +1,52 @@
 /**
  * `@syncing.atomic` — run a PlexusModel method body as ONE atomic Plexus
- * transaction on the RECEIVER'S doc, with real rollback on throw.
- * See `docs/working-proposals/syncing-atomic-spec-based-transactions.md` and the
+ * transaction on the RECEIVER'S doc. See
+ * `docs/working-proposals/syncing-atomic-spec-based-transactions.md` and the
  * engine in `./atomic-buffer.ts`.
  *
  * "Atomic" here means:
  *   - ONE yjs transaction (one `update` event),
  *   - ONE undo unit (a single `undo()` reverts the whole body),
- *   - peers see all-or-nothing of THAT update (delivered whole), AND
- *   - THROW = ROLLBACK. If the body throws, nothing reaches yjs (the wire stays
- *     pure) and the local mirror is restored to its pre-body state.
+ *   - peers see all-or-nothing of THAT update (delivered whole).
+ *
+ * THROW is commit-on-crash BY DEFAULT — writes buffered before the throw are
+ * flushed, then the error rethrows (matches JS + yjs, which never unwind
+ * completed effects). Rollback is opt-in, per method, via an error predicate:
  *
  * ```ts
  * class Foo extends PlexusModel {
  *   @syncing accessor count!: number;
  *   @syncing.child.set accessor bars!: Set<Bar>;
  *
- *   @syncing.atomic
+ *   @syncing.atomic                       // commit-on-crash (default)
  *   doStuff() {
  *     this.count = 1;
- *     this.bars.add(new Bar({ ... }));  // materializes a new entity mid-method
+ *     this.bars.add(new Bar({ ... }));    // materializes a new entity mid-method
  *     this.count = 2;
- *     // ↑ all deferred; replayed as exactly ONE doc.transact() at method return
+ *     // ↑ all deferred; replayed as exactly ONE flush at method return
  *   }
+ *
+ *   @syncing.atomic({ rollbackIf: (e) => e instanceof PlexusCycleError })
+ *   risky() { ... }                       // discards the batch if the predicate matches
  * }
  * ```
  *
  * ───────────────────────────────────────────────────────────────────────────
- * HOW IT WORKS — DEFERRED BUFFER (not "hold a transaction open")
+ * HOW IT WORKS — DEFERRED BUFFER (postponement, not "hold a transaction open")
  * ───────────────────────────────────────────────────────────────────────────
  * `runAtomic` opens a per-doc deferral context. While it is active, each routed
  * mutation site applies its LOCAL OVERLAY immediately (so the body reads its own
- * writes) but BUFFERS its yjs write. On success the buffer replays inside ONE
- * `maybeTransacting(doc)` → one transaction / update / undo item. On throw the
- * buffer is DISCARDED (yjs never touched → real rollback) and the overlay
- * inverses replay in reverse to restore the mirror. See `./atomic-buffer.ts` for
- * why routing a few leaf sites suffices (materialization / `ensureYjsMap` /
- * parent-edges are carried along transitively when the buffer replays).
+ * writes) but BUFFERS its effect. On success the flush runs in two phases —
+ * genesis/materialization OUTSIDE the transaction (its own origin), then the
+ * inert yjs writes inside ONE `maybeTransacting(doc)` → one transaction / update /
+ * undo item. On a `rollbackIf` match the buffer is DISCARDED (yjs never touched →
+ * wire-pure) and the overlay inverses replay in reverse to restore the mirror.
+ * See `./atomic-buffer.ts` for why routing a few leaf sites suffices (parent-edge
+ * writes are carried along transitively when the buffer replays).
  *
  * Re-entrancy: a nested `@syncing.atomic` on the same doc defers into the outer
- * buffer, so the outermost method owns the single flush.
+ * buffer (owning its own savepoint slice), so the outermost method owns the
+ * single flush.
  *
  * ───────────────────────────────────────────────────────────────────────────
  * BOUNDARY BEHAVIOR (intentional, asserted / documented — NOT a TODO)
@@ -107,16 +114,69 @@ const warnOnce = (seen: WeakSet<object>, key: object, message: string): void => 
   console.warn(message);
 };
 
+/** Per-method configuration for the factory form `@syncing.atomic({ ... })`. */
+export interface AtomicOptions {
+  /**
+   * Opt-in rollback. When the body throws and this predicate returns `true` for
+   * the thrown error, the atomic batch is discarded (the wire stays pure and the
+   * local mirror is restored) instead of the default commit-on-crash. The error
+   * rethrows either way.
+   */
+  readonly rollbackIf?: (error: unknown) => boolean;
+}
+
+type AtomicMethod<This extends PlexusModel, Args extends unknown[], Return> = (
+  this: This,
+  ...args: Args
+) => Return;
+
+/**
+ * The decorator the factory form returns. Generic in its call signature so it
+ * infers `This / Args / Return` from the method it is applied to — a method with
+ * typed parameters (e.g. `foo(kind: "a" | "b")`) must decorate cleanly, which a
+ * non-generic `unknown[]` signature would reject on contravariant arg checking.
+ */
+interface GenericAtomicDecorator {
+  <This extends PlexusModel, Args extends unknown[], Return>(
+    target: AtomicMethod<This, Args, Return>,
+    context: ClassMethodDecoratorContext<This, AtomicMethod<This, Args, Return>>,
+  ): AtomicMethod<This, Args, Return>;
+}
+
 /**
  * `@syncing.atomic` method decorator. Constrained to `PlexusModel` receivers —
  * the whole point is batching model mutations, which flow through a doc the
  * receiver owns. Applying it to a non-PlexusModel method is meaningless (and a
  * type error).
+ *
+ * Two usages:
+ *   - bare       `@syncing.atomic`                 — commit-on-crash (default);
+ *   - configured `@syncing.atomic({ rollbackIf })` — opt-in rollback predicate.
  */
 export function atomic<This extends PlexusModel, Args extends unknown[], Return>(
-  target: (this: This, ...args: Args) => Return,
-  context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
-): (this: This, ...args: Args) => Return {
+  target: AtomicMethod<This, Args, Return>,
+  context: ClassMethodDecoratorContext<This, AtomicMethod<This, Args, Return>>,
+): AtomicMethod<This, Args, Return>;
+export function atomic(options: AtomicOptions): GenericAtomicDecorator;
+export function atomic(
+  targetOrOptions: AtomicMethod<PlexusModel, unknown[], unknown> | AtomicOptions,
+  maybeContext?: ClassMethodDecoratorContext<PlexusModel, AtomicMethod<PlexusModel, unknown[], unknown>>,
+): unknown {
+  // Factory form: `@syncing.atomic({ rollbackIf })` → return the actual decorator.
+  if (typeof targetOrOptions !== "function") {
+    const { rollbackIf } = targetOrOptions;
+    return (target: AtomicMethod<PlexusModel, unknown[], unknown>, context: ClassMethodDecoratorContext) =>
+      buildAtomicMethod(target, context, rollbackIf);
+  }
+  // Bare form: `@syncing.atomic` (TC39 invokes it as `(method, context)`).
+  return buildAtomicMethod(targetOrOptions, maybeContext!, undefined);
+}
+
+function buildAtomicMethod<This extends PlexusModel, Args extends unknown[], Return>(
+  target: AtomicMethod<This, Args, Return>,
+  context: ClassMethodDecoratorContext<This, AtomicMethod<This, Args, Return>>,
+  rollbackIf: ((error: unknown) => boolean) | undefined,
+): AtomicMethod<This, Args, Return> {
   const label = `@syncing.atomic: method "${String(context.name)}"`;
 
   return function atomicMethod(this: This, ...args: Args): Return {
@@ -169,7 +229,7 @@ export function atomic<This extends PlexusModel, Args extends unknown[], Return>
     try {
       // Ephemeral receiver: no doc to defer into → run the body straight (mutations
       // hit their normal, un-deferred write paths; no batching, no rollback).
-      result = doc ? runAtomic(doc, () => target.apply(this, args)) : target.apply(this, args);
+      result = doc ? runAtomic(doc, () => target.apply(this, args), rollbackIf) : target.apply(this, args);
     } finally {
       if (doc) transactionObserverHook.observe = previousObserver;
     }

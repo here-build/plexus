@@ -89,12 +89,33 @@ class Foo extends PlexusModel {
     this.meta.set("k", 1); // UNROUTED → eager yjs write on the receiver's doc
   }
 
-  /** Throws after a partial write — exercises spec rollback (buffer discarded). */
+  /**
+   * Throws after a partial write. DEFAULT = commit-on-crash: the pre-throw write
+   * is flushed (matches JS + yjs, which never unwind completed effects).
+   */
   @syncing.atomic
   throwMidway(): void {
     this.count = 1;
     throw new Error("boom");
-    // this.count = 2; // unreachable — never committed
+    // this.count = 2; // unreachable — never buffered
+  }
+
+  /** Opt-in rollback: any throw discards the whole batch (wire stays pure). */
+  @syncing.atomic({ rollbackIf: () => true })
+  throwWithRollback(): void {
+    this.count = 1;
+    throw new Error("boom");
+  }
+
+  /**
+   * Selective rollback: the predicate matches only RangeError. A plain Error
+   * commits-on-crash; a RangeError rolls back.
+   */
+  @syncing.atomic({ rollbackIf: (error) => error instanceof RangeError })
+  throwSelective(kind: "range" | "plain"): void {
+    this.count = 5;
+    if (kind === "range") throw new RangeError("range");
+    throw new Error("plain");
   }
 
   /** Async body — batching is lost after the (here, immediate) await; warns. */
@@ -130,18 +151,35 @@ describe("@syncing.atomic method decorator", () => {
     entityClasses.clear();
   });
 
-  it("(a) batches N mutations into exactly ONE yjs transaction/update", () => {
+  it("(a) a val-only atomic body collapses into exactly ONE transaction/update", () => {
     const shadow = root.__doc__!; // entities live on the shadow doc
     let shadowUpdates = 0;
     let mainUpdates = 0;
     shadow.on("update", () => shadowUpdates++);
     doc.on("update", () => mainUpdates++); // committed write forwards to main
 
-    root.doStuff([]);
+    root.bumpCount(); // count=1; count=2 — no genesis
 
-    // 3 mutations + 1 child materialization, all collapsed into one transaction.
+    // Both writes collapse into the single user-batch transaction.
     expect(shadowUpdates).toBe(1);
     expect(mainUpdates).toBe(1);
+  });
+
+  it("(a2) child GENESIS rides its OWN transaction, separate from the user batch", () => {
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    let mainUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+    doc.on("update", () => mainUpdates++);
+
+    root.doStuff([]); // count=1; add(new Bar); count=2
+
+    // Two transactions: (1) the child's genesis (its own origin — deliberately NOT
+    // swallowed into the user's tx) and (2) the user's batch (both count writes +
+    // the set entry + parent edge). Genesis-outside-the-user-tx is the whole point
+    // of the deferred buffer.
+    expect(shadowUpdates).toBe(2);
+    expect(mainUpdates).toBe(2);
   });
 
   it("baseline: WITHOUT @syncing.atomic the same mutations emit multiple updates", () => {
@@ -340,7 +378,20 @@ describe("@syncing.atomic method decorator", () => {
     expect(mainUpdates).toBeGreaterThan(0);
   });
 
-  it("throw mid-body ROLLS BACK: the wire stays pure and the overlay is restored", () => {
+  it("throw mid-body COMMITS-ON-CRASH by default: the pre-throw write is flushed", () => {
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+
+    expect(() => root.throwMidway()).toThrow("boom");
+
+    // Default (no rollbackIf) matches JS + yjs: the write buffered before the throw
+    // is flushed as one transaction, then the error rethrows.
+    expect(root.count).toBe(1);
+    expect(shadowUpdates).toBe(1);
+  });
+
+  it("@syncing.atomic({ rollbackIf }) discards the batch: wire stays pure, mirror restored", () => {
     const shadow = root.__doc__!;
     let shadowUpdates = 0;
     shadow.on("update", () => shadowUpdates++);
@@ -348,16 +399,67 @@ describe("@syncing.atomic method decorator", () => {
     const notify = vi.fn();
     const dispose = reaction(() => root.count, notify);
 
-    expect(() => root.throwMidway()).toThrow("boom");
+    expect(() => root.throwWithRollback()).toThrow("boom");
 
-    // Spec rollback: the yjs writes were BUFFERED and discarded on throw, so the
-    // pre-throw write never reached the wire and the overlay was restored.
+    // Predicate matched → the yjs write was DISCARDED (never reached the wire) and
+    // the overlay was inversed back to the pre-body value.
     expect(root.count).toBe(0);
-    // Nothing was committed → no yjs update fired (wire-pure rollback).
     expect(shadowUpdates).toBe(0);
-    // The value returned to its pre-body state, so the reaction sees no net change.
+    // Net-zero change → the reaction sees nothing.
     expect(notify).not.toHaveBeenCalled();
 
     dispose();
+  });
+
+  it("rollbackIf is SELECTIVE: a matching error rolls back, a non-matching error commits", () => {
+    // Non-matching (plain Error) → commit-on-crash keeps the write.
+    expect(() => root.throwSelective("plain")).toThrow("plain");
+    expect(root.count).toBe(5);
+
+    // Fresh receiver: matching (RangeError) → rollback discards the write.
+    const { root: root2 } = initTestPlexus(new Foo({ count: 0, bars: new Set(), meta: new Map() }));
+    expect(() => root2.throwSelective("range")).toThrow("range");
+    expect(root2.count).toBe(0);
+  });
+
+  it("nested: an inner rollbackIf reverts ONLY its slice; the outer batch still commits", () => {
+    @syncing("AtomicSavepoint")
+    class Savepoint extends PlexusModel {
+      @syncing accessor a!: number;
+      @syncing accessor b!: number;
+
+      // Outer writes `a`, calls a rolling-back inner that writes+throws `b`, catches
+      // it, then writes `a` again. Commit-on-crash for the outer; the inner's slice
+      // is reverted by its own predicate.
+      @syncing.atomic
+      outer(): void {
+        this.a = 1;
+        try {
+          this.innerRollback();
+        } catch {
+          // swallow — the outer continues and still commits its own writes
+        }
+        this.a = 2;
+      }
+
+      @syncing.atomic({ rollbackIf: () => true })
+      innerRollback(): void {
+        this.b = 9;
+        throw new Error("inner");
+      }
+    }
+    entityClasses.set("AtomicSavepoint", Savepoint);
+
+    const { root: sp } = initTestPlexus(new Savepoint({ a: 0, b: 0 }));
+    const shadow = sp.__doc__!;
+    let updates = 0;
+    shadow.on("update", () => updates++);
+
+    sp.outer();
+
+    // Outer committed once; the inner's `b` write was reverted out of the shared buffer.
+    expect(updates).toBe(1);
+    expect(sp.a).toBe(2);
+    expect(sp.b).toBe(0);
   });
 });

@@ -26,11 +26,17 @@
  *   Layer 3  `Plexus.transact`    — `maybeTransacting(liminalDoc, fn)`
  * Layers 1–3 share this machinery → identical throw behavior (partial COMMITS).
  *
- * Layer 4  `@syncing.atomic` is the ODD ONE OUT: the spec-based engine
- * (`atomic-buffer.ts`) does NOT hold a transaction open — it DEFERS every yjs
- * write into a buffer and, on throw, DISCARDS the buffer (wire stays pure) and
- * replays the overlay inverses. So layer 4 is a REAL all-or-nothing rollback,
- * diverging from layers 1–3. The layer-4 and nested-atomic rows below pin that.
+ * Layer 4  `@syncing.atomic` is the spec-based engine (`atomic-buffer.ts`). It
+ * does NOT hold a transaction open — it DEFERS every yjs write into a buffer and
+ * flushes on completion. Its throw DEFAULT is COMMIT-ON-CRASH, the same verdict
+ * as layers 1–3: the pre-throw writes reach the model + wire. The one subtlety is
+ * that because it defers and REPLAYS in a clean tx (the throw happened in the body,
+ * not in the flush), the flush's notification is NOT discarded — so the local
+ * observer is left FRESH, not stale (the mirror-image of layers 2/3). Real
+ * all-or-nothing rollback is OPT-IN, per method, via
+ * `@syncing.atomic({ rollbackIf: (error) => boolean })`: a matching predicate
+ * discards the buffer (wire stays pure) and inverses the overlay. The layer-4 and
+ * nested-atomic rows below pin both the default and the opt-in.
  *
  * ─── THE FOUR OBSERVERS (recorded per cell) ─────────────────────────────────
  *   (a) MODEL     — the entity itself (read-overlay / backingStorage)
@@ -92,9 +98,16 @@ class Foo extends PlexusModel {
   @syncing.child accessor boxA!: Box | null; // reparent source
   @syncing.child accessor boxB!: Box | null; // reparent target
 
-  /** Layer-4 parity probe: one write, then throw — as an atomic method. */
+  /** Layer-4 parity probe: one write, then throw — commit-on-crash default. */
   @syncing.atomic
   atomicThrowAfterOne(): void {
+    this.a = 1;
+    throw new Error("boom");
+  }
+
+  /** Opt-in rollback probe: one write, then throw — the predicate discards the batch. */
+  @syncing.atomic({ rollbackIf: () => true })
+  atomicRollbackAfterOne(): void {
     this.a = 1;
     throw new Error("boom");
   }
@@ -245,17 +258,33 @@ describe("throw inside a transaction — complete behavior characterization", ()
     expect(seen).toEqual([0]);
   });
 
-  it("layer 4 (@syncing.atomic): ROLLS BACK — the decorator DIVERGES from layers 2/3, no commit, no update", () => {
-    // NOTE: unlike layers 1–3 (raw yjs / maybeTransacting / Plexus.transact, which
-    // commit the partial), the spec-based @syncing.atomic engine DEFERS every yjs
-    // write into a buffer and DISCARDS it on throw. So the pre-throw write never
-    // reaches the wire and the overlay is restored — a real all-or-nothing rollback.
+  it("layer 4 (@syncing.atomic): COMMIT-ON-CRASH by default — partial commits like layers 1–3, but observer stays FRESH", () => {
+    // The spec-based @syncing.atomic engine DEFERS every yjs write into a buffer
+    // and, by default, FLUSHES the pre-throw writes before rethrowing (commit-on-
+    // crash — matching JS + yjs finalization). Unlike layers 2/3, the throw happens
+    // in the BODY, not inside the flush's maybeTransacting, so the flush completes
+    // normally and its notification is NOT discarded → the observer is left FRESH.
     const shadow = root.__doc__!;
     let shadowUpdates = 0;
     shadow.on("update", () => shadowUpdates++);
     const seen = observe(() => root.a);
 
     expect(() => root.atomicThrowAfterOne()).toThrow("boom");
+
+    expect(root.a).toBe(1); // committed (buffer flushed before rethrow)
+    expect(shadowUpdates).toBe(1); // one clean flush transaction
+    expect(seen).toEqual([0, 1]); // observer SAW the commit (flush not suppressed)
+  });
+
+  it("layer 4 opt-in (@syncing.atomic({ rollbackIf })): a matching predicate ROLLS BACK — no commit, no update", () => {
+    // Opt-in rollback: the predicate matches the thrown error, so the buffer is
+    // discarded (yjs never touched → wire pure) and the overlay is inversed.
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+    const seen = observe(() => root.a);
+
+    expect(() => root.atomicRollbackAfterOne()).toThrow("boom");
 
     expect(root.a).toBe(0); // rolled back (buffer discarded)
     expect(shadowUpdates).toBe(0); // nothing committed → wire pure
@@ -512,13 +541,22 @@ describe("throw inside a transaction — complete behavior characterization", ()
     expect(seen).toEqual(["0,0"]); // observer saw NEITHER — outer cleared the whole batch
   });
 
-  it("inner-nested throw via @syncing.atomic: the inner defers into the outer buffer, so BOTH writes roll back", () => {
+  it("inner-nested throw via @syncing.atomic: neither frame opts into rollback → BOTH writes COMMIT-ON-CRASH in one flush", () => {
+    const peer = syncedPeer();
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+
     expect(() => root.outerAtomic()).toThrow("boom");
 
-    // The nested atomic defers into the OUTERMOST buffer; the inner throw escapes to
-    // the outer runAtomic, which discards the whole buffer → both writes roll back.
-    expect(root.a).toBe(0); // outer write rolled back
-    expect(root.b).toBe(0); // inner pre-throw write rolled back
+    // The nested atomic defers into the OUTERMOST buffer (savepoint slice). The inner
+    // throw escapes to the outer runAtomic; with no rollbackIf on either frame it is
+    // commit-on-crash, so the outermost frame flushes the whole buffer once, then
+    // rethrows. Both writes reach the model + wire in a single transaction.
+    expect(root.a).toBe(1); // outer write committed
+    expect(root.b).toBe(1); // inner pre-throw write committed
+    expect([peer.a, peer.b]).toEqual([1, 1]); // both broadcast
+    expect(shadowUpdates).toBe(1); // one flush transaction for the whole buffer
   });
 
   it("throw CAUGHT inside the callback: the transaction completes NORMALLY → flush fires → observer SEES the write", () => {

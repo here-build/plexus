@@ -37,6 +37,16 @@ class Foo extends PlexusModel {
   @syncing.map
   accessor meta!: Map<string, number>;
 
+  // A routed VALUE list — array-insert leaf ops with NO child genesis. Isolates the
+  // array proxy's overlay/describe/revertOverlay conversion (the riskiest one) from
+  // the genesis noise a child-list would add.
+  @syncing.list
+  accessor tags!: number[];
+
+  // A routed CHILD list — exercises array-insert PLUS per-element genesis + parent edge.
+  @syncing.child.list
+  accessor items!: Bar[];
+
   /**
    * Atomic body exercising every covered mutation kind:
    *  - val set (`count`)
@@ -66,6 +76,32 @@ class Foo extends PlexusModel {
   bumpCount(): void {
     this.count = 1;
     this.count = 2;
+  }
+
+  /** Value-list push — no genesis; the array-insert leaf ops collapse into the flush. */
+  @syncing.atomic
+  pushTags(): void {
+    this.tags.push(10);
+    this.tags.push(20);
+  }
+
+  /** Child-list push — genesis rides its own tx; the array-insert + parent edge ride the batch. */
+  @syncing.atomic
+  pushItems(): void {
+    this.items.push(new Bar({ label: "a" }));
+    this.items.push(new Bar({ label: "b" }));
+  }
+
+  /**
+   * Opt-in rollback over a VALUE list — exercises the array proxy's revertOverlay,
+   * whose snapshot-splice restore is otherwise untested. The pushes overlay into the
+   * backing array, then the throw rolls the whole slice back: backing restored, wire pure.
+   */
+  @syncing.atomic({ rollbackIf: () => true })
+  pushTagsThenThrow(): void {
+    this.tags.push(10);
+    this.tags.push(20);
+    throw new Error("boom");
   }
 
   /** Single val set — used to probe the ephemeral (doc-less receiver) path. */
@@ -156,7 +192,7 @@ describe("@syncing.atomic method decorator", () => {
     entityClasses.set("AtomicFoo", Foo);
     entityClasses.set("AtomicBar", Bar);
     entityClasses.set("AtomicOther", Other);
-    const result = initTestPlexus(new Foo({ count: 0, bars: new Set(), meta: new Map() }));
+    const result = initTestPlexus(new Foo({ count: 0, bars: new Set(), meta: new Map(), tags: [], items: [] }));
     doc = result.doc;
     plexus = result.plexus;
     root = result.root;
@@ -226,6 +262,44 @@ describe("@syncing.atomic method decorator", () => {
     // The bar was materialized (uuid resolves) and committed.
     expect(() => bar.uuid).not.toThrow();
     expect(plexus.loadEntity(bar.uuid)).toBeTruthy();
+  });
+
+  it("(array) a value-list push inside an atomic body collapses into ONE transaction", () => {
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+
+    root.pushTags(); // tags.push(10); tags.push(20) — no genesis
+
+    // Both array-insert leaf ops (and the field's Y.Array creation) collapse into the
+    // single user-batch transaction; a value list adds no separate genesis tx.
+    expect(shadowUpdates).toBe(1);
+    expect([...root.tags]).toEqual([10, 20]);
+  });
+
+  it("(array) a child-list push materializes each element and lands in order", () => {
+    root.pushItems(); // items.push(new Bar a); items.push(new Bar b)
+
+    expect(root.items.length).toBe(2);
+    expect(root.items.map((bar) => bar.label)).toEqual(["a", "b"]);
+    for (const bar of root.items) {
+      // Each element was materialized (uuid resolves) and committed.
+      expect(() => bar.uuid).not.toThrow();
+      expect(plexus.loadEntity(bar.uuid)).toBeTruthy();
+    }
+  });
+
+  it("(array) rollbackIf reverts a value-list push via revertOverlay's snapshot restore", () => {
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+
+    expect(() => root.pushTagsThenThrow()).toThrow("boom");
+
+    // Predicate matched → the buffered array-inserts were DISCARDED (never reached the
+    // wire) and the overlay was inversed back to the pre-body array via snapshot-splice.
+    expect([...root.tags]).toEqual([]);
+    expect(shadowUpdates).toBe(0);
   });
 
   it("one undo step reverts the whole atomic batch", () => {

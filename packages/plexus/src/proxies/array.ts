@@ -1,6 +1,7 @@
 import invariant from "tiny-invariant";
 import type * as Y from "yjs";
 
+import { emitOrDefer, type YjsOp } from "../atomic-buffer.js";
 import { deref } from "../deref.js";
 import { PlexusDuplicateChildError } from "../errors.js";
 import { PlexusModel } from "../PlexusModel.js";
@@ -9,6 +10,7 @@ import {
   informAdoptionSymbol,
   informOrphanizationSymbol,
   materializationSymbol,
+  referenceSymbol,
   requestAdoptionSymbol,
   validateAdoptionSymbol,
 } from "../proxy-runtime-types.js";
@@ -285,423 +287,923 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           //
 
           return (...elements: Array<T>) => {
-            ensureYjsArray();
-            return maybeTransacting(owner.__doc__, () => {
-              // Update parent tracking for child fields
-              const reusedIndices: number[] = [];
-              const reusedElements: T[] = [];
-              const newElements: T[] = [];
-              if (isChildField) {
-                PlexusDuplicateChildError.uniquenessInvariant(elements, owner, key, "push");
-
-                for (const element of elements) {
-                  if (element instanceof PlexusModel) {
-                    const existingIndex = backingArray.indexOf(element);
-                    if (existingIndex === -1) {
-                      newElements.push(element);
-                    } else {
-                      reusedIndices.push(existingIndex);
-                      reusedElements.push(element);
-                    }
+            // Classification computed ONCE here (shared by overlay/materialize/describe/notify).
+            // applyNow recomputes its own copy internally — it must stay a verbatim,
+            // self-contained copy of the pre-atomic choreography.
+            const reusedIndices: number[] = [];
+            const reusedElements: T[] = [];
+            const newElements: T[] = [];
+            if (isChildField) {
+              PlexusDuplicateChildError.uniquenessInvariant(elements, owner, key, "push");
+              for (const element of elements) {
+                if (element instanceof PlexusModel) {
+                  const existingIndex = backingArray.indexOf(element);
+                  if (existingIndex === -1) {
+                    newElements.push(element);
+                  } else {
+                    reusedIndices.push(existingIndex);
+                    reusedElements.push(element);
                   }
                 }
+              }
+              reusedIndices.sort((a, b) => b - a);
+            }
+            const backingSnapshot = backingArray.slice();
 
-                // VALIDATE FIRST: Check all new elements can be adopted before any state changes
-                for (const element of newElements) {
-                  element?.[validateAdoptionSymbol]?.(owner, key);
+            emitOrDefer(owner.__doc__, {
+              applyNow: () => {
+                ensureYjsArray();
+                return maybeTransacting(owner.__doc__, () => {
+                  // Update parent tracking for child fields
+                  const reusedIndices: number[] = [];
+                  const reusedElements: T[] = [];
+                  const newElements: T[] = [];
+                  if (isChildField) {
+                    PlexusDuplicateChildError.uniquenessInvariant(elements, owner, key, "push");
+
+                    for (const element of elements) {
+                      if (element instanceof PlexusModel) {
+                        const existingIndex = backingArray.indexOf(element);
+                        if (existingIndex === -1) {
+                          newElements.push(element);
+                        } else {
+                          reusedIndices.push(existingIndex);
+                          reusedElements.push(element);
+                        }
+                      }
+                    }
+
+                    // VALIDATE FIRST: Check all new elements can be adopted before any state changes
+                    for (const element of newElements) {
+                      element?.[validateAdoptionSymbol]?.(owner, key);
+                    }
+
+                    // Now safe to remove reused elements from their old positions (in reverse order)
+                    reusedIndices.sort((a, b) => b - a);
+                    for (const index of reusedIndices) {
+                      backingArray.splice(index, 1);
+                    }
+
+                    for (const element of newElements) {
+                      element?.[requestAdoptionSymbol]?.(owner, key);
+                    }
+                  }
+
+                  backingArray.push(...elements);
+
+                  const yjsArray = getYjsArray();
+                  if (yjsArray) {
+                    for (const index of reusedIndices) {
+                      yjsArray.delete(index, 1);
+                    }
+                    yjsArray.push(elements.map((element) => maybeReference(element, owner.__doc__!)));
+                  }
+
+                  if (isChildField) {
+                    for (const element of reusedElements) {
+                      element?.[informAdoptionSymbol](owner, key);
+                    }
+                  }
+
+                  trackModification(self, ACCESS_ALL_SYMBOL);
+                  return backingArray.length;
+                });
+              },
+              overlay: () => {
+                if (isChildField) {
+                  for (const element of newElements) {
+                    element?.[validateAdoptionSymbol]?.(owner, key);
+                  }
+                  for (const index of reusedIndices) {
+                    backingArray.splice(index, 1);
+                  }
                 }
-
-                // Now safe to remove reused elements from their old positions (in reverse order)
-                reusedIndices.sort((a, b) => b - a);
+                backingArray.push(...elements);
+              },
+              materialize: () => {
+                if (isChildField) {
+                  for (const element of newElements) {
+                    element?.[referenceSymbol]?.(owner.__doc__!);
+                  }
+                }
+              },
+              describe: () => {
+                ensureYjsArray();
+                if (isChildField) {
+                  for (const element of newElements) {
+                    element?.[requestAdoptionSymbol]?.(owner, key);
+                  }
+                }
+                const yjsArray = getYjsArray();
+                if (!yjsArray || !owner.__doc__) return [];
+                const ops: YjsOp[] = [];
                 for (const index of reusedIndices) {
-                  backingArray.splice(index, 1);
+                  ops.push({ kind: "array-delete", array: yjsArray, index, length: 1 });
                 }
-
-                for (const element of newElements) {
-                  element?.[requestAdoptionSymbol]?.(owner, key);
+                ops.push({
+                  kind: "array-insert",
+                  array: yjsArray,
+                  index: yjsArray.length - reusedIndices.length,
+                  content: elements.map((element) => maybeReference(element, owner.__doc__!)),
+                });
+                if (isChildField) {
+                  for (const element of reusedElements) {
+                    element?.[informAdoptionSymbol]?.(owner, key);
+                  }
                 }
-              }
-
-              backingArray.push(...elements);
-
-              const yjsArray = getYjsArray();
-              if (yjsArray) {
-                for (const index of reusedIndices) {
-                  yjsArray.delete(index, 1);
-                }
-                yjsArray.push(elements.map((element) => maybeReference(element, owner.__doc__!)));
-              }
-
-              if (isChildField) {
-                for (const element of reusedElements) {
-                  element?.[informAdoptionSymbol](owner, key);
-                }
-              }
-
-              trackModification(self, ACCESS_ALL_SYMBOL);
-              return backingArray.length;
+                return ops;
+              },
+              notify: () => {
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              },
+              revertOverlay: () => {
+                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+              },
             });
+            return backingArray.length;
           };
         case "unshift": // arr.unshift(entity) → yArray.unshift(entity.reference())
           return (...elements: Array<T>) => {
-            ensureYjsArray();
-            return maybeTransacting(owner.__doc__, () => {
-              // Update parent tracking for child fields
-              const reusedIndices: number[] = [];
-              const reusedElements: T[] = [];
-              const newElements: T[] = [];
-              if (isChildField) {
-                PlexusDuplicateChildError.uniquenessInvariant(elements, owner, key, "unshift");
-
-                for (const element of elements) {
-                  if (element instanceof PlexusModel) {
-                    const existingIndex = backingArray.indexOf(element);
-                    if (existingIndex === -1) {
-                      newElements.push(element);
-                    } else {
-                      reusedIndices.push(existingIndex);
-                      reusedElements.push(element);
-                    }
+            // Classification computed ONCE here (shared by overlay/materialize/describe/notify).
+            const reusedIndices: number[] = [];
+            const reusedElements: T[] = [];
+            const newElements: T[] = [];
+            if (isChildField) {
+              PlexusDuplicateChildError.uniquenessInvariant(elements, owner, key, "unshift");
+              for (const element of elements) {
+                if (element instanceof PlexusModel) {
+                  const existingIndex = backingArray.indexOf(element);
+                  if (existingIndex === -1) {
+                    newElements.push(element);
+                  } else {
+                    reusedIndices.push(existingIndex);
+                    reusedElements.push(element);
                   }
                 }
+              }
+              reusedIndices.sort((a, b) => b - a);
+            }
+            const backingSnapshot = backingArray.slice();
 
-                // VALIDATE FIRST: Check all new elements can be adopted before any state changes
-                for (const element of newElements) {
-                  element?.[validateAdoptionSymbol]?.(owner, key);
+            emitOrDefer(owner.__doc__, {
+              applyNow: () => {
+                ensureYjsArray();
+                return maybeTransacting(owner.__doc__, () => {
+                  // Update parent tracking for child fields
+                  const reusedIndices: number[] = [];
+                  const reusedElements: T[] = [];
+                  const newElements: T[] = [];
+                  if (isChildField) {
+                    PlexusDuplicateChildError.uniquenessInvariant(elements, owner, key, "unshift");
+
+                    for (const element of elements) {
+                      if (element instanceof PlexusModel) {
+                        const existingIndex = backingArray.indexOf(element);
+                        if (existingIndex === -1) {
+                          newElements.push(element);
+                        } else {
+                          reusedIndices.push(existingIndex);
+                          reusedElements.push(element);
+                        }
+                      }
+                    }
+
+                    // VALIDATE FIRST: Check all new elements can be adopted before any state changes
+                    for (const element of newElements) {
+                      element?.[validateAdoptionSymbol]?.(owner, key);
+                    }
+
+                    // Now safe to remove reused elements from their old positions
+                    reusedIndices.sort((a, b) => b - a);
+                    for (const index of reusedIndices) {
+                      backingArray.splice(index, 1);
+                    }
+
+                    for (const element of newElements) {
+                      element?.[requestAdoptionSymbol]?.(owner, key);
+                    }
+                  }
+
+                  backingArray.unshift(...elements);
+
+                  if (isChildField) {
+                    for (const element of reusedElements) {
+                      element?.[informAdoptionSymbol](owner, key);
+                    }
+                  }
+
+                  const yjsArray = getYjsArray();
+                  if (yjsArray) {
+                    for (const index of reusedIndices) {
+                      yjsArray.delete(index, 1);
+                    }
+                  }
+                  yjsArray?.unshift(elements.map((element) => maybeReference(element, owner.__doc__!)));
+
+                  trackModification(self, ACCESS_ALL_SYMBOL);
+                  return backingArray.length;
+                });
+              },
+              overlay: () => {
+                if (isChildField) {
+                  for (const element of newElements) {
+                    element?.[validateAdoptionSymbol]?.(owner, key);
+                  }
+                  for (const index of reusedIndices) {
+                    backingArray.splice(index, 1);
+                  }
                 }
-
-                // Now safe to remove reused elements from their old positions
-                reusedIndices.sort((a, b) => b - a);
+                backingArray.unshift(...elements);
+              },
+              materialize: () => {
+                if (isChildField) {
+                  for (const element of newElements) {
+                    element?.[referenceSymbol]?.(owner.__doc__!);
+                  }
+                }
+              },
+              describe: () => {
+                ensureYjsArray();
+                if (isChildField) {
+                  for (const element of newElements) {
+                    element?.[requestAdoptionSymbol]?.(owner, key);
+                  }
+                }
+                const yjsArray = getYjsArray();
+                if (!yjsArray || !owner.__doc__) return [];
+                const ops: YjsOp[] = [];
                 for (const index of reusedIndices) {
-                  backingArray.splice(index, 1);
+                  ops.push({ kind: "array-delete", array: yjsArray, index, length: 1 });
                 }
-
-                for (const element of newElements) {
-                  element?.[requestAdoptionSymbol]?.(owner, key);
+                ops.push({
+                  kind: "array-insert",
+                  array: yjsArray,
+                  index: 0,
+                  content: elements.map((element) => maybeReference(element, owner.__doc__!)),
+                });
+                if (isChildField) {
+                  for (const element of reusedElements) {
+                    element?.[informAdoptionSymbol]?.(owner, key);
+                  }
                 }
-              }
-
-              backingArray.unshift(...elements);
-
-              if (isChildField) {
-                for (const element of reusedElements) {
-                  element?.[informAdoptionSymbol](owner, key);
-                }
-              }
-
-              const yjsArray = getYjsArray();
-              if (yjsArray) {
-                for (const index of reusedIndices) {
-                  yjsArray.delete(index, 1);
-                }
-              }
-              yjsArray?.unshift(elements.map((element) => maybeReference(element, owner.__doc__!)));
-
-              trackModification(self, ACCESS_ALL_SYMBOL);
-              return backingArray.length;
+                return ops;
+              },
+              notify: () => {
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              },
+              revertOverlay: () => {
+                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+              },
             });
+            return backingArray.length;
           };
         case "splice": // arr.splice(index, deleteCount, ...items)
           return (start: number, deleteCount?: number, ...itemsToInsert: Array<T>) => {
-            if (itemsToInsert.length > 0) ensureYjsArray();
-            return maybeTransacting(owner.__doc__, () => {
-              const actualStart =
-                start < 0 ? Math.max(backingArray.length + start, 0) : Math.min(start, backingArray.length);
-              const actualDeleteCount =
-                deleteCount === undefined
-                  ? backingArray.length - actualStart
-                  : Math.max(0, Math.min(deleteCount, backingArray.length - actualStart));
-
-              // Track which items are being removed from the splice zone
-              const removedItems = backingArray.slice(actualStart, actualStart + actualDeleteCount);
-
-              // Detect items being moved within the same array
-              // These items exist in the array outside the splice zone and need to be removed first
-
-              // For child fields, validate that items to insert don't contain duplicates
-              if (isChildField && itemsToInsert.length > 0) {
-                PlexusDuplicateChildError.uniquenessInvariant(itemsToInsert, owner, key, "splice");
+            const actualStart =
+              start < 0 ? Math.max(backingArray.length + start, 0) : Math.min(start, backingArray.length);
+            const actualDeleteCount =
+              deleteCount === undefined
+                ? backingArray.length - actualStart
+                : Math.max(0, Math.min(deleteCount, backingArray.length - actualStart));
+            const removedItems = backingArray.slice(actualStart, actualStart + actualDeleteCount);
+            if (isChildField && itemsToInsert.length > 0) {
+              PlexusDuplicateChildError.uniquenessInvariant(itemsToInsert, owner, key, "splice");
+            }
+            const itemsToRemoveFirst: Array<{ item: T; index: number }> = [];
+            const trulyNewItems: T[] = [];
+            for (const item of itemsToInsert) {
+              const existingIndex = backingArray.indexOf(item);
+              if (
+                existingIndex !== -1 &&
+                (existingIndex < actualStart || existingIndex >= actualStart + actualDeleteCount)
+              ) {
+                itemsToRemoveFirst.push({ item, index: existingIndex });
+              } else if (!removedItems.includes(item)) {
+                trulyNewItems.push(item);
               }
-
-              const itemsToRemoveFirst: Array<{ item: T; index: number }> = [];
-              const trulyNewItems: T[] = [];
-
-              for (const item of itemsToInsert) {
-                const existingIndex = backingArray.indexOf(item);
-                if (
-                  existingIndex !== -1 &&
-                  (existingIndex < actualStart || existingIndex >= actualStart + actualDeleteCount)
-                ) {
-                  // Item exists elsewhere in array - needs to be removed from old position first
-                  itemsToRemoveFirst.push({ item, index: existingIndex });
-                } else if (!removedItems.includes(item)) {
-                  // Item is truly new (not in array at all)
-                  trulyNewItems.push(item);
-                }
+            }
+            itemsToRemoveFirst.sort((a, b) => b.index - a.index);
+            let adjustedStart = actualStart;
+            for (const { index } of itemsToRemoveFirst) {
+              if (index < actualStart) {
+                adjustedStart--;
               }
+            }
+            const reusedItemSet = new Set(itemsToRemoveFirst.map(({ item }) => item));
+            const backingSnapshot = backingArray.slice();
 
-              // VALIDATION: Validate truly new items BEFORE any state modification
-              // Note: itemsToRemoveFirst don't need validation since they're already in the array with correct parent
-              if (isChildField) {
-                for (const item of trulyNewItems) {
-                  item?.[validateAdoptionSymbol]?.(owner, key);
-                }
-              }
+            emitOrDefer(owner.__doc__, {
+              applyNow: () => {
+                if (itemsToInsert.length > 0) ensureYjsArray();
+                return maybeTransacting(owner.__doc__, () => {
+                  const actualStart =
+                    start < 0 ? Math.max(backingArray.length + start, 0) : Math.min(start, backingArray.length);
+                  const actualDeleteCount =
+                    deleteCount === undefined
+                      ? backingArray.length - actualStart
+                      : Math.max(0, Math.min(deleteCount, backingArray.length - actualStart));
 
-              // Remove reused items from their old positions first (in reverse order to maintain indices)
-              itemsToRemoveFirst.sort((a, b) => b.index - a.index);
-              for (const { index } of itemsToRemoveFirst) {
-                backingArray.splice(index, 1);
-              }
+                  // Track which items are being removed from the splice zone
+                  const removedItems = backingArray.slice(actualStart, actualStart + actualDeleteCount);
 
-              // Adjust splice position if we removed items before it
-              let adjustedStart = actualStart;
-              for (const { index } of itemsToRemoveFirst) {
-                if (index < actualStart) {
-                  adjustedStart--;
-                }
-              }
+                  // Detect items being moved within the same array
+                  // These items exist in the array outside the splice zone and need to be removed first
 
-              // Now perform the splice
-              const result = backingArray.splice(adjustedStart, actualDeleteCount, ...itemsToInsert);
+                  // For child fields, validate that items to insert don't contain duplicates
+                  if (isChildField && itemsToInsert.length > 0) {
+                    PlexusDuplicateChildError.uniquenessInvariant(itemsToInsert, owner, key, "splice");
+                  }
 
-              // Update parent tracking for child fields
-              if (isChildField) {
-                // Items being truly removed (not reused elsewhere) need orphanization
-                const reusedItemSet = new Set(itemsToRemoveFirst.map(({ item }) => item));
-                for (const item of removedItems) {
-                  if (item && !reusedItemSet.has(item as T) && !itemsToInsert.includes(item as T)) {
-                    item[informOrphanizationSymbol]?.();
+                  const itemsToRemoveFirst: Array<{ item: T; index: number }> = [];
+                  const trulyNewItems: T[] = [];
+
+                  for (const item of itemsToInsert) {
+                    const existingIndex = backingArray.indexOf(item);
+                    if (
+                      existingIndex !== -1 &&
+                      (existingIndex < actualStart || existingIndex >= actualStart + actualDeleteCount)
+                    ) {
+                      // Item exists elsewhere in array - needs to be removed from old position first
+                      itemsToRemoveFirst.push({ item, index: existingIndex });
+                    } else if (!removedItems.includes(item)) {
+                      // Item is truly new (not in array at all)
+                      trulyNewItems.push(item);
+                    }
+                  }
+
+                  // VALIDATION: Validate truly new items BEFORE any state modification
+                  // Note: itemsToRemoveFirst don't need validation since they're already in the array with correct parent
+                  if (isChildField) {
+                    for (const item of trulyNewItems) {
+                      item?.[validateAdoptionSymbol]?.(owner, key);
+                    }
+                  }
+
+                  // Remove reused items from their old positions first (in reverse order to maintain indices)
+                  itemsToRemoveFirst.sort((a, b) => b.index - a.index);
+                  for (const { index } of itemsToRemoveFirst) {
+                    backingArray.splice(index, 1);
+                  }
+
+                  // Adjust splice position if we removed items before it
+                  let adjustedStart = actualStart;
+                  for (const { index } of itemsToRemoveFirst) {
+                    if (index < actualStart) {
+                      adjustedStart--;
+                    }
+                  }
+
+                  // Now perform the splice
+                  const result = backingArray.splice(adjustedStart, actualDeleteCount, ...itemsToInsert);
+
+                  // Update parent tracking for child fields
+                  if (isChildField) {
+                    // Items being truly removed (not reused elsewhere) need orphanization
+                    const reusedItemSet = new Set(itemsToRemoveFirst.map(({ item }) => item));
+                    for (const item of removedItems) {
+                      if (item && !reusedItemSet.has(item as T) && !itemsToInsert.includes(item as T)) {
+                        item[informOrphanizationSymbol]?.();
+                      }
+                    }
+
+                    // Truly new items need adoption
+                    for (const item of trulyNewItems) {
+                      item?.[requestAdoptionSymbol]?.(owner, key);
+                    }
+
+                    // Reused items just need inform adoption (parent tracking already exists)
+                    for (const { item } of itemsToRemoveFirst) {
+                      item?.[informAdoptionSymbol]?.(owner, key);
+                    }
+                  }
+
+                  // Sync to Y.js with optimized operations
+                  const yjsArray = getYjsArray();
+                  if (yjsArray) {
+                    // For reused items, we need to remove them from old positions first
+                    // itemsToRemoveFirst is already sorted in reverse order (line 141)
+                    for (const { index } of itemsToRemoveFirst) {
+                      yjsArray.delete(index, 1);
+                    }
+
+                    // Adjust delete position if we removed items before it
+                    let adjustedYjsStart = actualStart;
+                    for (const { index } of itemsToRemoveFirst) {
+                      if (index < actualStart) {
+                        adjustedYjsStart--;
+                      }
+                    }
+
+                    // Delete items from splice zone
+                    if (actualDeleteCount > 0) {
+                      yjsArray.delete(adjustedYjsStart, actualDeleteCount);
+                    }
+
+                    // Insert all items
+                    if (itemsToInsert.length > 0) {
+                      yjsArray.insert(
+                        adjustedYjsStart,
+                        itemsToInsert.map((element) => maybeReference(element, owner.__doc__!)),
+                      );
+                    }
+                  }
+
+                  trackModification(self, ACCESS_ALL_SYMBOL);
+                  return result;
+                });
+              },
+              overlay: () => {
+                if (isChildField) {
+                  for (const item of trulyNewItems) {
+                    item?.[validateAdoptionSymbol]?.(owner, key);
                   }
                 }
-
-                // Truly new items need adoption
-                for (const item of trulyNewItems) {
-                  item?.[requestAdoptionSymbol]?.(owner, key);
-                }
-
-                // Reused items just need inform adoption (parent tracking already exists)
-                for (const { item } of itemsToRemoveFirst) {
-                  item?.[informAdoptionSymbol]?.(owner, key);
-                }
-              }
-
-              // Sync to Y.js with optimized operations
-              const yjsArray = getYjsArray();
-              if (yjsArray) {
-                // For reused items, we need to remove them from old positions first
-                // itemsToRemoveFirst is already sorted in reverse order (line 141)
                 for (const { index } of itemsToRemoveFirst) {
-                  yjsArray.delete(index, 1);
+                  backingArray.splice(index, 1);
                 }
-
-                // Adjust delete position if we removed items before it
-                let adjustedYjsStart = actualStart;
-                for (const { index } of itemsToRemoveFirst) {
-                  if (index < actualStart) {
-                    adjustedYjsStart--;
+                backingArray.splice(adjustedStart, actualDeleteCount, ...itemsToInsert);
+              },
+              materialize: () => {
+                if (isChildField) {
+                  for (const item of trulyNewItems) {
+                    item?.[referenceSymbol]?.(owner.__doc__!);
                   }
                 }
-
-                // Delete items from splice zone
+              },
+              describe: () => {
+                if (itemsToInsert.length > 0) ensureYjsArray();
+                if (isChildField) {
+                  for (const item of removedItems) {
+                    if (item && !reusedItemSet.has(item as T) && !itemsToInsert.includes(item as T)) {
+                      item[informOrphanizationSymbol]?.();
+                    }
+                  }
+                  for (const item of trulyNewItems) {
+                    item?.[requestAdoptionSymbol]?.(owner, key);
+                  }
+                  for (const { item } of itemsToRemoveFirst) {
+                    item?.[informAdoptionSymbol]?.(owner, key);
+                  }
+                }
+                const yjsArray = getYjsArray();
+                if (!yjsArray || !owner.__doc__) return [];
+                const ops: YjsOp[] = [];
+                for (const { index } of itemsToRemoveFirst) {
+                  ops.push({ kind: "array-delete", array: yjsArray, index, length: 1 });
+                }
                 if (actualDeleteCount > 0) {
-                  yjsArray.delete(adjustedYjsStart, actualDeleteCount);
+                  ops.push({ kind: "array-delete", array: yjsArray, index: adjustedStart, length: actualDeleteCount });
                 }
-
-                // Insert all items
                 if (itemsToInsert.length > 0) {
-                  yjsArray.insert(
-                    adjustedYjsStart,
-                    itemsToInsert.map((element) => maybeReference(element, owner.__doc__!)),
-                  );
+                  ops.push({
+                    kind: "array-insert",
+                    array: yjsArray,
+                    index: adjustedStart,
+                    content: itemsToInsert.map((element) => maybeReference(element, owner.__doc__!)),
+                  });
                 }
-              }
-
-              trackModification(self, ACCESS_ALL_SYMBOL);
-              return result;
+                return ops;
+              },
+              notify: () => {
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              },
+              revertOverlay: () => {
+                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+              },
             });
+            return removedItems;
           };
         case "pop": // arr.pop() → remove last element
           return () => {
             if (backingArray.length === 0) {
               return;
             }
+            const lastIndex = backingArray.length - 1;
+            const removedItem = backingArray[lastIndex];
+            const stillExistsElsewhere =
+              isChildField && removedItem ? backingArray.indexOf(removedItem) !== lastIndex : false;
+            const backingSnapshot = backingArray.slice();
 
-            return maybeTransacting(owner.__doc__, () => {
-              const lastIndex = backingArray.length - 1;
-              const removedItem = backingArray[lastIndex];
+            emitOrDefer(owner.__doc__, {
+              applyNow: () => {
+                return maybeTransacting(owner.__doc__, () => {
+                  const lastIndex = backingArray.length - 1;
+                  const removedItem = backingArray[lastIndex];
 
-              backingArray.pop();
+                  backingArray.pop();
 
-              // Update parent tracking - only orphanize if item doesn't exist elsewhere
-              if (isChildField && removedItem) {
-                const stillExists = backingArray.includes(removedItem);
-                if (!stillExists) {
+                  // Update parent tracking - only orphanize if item doesn't exist elsewhere
+                  if (isChildField && removedItem) {
+                    const stillExists = backingArray.includes(removedItem);
+                    if (!stillExists) {
+                      removedItem[informOrphanizationSymbol]?.();
+                    }
+                  }
+
+                  // Sync to Y.js
+                  const yjsArray = getYjsArray();
+                  if (yjsArray && yjsArray.length > 0) {
+                    yjsArray.delete(yjsArray.length - 1, 1);
+                  }
+
+                  trackModification(self, ACCESS_ALL_SYMBOL);
+                  return removedItem;
+                });
+              },
+              overlay: () => {
+                backingArray.pop();
+              },
+              describe: () => {
+                if (isChildField && removedItem && !stillExistsElsewhere) {
                   removedItem[informOrphanizationSymbol]?.();
                 }
-              }
-
-              // Sync to Y.js
-              const yjsArray = getYjsArray();
-              if (yjsArray && yjsArray.length > 0) {
-                yjsArray.delete(yjsArray.length - 1, 1);
-              }
-
-              trackModification(self, ACCESS_ALL_SYMBOL);
-              return removedItem;
+                const yjsArray = getYjsArray();
+                if (!yjsArray || yjsArray.length === 0) return [];
+                return [{ kind: "array-delete", array: yjsArray, index: yjsArray.length - 1, length: 1 }];
+              },
+              notify: () => {
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              },
+              revertOverlay: () => {
+                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+              },
             });
+            return removedItem;
           };
         case "shift": // arr.shift() → remove first element
           return () => {
             if (backingArray.length === 0) {
               return;
             }
+            const removedItem = backingArray[0];
+            const stillExistsElsewhere =
+              isChildField && removedItem ? backingArray.lastIndexOf(removedItem) !== 0 : false;
+            const backingSnapshot = backingArray.slice();
 
-            return maybeTransacting(owner.__doc__, () => {
-              const removedItem = backingArray[0];
+            emitOrDefer(owner.__doc__, {
+              applyNow: () => {
+                return maybeTransacting(owner.__doc__, () => {
+                  const removedItem = backingArray[0];
 
-              backingArray.shift();
+                  backingArray.shift();
 
-              // Update parent tracking - only orphanize if item doesn't exist elsewhere
-              if (isChildField && removedItem) {
-                const stillExists = backingArray.includes(removedItem);
-                if (!stillExists) {
+                  // Update parent tracking - only orphanize if item doesn't exist elsewhere
+                  if (isChildField && removedItem) {
+                    const stillExists = backingArray.includes(removedItem);
+                    if (!stillExists) {
+                      removedItem[informOrphanizationSymbol]?.();
+                    }
+                  }
+
+                  // Sync to Y.js
+                  const yjsArray = getYjsArray();
+                  if (yjsArray && yjsArray.length > 0) {
+                    yjsArray.delete(0, 1);
+                  }
+
+                  trackModification(self, ACCESS_ALL_SYMBOL);
+                  return removedItem;
+                });
+              },
+              overlay: () => {
+                backingArray.shift();
+              },
+              describe: () => {
+                if (isChildField && removedItem && !stillExistsElsewhere) {
                   removedItem[informOrphanizationSymbol]?.();
                 }
-              }
-
-              // Sync to Y.js
-              const yjsArray = getYjsArray();
-              if (yjsArray && yjsArray.length > 0) {
-                yjsArray.delete(0, 1);
-              }
-
-              trackModification(self, ACCESS_ALL_SYMBOL);
-              return removedItem;
+                const yjsArray = getYjsArray();
+                if (!yjsArray || yjsArray.length === 0) return [];
+                return [{ kind: "array-delete", array: yjsArray, index: 0, length: 1 }];
+              },
+              notify: () => {
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              },
+              revertOverlay: () => {
+                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+              },
             });
+            return removedItem;
           };
         case "reverse": // arr.reverse() → reverse in place
           return () => {
-            ensureYjsArray();
-            return maybeTransacting(owner.__doc__, () => {
-              backingArray.reverse();
+            emitOrDefer(owner.__doc__, {
+              applyNow: () => {
+                ensureYjsArray();
+                return maybeTransacting(owner.__doc__, () => {
+                  backingArray.reverse();
 
-              // Sync to Y.js - replace entire array
-              const yjsArray = getYjsArray();
-              if (yjsArray) {
-                yjsArray.delete(0, yjsArray.length);
-                yjsArray.push(backingArray.map((element) => maybeReference(element, owner.__doc__!)));
-              }
+                  // Sync to Y.js - replace entire array
+                  const yjsArray = getYjsArray();
+                  if (yjsArray) {
+                    yjsArray.delete(0, yjsArray.length);
+                    yjsArray.push(backingArray.map((element) => maybeReference(element, owner.__doc__!)));
+                  }
 
-              trackModification(self, ACCESS_ALL_SYMBOL);
-              return self;
+                  trackModification(self, ACCESS_ALL_SYMBOL);
+                  return self;
+                });
+              },
+              overlay: () => {
+                backingArray.reverse();
+              },
+              describe: () => {
+                ensureYjsArray();
+                const yjsArray = getYjsArray();
+                if (!yjsArray || !owner.__doc__) return [];
+                const ops: YjsOp[] = [];
+                if (yjsArray.length > 0) {
+                  ops.push({ kind: "array-delete", array: yjsArray, index: 0, length: yjsArray.length });
+                }
+                ops.push({
+                  kind: "array-insert",
+                  array: yjsArray,
+                  index: 0,
+                  content: backingArray.map((element) => maybeReference(element, owner.__doc__!)),
+                });
+                return ops;
+              },
+              notify: () => {
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              },
+              revertOverlay: () => {
+                backingArray.reverse();
+              },
             });
+            return self;
           };
         case "sort": // arr.sort(compareFn) → sort in place
           return (compareFn?: (a: T, b: T) => number) => {
-            ensureYjsArray();
-            return maybeTransacting(owner.__doc__, () => {
-              backingArray.sort(compareFn as ((a: T | null, b: T | null) => number) | undefined);
+            const backingSnapshot = backingArray.slice();
+            emitOrDefer(owner.__doc__, {
+              applyNow: () => {
+                ensureYjsArray();
+                return maybeTransacting(owner.__doc__, () => {
+                  backingArray.sort(compareFn as ((a: T | null, b: T | null) => number) | undefined);
 
-              // Sync to Y.js - replace entire array
-              const yjsArray = getYjsArray();
-              if (yjsArray) {
-                yjsArray.delete(0, yjsArray.length);
-                yjsArray.push(backingArray.map((element) => maybeReference(element, owner.__doc__!)));
-              }
+                  // Sync to Y.js - replace entire array
+                  const yjsArray = getYjsArray();
+                  if (yjsArray) {
+                    yjsArray.delete(0, yjsArray.length);
+                    yjsArray.push(backingArray.map((element) => maybeReference(element, owner.__doc__!)));
+                  }
 
-              trackModification(self, ACCESS_ALL_SYMBOL);
-              return self;
+                  trackModification(self, ACCESS_ALL_SYMBOL);
+                  return self;
+                });
+              },
+              overlay: () => {
+                backingArray.sort(compareFn as ((a: T | null, b: T | null) => number) | undefined);
+              },
+              describe: () => {
+                ensureYjsArray();
+                const yjsArray = getYjsArray();
+                if (!yjsArray || !owner.__doc__) return [];
+                const ops: YjsOp[] = [];
+                if (yjsArray.length > 0) {
+                  ops.push({ kind: "array-delete", array: yjsArray, index: 0, length: yjsArray.length });
+                }
+                ops.push({
+                  kind: "array-insert",
+                  array: yjsArray,
+                  index: 0,
+                  content: backingArray.map((element) => maybeReference(element, owner.__doc__!)),
+                });
+                return ops;
+              },
+              notify: () => {
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              },
+              revertOverlay: () => {
+                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+              },
             });
+            return self;
           };
         case "copyWithin": // arr.copyWithin(target, start, end) → copy elements within array
           return (target: number, start: number, end?: number) => {
-            ensureYjsArray();
-            return maybeTransacting(owner.__doc__, () => {
-              if (isChildField) {
-                // One-time warning: copyWithin on child arrays has special semantics
-                if (!copyWithinChildArrayWarningShown) {
-                  copyWithinChildArrayWarningShown = true;
-                  console.warn(
-                    "copyWithin on child array",
-                    "Using copyWithin() on a child array (fields decorated with @syncing.child.list) may throw errors if the operation would create duplicate child references. Unlike normal arrays where copyWithin always succeeds, child arrays enforce uniqueness constraints. Consider using index assignment or splice() for moving items within the array.",
-                  );
+            if (isChildField) {
+              // One-time warning: copyWithin on child arrays has special semantics
+              if (!copyWithinChildArrayWarningShown) {
+                copyWithinChildArrayWarningShown = true;
+                console.warn(
+                  "copyWithin on child array",
+                  "Using copyWithin() on a child array (fields decorated with @syncing.child.list) may throw errors if the operation would create duplicate child references. Unlike normal arrays where copyWithin always succeeds, child arrays enforce uniqueness constraints. Consider using index assignment or splice() for moving items within the array.",
+                );
+              }
+
+              // For child arrays, copyWithin respects copy semantics
+              // If copying would create duplicates, throw an error
+              // This is different from operations like push/splice which use move semantics
+
+              // Simulate the copyWithin operation to check for duplicates
+              const tempArray = [...backingArray];
+              tempArray.copyWithin(target, start, end);
+
+              // Check if any non-null element appears more than once
+              PlexusDuplicateChildError.uniquenessInvariant(tempArray, owner, key, "copyWithin");
+            }
+            const backingSnapshot = backingArray.slice();
+
+            emitOrDefer(owner.__doc__, {
+              applyNow: () => {
+                ensureYjsArray();
+                return maybeTransacting(owner.__doc__, () => {
+                  if (isChildField) {
+                    // One-time warning: copyWithin on child arrays has special semantics
+                    if (!copyWithinChildArrayWarningShown) {
+                      copyWithinChildArrayWarningShown = true;
+                      console.warn(
+                        "copyWithin on child array",
+                        "Using copyWithin() on a child array (fields decorated with @syncing.child.list) may throw errors if the operation would create duplicate child references. Unlike normal arrays where copyWithin always succeeds, child arrays enforce uniqueness constraints. Consider using index assignment or splice() for moving items within the array.",
+                      );
+                    }
+
+                    // For child arrays, copyWithin respects copy semantics
+                    // If copying would create duplicates, throw an error
+                    // This is different from operations like push/splice which use move semantics
+
+                    // Simulate the copyWithin operation to check for duplicates
+                    const tempArray = [...backingArray];
+                    tempArray.copyWithin(target, start, end);
+
+                    // Check if any non-null element appears more than once
+                    PlexusDuplicateChildError.uniquenessInvariant(tempArray, owner, key, "copyWithin");
+                  }
+
+                  // If we get here, no duplicates would be created - proceed with operation
+                  backingArray.copyWithin(target, start, end);
+
+                  // Sync to Y.js - replace entire array
+                  const yjsArray = getYjsArray();
+                  if (yjsArray) {
+                    yjsArray.delete(0, yjsArray.length);
+                    yjsArray.push(backingArray.map((element) => maybeReference(element, owner.__doc__!)));
+                  }
+
+                  trackModification(self, ACCESS_ALL_SYMBOL);
+                  return self;
+                });
+              },
+              overlay: () => {
+                backingArray.copyWithin(target, start, end);
+              },
+              describe: () => {
+                ensureYjsArray();
+                const yjsArray = getYjsArray();
+                if (!yjsArray || !owner.__doc__) return [];
+                const ops: YjsOp[] = [];
+                if (yjsArray.length > 0) {
+                  ops.push({ kind: "array-delete", array: yjsArray, index: 0, length: yjsArray.length });
                 }
-
-                // For child arrays, copyWithin respects copy semantics
-                // If copying would create duplicates, throw an error
-                // This is different from operations like push/splice which use move semantics
-
-                // Simulate the copyWithin operation to check for duplicates
-                const tempArray = [...backingArray];
-                tempArray.copyWithin(target, start, end);
-
-                // Check if any non-null element appears more than once
-                PlexusDuplicateChildError.uniquenessInvariant(tempArray, owner, key, "copyWithin");
-              }
-
-              // If we get here, no duplicates would be created - proceed with operation
-              backingArray.copyWithin(target, start, end);
-
-              // Sync to Y.js - replace entire array
-              const yjsArray = getYjsArray();
-              if (yjsArray) {
-                yjsArray.delete(0, yjsArray.length);
-                yjsArray.push(backingArray.map((element) => maybeReference(element, owner.__doc__!)));
-              }
-
-              trackModification(self, ACCESS_ALL_SYMBOL);
-              return self;
+                ops.push({
+                  kind: "array-insert",
+                  array: yjsArray,
+                  index: 0,
+                  content: backingArray.map((element) => maybeReference(element, owner.__doc__!)),
+                });
+                return ops;
+              },
+              notify: () => {
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              },
+              revertOverlay: () => {
+                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+              },
             });
+            return self;
           };
         case "clear": // arr.assign(newElements) → replace entire array contents
           return () => {
-            const yjsArray = getYjsArray();
-            // Clear parent tracking for all items
-            if (yjsArray && isChildField) {
-              for (const item of backingArray) {
-                item?.[informOrphanizationSymbol]?.();
-              }
-            }
+            const priorItems = backingArray.slice();
 
-            backingArray.splice(0);
-            yjsArray?.delete(0, yjsArray.length);
-            trackModification(self, ACCESS_ALL_SYMBOL);
+            emitOrDefer(owner.__doc__, {
+              applyNow: () => {
+                const yjsArray = getYjsArray();
+                // Clear parent tracking for all items
+                if (yjsArray && isChildField) {
+                  for (const item of backingArray) {
+                    item?.[informOrphanizationSymbol]?.();
+                  }
+                }
+
+                backingArray.splice(0);
+                yjsArray?.delete(0, yjsArray.length);
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              },
+              overlay: () => {
+                backingArray.splice(0);
+              },
+              describe: () => {
+                const yjsArray = getYjsArray();
+                if (yjsArray && isChildField) {
+                  for (const item of priorItems) {
+                    item?.[informOrphanizationSymbol]?.();
+                  }
+                }
+                if (!yjsArray || yjsArray.length === 0) return [];
+                return [{ kind: "array-delete", array: yjsArray, index: 0, length: yjsArray.length }];
+              },
+              notify: () => {
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              },
+              revertOverlay: () => {
+                backingArray.splice(0, backingArray.length, ...priorItems);
+              },
+            });
           };
         case "assign": // arr.assign(newElements) → replace entire array contents
           return (newElements: Array<T>) => {
             if (newElements.length === backingArray.length && newElements.every((val, i) => val === backingArray[i])) {
               return;
             }
-            if (newElements.length > 0) ensureYjsArray();
-            maybeTransacting(owner.__doc__, () => {
-              if (isChildField) {
-                // Validate that newElements doesn't contain duplicates
-                PlexusDuplicateChildError.uniquenessInvariant(newElements, owner, key, "assign");
+            if (isChildField) {
+              PlexusDuplicateChildError.uniquenessInvariant(newElements, owner, key, "assign");
+            }
+            const removedItems = isChildField ? setDifference(new Set(backingArray), new Set(newElements)) : new Set<T>();
+            const addedItems = isChildField ? setDifference(new Set(newElements), new Set(backingArray)) : new Set<T>();
+            const backingSnapshot = backingArray.slice();
 
-                // Calculate what needs to be added/removed
-                const removedItems = setDifference(new Set(backingArray), new Set(newElements));
-                const addedItems = setDifference(new Set(newElements), new Set(backingArray));
+            emitOrDefer(owner.__doc__, {
+              applyNow: () => {
+                if (newElements.length > 0) ensureYjsArray();
+                maybeTransacting(owner.__doc__, () => {
+                  if (isChildField) {
+                    // Validate that newElements doesn't contain duplicates
+                    PlexusDuplicateChildError.uniquenessInvariant(newElements, owner, key, "assign");
 
-                // VALIDATE FIRST: Check all added items can be adopted before any state changes
-                for (const item of addedItems) {
-                  item?.[validateAdoptionSymbol]?.(owner, key);
+                    // Calculate what needs to be added/removed
+                    const removedItems = setDifference(new Set(backingArray), new Set(newElements));
+                    const addedItems = setDifference(new Set(newElements), new Set(backingArray));
+
+                    // VALIDATE FIRST: Check all added items can be adopted before any state changes
+                    for (const item of addedItems) {
+                      item?.[validateAdoptionSymbol]?.(owner, key);
+                    }
+
+                    // Now safe to orphan removed items and adopt added items
+                    for (const item of removedItems) {
+                      item?.[informOrphanizationSymbol]?.();
+                    }
+                    for (const item of addedItems) {
+                      item?.[requestAdoptionSymbol]?.(owner, key);
+                    }
+                  }
+                  const yjsArray = getYjsArray();
+
+                  backingArray.splice(0, backingArray.length, ...newElements);
+                  yjsArray?.delete(0, yjsArray.length);
+                  yjsArray?.push(newElements.map((element) => maybeReference(element, owner.__doc__!)));
+                  trackModification(self, ACCESS_ALL_SYMBOL);
+                });
+              },
+              overlay: () => {
+                if (isChildField) {
+                  for (const item of addedItems) {
+                    item?.[validateAdoptionSymbol]?.(owner, key);
+                  }
                 }
-
-                // Now safe to orphan removed items and adopt added items
-                for (const item of removedItems) {
-                  item?.[informOrphanizationSymbol]?.();
+                backingArray.splice(0, backingArray.length, ...newElements);
+              },
+              materialize: () => {
+                if (isChildField) {
+                  for (const item of addedItems) {
+                    item?.[referenceSymbol]?.(owner.__doc__!);
+                  }
                 }
-                for (const item of addedItems) {
-                  item?.[requestAdoptionSymbol]?.(owner, key);
+              },
+              describe: () => {
+                if (newElements.length > 0) ensureYjsArray();
+                if (isChildField) {
+                  for (const item of removedItems) {
+                    item?.[informOrphanizationSymbol]?.();
+                  }
+                  for (const item of addedItems) {
+                    item?.[requestAdoptionSymbol]?.(owner, key);
+                  }
                 }
-              }
-              const yjsArray = getYjsArray();
-
-              backingArray.splice(0, backingArray.length, ...newElements);
-              yjsArray?.delete(0, yjsArray.length);
-              yjsArray?.push(newElements.map((element) => maybeReference(element, owner.__doc__!)));
-              trackModification(self, ACCESS_ALL_SYMBOL);
+                const yjsArray = getYjsArray();
+                if (!yjsArray || !owner.__doc__) return [];
+                const ops: YjsOp[] = [];
+                if (yjsArray.length > 0) {
+                  ops.push({ kind: "array-delete", array: yjsArray, index: 0, length: yjsArray.length });
+                }
+                if (newElements.length > 0) {
+                  ops.push({
+                    kind: "array-insert",
+                    array: yjsArray,
+                    index: 0,
+                    content: newElements.map((element) => maybeReference(element, owner.__doc__!)),
+                  });
+                }
+                return ops;
+              },
+              notify: () => {
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              },
+              revertOverlay: () => {
+                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+              },
             });
           };
         case "length": // Report length access to this array
@@ -756,42 +1258,97 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 return result;
               }
 
-              ensureYjsArray();
-              const yjsArray = getYjsArray();
-              return maybeTransacting(yjsArray?.doc, () => {
-                // DUPLICATE VALIDATION: Check if the array method created duplicates
-                // This shouldn't happen with standard array methods, but validates against potential bugs
-                if (isChildField) {
-                  PlexusDuplicateChildError.uniquenessInvariant(resultingArray, owner, key, String(elementKey));
-                }
+              if (isChildField) {
+                PlexusDuplicateChildError.uniquenessInvariant(resultingArray, owner, key, String(elementKey));
+              }
+              const removedItems = setDifference(new Set(backingArray), new Set(resultingArray));
+              const addedItems = setDifference(new Set(resultingArray), new Set(backingArray));
+              const backingSnapshot = backingArray.slice();
 
-                // Calculate what needs to be added/removed
-                const removedItems = setDifference(new Set(backingArray), new Set(resultingArray));
-                const addedItems = setDifference(new Set(resultingArray), new Set(backingArray));
+              emitOrDefer(owner.__doc__, {
+                applyNow: () => {
+                  ensureYjsArray();
+                  const yjsArray = getYjsArray();
+                  return maybeTransacting(yjsArray?.doc, () => {
+                    // DUPLICATE VALIDATION: Check if the array method created duplicates
+                    // This shouldn't happen with standard array methods, but validates against potential bugs
+                    if (isChildField) {
+                      PlexusDuplicateChildError.uniquenessInvariant(resultingArray, owner, key, String(elementKey));
+                    }
 
-                // VALIDATE FIRST: Check all added items can be adopted before any state changes
-                if (isChildField) {
-                  for (const item of addedItems) {
-                    item?.[validateAdoptionSymbol]?.(owner, key);
+                    // Calculate what needs to be added/removed
+                    const removedItems = setDifference(new Set(backingArray), new Set(resultingArray));
+                    const addedItems = setDifference(new Set(resultingArray), new Set(backingArray));
+
+                    // VALIDATE FIRST: Check all added items can be adopted before any state changes
+                    if (isChildField) {
+                      for (const item of addedItems) {
+                        item?.[validateAdoptionSymbol]?.(owner, key);
+                      }
+                    }
+
+                    // Now safe to orphan removed items and adopt added items
+                    for (const item of removedItems) {
+                      item?.[informOrphanizationSymbol]?.();
+                    }
+                    for (const item of addedItems) {
+                      item?.[requestAdoptionSymbol]?.(owner, key);
+                    }
+                    // backing array update should happen AFTER removed/added items calculation as it uses previous version of backing array
+                    backingArray.splice(0, backingArray.length, ...resultingArray);
+
+                    // todo optimized update strategy
+                    yjsArray?.delete(0, yjsArray.length);
+                    yjsArray?.push(resultingArray.map((element) => maybeReference(element, owner.__doc__!)));
+                    trackModification(self, ACCESS_ALL_SYMBOL);
+                    return result;
+                  });
+                },
+                overlay: () => {
+                  if (isChildField) {
+                    for (const item of addedItems) {
+                      item?.[validateAdoptionSymbol]?.(owner, key);
+                    }
                   }
-                }
-
-                // Now safe to orphan removed items and adopt added items
-                for (const item of removedItems) {
-                  item?.[informOrphanizationSymbol]?.();
-                }
-                for (const item of addedItems) {
-                  item?.[requestAdoptionSymbol]?.(owner, key);
-                }
-                // backing array update should happen AFTER removed/added items calculation as it uses previous version of backing array
-                backingArray.splice(0, backingArray.length, ...resultingArray);
-
-                // todo optimized update strategy
-                yjsArray?.delete(0, yjsArray.length);
-                yjsArray?.push(resultingArray.map((element) => maybeReference(element, owner.__doc__!)));
-                trackModification(self, ACCESS_ALL_SYMBOL);
-                return result;
+                  backingArray.splice(0, backingArray.length, ...resultingArray);
+                },
+                materialize: () => {
+                  if (isChildField) {
+                    for (const item of addedItems) {
+                      item?.[referenceSymbol]?.(owner.__doc__!);
+                    }
+                  }
+                },
+                describe: () => {
+                  ensureYjsArray();
+                  for (const item of removedItems) {
+                    item?.[informOrphanizationSymbol]?.();
+                  }
+                  for (const item of addedItems) {
+                    item?.[requestAdoptionSymbol]?.(owner, key);
+                  }
+                  const yjsArray = getYjsArray();
+                  if (!yjsArray || !owner.__doc__) return [];
+                  const ops: YjsOp[] = [];
+                  if (yjsArray.length > 0) {
+                    ops.push({ kind: "array-delete", array: yjsArray, index: 0, length: yjsArray.length });
+                  }
+                  ops.push({
+                    kind: "array-insert",
+                    array: yjsArray,
+                    index: 0,
+                    content: resultingArray.map((element) => maybeReference(element, owner.__doc__!)),
+                  });
+                  return ops;
+                },
+                notify: () => {
+                  trackModification(self, ACCESS_ALL_SYMBOL);
+                },
+                revertOverlay: () => {
+                  backingArray.splice(0, backingArray.length, ...backingSnapshot);
+                },
               });
+              return result;
             };
           }
           // Read-only methods (ARRAY_METHODS.readonly): delegate to the backing
@@ -832,47 +1389,133 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
       ) {
         ensureYjsArray();
       }
-      return maybeTransacting(owner.__doc__, () => {
-        if (elementKey === "length") {
-          // Handle array length truncation
-          const newLength = Number(value);
-          const yjsArray = getYjsArray();
-          if (Number.isSafeInteger(newLength) && newLength >= 0) {
-            if (newLength < backingArray.length) {
-              // Clear parent tracking for truncated items
-              if (isChildField) {
-                for (const item of backingArray.slice(newLength)) {
-                  item?.[informOrphanizationSymbol]?.();
-                }
-              }
-              backingArray.length = newLength;
 
-              yjsArray?.delete(newLength, yjsArray.length - newLength);
-            } else if (newLength > backingArray.length) {
-              const gap = [] as null[];
-              while (backingArray.length + gap.length < newLength) {
+      if (elementKey === "length") {
+        // Handle array length truncation
+        const newLength = Number(value);
+        if (!(Number.isSafeInteger(newLength) && newLength >= 0)) {
+          return false;
+        }
+
+        const truncating = newLength < backingArray.length;
+        const extending = newLength > backingArray.length;
+        const removedForTruncation = truncating && isChildField ? backingArray.slice(newLength) : [];
+        const gapSize = extending ? newLength - backingArray.length : 0;
+        const backingSnapshot = backingArray.slice();
+
+        emitOrDefer(owner.__doc__, {
+          applyNow: () => {
+            return maybeTransacting(owner.__doc__, () => {
+              const newLength = Number(value);
+              const yjsArray = getYjsArray();
+              if (Number.isSafeInteger(newLength) && newLength >= 0) {
+                if (newLength < backingArray.length) {
+                  // Clear parent tracking for truncated items
+                  if (isChildField) {
+                    for (const item of backingArray.slice(newLength)) {
+                      item?.[informOrphanizationSymbol]?.();
+                    }
+                  }
+                  backingArray.length = newLength;
+
+                  yjsArray?.delete(newLength, yjsArray.length - newLength);
+                } else if (newLength > backingArray.length) {
+                  const gap = [] as null[];
+                  while (backingArray.length + gap.length < newLength) {
+                    gap.push(null);
+                  }
+                  backingArray.push(...gap);
+                  yjsArray?.push(gap);
+                }
+                trackModification(self, KEYS_SYMBOL);
+                trackModification(self, ENTRIES_LENGTH_SYMBOL);
+                return true;
+              }
+              return false;
+            });
+          },
+          overlay: () => {
+            if (truncating) {
+              backingArray.length = newLength;
+            } else if (extending) {
+              const gap: null[] = [];
+              while (gap.length < gapSize) {
                 gap.push(null);
               }
               backingArray.push(...gap);
-              yjsArray?.push(gap);
             }
+          },
+          describe: () => {
+            const yjsArray = getYjsArray();
+            if (isChildField) {
+              for (const item of removedForTruncation) {
+                item?.[informOrphanizationSymbol]?.();
+              }
+            }
+            if (!yjsArray) return [];
+            if (truncating) {
+              const deleteLength = yjsArray.length - newLength;
+              return deleteLength > 0
+                ? [{ kind: "array-delete", array: yjsArray, index: newLength, length: deleteLength }]
+                : [];
+            }
+            if (extending) {
+              const gap: null[] = [];
+              while (gap.length < gapSize) {
+                gap.push(null);
+              }
+              return [{ kind: "array-insert", array: yjsArray, index: yjsArray.length, content: gap }];
+            }
+            return [];
+          },
+          notify: () => {
             trackModification(self, KEYS_SYMBOL);
             trackModification(self, ENTRIES_LENGTH_SYMBOL);
+          },
+          revertOverlay: () => {
+            backingArray.splice(0, backingArray.length, ...backingSnapshot);
+          },
+        });
+        return true;
+      }
+
+      if (typeof elementKey === "string") {
+        const parsedElementKey = Number.parseInt(elementKey);
+        if (Number.isSafeInteger(parsedElementKey)) {
+          if (parsedElementKey < 0) {
+            console.warn(`cannot set [${parsedElementKey}] as it's below zero`);
+            return false;
+          }
+
+          if (backingArray[parsedElementKey] === value) {
             return true;
           }
-          return false;
-        }
-        if (typeof elementKey === "string") {
-          const parsedElementKey = Number.parseInt(elementKey);
-          if (Number.isSafeInteger(parsedElementKey)) {
-            if (parsedElementKey < 0) {
-              console.warn(`cannot set [${parsedElementKey}] as it's below zero`);
-              return false;
-            } else {
-              if (backingArray[parsedElementKey] === value) {
-                return true;
-              }
 
+          const originalLength = backingArray.length;
+          let isReuse = false;
+          let reuseFromIndex = -1;
+          let targetIndex = parsedElementKey;
+          let oldItem: T | null = null;
+          if (isChildField) {
+            const scratch = backingArray.slice();
+            while (scratch.length < parsedElementKey) {
+              scratch.push(null as any);
+            }
+            const existingIndex = scratch.indexOf(value);
+            isReuse = existingIndex !== -1 && existingIndex !== parsedElementKey;
+            if (isReuse) {
+              reuseFromIndex = existingIndex;
+              scratch.splice(existingIndex, 1);
+              if (existingIndex < parsedElementKey) {
+                targetIndex = parsedElementKey - 1;
+              }
+            }
+            oldItem = (scratch[targetIndex] ?? null) as T | null;
+          }
+          const backingSnapshot = backingArray.slice();
+
+          emitOrDefer(owner.__doc__, {
+            applyNow: () => {
               return maybeTransacting(owner.__doc__, () => {
                 // Track original length to detect extension
                 const originalLength = backingArray.length;
@@ -980,13 +1623,103 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
 
                 return true;
               });
-            }
-            return true;
-          }
+            },
+            overlay: () => {
+              if (isChildField && !isReuse) {
+                value?.[validateAdoptionSymbol]?.(owner, key);
+              }
+              while (backingArray.length < parsedElementKey) {
+                backingArray.push(null as any);
+              }
+              if (isChildField && isReuse) {
+                backingArray.splice(reuseFromIndex, 1);
+              }
+              backingArray[targetIndex] = value;
+            },
+            materialize: () => {
+              if (isChildField && !isReuse) {
+                value?.[referenceSymbol]?.(owner.__doc__!);
+              }
+            },
+            describe: () => {
+              if (isChildField) {
+                if (oldItem && oldItem !== value) {
+                  oldItem?.[informOrphanizationSymbol]?.();
+                }
+                if (!isReuse) {
+                  value?.[requestAdoptionSymbol]?.(owner, key);
+                }
+              }
+              const yjsArray = getYjsArray();
+              if (!yjsArray || !owner.__doc__) {
+                if (isChildField && isReuse) {
+                  value?.[informAdoptionSymbol]?.(owner, key);
+                }
+                return [];
+              }
+              const ops: YjsOp[] = [];
+              if (isReuse && reuseFromIndex !== -1) {
+                ops.push({ kind: "array-delete", array: yjsArray, index: reuseFromIndex, length: 1 });
+                const postDeleteLength = yjsArray.length - 1;
+                if (targetIndex >= postDeleteLength) {
+                  const postfix: AllowedYValue[] = [];
+                  while (postfix.length + postDeleteLength < targetIndex) {
+                    postfix.push(null);
+                  }
+                  postfix.push(maybeReference(value, owner.__doc__));
+                  ops.push({ kind: "array-insert", array: yjsArray, index: postDeleteLength, content: postfix });
+                } else {
+                  ops.push({ kind: "array-delete", array: yjsArray, index: targetIndex, length: 1 });
+                  ops.push({
+                    kind: "array-insert",
+                    array: yjsArray,
+                    index: targetIndex,
+                    content: [maybeReference(value, owner.__doc__)],
+                  });
+                }
+              } else if (parsedElementKey >= yjsArray.length) {
+                const postfix: AllowedYValue[] = [];
+                while (postfix.length + yjsArray.length < parsedElementKey) {
+                  postfix.push(null);
+                }
+                postfix.push(maybeReference(value, owner.__doc__));
+                ops.push({ kind: "array-insert", array: yjsArray, index: yjsArray.length, content: postfix });
+              } else {
+                ops.push({ kind: "array-delete", array: yjsArray, index: parsedElementKey, length: 1 });
+                ops.push({
+                  kind: "array-insert",
+                  array: yjsArray,
+                  index: parsedElementKey,
+                  content: [maybeReference(value, owner.__doc__)],
+                });
+              }
+              if (isChildField && isReuse) {
+                value?.[informAdoptionSymbol]?.(owner, key);
+              }
+              return ops;
+            },
+            notify: () => {
+              for (let i = originalLength; i < parsedElementKey; i++) {
+                trackModification(self, `${i}`);
+              }
+              if (isChildField && isReuse) {
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              }
+              trackModification(self, `${targetIndex}`);
+              if (backingArray.length > originalLength) {
+                trackModification(self, KEYS_SYMBOL);
+                trackModification(self, ENTRIES_LENGTH_SYMBOL);
+              }
+            },
+            revertOverlay: () => {
+              backingArray.splice(0, backingArray.length, ...backingSnapshot);
+            },
+          });
+          return true;
         }
-        console.warn(`cannot set property ${elementKey.toString()} as it's non-declared`);
-        return false;
-      });
+      }
+      console.warn(`cannot set property ${elementKey.toString()} as it's non-declared`);
+      return false;
     },
     deleteProperty() {
       return false;

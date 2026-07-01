@@ -30,6 +30,7 @@ import {
   type GenericRecordSchema,
   informAdoptionSymbol,
   type PlexusTagContainer,
+  referenceSymbol,
   requestEmancipationSymbol,
   requestOrphanizationSymbol,
   validateAdoptionSymbol,
@@ -237,26 +238,75 @@ const setChild = <
     value[validateAdoptionSymbol](object, context.name);
   }
 
-  maybeTransacting(object.__doc__, () => {
-    storedValue?.[requestOrphanizationSymbol]?.();
+  // Overlay = the synchronous backingStorage mirror (authoritative for reads).
+  const writeOverlay = () => {
     // old: orphan inside storage, new: attached to old parent
     if (value == undefined) {
       internals.backingStorage.delete(context.name);
     } else {
       internals.backingStorage.set(context.name, value);
     }
-    // for that flow, we could've used [requestAdoptionSymbol], but it has some extra checks we just skip
-    // old: orphan, removed, new: placed both inside backing storage and old location, has old parent
-    value?.[requestEmancipationSymbol]?.(); // removes using old parent pointer
-    // old: orphan, removed, new: removed from old location, only inside backing storage, has old parent
-    value?.[informAdoptionSymbol]?.(object, context.name);
-    // old: orphan, removed, new: removed from old location, only inside backing storage, has new parent
-    if (value == undefined) {
-      object.__yjsFieldsMap__?.delete(context.name);
-    } else {
-      object.__yjsFieldsMap__?.set(context.name, maybeReference(value, object.__doc__!));
-    }
-    trackModification(object, context.name);
+  };
+
+  emitOrDefer(object.__doc__, {
+    // Non-atomic path: exactly the original choreography, verbatim.
+    applyNow: () =>
+      maybeTransacting(object.__doc__, () => {
+        storedValue?.[requestOrphanizationSymbol]?.();
+        writeOverlay();
+        // for that flow, we could've used [requestAdoptionSymbol], but it has some extra checks we just skip
+        // old: orphan, removed, new: placed both inside backing storage and old location, has old parent
+        value?.[requestEmancipationSymbol]?.(); // removes using old parent pointer
+        // old: orphan, removed, new: removed from old location, only inside backing storage, has old parent
+        value?.[informAdoptionSymbol]?.(object, context.name);
+        // old: orphan, removed, new: removed from old location, only inside backing storage, has new parent
+        if (value == undefined) {
+          object.__yjsFieldsMap__?.delete(context.name);
+        } else {
+          object.__yjsFieldsMap__?.set(context.name, maybeReference(value, object.__doc__!));
+        }
+        trackModification(object, context.name);
+      }),
+    overlay: writeOverlay,
+    materialize: () => {
+      // Phase 1 — GENESIS of the CHILD entity, run OUTSIDE the flush transaction so
+      // its materialization keeps its own origin (via `[referenceSymbol]`'s own
+      // `maybeTransacting`) instead of being swallowed into the user's tx. This is
+      // the same lazy call `informAdoptionSymbol` would otherwise make
+      // (PlexusModel.ts:414-415, `if (!internals.yjsModel && newParent.__doc__)`);
+      // running it here means phase-2's `informAdoptionSymbol` finds the child
+      // already materialized (yjsModel set) and only writes the parent edge.
+      value?.[referenceSymbol]?.(object.__doc__!);
+    },
+    describe: () => {
+      // Phase 2 — transitive core prep as direct calls (they own their own tx
+      // semantics and nest into the flush transaction), in the SAME relative order
+      // as the original choreography: orphan the outgoing child, then emancipate +
+      // adopt the incoming one. The child is already materialized (phase 1), so
+      // `informAdoptionSymbol` here only writes the parent edge. Then RETURN the
+      // field-map leaf write as a `YjsOp` for the engine to apply.
+      storedValue?.[requestOrphanizationSymbol]?.();
+      value?.[requestEmancipationSymbol]?.();
+      value?.[informAdoptionSymbol]?.(object, context.name);
+      const wrapper = object.__yjsFieldsMap__;
+      if (!wrapper) return [];
+      return value == undefined
+        ? [{ kind: "attr-delete", wrapper, key: context.name }]
+        : [{ kind: "attr-set", wrapper, key: context.name, value: maybeReference(value, object.__doc__!) }];
+    },
+    notify: () => trackModification(object, context.name),
+    revertOverlay: () => {
+      // Silent restore of the backingStorage mirror. Orphanization/emancipation/
+      // adoption are transitive core and were deferred to `describe` (phase 2),
+      // which never ran on a rollback, so no structural parent pointer or yjs
+      // parent-edge was ever touched — only the overlay write needs undoing, and
+      // silently: the overlay fired no `trackModification`, so no observer saw it.
+      if (storedValue == undefined) {
+        internals.backingStorage.delete(context.name);
+      } else {
+        internals.backingStorage.set(context.name, storedValue);
+      }
+    },
   });
 };
 

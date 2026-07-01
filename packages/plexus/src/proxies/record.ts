@@ -1,12 +1,14 @@
 import invariant from "tiny-invariant";
 import type * as Y from "yjs";
 
+import { emitOrDefer, type YjsOp } from "../atomic-buffer.js";
 import { deref } from "../deref.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import {
   informOrphanizationSymbol,
   materializationSymbol,
+  referenceSymbol,
   requestAdoptionSymbol,
   requestOrphanizationSymbol,
   validateAdoptionSymbol,
@@ -102,65 +104,173 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
             if (Object.keys(proxyTarget).length === 0) {
               return;
             }
-            // Clear parent tracking for all child values
-            if (isChildField) {
-              for (const value of Object.values(proxyTarget)) {
-                value?.[informOrphanizationSymbol]?.();
-              }
-            }
+            // Snapshot for the (silent) overlay inverse — orphanization also reads
+            // this in `describe`, since by then the overlay has already emptied
+            // `proxyTarget`.
+            const previousEntries = { ...proxyTarget };
+            emitOrDefer(owner.__doc__, {
+              // Non-atomic path: exactly the original choreography, verbatim.
+              applyNow: () => {
+                // Clear parent tracking for all child values
+                if (isChildField) {
+                  for (const value of Object.values(proxyTarget)) {
+                    value?.[informOrphanizationSymbol]?.();
+                  }
+                }
 
-            for (const key of Object.keys(proxyTarget)) {
-              delete proxyTarget[key];
-            }
-            getYjsMap()?.clear();
-            trackModification(self, ACCESS_ALL_SYMBOL);
+                for (const key of Object.keys(proxyTarget)) {
+                  delete proxyTarget[key];
+                }
+                getYjsMap()?.clear();
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              },
+              overlay: () => {
+                for (const k of Object.keys(proxyTarget)) {
+                  delete proxyTarget[k];
+                }
+              },
+              describe: () => {
+                // Orphanization (transitive core) — of the children that WERE here,
+                // matching where the original ran it.
+                if (isChildField) {
+                  for (const value of Object.values(previousEntries)) {
+                    value?.[informOrphanizationSymbol]?.();
+                  }
+                }
+                const yjsMap = getYjsMap();
+                if (!yjsMap) return [];
+                return [{ kind: "map-clear", map: yjsMap }];
+              },
+              notify: () => {
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              },
+              revertOverlay: () => {
+                // Silent restore — the overlay's clear fired no `trackModification`.
+                Object.assign(proxyTarget, previousEntries);
+              },
+            });
           };
         case "assign":
           return (newEntries: Record<string, AllowedYJSValue> | Iterable<[string, AllowedYJSValue]>) => {
-            ensureYjsMap(); // create container outside tracked transaction
-            maybeTransacting(owner.__doc__, () => {
-              // Convert to array for multiple iterations
-              const entriesArray: [string, AllowedYJSValue][] = [
-                ...(Symbol.iterator in newEntries ? newEntries : Object.entries(newEntries)),
-              ];
+            // Shared by overlay/materialize/describe/revertOverlay below. `applyNow`
+            // recomputes its own copies, verbatim, inside its own closure.
+            const entriesArray: [string, AllowedYJSValue][] = [
+              ...(Symbol.iterator in newEntries ? newEntries : Object.entries(newEntries)),
+            ];
+            const oldValueSet = new Set(Object.values(proxyTarget));
+            const newValueSet = new Set(entriesArray.map(([_, v]) => v));
+            const previousEntries = { ...proxyTarget };
 
-              // For child fields, calculate what needs to be adopted/orphaned
-              // and VALIDATE all adoptions BEFORE any state changes
-              const oldValueSet = new Set(Object.values(proxyTarget));
-              const newValueSet = new Set(entriesArray.map(([_, v]) => v));
+            emitOrDefer(owner.__doc__, {
+              // Non-atomic path: exactly the original choreography, verbatim.
+              applyNow: () => {
+                ensureYjsMap(); // create container outside tracked transaction
+                maybeTransacting(owner.__doc__, () => {
+                  // Convert to array for multiple iterations
+                  const entriesArray: [string, AllowedYJSValue][] = [
+                    ...(Symbol.iterator in newEntries ? newEntries : Object.entries(newEntries)),
+                  ];
 
-              if (isChildField) {
-                // VALIDATE FIRST: Check all truly new values can be adopted
+                  // For child fields, calculate what needs to be adopted/orphaned
+                  // and VALIDATE all adoptions BEFORE any state changes
+                  const oldValueSet = new Set(Object.values(proxyTarget));
+                  const newValueSet = new Set(entriesArray.map(([_, v]) => v));
+
+                  if (isChildField) {
+                    // VALIDATE FIRST: Check all truly new values can be adopted
+                    for (const [k, v] of entriesArray) {
+                      if (v && !oldValueSet.has(v as any)) {
+                        v[validateAdoptionSymbol]?.(owner, key, k);
+                      }
+                    }
+
+                    // Now safe to orphan values that aren't in the new set
+                    for (const value of oldValueSet) {
+                      if (value && !newValueSet.has(value)) {
+                        value[informOrphanizationSymbol]?.();
+                      }
+                    }
+                  }
+
+                  for (const k of Object.keys(proxyTarget)) {
+                    delete proxyTarget[k];
+                  }
+                  Object.assign(proxyTarget, Object.fromEntries(entriesArray));
+
+                  const map = getYjsMap();
+                  map?.clear();
+
+                  trackModification(self, ACCESS_ALL_SYMBOL);
+                  for (const [k, v] of entriesArray) {
+                    // Adopt truly new values
+                    if (isChildField && v && !oldValueSet.has(v as any)) {
+                      v[requestAdoptionSymbol]?.(owner, key, k);
+                    }
+                    map?.set(k, maybeReference(v, owner.__doc__!));
+                  }
+                });
+              },
+              overlay: () => {
+                // Fail-fast on illegal adoptions for truly-new values BEFORE any
+                // state change — pure check, no yjs write. Genesis is deferred to
+                // `materialize`; orphan-removed + adopt-new + the leaf writes to
+                // `describe`.
+                if (isChildField) {
+                  for (const [k, v] of entriesArray) {
+                    if (v && !oldValueSet.has(v as any)) {
+                      v[validateAdoptionSymbol]?.(owner, key, k);
+                    }
+                  }
+                }
+                for (const k of Object.keys(proxyTarget)) {
+                  delete proxyTarget[k];
+                }
+                Object.assign(proxyTarget, Object.fromEntries(entriesArray));
+              },
+              materialize: () => {
+                // Phase 1 — genesis of each truly-new child, outside the flush tx.
+                if (isChildField) {
+                  for (const [, v] of entriesArray) {
+                    if (v && !oldValueSet.has(v as any)) {
+                      v[referenceSymbol]?.(owner.__doc__!);
+                    }
+                  }
+                }
+              },
+              describe: () => {
+                ensureYjsMap();
+                if (isChildField) {
+                  // Orphan removed values (transitive core), then adopt new ones —
+                  // children already materialized (phase 1).
+                  for (const value of oldValueSet) {
+                    if (value && !newValueSet.has(value)) {
+                      value[informOrphanizationSymbol]?.();
+                    }
+                  }
+                  for (const [k, v] of entriesArray) {
+                    if (v && !oldValueSet.has(v as any)) {
+                      v[requestAdoptionSymbol]?.(owner, key, k);
+                    }
+                  }
+                }
+                const map = getYjsMap();
+                if (!map) return [];
+                const ops: YjsOp[] = [{ kind: "map-clear", map }];
                 for (const [k, v] of entriesArray) {
-                  if (v && !oldValueSet.has(v as any)) {
-                    v[validateAdoptionSymbol]?.(owner, key, k);
-                  }
+                  ops.push({ kind: "map-set", map, key: k, value: maybeReference(v, owner.__doc__!) });
                 }
-
-                // Now safe to orphan values that aren't in the new set
-                for (const value of oldValueSet) {
-                  if (value && !newValueSet.has(value)) {
-                    value[informOrphanizationSymbol]?.();
-                  }
+                return ops;
+              },
+              notify: () => {
+                trackModification(self, ACCESS_ALL_SYMBOL);
+              },
+              revertOverlay: () => {
+                // Silent restore — the overlay fired no `trackModification`.
+                for (const k of Object.keys(proxyTarget)) {
+                  delete proxyTarget[k];
                 }
-              }
-
-              for (const k of Object.keys(proxyTarget)) {
-                delete proxyTarget[k];
-              }
-              Object.assign(proxyTarget, Object.fromEntries(entriesArray));
-
-              const map = getYjsMap();
-              map?.clear();
-
-              trackModification(self, ACCESS_ALL_SYMBOL);
-              for (const [k, v] of entriesArray) {
-                // Adopt truly new values
-                if (isChildField && v && !oldValueSet.has(v as any)) {
-                  v[requestAdoptionSymbol]?.(owner, key, k);
-                }
-                map?.set(k, maybeReference(v, owner.__doc__!));
-              }
+                Object.assign(proxyTarget, previousEntries);
+              },
             });
           };
         case materializationSymbol:
@@ -216,35 +326,93 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
     },
     set(proxyTarget, elementKey, value) {
       if (typeof elementKey === "string") {
-        if (value !== undefined) ensureYjsMap();
-        maybeTransacting(owner.__doc__, () => {
-          trackModification(self, elementKey);
-          // Track key changes: key added (wasn't present, now has value) or removed (was present, now undefined)
-          if (
-            (elementKey in proxyTarget && value === undefined) ||
-            (!(elementKey in proxyTarget) && value !== undefined)
-          ) {
-            trackModification(self, KEYS_SYMBOL);
-            trackModification(self, ENTRIES_LENGTH_SYMBOL);
-          }
-          if (isChildField) {
-            // VALIDATE FIRST before any state changes (throws on cycle)
-            value?.[validateAdoptionSymbol]?.(owner, key, elementKey);
-            // Now safe to orphan old value and adopt new one
-            proxyTarget[elementKey]?.[requestOrphanizationSymbol]?.();
-            value?.[requestAdoptionSymbol]?.(owner, key, elementKey);
-          }
-          // undefined = delete key, null = explicit "nothing" value
-          if (value === undefined) {
-            delete proxyTarget[elementKey];
-          } else {
-            proxyTarget[elementKey] = value;
-          }
-          if (value === undefined) {
-            getYjsMap()?.delete(elementKey);
-          } else {
-            getYjsMap()?.set(elementKey, maybeReference(value, owner.__doc__!));
-          }
+        const hadKeyBefore = elementKey in proxyTarget;
+        const previousValue = proxyTarget[elementKey];
+        // Track key changes: key added (wasn't present, now has value) or removed (was present, now undefined)
+        const structureChanged = (hadKeyBefore && value === undefined) || (!hadKeyBefore && value !== undefined);
+        emitOrDefer(owner.__doc__, {
+          // Non-atomic path: exactly the original choreography, verbatim.
+          applyNow: () => {
+            if (value !== undefined) ensureYjsMap();
+            maybeTransacting(owner.__doc__, () => {
+              trackModification(self, elementKey);
+              // Track key changes: key added (wasn't present, now has value) or removed (was present, now undefined)
+              if (
+                (elementKey in proxyTarget && value === undefined) ||
+                (!(elementKey in proxyTarget) && value !== undefined)
+              ) {
+                trackModification(self, KEYS_SYMBOL);
+                trackModification(self, ENTRIES_LENGTH_SYMBOL);
+              }
+              if (isChildField) {
+                // VALIDATE FIRST before any state changes (throws on cycle)
+                value?.[validateAdoptionSymbol]?.(owner, key, elementKey);
+                // Now safe to orphan old value and adopt new one
+                proxyTarget[elementKey]?.[requestOrphanizationSymbol]?.();
+                value?.[requestAdoptionSymbol]?.(owner, key, elementKey);
+              }
+              // undefined = delete key, null = explicit "nothing" value
+              if (value === undefined) {
+                delete proxyTarget[elementKey];
+              } else {
+                proxyTarget[elementKey] = value;
+              }
+              if (value === undefined) {
+                getYjsMap()?.delete(elementKey);
+              } else {
+                getYjsMap()?.set(elementKey, maybeReference(value, owner.__doc__!));
+              }
+            });
+          },
+          overlay: () => {
+            // Fail-fast on illegal adoption BEFORE any state change — pure check,
+            // no yjs write. Genesis is deferred to `materialize`; orphan-old +
+            // adopt-new + the leaf write to `describe`.
+            if (isChildField) {
+              value?.[validateAdoptionSymbol]?.(owner, key, elementKey);
+            }
+            // undefined = delete key, null = explicit "nothing" value
+            if (value === undefined) {
+              delete proxyTarget[elementKey];
+            } else {
+              proxyTarget[elementKey] = value;
+            }
+          },
+          materialize: () => {
+            // Phase 1 — genesis of the CHILD entity being inserted, outside the flush tx.
+            if (isChildField) {
+              value?.[referenceSymbol]?.(owner.__doc__!);
+            }
+          },
+          describe: () => {
+            if (value !== undefined) ensureYjsMap();
+            if (isChildField) {
+              // Orphan the value being replaced (transitive core), then adopt the
+              // new one — it's already materialized (phase 1).
+              previousValue?.[requestOrphanizationSymbol]?.();
+              value?.[requestAdoptionSymbol]?.(owner, key, elementKey);
+            }
+            const yjsMap = getYjsMap();
+            if (!yjsMap) return [];
+            return value === undefined
+              ? [{ kind: "map-delete", map: yjsMap, key: elementKey }]
+              : [{ kind: "map-set", map: yjsMap, key: elementKey, value: maybeReference(value, owner.__doc__!) }];
+          },
+          notify: () => {
+            trackModification(self, elementKey);
+            if (structureChanged) {
+              trackModification(self, KEYS_SYMBOL);
+              trackModification(self, ENTRIES_LENGTH_SYMBOL);
+            }
+          },
+          revertOverlay: () => {
+            // Silent restore — the overlay fired no `trackModification`.
+            if (hadKeyBefore) {
+              proxyTarget[elementKey] = previousValue;
+            } else {
+              delete proxyTarget[elementKey];
+            }
+          },
         });
         return true;
       }
@@ -260,19 +428,49 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
         return true;
       }
 
-      return maybeTransacting(owner.__doc__, () => {
-        // Handle parent tracking for child fields
-        if (isChildField) {
-          proxyTarget[elementKey]?.[informOrphanizationSymbol]?.();
-        }
-        getYjsMap()?.delete(elementKey);
-        if (Reflect.deleteProperty(proxyTarget, elementKey)) {
+      // Snapshot for the (silent) overlay inverse; orphanization also reads this
+      // in `describe`, since by then the overlay has already deleted the key.
+      const previousValue = proxyTarget[elementKey];
+      emitOrDefer(owner.__doc__, {
+        // Non-atomic path: exactly the original choreography, verbatim.
+        applyNow: () => {
+          maybeTransacting(owner.__doc__, () => {
+            // Handle parent tracking for child fields
+            if (isChildField) {
+              proxyTarget[elementKey]?.[informOrphanizationSymbol]?.();
+            }
+            getYjsMap()?.delete(elementKey);
+            if (Reflect.deleteProperty(proxyTarget, elementKey)) {
+              trackModification(self, elementKey);
+              trackModification(self, KEYS_SYMBOL);
+              trackModification(self, ENTRIES_LENGTH_SYMBOL);
+            }
+          });
+        },
+        overlay: () => {
+          delete proxyTarget[elementKey];
+        },
+        // No `materialize` — deletes never genesis a child.
+        describe: () => {
+          // Orphanization (transitive core), matching where the original ran it.
+          if (isChildField) {
+            previousValue?.[informOrphanizationSymbol]?.();
+          }
+          const yjsMap = getYjsMap();
+          if (!yjsMap) return [];
+          return [{ kind: "map-delete", map: yjsMap, key: elementKey }];
+        },
+        notify: () => {
           trackModification(self, elementKey);
           trackModification(self, KEYS_SYMBOL);
           trackModification(self, ENTRIES_LENGTH_SYMBOL);
-        }
-        return true;
+        },
+        revertOverlay: () => {
+          // Silent restore — the overlay fired no `trackModification`.
+          proxyTarget[elementKey] = previousValue;
+        },
       });
+      return true;
     },
     // todo getOwnPropertyDescriptor
     setPrototypeOf() {

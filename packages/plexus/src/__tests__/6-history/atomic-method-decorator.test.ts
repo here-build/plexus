@@ -6,6 +6,7 @@ import { syncing } from "../../decorators.js";
 import { entityClasses } from "../../globals.js";
 import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
+import { maybeTransacting } from "../../utils/utils.js";
 import { initTestPlexus, type TestPlexus } from "../_helpers/test-plexus.js";
 
 // A child entity materialized mid-method by the atomic body.
@@ -31,8 +32,8 @@ class Foo extends PlexusModel {
   @syncing.child.set
   accessor bars!: Set<Bar>;
 
-  // A value collection whose mutations are NOT routed through the atomic buffer
-  // yet — used to exercise the unrouted-mutation-kind boundary detector.
+  // A routed value-map — its mutations flow through the deferred buffer like every
+  // other kind, so an atomic body collapses them into the single flush transaction.
   @syncing.map
   accessor meta!: Map<string, number>;
 
@@ -81,13 +82,20 @@ class Foo extends PlexusModel {
   }
 
   /**
-   * Mutates via an UNROUTED kind (`Map.set`) — not wired into the deferred buffer,
-   * so it writes yjs eagerly during the body and trips the leak detector.
+   * Now that every Plexus mutation KIND is routed, the leak detector is exercised
+   * with the canonical unrouted SHAPE it guards against: an eager `maybeTransacting`
+   * write on the receiver's (non-liminal) doc DURING the deferred region — exactly
+   * what a future not-yet-routed emission site would do internally. The routed
+   * writes (`count`, `meta`) still collapse into the single flush; the raw eager
+   * write opens its own transaction mid-body and trips the detector.
    */
   @syncing.atomic
   touchUnrouted(): void {
     this.count = 1; // routed → deferred
-    this.meta.set("k", 1); // UNROUTED → eager yjs write on the receiver's doc
+    this.meta.set("k", 1); // routed → deferred (batches into the flush)
+    maybeTransacting(this.__doc__, () => {
+      this.__doc__!.getMap("unrouted-probe").set("probe", 1); // UNROUTED shape → eager tx
+    });
   }
 
   /**
@@ -309,11 +317,12 @@ describe("@syncing.atomic method decorator", () => {
 
     root.touchUnrouted();
 
-    // The routed val set batches into one transaction; the unrouted Map.set opened
-    // its OWN eager transaction during the body → two updates, not one.
+    // The routed val/map sets collapse into the flush's single transaction; the
+    // unrouted eager write opened its OWN transaction during the body → >1 update.
     expect(shadowUpdates).toBeGreaterThan(1);
     expect(root.count).toBe(1);
     expect(root.meta.get("k")).toBe(1);
+    expect(shadow.getMap("unrouted-probe").get("probe")).toBe(1);
 
     const warnedUnrouted = warnSpy.mock.calls.some(
       ([message]) => typeof message === "string" && message.includes("NOT yet routed through the atomic buffer"),

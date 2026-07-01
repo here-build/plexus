@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 
-import { emitOrDefer } from "../atomic-buffer.js";
+import { emitOrDefer, type YjsOp } from "../atomic-buffer.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import {
   type AllowedYJSKeyValue,
@@ -246,36 +246,110 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
         if (elementKey === "clear") {
           return () => {
             if (backingSet.size === 0) return;
-            maybeTransacting(owner.__doc__!, () => {
-              if (isChildField) {
-                for (const item of backingSet) {
-                  item?.[informOrphanizationSymbol]?.();
+
+            // Snapshot the pre-clear contents — overlay empties both collections
+            // immediately, so `describe`/`revertOverlay` (running later, at flush)
+            // need this to orphanize children and restore the mirror on rollback.
+            const previousItems = Array.from(backingSet);
+            const previousSerialized = new Map(serializedToElement);
+
+            emitOrDefer(owner.__doc__, {
+              // Non-atomic path: exactly the original choreography, verbatim.
+              applyNow: () => {
+                maybeTransacting(owner.__doc__!, () => {
+                  if (isChildField) {
+                    for (const item of backingSet) {
+                      item?.[informOrphanizationSymbol]?.();
+                    }
+                  }
+                  backingSet.clear();
+                  serializedToElement.clear();
+                  trackModification(self, KEYS_SYMBOL);
+                  trackModification(self, ENTRIES_LENGTH_SYMBOL);
+                  getYjsMap()?.clear();
+                });
+              },
+              overlay: () => {
+                // Local-mirror only — no yjs, no trackModification.
+                backingSet.clear();
+                serializedToElement.clear();
+              },
+              describe: () => {
+                // Orphanization is transitive core (writes the child's parent
+                // edge) — deferred to the flush tx, matching where the original
+                // ran it relative to the yjs clear.
+                if (isChildField) {
+                  for (const item of previousItems) {
+                    item?.[informOrphanizationSymbol]?.();
+                  }
                 }
-              }
-              backingSet.clear();
-              serializedToElement.clear();
-              trackModification(self, KEYS_SYMBOL);
-              trackModification(self, ENTRIES_LENGTH_SYMBOL);
-              getYjsMap()?.clear();
+                const yjsMap = getYjsMap();
+                if (!yjsMap) return [];
+                return [{ kind: "map-clear", map: yjsMap }];
+              },
+              notify: () => {
+                trackModification(self, KEYS_SYMBOL);
+                trackModification(self, ENTRIES_LENGTH_SYMBOL);
+              },
+              revertOverlay: () => {
+                // Silent — overlay fired no trackModification, so undoing it must not either.
+                for (const item of previousItems) backingSet.add(item);
+                for (const [sk, el] of previousSerialized) serializedToElement.set(sk, el);
+              },
             });
           };
         }
         if (elementKey === "delete") {
           return (value: T) => {
-            if (!backingSet.delete(value)) return false;
+            // Non-mutating equivalent of the original `!backingSet.delete(value)`
+            // guard — the mutation itself moves into applyNow/overlay below.
+            if (!backingSet.has(value)) return false;
 
-            if (isChildField) {
-              value?.[informOrphanizationSymbol]?.();
-            }
+            emitOrDefer(owner.__doc__, {
+              // Non-atomic path: exactly the original choreography, verbatim
+              // (minus the guard, which now runs before emitOrDefer).
+              applyNow: () => {
+                backingSet.delete(value);
 
-            maybeTransacting(owner.__doc__, () => {
-              trackModification(self, KEYS_SYMBOL);
-              trackModification(self, ENTRIES_LENGTH_SYMBOL);
-              if (owner.__doc__) {
+                if (isChildField) {
+                  value?.[informOrphanizationSymbol]?.();
+                }
+
+                maybeTransacting(owner.__doc__, () => {
+                  trackModification(self, KEYS_SYMBOL);
+                  trackModification(self, ENTRIES_LENGTH_SYMBOL);
+                  if (owner.__doc__) {
+                    const sk = serializeKey(value, owner.__doc__);
+                    serializedToElement.delete(sk);
+                    getYjsMap()?.delete(sk);
+                  }
+                });
+              },
+              overlay: () => {
+                // Local-mirror only — no yjs, no trackModification.
+                backingSet.delete(value);
+              },
+              describe: () => {
+                // Orphanization is transitive core — deferred to the flush tx,
+                // matching where the original ran it (before the yjs delete).
+                if (isChildField) {
+                  value?.[informOrphanizationSymbol]?.();
+                }
+                if (!owner.__doc__) return [];
+                const yjsMap = getYjsMap();
                 const sk = serializeKey(value, owner.__doc__);
                 serializedToElement.delete(sk);
-                getYjsMap()?.delete(sk);
-              }
+                if (!yjsMap) return [];
+                return [{ kind: "map-delete", map: yjsMap, key: sk }];
+              },
+              notify: () => {
+                trackModification(self, KEYS_SYMBOL);
+                trackModification(self, ENTRIES_LENGTH_SYMBOL);
+              },
+              revertOverlay: () => {
+                // Silent — overlay fired no trackModification, so undoing it must not either.
+                backingSet.add(value);
+              },
             });
             return true;
           };
@@ -290,50 +364,133 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
         case "assign":
           return (newValues: Iterable<T>) => {
             const newValuesSet = new Set(newValues);
-            if (newValuesSet.size > 0) ensureYjsMap();
-            const yjsMap = getYjsMap();
-            maybeTransacting(owner.__doc__, () => {
-              trackModification(self, KEYS_SYMBOL);
-              trackModification(self, ENTRIES_LENGTH_SYMBOL);
+            // Snapshot the pre-assign state — overlay mutates `backingSet`
+            // immediately, so materialize/describe/revertOverlay (running later,
+            // at flush) need this to tell new children from kept ones, orphanize
+            // removed ones, and restore the mirror on rollback.
+            const previousBackingSet = new Set(backingSet);
+            const previousSerialized = new Map(serializedToElement);
 
-              if (isChildField) {
-                // Validate all new adoptions first
+            emitOrDefer(owner.__doc__, {
+              // Non-atomic path: exactly the original choreography, verbatim.
+              applyNow: () => {
+                if (newValuesSet.size > 0) ensureYjsMap();
+                const yjsMap = getYjsMap();
+                maybeTransacting(owner.__doc__, () => {
+                  trackModification(self, KEYS_SYMBOL);
+                  trackModification(self, ENTRIES_LENGTH_SYMBOL);
+
+                  if (isChildField) {
+                    // Validate all new adoptions first
+                    for (const value of newValuesSet) {
+                      if (value && !backingSet.has(value)) {
+                        value[validateAdoptionSymbol]?.(owner, key);
+                      }
+                    }
+                    // Orphan removed values
+                    for (const item of backingSet) {
+                      if (item && !newValuesSet.has(item)) {
+                        item[informOrphanizationSymbol]?.();
+                      }
+                    }
+                  }
+
+                  // Clear Y.Map
+                  yjsMap?.clear();
+                  backingSet.clear();
+                  serializedToElement.clear();
+
+                  // Adopt new values
+                  if (isChildField) {
+                    for (const value of newValuesSet) {
+                      if (value && !backingSet.has(value)) {
+                        value[requestAdoptionSymbol]?.(owner, key);
+                      }
+                    }
+                  }
+
+                  // Populate
+                  for (const value of newValuesSet) {
+                    backingSet.add(value);
+                    if (yjsMap && owner.__doc__) {
+                      const sk = serializeKey(value, owner.__doc__);
+                      serializedToElement.set(sk, value);
+                      yjsMap.set(sk, maybeReference(value, owner.__doc__!));
+                    }
+                  }
+                });
+              },
+              overlay: () => {
+                // Fail-fast on illegal adoption for genuinely NEW values (checked
+                // against the pre-assign snapshot) BEFORE any state change — pure
+                // check, no yjs write. Then sync the local-mirror collection.
+                if (isChildField) {
+                  for (const value of newValuesSet) {
+                    if (value && !previousBackingSet.has(value)) {
+                      value[validateAdoptionSymbol]?.(owner, key);
+                    }
+                  }
+                }
+                backingSet.clear();
+                for (const value of newValuesSet) backingSet.add(value);
+              },
+              materialize: () => {
+                // Phase 1 — genesis for children NEW to this field (kept children
+                // are already materialized; re-genesis-ing them would be wrong).
+                if (!isChildField) return;
                 for (const value of newValuesSet) {
-                  if (value && !backingSet.has(value)) {
-                    value[validateAdoptionSymbol]?.(owner, key);
+                  if (value && !previousBackingSet.has(value)) {
+                    value[referenceSymbol]?.(owner.__doc__!);
                   }
                 }
-                // Orphan removed values
-                for (const item of backingSet) {
-                  if (item && !newValuesSet.has(item)) {
-                    item[informOrphanizationSymbol]?.();
+              },
+              describe: () => {
+                // Phase 2 — orphan values dropped from the set (transitive core,
+                // matching where the original ran it, relative to the clear).
+                if (isChildField) {
+                  for (const item of previousBackingSet) {
+                    if (item && !newValuesSet.has(item)) {
+                      item[informOrphanizationSymbol]?.();
+                    }
                   }
                 }
-              }
 
-              // Clear Y.Map
-              yjsMap?.clear();
-              backingSet.clear();
-              serializedToElement.clear();
+                if (newValuesSet.size > 0) ensureYjsMap();
+                const yjsMap = getYjsMap();
 
-              // Adopt new values
-              if (isChildField) {
-                for (const value of newValuesSet) {
-                  if (value && !backingSet.has(value)) {
-                    value[requestAdoptionSymbol]?.(owner, key);
+                // Parent-edge write for every surviving value — children already
+                // materialized (phase 1) are a no-op re-adoption (informAdoption
+                // short-circuits on unchanged parent/field/metadata).
+                if (isChildField) {
+                  for (const value of newValuesSet) {
+                    if (value) value[requestAdoptionSymbol]?.(owner, key);
                   }
                 }
-              }
 
-              // Populate
-              for (const value of newValuesSet) {
-                backingSet.add(value);
-                if (yjsMap && owner.__doc__) {
-                  const sk = serializeKey(value, owner.__doc__);
-                  serializedToElement.set(sk, value);
-                  yjsMap.set(sk, maybeReference(value, owner.__doc__!));
+                serializedToElement.clear();
+                if (!yjsMap) return [];
+
+                const ops: YjsOp[] = [{ kind: "map-clear", map: yjsMap }];
+                if (owner.__doc__) {
+                  for (const value of newValuesSet) {
+                    const sk = serializeKey(value, owner.__doc__);
+                    serializedToElement.set(sk, value);
+                    ops.push({ kind: "map-set", map: yjsMap, key: sk, value: maybeReference(value, owner.__doc__) });
+                  }
                 }
-              }
+                return ops;
+              },
+              notify: () => {
+                trackModification(self, KEYS_SYMBOL);
+                trackModification(self, ENTRIES_LENGTH_SYMBOL);
+              },
+              revertOverlay: () => {
+                // Silent — overlay fired no trackModification, so undoing it must not either.
+                backingSet.clear();
+                for (const item of previousBackingSet) backingSet.add(item);
+                serializedToElement.clear();
+                for (const [sk, el] of previousSerialized) serializedToElement.set(sk, el);
+              },
             });
           };
         case Symbol.toStringTag:

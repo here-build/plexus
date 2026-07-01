@@ -179,6 +179,26 @@ describe("key-serialization", () => {
       const arr = [1, undefined, 3];
       expect(() => serializeKey(arr as any, doc)).to.throw(TypeError, /undefined is not allowed/);
     });
+
+    // Bytes are payload, not identity — legal as a value, never as a key/member. The
+    // type layer forbids `Set<Uint8Array>` / `Map<Uint8Array, …>`; this is the runtime
+    // backstop for untyped or deserialize-path callers.
+    it("throws on Uint8Array key", () => {
+      expect(() => serializeKey(new Uint8Array([1, 2, 3]) as any, doc)).to.throw(
+        TypeError,
+        /Uint8Array is not allowed as a map key or set member/,
+      );
+    });
+
+    it("throws on Set containing a Uint8Array member", () => {
+      const set = new Set([new Uint8Array([10, 20])]);
+      expect(() => serializeKey(set as any, doc)).to.throw(TypeError, /Uint8Array is not allowed/);
+    });
+
+    it("throws on Array (composite key) containing a Uint8Array element", () => {
+      const arr = [new Uint8Array([7]), "x"];
+      expect(() => serializeKey(arr as any, doc)).to.throw(TypeError, /Uint8Array is not allowed/);
+    });
   });
 
   describe("PathMap validation", () => {

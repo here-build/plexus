@@ -12,13 +12,34 @@ export const informOrphanizationSymbol = Symbol("report orphanage");
 export const requestAdoptionSymbol = Symbol("report parentship change");
 export const requestOrphanizationSymbol = Symbol("report orphanage");
 export const validateAdoptionSymbol = Symbol("validate adoption");
+// A Uint8Array val reads back as a live write-through proxy stored directly in
+// backingStorage (bytes are just a special primitive). This brand exposes the
+// proxy's private raw bytes so the serialization egress (`maybeReference`) can
+// unwrap it — the proxy's `constructor` reads as `Uint8Array`, so a value check
+// alone can't tell our live proxy from a plain buffer.
+export const bytesProxyRawSymbol = Symbol("bytes proxy raw");
 
 // New tuple-based references (memory optimized)
 type LocalReferenceeTuple = [entityId: string];
 export type CrossProjectReferenceTuple = [entityId: string, dependencyId: string];
 export type ReferenceTuple = LocalReferenceeTuple | CrossProjectReferenceTuple;
 
-export type AllowedPrimitive = string | number | boolean | bigint | null | Uint8Array;
+/**
+ * Primitives that carry value-equality identity — legal as a map key or set member.
+ * Excludes `Uint8Array`: bytes are content-shaped but object-identified, so a fresh
+ * instance with equal bytes is a *different* member in memory yet the *same*
+ * serialized key in the CRDT — they can't serve as a stable, cross-peer key/member.
+ * Bytes are payload, not identity: allowed as values only (see `AllowedPrimitive`).
+ */
+export type AllowedKeyPrimitive = string | number | boolean | bigint | null;
+
+/**
+ * Primitives legal as a *value* (val field, record value, array element, map value).
+ * Adds opaque `Uint8Array` bytes on top of the identity-bearing key primitives — a
+ * value is addressed by its position, never looked up by its content, so bytes there
+ * need no identity.
+ */
+export type AllowedPrimitive = AllowedKeyPrimitive | Uint8Array;
 
 /**
  * Type constraint for awareness field values.
@@ -39,11 +60,17 @@ export type AwarenessSerializable =
 export type AwarenessShape = Record<string, AwarenessSerializable | undefined>;
 export type AllowedYValue = AllowedPrimitive | ReferenceTuple;
 export type AllowedYJSValue = AllowedPrimitive | PlexusModel;
-export type AllowedYJSValueSet = Set<AllowedYJSValue>;
+/**
+ * A single key/member atom — an identity-bearing primitive or an entity (which
+ * carries UUID identity). This is the value union *minus* `Uint8Array`: the set of
+ * things that can be a set member or a map key.
+ */
+export type AllowedYJSKeyValue = AllowedKeyPrimitive | PlexusModel;
+export type AllowedYJSValueSet = Set<AllowedYJSKeyValue>;
 export type AllowedYJSValueMap = Record<string, AllowedYJSValue>;
 export type AllowedYJSValueList = AllowedYJSValue[];
-export type AllowedYJSMapKey = AllowedYJSValue | Set<AllowedYJSValue> | AllowedYJSValue[];
-export type AllowedVirtualMapKey = AllowedPrimitive | AllowedPrimitive[] | PlexusModel;
+export type AllowedYJSMapKey = AllowedYJSKeyValue | Set<AllowedYJSKeyValue> | AllowedYJSKeyValue[];
+export type AllowedVirtualMapKey = AllowedKeyPrimitive | AllowedKeyPrimitive[] | PlexusModel;
 
 /** @internal Brand symbol — makes VirtualMap unconstructable from outside Plexus. */
 declare const __virtualMapBrand: unique symbol;

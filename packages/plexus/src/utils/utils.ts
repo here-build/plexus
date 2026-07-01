@@ -3,7 +3,7 @@ import type * as Y from "yjs";
 import { docPlexus, docTransactionOrigin } from "../plexus-registry.js";
 import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReferenceTuple } from "../proxy-runtime-types.js";
-import { referenceSymbol } from "../proxy-runtime-types.js";
+import { bytesProxyRawSymbol, referenceSymbol } from "../proxy-runtime-types.js";
 import { telemetry } from "../telemetry.js";
 
 /**
@@ -35,12 +35,30 @@ export const isTupleReference = (val: any): val is ReferenceTuple =>
  * `instanceof Uint8Array` yet fails that switch ("Unexpected content type"). Copy
  * any non-plain Uint8Array into a plain one; a plain Uint8Array (the common case)
  * passes through untouched.
+ *
+ * A byte val reads back as a live write-through proxy (see `buildTypedArrayProxy`)
+ * whose `constructor` reports `Uint8Array`, so the exact-ctor check would wrongly
+ * pass it through. The brand unwraps it to its owned raw bytes first — yjs copies
+ * on transaction, so handing the live array is safe.
  */
-const toStorableBytes = (val: Uint8Array): Uint8Array => (val.constructor === Uint8Array ? val : new Uint8Array(val));
+const toStorableBytes = (val: Uint8Array): Uint8Array => {
+  const raw = (val as { [bytesProxyRawSymbol]?: Uint8Array })[bytesProxyRawSymbol];
+  if (raw) return raw;
+  return val.constructor === Uint8Array ? val : new Uint8Array(val);
+};
+
+/**
+ * The single recognition predicate for "this value is a byte buffer plexus stores
+ * as a scalar val". Uint8Array is the one typed array plexus admits (see
+ * `AllowedPrimitive`); subclasses (a Node `Buffer`) count as bytes here — the
+ * `instanceof` check is deliberately looser than `toStorableBytes`'s exact-ctor
+ * normalization, which is a downstream storage detail, not recognition.
+ */
+export const isTypedArray = (val: unknown): val is Uint8Array => val instanceof Uint8Array;
 
 export const maybeReference = (val: AllowedYJSValue, doc: Y.Doc): AllowedYValue => {
   if (val instanceof PlexusModel) return val[referenceSymbol](doc) ?? null;
-  if (val instanceof Uint8Array) return toStorableBytes(val);
+  if (isTypedArray(val)) return toStorableBytes(val);
   return val ?? null;
 };
 

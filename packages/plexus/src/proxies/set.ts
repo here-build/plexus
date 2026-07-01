@@ -1,20 +1,21 @@
 import type * as Y from "yjs";
 
-import { deref } from "../deref.js";
 import type { PlexusModel } from "../PlexusModel.js";
-import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import {
+  type AllowedYJSKeyValue,
+  type AllowedYJSValue,
+  type AllowedYValue,
+  type ReadonlyField,
   informOrphanizationSymbol,
   materializationSymbol,
   requestAdoptionSymbol,
-  validateAdoptionSymbol,
-} from "../proxy-runtime-types.js";
+  validateAdoptionSymbol } from "../proxy-runtime-types.js";
 import { bucketCount, telemetry } from "../telemetry.js";
 import { ACCESS_ALL_SYMBOL, ENTRIES_LENGTH_SYMBOL, KEYS_SYMBOL, trackAccess, trackModification } from "../tracking.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
 import { materializeMapForField } from "../virtual-children-genesis.js";
-import { serializeKey, deserializeKey } from "./key-serialization.js";
+import { deserializeKey, serializeKey } from "./key-serialization.js";
 import { type AssertNever, type MethodsOf } from "./method-classification.js";
 
 /**
@@ -62,7 +63,7 @@ export type MaterializedSetProxyInitTarget = {
   isChildField?: boolean;
 };
 
-export const buildSetProxy = <T extends AllowedYJSValue>({
+export const buildSetProxy = <T extends AllowedYJSKeyValue>({
   owner,
   key,
   isChildField,

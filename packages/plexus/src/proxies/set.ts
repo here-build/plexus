@@ -210,17 +210,25 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                   value?.[referenceSymbol]?.(owner.__doc__!);
                 }
               },
-              commit: () => {
-                // Phase 2 — the child is already materialized (phase 1), so this only
-                // creates the owner's field map, writes the parent edge, and the field
-                // entry, all inside the single flush transaction.
+              describe: () => {
+                // Phase 2 — the child is already materialized (phase 1). Run the
+                // transitive core prep (owner field-map genesis + parent-edge
+                // adoption) as calls — they own their own tx semantics and nest into
+                // the flush transaction — then RETURN the leaf field-map write as a
+                // `map-set` op for the engine to apply through `applyYjsOp`.
                 ensureYjsMap();
                 if (isChildField) {
                   value?.[requestAdoptionSymbol]?.(owner, key);
                 }
+                const yjsMap = getYjsMap();
+                if (!yjsMap || !owner.__doc__) return [];
+                const sk = serializeKey(value, owner.__doc__);
+                serializedToElement.set(sk, value);
+                return [{ kind: "map-set", map: yjsMap, key: sk, value: maybeReference(value, owner.__doc__) }];
+              },
+              notify: () => {
                 trackModification(self, KEYS_SYMBOL);
                 trackModification(self, ENTRIES_LENGTH_SYMBOL);
-                writeYjs();
               },
               revertOverlay: () => {
                 // Materialization + adoption were deferred (phases 1/2) and never ran on

@@ -15,7 +15,8 @@ class Bar extends PlexusModel {
   accessor label!: string;
 }
 
-// Lives on its OWN plexus/doc — used to exercise the cross-doc out-of-envelope path.
+// Lives on its OWN plexus/doc — used to exercise the multi-doc path (each doc
+// mutated by an atomic body gets its own single transaction).
 @syncing("AtomicOther")
 class Other extends PlexusModel {
   @syncing
@@ -72,11 +73,11 @@ class Foo extends PlexusModel {
     this.count = 7;
   }
 
-  /** Mutates the receiver AND a DIFFERENT doc — the cross-doc out-of-envelope case. */
+  /** Mutates the receiver AND a DIFFERENT doc — the multi-doc case (one tx per doc). */
   @syncing.atomic
   touchOther(other: Other): void {
-    this.count = 3; // receiver's doc → batched
-    other.value = 99; // OTHER doc → its own transaction, NOT batched
+    this.count = 3; // receiver's doc → its own single transaction
+    other.value = 99; // OTHER doc → its own single transaction
   }
 
   /**
@@ -118,10 +119,16 @@ class Foo extends PlexusModel {
     throw new Error("plain");
   }
 
-  /** Async body — batching is lost after the (here, immediate) await; warns. */
+  /**
+   * Async body — a COMPILE ERROR. The deferral region is synchronous, so an async
+   * body is banned at the type level via the `AsyncMethodNotAllowed` brand. The
+   * `@ts-expect-error` below IS the assertion that the ban fires; if the ban ever
+   * regressed, tsc would flag the unused expect-error.
+   */
+  // @ts-expect-error @syncing.atomic cannot decorate an async method (AsyncMethodNotAllowed)
   @syncing.atomic
   async doAsync(): Promise<number> {
-    this.count = 4; // batched (runs before the function returns its promise)
+    this.count = 4; // synchronous prefix still runs before the promise is returned
     return this.count;
   }
 }
@@ -259,22 +266,26 @@ describe("@syncing.atomic method decorator", () => {
 
   // ── OUT-OF-ENVELOPE: loud-but-correct boundaries ──────────────────────────
 
-  it("async body warns once that mutations after an await are not batched", async () => {
+  it("async body is a COMPILE error, not a runtime warning", async () => {
+    // The ban is enforced by tsc via the `AsyncMethodNotAllowed` brand — see the
+    // `@ts-expect-error` on `doAsync`'s decorator. At runtime the wrapper still runs
+    // the synchronous prefix; there is no runtime thenable warning any more.
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const promise = root.doAsync();
 
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0]?.[0]).toContain("returned a thenable");
-
-    // The synchronous prefix still ran and was batched.
     await expect(promise).resolves.toBe(4);
     expect(root.count).toBe(4);
+
+    const warnedThenable = warnSpy.mock.calls.some(
+      ([message]) => typeof message === "string" && message.includes("thenable"),
+    );
+    expect(warnedThenable).toBe(false);
 
     warnSpy.mockRestore();
   });
 
-  it("ephemeral receiver (null __doc__) degrades to no batching and warns once", () => {
+  it("ephemeral receiver (null __doc__): the write lands eagerly, no warning", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const ephemeral = new Foo({ count: 0, bars: new Set() });
@@ -282,10 +293,10 @@ describe("@syncing.atomic method decorator", () => {
 
     ephemeral.justSet();
 
-    // Still correct — the write lands in backing storage — it just isn't batched.
+    // The write lands in backing storage; with no doc there is simply nothing to
+    // defer into, so the region handles it gracefully — no warning.
     expect(ephemeral.count).toBe(7);
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0]?.[0]).toContain("ephemeral");
+    expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
   });
@@ -312,7 +323,7 @@ describe("@syncing.atomic method decorator", () => {
     warnSpy.mockRestore();
   });
 
-  it("cross-doc mutation is NOT batched: warns once AND lands as a separate transaction", () => {
+  it("multi-doc: each doc the body mutates gets its OWN single transaction", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const { root: otherRoot } = initTestPlexus(new Other({ value: 0 }));
@@ -326,18 +337,17 @@ describe("@syncing.atomic method decorator", () => {
 
     root.touchOther(otherRoot);
 
-    // The receiver's own mutation is collapsed into its single atomic transaction…
+    // The region groups buffered writes by doc and bursts one transaction per doc:
+    // the receiver's `count` write and the other doc's `value` write each collapse
+    // into a single, SEPARATE transaction. Atomicity is per-doc (yjs has no
+    // cross-doc transaction); both writes are routed (val set), so nothing leaks.
     expect(receiverUpdates).toBe(1);
-    // …but the other doc opened its OWN transaction — separate, not co-batched.
     expect(otherUpdates).toBe(1);
     expect(root.count).toBe(3);
     expect(otherRoot.value).toBe(99);
 
-    // And the boundary was announced loudly.
-    const warnedCrossDoc = warnSpy.mock.calls.some(
-      ([message]) => typeof message === "string" && message.includes("single-doc only"),
-    );
-    expect(warnedCrossDoc).toBe(true);
+    // Multi-doc is supported now — no out-of-envelope warning.
+    expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
   });
@@ -420,6 +430,32 @@ describe("@syncing.atomic method decorator", () => {
     const { root: root2 } = initTestPlexus(new Foo({ count: 0, bars: new Set(), meta: new Map() }));
     expect(() => root2.throwSelective("range")).toThrow("range");
     expect(root2.count).toBe(0);
+  });
+
+  it("liminality + rollbackIf: the liminal write applies INSTANTLY, is NOT rolled back, and warns", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let mainUpdates = 0;
+    doc.on("update", () => mainUpdates++);
+
+    plexus.enterLiminality();
+
+    // `throwWithRollback` sets count=1 then throws; its predicate asks for rollback.
+    // But the receiver's doc is liminal, so the write applied INSTANTLY (the preview
+    // shadow owns atomicity) rather than being buffered — the region cannot discard it.
+    expect(() => root.throwWithRollback()).toThrow("boom");
+
+    // The instant write survives the rollback (it was never buffered)…
+    expect(root.count).toBe(1);
+    // …stayed in the preview (never forwarded to main)…
+    expect(mainUpdates).toBe(0);
+    // …and the rollback loudly reported that it could not revert a liminal effect.
+    const warnedLiminal = warnSpy.mock.calls.some(
+      ([message]) => typeof message === "string" && message.includes("liminal"),
+    );
+    expect(warnedLiminal).toBe(true);
+
+    plexus.revertLiminality();
+    warnSpy.mockRestore();
   });
 
   it("nested: an inner rollbackIf reverts ONLY its slice; the outer batch still commits", () => {

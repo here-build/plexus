@@ -184,14 +184,18 @@ const set = <
         trackModification(object, context.name);
       }),
     overlay: writeOverlay,
-    commit: () => {
-      if (valueToStore == undefined) {
-        object.__yjsFieldsMap__?.delete(context.name);
-      } else {
-        object.__yjsFieldsMap__?.set(context.name, maybeReference(valueToStore, object.__doc__!));
-      }
-      trackModification(object, context.name);
+    // Phase-2 leaf writes as data. The field-map (a `PlexusWrapper` over the
+    // entity's `Y.XmlElement`) exists whenever the entity is materialized on a
+    // doc — which it is here, since a null doc would have taken `applyNow`. If it
+    // is somehow absent we emit nothing (matching the original `?.` no-op).
+    describe: () => {
+      const wrapper = object.__yjsFieldsMap__;
+      if (!wrapper) return [];
+      return valueToStore == undefined
+        ? [{ kind: "attr-delete", wrapper, key: context.name }]
+        : [{ kind: "attr-set", wrapper, key: context.name, value: maybeReference(valueToStore, object.__doc__!) }];
     },
+    notify: () => trackModification(object, context.name),
     revertOverlay: () => {
       // Silent restore. The overlay write was applied WITHOUT `trackModification`
       // (deferred to `commit`), so no observer was ever invalidated by it. Undoing

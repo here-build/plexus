@@ -1,13 +1,17 @@
 /**
  * `@syncing.atomic` — run a PlexusModel method body as ONE atomic Plexus
- * transaction on the RECEIVER'S doc. See
+ * transaction PER DOC it touches. See
  * `docs/working-proposals/syncing-atomic-spec-based-transactions.md` and the
  * engine in `./atomic-buffer.ts`.
  *
- * "Atomic" here means:
+ * "Atomic" here means, for each doc the body mutates:
  *   - ONE yjs transaction (one `update` event),
- *   - ONE undo unit (a single `undo()` reverts the whole body),
+ *   - ONE undo unit (a single `undo()` reverts that doc's whole batch),
  *   - peers see all-or-nothing of THAT update (delivered whole).
+ *
+ * A body may touch several docs; each doc is burst into its own single
+ * transaction at flush (genesis first, outside any transaction). This is a
+ * doc-agnostic REGION, not a single held-open transaction.
  *
  * THROW is commit-on-crash BY DEFAULT — writes buffered before the throw are
  * flushed, then the error rethrows (matches JS + yjs, which never unwind
@@ -34,78 +38,67 @@
  * ───────────────────────────────────────────────────────────────────────────
  * HOW IT WORKS — DEFERRED BUFFER (postponement, not "hold a transaction open")
  * ───────────────────────────────────────────────────────────────────────────
- * `runAtomic` opens a per-doc deferral context. While it is active, each routed
+ * `runAtomic` opens a computation region. While it is active, each routed
  * mutation site applies its LOCAL OVERLAY immediately (so the body reads its own
- * writes) but BUFFERS its effect. On success the flush runs in two phases —
- * genesis/materialization OUTSIDE the transaction (its own origin), then the
- * inert yjs writes inside ONE `maybeTransacting(doc)` → one transaction / update /
- * undo item. On a `rollbackIf` match the buffer is DISCARDED (yjs never touched →
- * wire-pure) and the overlay inverses replay in reverse to restore the mirror.
- * See `./atomic-buffer.ts` for why routing a few leaf sites suffices (parent-edge
- * writes are carried along transitively when the buffer replays).
+ * writes) but BUFFERS its effect, tagged with the doc it targets. On success the
+ * flush runs in two phases — genesis/materialization OUTSIDE any transaction (its
+ * own origin), then the inert yjs writes grouped per doc, each doc's writes inside
+ * ONE `maybeTransacting(doc)` → one transaction / update / undo item per doc. On a
+ * `rollbackIf` match the buffer is DISCARDED (yjs never touched → wire-pure) and
+ * the overlay inverses replay in reverse to restore the mirror. See
+ * `./atomic-buffer.ts` for why routing the leaf sites suffices (parent-edge /
+ * materialization writes ride the flush transitively).
  *
- * Re-entrancy: a nested `@syncing.atomic` on the same doc defers into the outer
- * buffer (owning its own savepoint slice), so the outermost method owns the
- * single flush.
+ * Re-entrancy: a nested `@syncing.atomic` defers into the outer region (owning its
+ * own savepoint slice), so the outermost method owns the single flush.
  *
  * ───────────────────────────────────────────────────────────────────────────
  * BOUNDARY BEHAVIOR (intentional, asserted / documented — NOT a TODO)
  * ───────────────────────────────────────────────────────────────────────────
- *   - LIMINALITY: an atomic method invoked mid-liminal-session stays IN the
- *     preview. The flush rides `this.__doc__`'s transaction, whose registered
- *     origin is LIMINAL during a session, so the batch is held on the shadow
- *     (preview-only) and NOT forwarded to main — committing happens at
- *     `commitLiminality()`, reverting at `revertLiminality()`. Asserted.
- *   - EMPTY TRANSACTION. A method that mutates nothing buffers nothing; the
- *     success flush still opens (and immediately closes) one transaction on the
- *     receiver's doc. yjs emits no `update` for it. Cheap; documented.
+ *   - LIMINALITY: a mutation to a liminal (preview) doc applies INSTANTLY — the
+ *     preview shadow is already the atomic unit, with its own guarantees. It is
+ *     never buffered; a marker is recorded so a rollback slice can warn that a
+ *     liminal effect cannot be reverted here (that is `revertLiminality()`'s job).
+ *   - EMPTY REGION. A method that mutates nothing buffers nothing; the flush is
+ *     skipped entirely (no empty transaction, so a pending `stopCapturing` is not
+ *     cancelled).
+ *   - EPHEMERAL RECEIVER. A body running on an un-materialized entity has null-doc
+ *     mutations; those apply immediately (there is no doc to defer into) and are
+ *     simply not collapsed. No warning — the region handles it gracefully.
+ *   - MULTI-DOC. A body that mutates several docs is fully supported: each doc gets
+ *     its own single transaction at flush. Atomicity is per-doc (yjs has no
+ *     cross-doc transaction); the region guarantees each doc's batch is whole.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * ASYNC IS A COMPILE ERROR (not a runtime warning)
+ * ───────────────────────────────────────────────────────────────────────────
+ * The deferral region is synchronous and flushes when the body RETURNS. An async
+ * body would buffer only up to its first `await`; everything after runs after the
+ * region has closed. Rather than warn at runtime, the decorator's return type is
+ * branded so decorating a method whose return type is a `Promise` is a TYPE ERROR
+ * at the declaration site — the wrong state is unrepresentable.
  *
  * ───────────────────────────────────────────────────────────────────────────
  * OUT-OF-ENVELOPE (correct-but-unbatched → LOUD once-per-method dev warning)
  * ───────────────────────────────────────────────────────────────────────────
- * These are the honest boundary of a single-doc, synchronous envelope. Each
- * warns at most once per decorated method.
- *
- *   - ASYNC BODY. The deferral context is synchronous and flushes when the body
- *     function RETURNS. Mutations before the first `await` are buffered; anything
- *     after an `await` runs after the context has closed → NOT batched, NOT
- *     rolled back. Warns when the body returns a thenable.
- *   - CROSS-DOC mutation. We only defer the RECEIVER's doc. A mutation to ANOTHER
- *     doc falls through to its normal write path (its own transaction) — NOT
- *     co-batched, NOT all-or-nothing across docs. Detected via
- *     `transactionObserverHook` (a second doc opening its own outermost
- *     transaction during the body) and warned. True multi-doc atomicity needs a
- *     cross-doc deferred-replay tracker — a separate project, NOT built here.
- *   - EPHEMERAL RECEIVER. If `this` is not yet materialized, `this.__doc__` is
- *     null; there is no doc to defer into, so mutations are not collapsed and a
- *     throw does not roll back. Warns. Atomic methods are normally called on a
- *     tree-resident (materialized) entity, so this is an edge.
- *   - UNROUTED MUTATION KIND. Only two of the spec's ~30 emission sites are wired
- *     into the deferred buffer so far: val `set` (`decorators.ts`) and child
- *     `Set.add` (`proxies/set.ts`). Any other mutation inside the body (map/array/
- *     record writes, `Set.delete`/`clear`, single-child set, `detach`, …) still
- *     takes its normal eager write path — it hits yjs DURING the body, so it is
- *     NOT batched and does NOT roll back. Detected structurally: a real
- *     transaction opening on the RECEIVER's doc while the buffer is deferring
- *     (`isDeferring`) can only be an unrouted write; warns. The full §11 emission
- *     rewrite is a separate project, NOT built here.
+ *   - UNROUTED MUTATION KIND. Until every emission site is routed through the
+ *     buffer, a not-yet-routed mutation inside the body takes its normal eager
+ *     write path — it hits yjs DURING the body, so it is NOT batched and does NOT
+ *     roll back. Detected structurally: a real transaction opening on any
+ *     NON-liminal doc while the region is deferring (`isDeferring()`) can only be
+ *     an unrouted write (a routed site merely overlays; a liminal write is expected
+ *     to apply instantly). Warns once per method. Dormant once all sites are routed.
  */
 
 import type * as Y from "yjs";
 
-import { isDeferring, runAtomic } from "./atomic-buffer.js";
+import { isDeferring, isLiminalDoc, runAtomic } from "./atomic-buffer.js";
 import type { PlexusModel } from "./PlexusModel.js";
 import { transactionObserverHook } from "./utils/utils.js";
 
-// Each out-of-envelope condition warns at most once per decorated method, keyed
+// The unrouted-mutation condition warns at most once per decorated method, keyed
 // on the original method fn (so re-entrant / repeated calls stay quiet).
-const warnedThenableMethods = new WeakSet<object>();
-const warnedCrossDocMethods = new WeakSet<object>();
-const warnedEphemeralMethods = new WeakSet<object>();
 const warnedUnroutedMethods = new WeakSet<object>();
-
-const isThenable = (value: unknown): boolean =>
-  typeof value === "object" && value !== null && typeof Reflect.get(value, "then") === "function";
 
 const warnOnce = (seen: WeakSet<object>, key: object, message: string): void => {
   if (seen.has(key)) return;
@@ -131,6 +124,28 @@ type AtomicMethod<This extends PlexusModel, Args extends unknown[], Return> = (
 ) => Return;
 
 /**
+ * Compile-time rejection type for async bodies. It carries a unique-symbol brand
+ * and is therefore NOT assignable to a method slot — returning it from the
+ * decorator surfaces as a type error at the `@syncing.atomic` declaration, with
+ * the message below shown in the mismatch.
+ */
+declare const asyncNotAllowed: unique symbol;
+interface AsyncMethodNotAllowed {
+  readonly [asyncNotAllowed]: "@syncing.atomic cannot decorate an async method: the deferral region is synchronous and flushes when the body returns. Make the method synchronous.";
+}
+
+/**
+ * Maps a method type to the decorator's return type: the method itself when
+ * synchronous, or the un-assignable `AsyncMethodNotAllowed` brand when its return
+ * type is a Promise (non-distributive `[Return]` so only a wholly-async return is
+ * rejected). Applied to both the bare overload and the factory's returned
+ * decorator so async is banned in both usages.
+ */
+type AtomicResult<This extends PlexusModel, Args extends unknown[], Return> = [Return] extends [Promise<unknown>]
+  ? AsyncMethodNotAllowed
+  : AtomicMethod<This, Args, Return>;
+
+/**
  * The decorator the factory form returns. Generic in its call signature so it
  * infers `This / Args / Return` from the method it is applied to — a method with
  * typed parameters (e.g. `foo(kind: "a" | "b")`) must decorate cleanly, which a
@@ -140,14 +155,15 @@ interface GenericAtomicDecorator {
   <This extends PlexusModel, Args extends unknown[], Return>(
     target: AtomicMethod<This, Args, Return>,
     context: ClassMethodDecoratorContext<This, AtomicMethod<This, Args, Return>>,
-  ): AtomicMethod<This, Args, Return>;
+  ): AtomicResult<This, Args, Return>;
 }
 
 /**
  * `@syncing.atomic` method decorator. Constrained to `PlexusModel` receivers —
- * the whole point is batching model mutations, which flow through a doc the
+ * the whole point is batching model mutations, which flow through docs the
  * receiver owns. Applying it to a non-PlexusModel method is meaningless (and a
- * type error).
+ * type error). Applying it to an async method is a type error (see
+ * `AsyncMethodNotAllowed`).
  *
  * Two usages:
  *   - bare       `@syncing.atomic`                 — commit-on-crash (default);
@@ -156,7 +172,7 @@ interface GenericAtomicDecorator {
 export function atomic<This extends PlexusModel, Args extends unknown[], Return>(
   target: AtomicMethod<This, Args, Return>,
   context: ClassMethodDecoratorContext<This, AtomicMethod<This, Args, Return>>,
-): AtomicMethod<This, Args, Return>;
+): AtomicResult<This, Args, Return>;
 export function atomic(options: AtomicOptions): GenericAtomicDecorator;
 export function atomic(
   targetOrOptions: AtomicMethod<PlexusModel, unknown[], unknown> | AtomicOptions,
@@ -180,89 +196,36 @@ function buildAtomicMethod<This extends PlexusModel, Args extends unknown[], Ret
   const label = `@syncing.atomic: method "${String(context.name)}"`;
 
   return function atomicMethod(this: This, ...args: Args): Return {
-    // `this.__doc__` is the doc whose transaction we hold open. For a
-    // materialized entity it is the shadow doc where mutations land and from
-    // which committed writes forward to main — i.e. a real commit, no preview
-    // (or a preview if mid-liminal-session, where the origin is LIMINAL).
-    const doc = this.__doc__;
-
-    // EPHEMERAL RECEIVER: no doc to hold open → no batching. Say so once.
-    if (!doc) {
-      warnOnce(
-        warnedEphemeralMethods,
-        target,
-        `${label} ran on an un-materialized (ephemeral) receiver — \`this.__doc__\` is null, ` +
-          `so there is no transaction to batch into and mutations are NOT collapsed. Call it on ` +
-          `a tree-resident entity (one reachable from a Plexus root).`,
-      );
-    }
-
-    // CROSS-DOC detection. Observe any OTHER doc opening its own outermost
-    // transaction during the body — those mutations sit outside this batch.
-    // Chain to any outer observer (nested atomic) so every level still sees it.
-    // Only meaningful when we actually hold a receiver doc; an ephemeral receiver
-    // is already covered by the warning above.
-    const foreignDocs = new Set<Y.Doc>();
-    // UNROUTED-MUTATION detection. Only two emission sites are routed through the
-    // deferred buffer so far (val `set`, child-`Set.add`). A real transaction
-    // opening on the RECEIVER's own doc WHILE we are deferring means an unrouted
-    // mutation kind (map/array/record set, `Set.delete/clear`, single-child set,
-    // detach, …) escaped the buffer and wrote yjs eagerly — NOT batched, NOT
-    // rolled back. `isDeferring(doc)` cleanly separates this from the commit flush
-    // (which runs after `current` is restored → `isDeferring` false). This turns
-    // the buffer's partial coverage into a LOUD boundary instead of a silent
-    // mis-batch, pending the full §11 emission rewrite.
+    // UNROUTED-MUTATION detection. A routed mutation only overlays during the
+    // body (no real transaction until flush); a liminal write is expected to apply
+    // instantly. So a real transaction opening on any NON-liminal doc WHILE the
+    // region is deferring means an unrouted mutation kind escaped the buffer and
+    // wrote yjs eagerly — NOT batched, NOT rolled back. `isDeferring()` cleanly
+    // separates this from the flush (which runs after the region closes →
+    // `isDeferring()` false). This turns partial routing coverage into a LOUD
+    // boundary; it goes dormant once every emission site is routed.
     let unroutedLeak = false;
     const previousObserver = transactionObserverHook.observe;
-    if (doc) {
-      transactionObserverHook.observe = (touched: Y.Doc): void => {
-        if (touched === doc) {
-          if (isDeferring(doc)) unroutedLeak = true;
-        } else {
-          foreignDocs.add(touched);
-        }
-        previousObserver?.(touched);
-      };
-    }
+    transactionObserverHook.observe = (touched: Y.Doc): void => {
+      if (isDeferring() && !isLiminalDoc(touched)) unroutedLeak = true;
+      previousObserver?.(touched);
+    };
 
     let result: Return;
     try {
-      // Ephemeral receiver: no doc to defer into → run the body straight (mutations
-      // hit their normal, un-deferred write paths; no batching, no rollback).
-      result = doc ? runAtomic(doc, () => target.apply(this, args), rollbackIf) : target.apply(this, args);
+      result = runAtomic(() => target.apply(this, args), rollbackIf);
     } finally {
-      if (doc) transactionObserverHook.observe = previousObserver;
+      transactionObserverHook.observe = previousObserver;
     }
 
     if (unroutedLeak) {
       warnOnce(
         warnedUnroutedMethods,
         target,
-        `${label} performed a mutation kind that is NOT yet routed through the atomic buffer ` +
-          `(only val \`set\` and child \`Set.add\` are). That write hit yjs eagerly during the ` +
-          `body — so it was NOT batched into the single transaction and will NOT roll back on ` +
-          `throw. Restrict atomic bodies to the routed mutation kinds until the full emission ` +
-          `rewrite lands.`,
-      );
-    }
-
-    if (foreignDocs.size > 0) {
-      warnOnce(
-        warnedCrossDocMethods,
-        target,
-        `${label} mutated a doc other than the receiver's own — only the receiver's doc is held ` +
-          `in the atomic transaction, so those cross-doc mutations are NOT batched and NOT ` +
-          `all-or-nothing with the rest. @syncing.atomic is single-doc only.`,
-      );
-    }
-
-    if (isThenable(result)) {
-      warnOnce(
-        warnedThenableMethods,
-        target,
-        `${label} returned a thenable. The atomic transaction commits when the synchronous body ` +
-          `returns — mutations after the first \`await\` are NOT batched. Async atomic bodies are ` +
-          `not supported.`,
+        `${label} performed a mutation kind that is NOT yet routed through the atomic buffer. ` +
+          `That write hit yjs eagerly during the body — so it was NOT batched into the single ` +
+          `transaction and will NOT roll back on throw. Restrict atomic bodies to the routed ` +
+          `mutation kinds until the full emission rewrite lands.`,
       );
     }
 

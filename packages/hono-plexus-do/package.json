@@ -1,0 +1,73 @@
+{
+  "name": "@here.build/hono-plexus-do",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Cloudflare Durable Object substrate for Plexus/Yjs sync — leader WebSocket broker, archive follower, ephemeral presence registry, and Hono host wiring. Products extend abstract DOs; no product semantics here.",
+  "license": "UNLICENSED",
+  "author": "here.build",
+  "type": "module",
+  "sideEffects": [
+    "./dist/errors.js",
+    "./dist/index.js"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./leader": {
+      "types": "./dist/leader-sync-do.d.ts",
+      "import": "./dist/leader-sync-do.js",
+      "default": "./dist/leader-sync-do.js"
+    },
+    "./archive": {
+      "types": "./dist/archive-sync-do.d.ts",
+      "import": "./dist/archive-sync-do.js",
+      "default": "./dist/archive-sync-do.js"
+    },
+    "./presence": {
+      "types": "./dist/presence/index.d.ts",
+      "import": "./dist/presence/index.js",
+      "default": "./dist/presence/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist/**/*",
+    "src/**/*"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@here.build/chunked-websocket": "workspace:^",
+    "@here.build/error-invariant": "workspace:^",
+    "lib0": "0.2.114",
+    "y-protocols": "1.0.6",
+    "yjs": "13.6.30"
+  },
+  "peerDependencies": {
+    "hono": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "hono": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20250803.0",
+    "@here.build/eslint-configs": "workspace:^",
+    "@here.build/tsconfig": "workspace:^",
+    "@types/node": "24.0.0",
+    "eslint": "9.39.2",
+    "hono": "4.12.0",
+    "tslib": "2.8.1",
+    "typescript": "6.0.2",
+    "vitest": "4.1.0"
+  }
+}

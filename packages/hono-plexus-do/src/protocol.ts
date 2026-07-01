@@ -1,0 +1,128 @@
+/**
+ * Unified y-websocket protocol handler for leader sync DOs.
+ *
+ * Speaks the standard y-websocket framing: leading varuint message type,
+ * then either y-protocols sync steps (per lane) or an awareness payload.
+ * Products inject awareness via {@link AwarenessPlane} — this module does not
+ * depend on `@here.build/plexus`.
+ *
+ * Inbound frames are assumed fully reassembled (ChunkedDOTransport boundary).
+ * Outbound encoders mirror the same framing for broadcast + sync-step replies.
+ */
+
+import * as decoding from "lib0/decoding";
+import * as encoding from "lib0/encoding";
+import * as syncProtocol from "y-protocols/sync";
+import * as Y from "yjs";
+
+import { MESSAGE_AWARENESS, MESSAGE_SYNC } from "./constants.js";
+import type { AwarenessPlane, ResolvedLane } from "./types.js";
+
+export interface ProtocolRouting {
+  prime: ResolvedLane;
+  extraLanes?: ResolvedLane[];
+  awareness?: AwarenessPlane;
+}
+
+export interface HandleFrameOptions {
+  readOnly?: boolean;
+  /** Fast-path gate before full decode (e.g. comments `allowInbound`). */
+  allowMessageType?: (messageType: number, ws: WebSocket) => boolean;
+}
+
+// ── Inbound routing ──────────────────────────────────────────────────────────
+
+function laneByMessageType(routing: ProtocolRouting, messageType: number): ResolvedLane | undefined {
+  if (messageType === routing.prime.messageType) return routing.prime;
+  return routing.extraLanes?.find((lane) => lane.messageType === messageType);
+}
+
+function handleSyncMessage(
+  decoder: decoding.Decoder,
+  encoder: encoding.Encoder,
+  doc: Y.Doc,
+  origin: unknown,
+  readOnly: boolean,
+): void {
+  const syncMessageType = decoding.readVarUint(decoder);
+  switch (syncMessageType) {
+    case syncProtocol.messageYjsSyncStep1:
+      syncProtocol.readSyncStep1(decoder, encoder, doc);
+      break;
+    case syncProtocol.messageYjsSyncStep2:
+      if (!readOnly) syncProtocol.readSyncStep2(decoder, doc, origin);
+      break;
+    case syncProtocol.messageYjsUpdate:
+      if (!readOnly) syncProtocol.readUpdate(decoder, doc, origin);
+      break;
+    default:
+      console.warn("[hono-plexus-do] unknown sync message type:", syncMessageType);
+  }
+}
+
+/**
+ * Handle one fully-reassembled inbound application frame.
+ * Returns a reply frame for the originating socket when the sync protocol
+ * requires one (sync step1 → step2); awareness updates return null.
+ */
+export function handleYjsFrame(
+  message: Uint8Array,
+  routing: ProtocolRouting,
+  origin: unknown,
+  ws?: WebSocket,
+  opts: HandleFrameOptions = {},
+): Uint8Array | null {
+  const decoder = decoding.createDecoder(message);
+  const messageType = decoding.readVarUint(decoder);
+
+  if (opts.allowMessageType && ws && !opts.allowMessageType(messageType, ws)) {
+    return null;
+  }
+
+  if (messageType === MESSAGE_AWARENESS) {
+    routing.awareness?.applyUpdate(decoding.readVarUint8Array(decoder), origin);
+    return null;
+  }
+
+  const lane = laneByMessageType(routing, messageType);
+  if (!lane) {
+    console.warn("[hono-plexus-do] unknown message type:", messageType);
+    return null;
+  }
+
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, lane.messageType);
+  handleSyncMessage(decoder, encoder, lane.doc, origin, opts.readOnly ?? false);
+  return encoding.length(encoder) > 1 ? encoding.toUint8Array(encoder) : null;
+}
+
+// ── Outbound encoders ────────────────────────────────────────────────────────
+
+/** Handshake: server's state vector for a connecting peer (per lane message type). */
+export function encodeSyncStep1(doc: Y.Doc, messageType: number = MESSAGE_SYNC): Uint8Array {
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, messageType);
+  syncProtocol.writeSyncStep1(encoder, doc);
+  return encoding.toUint8Array(encoder);
+}
+
+/** Broadcast wrapper for a raw Yjs update on a given lane. */
+export function encodeDocUpdate(update: Uint8Array, messageType: number = MESSAGE_SYNC): Uint8Array {
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, messageType);
+  encoding.writeVarUint(encoder, syncProtocol.messageYjsUpdate);
+  encoding.writeVarUint8Array(encoder, update);
+  return encoding.toUint8Array(encoder);
+}
+
+export function encodeFullState(doc: Y.Doc): Uint8Array {
+  return Y.encodeStateAsUpdate(doc);
+}
+
+export function encodeStateVector(doc: Y.Doc): Uint8Array {
+  return Y.encodeStateVector(doc);
+}
+
+export function encodeDiffSince(doc: Y.Doc, clientStateVector: Uint8Array): Uint8Array {
+  return Y.diffUpdate(Y.encodeStateAsUpdate(doc), clientStateVector);
+}

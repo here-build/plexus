@@ -33,6 +33,15 @@ export function markEntityCreated(doc: Y.Doc): void {
 // plus it will avoid transaction events for mid-transaction stuff
 const docInTransactionMotion = new WeakSet();
 
+/**
+ * True while `doc` has a real (outermost) `maybeTransacting` transaction in
+ * motion on the call stack. `@syncing.action` checks this at entry: an action
+ * invoked inside an already-open transaction cannot own its flush boundaries.
+ * (A raw `doc.transact` that bypassed `maybeTransacting` is invisible here —
+ * out of contract.)
+ */
+export const isDocTransacting = (doc: Y.Doc): boolean => docInTransactionMotion.has(doc);
+
 // Notification batching state
 export let isTransacting = false;
 export const pendingNotifications: Set<() => void> = new Set();

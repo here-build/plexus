@@ -174,11 +174,15 @@ import type * as Y from "yjs";
 
 import { isDeferring, isLiminalDoc, runAction } from "./action-buffer.js";
 import type { PlexusModel } from "./PlexusModel.js";
+import { isDocTransacting } from "./utils/transacting.js";
 import { transactionObserverHook } from "./utils/utils.js";
 
 // The unrouted-mutation condition warns at most once per decorated method, keyed
 // on the original method fn (so re-entrant / repeated calls stay quiet).
 const warnedUnroutedMethods = new WeakSet<object>();
+
+// Same once-per-method policy for the pre-open-transaction condition.
+const warnedPreOpenTxMethods = new WeakSet<object>();
 
 const warnOnce = (seen: WeakSet<object>, key: object, message: string): void => {
   if (seen.has(key)) return;
@@ -312,6 +316,27 @@ function buildActionMethod<This extends PlexusModel, Args extends unknown[], Ret
   const label = `@syncing.action: method "${String(context.name)}"`;
 
   return function actionMethod(this: This, ...args: Args): Return {
+    // PRE-OPEN TRANSACTION detection. Called inside an already-open transaction
+    // (e.g. `plexus.transact(() => model.action())`, or synchronously from a
+    // notification fired inside another action's flush), the region cannot own
+    // its boundaries: the flush's per-doc transactions nest silently into the
+    // outer one — genesis and content merge into the caller's transaction (no
+    // separate undo step, no origin separation) — and the unrouted-mutation
+    // detector below is blind for this doc (its observer fires only on NEW
+    // outermost transactions). The batch still applies; only the envelope
+    // guarantees degrade.
+    if (this.__doc__ && isDocTransacting(this.__doc__)) {
+      warnOnce(
+        warnedPreOpenTxMethods,
+        target,
+        `${label} was called inside an already-open transaction ` +
+          `(plexus.transact(() => model.action())?). The action cannot own its transaction ` +
+          `boundaries there: its writes merge into the outer transaction (no separate undo ` +
+          `step, no origin separation) and unrouted-mutation detection is blind for this doc. ` +
+          `Call actions outside transact() — the action itself is the batch.`,
+      );
+    }
+
     // UNROUTED-MUTATION detection. A routed mutation only overlays during the
     // body (no real transaction until flush); a liminal write is expected to apply
     // instantly. So a real transaction opening on any NON-liminal doc WHILE the

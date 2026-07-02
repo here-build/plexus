@@ -3,6 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
+import { PlexusCycleError } from "../../errors.js";
 import { entityClasses } from "../../globals.js";
 import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
@@ -46,6 +47,16 @@ class Foo extends PlexusModel {
   // A routed CHILD list — exercises array-insert PLUS per-element genesis + parent edge.
   @syncing.child.list
   accessor items!: Bar[];
+
+  // A routed CHILD map (string keys) — keyed adoption: exercises the per-key meta
+  // squash (re-key inside one region) and the rawKey residue sweep.
+  @syncing.child.map
+  accessor kids!: Map<string, Bar>;
+
+  // A routed CHILD map with ENTITY keys — the key serializes as a reference
+  // tuple, so statement-form metas exercise the global serialization path.
+  @syncing.child.map
+  accessor slots!: Map<Bar, Bar>;
 
   /**
    * Atomic body exercising every covered mutation kind:
@@ -127,6 +138,103 @@ class Foo extends PlexusModel {
     this.items.push(bar);
     report.dualMembership = this.bars.has(bar) && this.items.includes(bar);
     report.parentFieldDuring = bar.parentField;
+  }
+
+  // ── Ownership-squash bodies (see the "ownership squash" block below) ──────
+
+  /** Adopt then remove in ONE region: the orphan supersedes the staged adoption. */
+  @syncing.action
+  squashAddThenRemove(bar: Bar): void {
+    this.items.push(bar);
+    this.items.splice(this.items.indexOf(bar), 1);
+  }
+
+  /** Multi-hop: real home → items (staged) → kids (staged). One net move. */
+  @syncing.action
+  squashMultiHop(bar: Bar): void {
+    this.items.push(bar);
+    this.kids.set("dst", bar);
+  }
+
+  /** Away and back: kids@"home" (real) → items (staged) → kids@"home" again. */
+  @syncing.action
+  squashAwayAndBack(bar: Bar): void {
+    this.items.push(bar);
+    this.kids.set("home", bar);
+  }
+
+  /** Map re-key within one region: delete@k1 + set@k2, SAME child. */
+  @syncing.action
+  squashRekey(bar: Bar): void {
+    this.kids.delete("k1");
+    this.kids.set("k2", bar);
+  }
+
+  /** Lone-set re-key: no delete — the old entry must still vacate. */
+  @syncing.action
+  squashRekeyLoneSet(bar: Bar): void {
+    this.kids.set("k2", bar);
+  }
+
+  /** Double-set of a FRESH child: k1 staged, then superseded by k2. */
+  @syncing.action
+  squashDoubleSet(): Bar {
+    const fresh = new Bar({ label: "dbl" });
+    this.kids.set("k1", fresh);
+    this.kids.set("k2", fresh);
+    return fresh;
+  }
+
+  /** Stale-source cleanup: move to items, then delete from the now-stale bars. */
+  @syncing.action
+  squashStaleSourceDelete(bar: Bar): void {
+    this.items.push(bar);
+    this.bars.delete(bar); // content-only: the orphan's `from` is a stale residual
+  }
+
+  /** Reuse from stale: move away, clean the stale source, re-adopt into it. */
+  @syncing.action
+  squashReuseFromStale(bar: Bar): void {
+    this.items.push(bar);
+    this.bars.delete(bar);
+    this.bars.add(bar); // re-adopt: nets to away-and-back on bars
+  }
+
+  /** Ephemeral steal: adopt into a DOC-LESS owner eagerly, then steal into the region. */
+  @syncing.action
+  squashEphemeralSteal(foo2: Foo): Bar {
+    const bar = new Bar({ label: "stolen" });
+    foo2.items.push(bar); // doc-less owner → applies eagerly mid-region
+    this.items.push(bar); // staged steal from the ephemeral parent
+    return bar;
+  }
+
+  /** Entity-keyed overwrite: replace the child AT a materialized entity key. */
+  @syncing.action
+  squashEntityKeyOverwrite(key: Bar): { first: Bar; second: Bar } {
+    const first = new Bar({ label: "first" });
+    const second = new Bar({ label: "second" });
+    this.slots.set(key, first);
+    this.slots.set(key, second); // overwrite: first is orphaned having never been real
+    return { first, second };
+  }
+
+  /** Inner slice stages a move then throws; its rollbackIf unwinds the staging. */
+  @syncing.action({ rollbackIf: () => true })
+  squashInnerMoveThrow(bar: Bar): void {
+    this.items.push(bar);
+    throw new Error("inner");
+  }
+
+  /** Outer catches the inner rollback and reports the RESTORED effective slot. */
+  @syncing.action
+  squashOuterAfterInnerRevert(bar: Bar, report: { parentFieldAfterRevert?: string | null }): void {
+    try {
+      this.squashInnerMoveThrow(bar);
+    } catch {
+      // inner slice reverted — its staged move must be unwound with it
+    }
+    report.parentFieldAfterRevert = bar.parentField;
   }
 
   /** Single val set — used to probe the ephemeral (doc-less receiver) path. */
@@ -275,7 +383,9 @@ describe("@syncing.action method decorator", () => {
     entityClasses.set("AtomicFoo", Foo);
     entityClasses.set("AtomicBar", Bar);
     entityClasses.set("AtomicOther", Other);
-    const result = initTestPlexus(new Foo({ count: 0, bars: new Set(), meta: new Map(), tags: [], items: [] }));
+    const result = initTestPlexus(
+      new Foo({ count: 0, bars: new Set(), meta: new Map(), tags: [], items: [], kids: new Map(), slots: new Map() }),
+    );
     doc = result.doc;
     plexus = result.plexus;
     root = result.root;
@@ -340,7 +450,7 @@ describe("@syncing.action method decorator", () => {
     expect(returned).toBe(2);
   });
 
-  it("(b2) mid-body structural STALENESS is chosen: a cross-collection child move shows dual membership + stale back-pointer until flush", () => {
+  it("(b2) mid-body structural staleness is SPLIT: content is stale (dual membership) while back-pointers answer with the effective destination", () => {
     // Eager oracle first: performed bare, the move detaches immediately —
     // single membership at every observable moment.
     const eager = initTestPlexus(new Foo({ count: 0, bars: new Set(), meta: new Map(), tags: [], items: [] })).root;
@@ -351,21 +461,24 @@ describe("@syncing.action method decorator", () => {
     expect(eager.items.includes(ebar)).toBe(true);
     expect(ebar.parentField).toBe("items");
 
-    // The SAME move inside an action. Structural choreography (emancipate from
-    // the source, adopt into the destination) is FLUSH-time by design: running
-    // it in the overlay would mutate the SOURCE collection's mirror before the
-    // action is known to commit, and rollback could no longer restore the
-    // source from the op's own snapshot (the op only knows its destination).
-    // The cost, pinned here so it never regresses silently into "bug":
-    // during the body the child appears in BOTH collections and its
-    // back-pointer still names the source field.
+    // The SAME move inside an action. Ownership is squashed per entity and
+    // settled at flush, so mid-body the two views deliberately diverge in
+    // OPPOSITE directions. Content choreography (sweep the source mirror) is
+    // flush-time by design: running it in the overlay would mutate the SOURCE
+    // collection's mirror before the action is known to commit, and rollback
+    // could no longer restore the source from the op's own snapshot (the op
+    // only knows its destination). Back-pointers carry no such rollback
+    // burden — they are staged-aware and answer with the EFFECTIVE slot
+    // immediately. Pinned here so neither half regresses silently into "bug":
+    // during the body the child appears in BOTH collections, yet its
+    // back-pointer already names the destination.
     const bar = new Bar({ label: "mover" });
     root.bars.add(bar);
     const report: { dualMembership?: boolean; parentFieldDuring?: string | null } = {};
     root.moveFirstBarIntoItems(report);
 
-    expect(report.dualMembership).toBe(true); // stale: source not yet emancipated
-    expect(report.parentFieldDuring).toBe("bars"); // stale: adoption is flush-time
+    expect(report.dualMembership).toBe(true); // stale: source mirror not yet swept
+    expect(report.parentFieldDuring).toBe("items"); // effective: last staged assignment wins
 
     // After flush: identical to the eager oracle.
     expect(root.bars.has(bar)).toBe(false);
@@ -811,5 +924,184 @@ describe("@syncing.action method decorator", () => {
     expect(updates).toBe(1);
     expect(sp.a).toBe(2);
     expect(sp.b).toBe(0);
+  });
+
+  // ── Ownership squash ────────────────────────────────────────────────────────
+  // Parenting is a first-class region concern: sites declare ownership FACTS
+  // (adopt / orphan-with-from), the region squashes them to the LAST assignment
+  // per child, and flush settles each child ONCE — sweeping displaced residue,
+  // then emancipate+inform (or orphanize) against the real pointers.
+  describe("ownership squash", () => {
+    it("adopt-then-remove nets to an orphan: the region's own removal supersedes its adoption", () => {
+      const bar = new Bar({ label: "transient" });
+      root.bars.add(bar); // real home
+      root.squashAddThenRemove(bar);
+
+      expect(bar.parent).toBe(null); // final staged state: orphan
+      expect(root.bars.has(bar)).toBe(false); // emancipated from the REAL home
+      expect(root.items.length).toBe(0); // push + splice netted to nothing
+    });
+
+    it("multi-hop squashes to ONE net move — no ghost membership in the intermediate collection", () => {
+      const bar = new Bar({ label: "hopper" });
+      root.bars.add(bar);
+      const shadow = root.__doc__!;
+      let updates = 0;
+      shadow.on("update", () => updates++);
+
+      root.squashMultiHop(bar); // bars (real) → items (staged) → kids@dst (staged)
+
+      expect(root.kids.get("dst")).toBe(bar);
+      expect(root.items.length).toBe(0); // the displaced items insert was swept
+      expect(root.bars.size).toBe(0); // emancipated from the real home
+      expect(bar.parent).toBe(root);
+      expect(bar.parentField).toBe("kids");
+      expect(updates).toBe(1); // one flush tx; no genesis (bar pre-materialized)
+    });
+
+    it("away-and-back nets to zero: the final slot IS the real slot, so nothing settles", () => {
+      const bar = new Bar({ label: "boomerang" });
+      root.kids.set("home", bar); // real home: kids@home
+
+      root.squashAwayAndBack(bar); // → items (staged) → kids@home again
+
+      expect(root.kids.get("home")).toBe(bar); // content untouched
+      expect(root.items.length).toBe(0); // the ghost insert was swept
+      expect(bar.parent).toBe(root);
+      expect(bar.parentField).toBe("kids");
+    });
+
+    it("savepoint: an inner rollback unwinds its staged moves — the outer body sees the real slot again", () => {
+      const bar = new Bar({ label: "kept" });
+      root.bars.add(bar);
+      const report: { parentFieldAfterRevert?: string | null } = {};
+
+      root.squashOuterAfterInnerRevert(bar, report);
+
+      expect(report.parentFieldAfterRevert).toBe("bars"); // staging unwound with the slice
+      expect(root.bars.has(bar)).toBe(true);
+      expect(root.items.length).toBe(0);
+      expect(bar.parent).toBe(root);
+      expect(bar.parentField).toBe("bars");
+    });
+
+    it("ephemeral steal: an eagerly-adopted child is stolen into the region's doc-ful destination", () => {
+      const foo2 = new Foo({
+        count: 0,
+        bars: new Set(),
+        meta: new Map(),
+        tags: [],
+        items: [],
+        kids: new Map(),
+        slots: new Map(),
+      }); // never initTestPlexus'd → doc-less
+
+      const bar = root.squashEphemeralSteal(foo2);
+
+      expect(foo2.items.length).toBe(0); // emancipated from the ephemeral parent
+      expect(root.items.includes(bar)).toBe(true);
+      expect(bar.parent).toBe(root);
+      expect(() => bar.uuid).not.toThrow(); // materialized into root's doc at flush
+    });
+
+    it("map re-key (delete@k1 + set@k2) moves the entry: old key gone, new key holds the child, pointers follow", () => {
+      const bar = new Bar({ label: "keyed" });
+      root.kids.set("k1", bar); // real home: kids@k1
+
+      root.squashRekey(bar);
+
+      expect(root.kids.has("k1")).toBe(false);
+      expect(root.kids.get("k2")).toBe(bar);
+      expect(root.kids.size).toBe(1);
+      expect(bar.parent).toBe(root);
+      expect(bar.parentField).toBe("kids");
+    });
+
+    it("map re-key (lone set) vacates the old key without an explicit delete", () => {
+      const bar = new Bar({ label: "keyed" });
+      root.kids.set("k1", bar);
+
+      root.squashRekeyLoneSet(bar);
+
+      expect(root.kids.has("k1")).toBe(false); // single-parent: the old entry vacated
+      expect(root.kids.get("k2")).toBe(bar);
+      expect(root.kids.size).toBe(1);
+      expect(bar.parentField).toBe("kids");
+    });
+
+    it("double-set of a fresh child sweeps the superseded key: single membership at flush", () => {
+      const fresh = root.squashDoubleSet();
+
+      expect(root.kids.has("k1")).toBe(false); // the displaced k1 insert was swept
+      expect(root.kids.get("k2")).toBe(fresh);
+      expect(root.kids.size).toBe(1);
+      expect(fresh.parent).toBe(root);
+      expect(fresh.parentField).toBe("kids");
+    });
+
+    it("stale-source delete is content-only: it does NOT orphan the child from its effective home", () => {
+      const bar = new Bar({ label: "moved" });
+      root.bars.add(bar);
+
+      root.squashStaleSourceDelete(bar); // items.push, then bars.delete (stale residual)
+
+      expect(root.bars.size).toBe(0);
+      expect(root.items.includes(bar)).toBe(true);
+      expect(bar.parent).toBe(root);
+      expect(bar.parentField).toBe("items"); // the stale delete did not null the move
+    });
+
+    it("reuse from stale: away, cleanup, re-adopt — nets to the original slot", () => {
+      const bar = new Bar({ label: "returner" });
+      root.bars.add(bar);
+
+      root.squashReuseFromStale(bar);
+
+      expect(root.bars.has(bar)).toBe(true);
+      expect(root.items.length).toBe(0);
+      expect(bar.parent).toBe(root);
+      expect(bar.parentField).toBe("bars");
+    });
+
+    it("entity-keyed map: overwrite at a materialized entity key — loser orphaned, winner resident", () => {
+      const key = new Bar({ label: "the-key" });
+      root.bars.add(key); // materialize + anchor the key entity
+
+      const { first, second } = root.squashEntityKeyOverwrite(key);
+
+      expect(root.slots.get(key)).toBe(second);
+      expect(root.slots.size).toBe(1);
+      expect(first.parent).toBe(null); // staged adopt superseded by the overwrite's orphan
+      expect(second.parent).toBe(root);
+      expect(second.parentField).toBe("slots");
+    });
+
+    it("a cross-statement cycle is caught AT the statement, judged against EFFECTIVE ownership; prior statements commit-on-crash", () => {
+      @syncing("AtomicTreeNode")
+      class TreeNode extends PlexusModel {
+        @syncing accessor name!: string;
+        @syncing.child.list accessor children!: TreeNode[];
+
+        @syncing.action
+        reparentThenCycle(a: TreeNode, b: TreeNode): void {
+          a.children.push(b); // b: tree → a (staged)
+          b.children.push(a); // a under b, whose EFFECTIVE ancestor is already a → cycle NOW
+        }
+      }
+      entityClasses.set("AtomicTreeNode", TreeNode);
+
+      const { root: tree } = initTestPlexus(new TreeNode({ name: "t", children: [] }));
+      const a = new TreeNode({ name: "a", children: [] });
+      const b = new TreeNode({ name: "b", children: [] });
+      tree.children.push(a);
+      tree.children.push(b);
+
+      expect(() => tree.reparentThenCycle(a, b)).toThrow(PlexusCycleError);
+
+      // Commit-on-crash (default): statement 1 flushed; the cycle statement never buffered.
+      expect(b.parent).toBe(a);
+      expect(a.children.includes(b)).toBe(true);
+      expect(tree.children.includes(b)).toBe(false);
+    });
   });
 });

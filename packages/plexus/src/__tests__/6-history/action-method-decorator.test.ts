@@ -1,4 +1,4 @@
-import { reaction } from "mobx";
+import { autorun, reaction } from "mobx";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Y from "yjs";
 
@@ -63,6 +63,11 @@ class Foo extends PlexusModel {
   // a write inside the flush transaction.
   @syncing.map
   accessor refs!: Map<Bar, number>;
+
+  // A routed VALUE record — exercises record.ts's same-value fast path and
+  // its per-doc gate (instant-path receivers must re-run the full write).
+  @syncing.record
+  accessor rec: Record<string, number> = {};
 
   /**
    * Atomic body exercising every covered mutation kind:
@@ -227,6 +232,12 @@ class Foo extends PlexusModel {
     this.items.push(bar);
     this.bars.delete(bar);
     this.bars.add(bar); // re-adopt: nets to away-and-back on bars
+  }
+
+  /** Same-value record set on a DOC-LESS receiver: the instant path must re-run the full write. */
+  @syncing.action
+  reaffirmGhostRec(ghost: Foo): void {
+    ghost.rec["k"] = 1; // same value — but this receiver never defers
   }
 
   /** Reverse steal (FORBIDDEN): a doc-less owner tries to adopt a doc-backed child. */
@@ -1220,6 +1231,34 @@ describe("@syncing.action method decorator", () => {
       expect(root.items.includes(bar)).toBe(true);
       expect(bar.parent).toBe(root);
       expect(() => bar.uuid).not.toThrow(); // materialized into root's doc at flush
+    });
+
+    it("same-value record set on a doc-less receiver mid-region re-runs the full write (base parity)", () => {
+      const ghost = new Foo({
+        count: 0,
+        bars: new Set(),
+        meta: new Map(),
+        tags: [],
+        items: [],
+        kids: new Map(),
+        slots: new Map(),
+      }); // never initTestPlexus'd → doc-less: never defers
+      ghost.rec["k"] = 1; // eager: settles instantly
+
+      let invalidations = -1; // autorun's setup run doesn't count
+      const dispose = autorun(() => {
+        void ghost.rec["k"];
+        invalidations++;
+      });
+
+      root.reaffirmGhostRec(ghost); // same-value set mid-region
+
+      dispose();
+      // The receiver takes the instant path, where base re-ran the FULL write
+      // on a same-value set — so modification tracking must fire. Only a
+      // deferring receiver earns the moves-only fast path.
+      expect(invalidations).toBe(1);
+      expect(ghost.rec["k"]).toBe(1);
     });
 
     it("reverse steal throws: a doc-less parent cannot adopt a doc-backed child", () => {

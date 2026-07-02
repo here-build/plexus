@@ -2,6 +2,17 @@ import { PlexusModel, syncing } from "@here.build/plexus";
 import { entityPath } from "../utils/entityPath.js";
 
 /**
+ * Normalize incoming bytes to THIS realm's `Uint8Array` before they reach the
+ * CRDT. A `Uint8Array` from another realm (jsdom's `TextEncoder` under vitest,
+ * a subclass, a cross-frame buffer) has a different constructor identity, which
+ * yjs's value encoding dispatches on — storing it corrupts/rejects the write.
+ * The constructor check makes this free in production (single realm, no copy).
+ */
+export function normalizeBytes(u: Uint8Array): Uint8Array {
+  return u.constructor === Uint8Array ? u : new Uint8Array(u);
+}
+
+/**
  * A file. Content is the raw byte sequence, stored directly as a `Uint8Array`
  * `@syncing` val (CRDT-backed via plexus-core's typed-array proxy). The
  * ergonomic accessors (`bytes`/`text`) project onto it; `content` itself is the
@@ -31,7 +42,7 @@ export class PlexusFile extends PlexusModel {
     return Uint8Array.from(this.content);
   }
   set bytes(b: Uint8Array) {
-    this.content = b;
+    this.content = normalizeBytes(b);
     this.mtimeMs = Date.now();
   }
 

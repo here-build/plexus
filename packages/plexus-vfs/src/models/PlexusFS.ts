@@ -2,7 +2,7 @@ import { syncing } from "@here.build/plexus";
 
 import { PlexusDir } from "./PlexusDir.js";
 import { FsErrno, FsError } from "../errors.js";
-import { PlexusFile } from "./PlexusFile.js";
+import { normalizeBytes, PlexusFile } from "./PlexusFile.js";
 import { EncodingOpt, NarrowedPromiseFsClient, Stats } from "../types/index.js";
 import { basename, joinPath, splitPath } from "../utils/path.js";
 import { transact } from "../utils/transact.js";
@@ -86,7 +86,10 @@ export class PlexusFS extends PlexusDir implements NarrowedPromiseFsClient {
       const dir = this.ensureDir(joinPath(segs.slice(0, -1)));
       const existing = dir.entries[name];
       FsError.invariant(!(existing instanceof PlexusDir), FsErrno.EISDIR, path);
-      const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
+      // normalizeBytes: jsdom's TextEncoder (and any foreign-realm caller) hands
+      // back a Uint8Array with a foreign constructor identity — normalize before
+      // it reaches the CRDT (see PlexusFile.normalizeBytes).
+      const bytes = normalizeBytes(typeof data === "string" ? new TextEncoder().encode(data) : data);
       if (existing instanceof PlexusFile) {
         existing.bytes = bytes;
       } else {

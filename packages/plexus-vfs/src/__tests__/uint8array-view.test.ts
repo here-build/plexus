@@ -133,3 +133,34 @@ describe("raw `content` field — the Plexus read-side gap (it.fails until Plexu
     expect(new TextDecoder().decode(rawContentOf(fs, "a.txt"))).toBe("hello");
   });
 });
+
+describe("foreign-constructor bytes — write-side ingest contract", () => {
+  // Ingest-contract guards: normalizeBytes must round-trip subclass/odd inputs
+  // with content intact. NB: a subclass does NOT reproduce the real foreign-
+  // realm failure (node's plexus classifier tolerates it) — the true repro is
+  // jsdom's realm, pinned permanently in uint8array-jsdom-realm.test.ts.
+  class ForeignBytes extends Uint8Array {}
+
+  it("writeFile with foreign-constructor bytes round-trips (normalized on ingest)", () => {
+    const fs = makeFS();
+    const foreign = new ForeignBytes([104, 105, 33]); // "hi!"
+    expect(foreign.constructor).not.toBe(Uint8Array);
+    fs.writeFile("f.bin", foreign);
+    expect([...fs.readFile("f.bin")]).toEqual([104, 105, 33]);
+    expect(new TextDecoder().decode(fs.readFile("f.bin"))).toBe("hi!");
+  });
+
+  it("the text setter (string → TextEncoder path) stays normalized end-to-end", () => {
+    const fs = makeFS();
+    fs.writeFile("t.txt", "plain string write");
+    expect(new TextDecoder().decode(fs.readFile("t.txt"))).toBe("plain string write");
+  });
+
+  it("bytes setter on an existing file normalizes too (the overwrite branch)", () => {
+    const fs = makeFS();
+    fs.writeFile("f.bin", "seed");
+    const file = fs.resolve("f.bin") as PlexusFile;
+    file.bytes = new ForeignBytes([1, 2, 3]);
+    expect([...fs.readFile("f.bin")]).toEqual([1, 2, 3]);
+  });
+});

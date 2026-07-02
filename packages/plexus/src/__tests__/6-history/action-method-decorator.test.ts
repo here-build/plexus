@@ -161,6 +161,18 @@ class Foo extends PlexusModel {
     this.count = 41;
   }
 
+  /** Dedicated to the doc-less-in-transact canonical pin (warnOnce is per method). */
+  @syncing.action
+  bumpForDoclessTxPin(): void {
+    this.count = 42;
+  }
+
+  /** Dedicated to the cross-doc-open-tx canonical pin (warnOnce is per method). */
+  @syncing.action
+  bumpForCrossDocTxPin(): void {
+    this.count = 43;
+  }
+
   /**
    * Moves an EXISTING child from `bars` (child set) into `items` (child list),
    * reporting what the body observes mid-move — the vehicle for the
@@ -949,6 +961,59 @@ describe("@syncing.action method decorator", () => {
       ([message]) => typeof message === "string" && message.includes("already-open transaction"),
     );
     expect(warnedPreOpen).toBe(true);
+
+    warnSpy.mockRestore();
+  });
+
+  it("doc-less receiver inside plexus.transact() stays silent — no boundaries to own (canonical)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const ghost = new Foo({
+      count: 0,
+      bars: new Set(),
+      meta: new Map(),
+      tags: [],
+      items: [],
+      kids: new Map(),
+      slots: new Map(),
+    }); // never initTestPlexus'd → doc-less
+
+    plexus.transact(() => {
+      ghost.bumpForDoclessTxPin();
+    });
+
+    // The write lands instantly (doc-less receivers never defer)…
+    expect(ghost.count).toBe(42);
+    // …and the pre-open-tx warn is correctly silent: the receiver's writes
+    // route through no doc, so the caller's open transaction has nothing of
+    // this region's to swallow. Canonical, not a detection miss.
+    const warnedPreOpen = warnSpy.mock.calls.some(
+      ([message]) => typeof message === "string" && message.includes("already-open transaction"),
+    );
+    expect(warnedPreOpen).toBe(false);
+
+    warnSpy.mockRestore();
+  });
+
+  it("action on doc A inside doc B's transact() stays silent — the region owns doc A's boundaries (canonical)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { plexus: otherPlexus } = initTestPlexus(new Other({ value: 0 }));
+
+    let rootDocUpdates = 0;
+    doc.on("update", () => rootDocUpdates++);
+
+    otherPlexus.transact(() => {
+      root.bumpForCrossDocTxPin();
+    });
+
+    expect(root.count).toBe(43);
+    // Doc B's open transaction is irrelevant to doc A's atomicity: the region
+    // opened (and owned) doc A's transaction itself — one envelope, no nesting
+    // to warn about. Canonical, not a detection miss.
+    expect(rootDocUpdates).toBe(1);
+    const warnedPreOpen = warnSpy.mock.calls.some(
+      ([message]) => typeof message === "string" && message.includes("already-open transaction"),
+    );
+    expect(warnedPreOpen).toBe(false);
 
     warnSpy.mockRestore();
   });

@@ -3,7 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
-import { PlexusCycleError } from "../../errors.js";
+import { PlexusCycleError, PlexusDocMismatchError } from "../../errors.js";
 import { entityClasses } from "../../globals.js";
 import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
@@ -227,6 +227,12 @@ class Foo extends PlexusModel {
     this.items.push(bar);
     this.bars.delete(bar);
     this.bars.add(bar); // re-adopt: nets to away-and-back on bars
+  }
+
+  /** Reverse steal (FORBIDDEN): a doc-less owner tries to adopt a doc-backed child. */
+  @syncing.action
+  squashReverseSteal(ghost: Foo, bar: Bar): void {
+    ghost.kids.set("x", bar); // throws: doc-backed child under doc-less parent
   }
 
   /** Same-value indexed reaffirm: stage away to bars, then reaffirm at the STALE items[0]. */
@@ -1214,6 +1220,48 @@ describe("@syncing.action method decorator", () => {
       expect(root.items.includes(bar)).toBe(true);
       expect(bar.parent).toBe(root);
       expect(() => bar.uuid).not.toThrow(); // materialized into root's doc at flush
+    });
+
+    it("reverse steal throws: a doc-less parent cannot adopt a doc-backed child", () => {
+      const ghost = new Foo({
+        count: 0,
+        bars: new Set(),
+        meta: new Map(),
+        tags: [],
+        items: [],
+        kids: new Map(),
+        slots: new Map(),
+      }); // never initTestPlexus'd → doc-less
+      const bar = new Bar({ label: "wired" });
+      root.kids.set("home", bar); // bar touched the doc: materialized and wired there
+
+      expect(() => ghost.kids.set("x", bar)).toThrow(PlexusDocMismatchError);
+
+      // Validation-first: the throw happened BEFORE any state modification.
+      expect(root.kids.get("home")).toBe(bar);
+      expect(bar.parent).toBe(root);
+      expect(ghost.kids.size).toBe(0);
+    });
+
+    it("reverse steal throws inside an action body too — at the statement, tree intact", () => {
+      const ghost = new Foo({
+        count: 0,
+        bars: new Set(),
+        meta: new Map(),
+        tags: [],
+        items: [],
+        kids: new Map(),
+        slots: new Map(),
+      });
+      const bar = new Bar({ label: "wired" });
+      root.kids.set("home", bar);
+
+      // The doc-less receiver takes the instant path mid-region, so validation
+      // runs synchronously at the statement — same error, same intact tree.
+      expect(() => root.squashReverseSteal(ghost, bar)).toThrow(PlexusDocMismatchError);
+      expect(root.kids.get("home")).toBe(bar);
+      expect(bar.parent).toBe(root);
+      expect(ghost.kids.size).toBe(0);
     });
 
     it("map re-key (delete@k1 + set@k2) moves the entry: old key gone, new key holds the child, pointers follow", () => {

@@ -133,6 +133,18 @@ class Foo extends PlexusModel {
     throw new Error("boom");
   }
 
+  /** Structural detach mid-body — the vehicle for the detach-warning pin below. */
+  @syncing.action
+  detachFirstBar(): void {
+    [...this.bars][0]!.detach();
+  }
+
+  /** Trivial routed write, dedicated to the pre-open-transaction pin (warnOnce is per method). */
+  @syncing.action
+  bumpForTxPin(): void {
+    this.count = 41;
+  }
+
   /**
    * Moves an EXISTING child from `bars` (child set) into `items` (child list),
    * reporting what the body observes mid-move — the vehicle for the
@@ -816,6 +828,67 @@ describe("@syncing.action method decorator", () => {
 
     // Multi-doc is supported now — no out-of-envelope warning.
     expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  it("structural detach inside the body warns AND applies immediately (wire-impure)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const bar = new Bar({ label: "d" });
+    root.bars.add(bar); // eager add, outside any action
+    expect(bar.parent).toBe(root);
+
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+
+    root.detachFirstBar();
+
+    // detach() is structural, not routed: #emancipate cleared the yjs parent
+    // attributes RAW during the body (its own implicit transaction → mid-body
+    // wire activity), while the container removal routed through the set proxy
+    // and deferred to the flush. Hence >1 update — the incoherence the warning
+    // is about.
+    expect(shadowUpdates).toBeGreaterThan(1);
+    expect(bar.parent).toBeNull();
+    expect(root.bars.has(bar)).toBe(false);
+
+    const warnedDetach = warnSpy.mock.calls.some(
+      ([message]) => typeof message === "string" && message.includes("structurally detached during an action body"),
+    );
+    expect(warnedDetach).toBe(true);
+
+    warnSpy.mockRestore();
+  });
+
+  it("detach OUTSIDE an action stays silent", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const bar = new Bar({ label: "d" });
+    root.bars.add(bar);
+
+    bar.detach();
+
+    expect(bar.parent).toBeNull();
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  it("action called inside plexus.transact() warns: the flush cannot own its boundaries", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    plexus.transact(() => {
+      root.bumpForTxPin();
+    });
+
+    // The batch still applies — only the envelope guarantees degrade (the
+    // flush's per-doc transactions nested into the caller's open transaction).
+    expect(root.count).toBe(41);
+
+    const warnedPreOpen = warnSpy.mock.calls.some(
+      ([message]) => typeof message === "string" && message.includes("already-open transaction"),
+    );
+    expect(warnedPreOpen).toBe(true);
 
     warnSpy.mockRestore();
   });

@@ -289,7 +289,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           return (...elements: Array<T>) => {
             // Classification computed ONCE here (shared by overlay/materialize/describe/notify).
             // applyNow recomputes its own copy internally — it must stay a verbatim,
-            // self-contained copy of the pre-atomic choreography.
+            // self-contained copy of the pre-action choreography.
             const reusedIndices: number[] = [];
             const reusedElements: T[] = [];
             const newElements: T[] = [];
@@ -406,14 +406,17 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   index: yjsArray.length - reusedIndices.length,
                   content: elements.map((element) => maybeReference(element, owner.__doc__!)),
                 });
+                return ops;
+              },
+              notify: () => {
+                // Reused-element adoption belongs AFTER the push lands (invariant #3
+                // above) — notify runs post-op-application, inside the flush tx,
+                // matching applyNow's position. Unconditional, like applyNow's.
                 if (isChildField) {
                   for (const element of reusedElements) {
                     element?.[informAdoptionSymbol]?.(owner, key);
                   }
                 }
-                return ops;
-              },
-              notify: () => {
                 trackModification(self, ACCESS_ALL_SYMBOL);
               },
               revertOverlay: () => {
@@ -541,14 +544,19 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   index: 0,
                   content: elements.map((element) => maybeReference(element, owner.__doc__!)),
                 });
+                return ops;
+              },
+              notify: () => {
+                // Reused-element adoption at notify — post-op-application, inside
+                // the flush tx. applyNow adopts between the backing write and the
+                // yjs write; both orders are within one tx (commit-identical), and
+                // notify restores what describe's `!yjsArray` early-return used to
+                // skip: applyNow adopts unconditionally.
                 if (isChildField) {
                   for (const element of reusedElements) {
                     element?.[informAdoptionSymbol]?.(owner, key);
                   }
                 }
-                return ops;
-              },
-              notify: () => {
                 trackModification(self, ACCESS_ALL_SYMBOL);
               },
               revertOverlay: () => {
@@ -1651,12 +1659,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 }
               }
               const yjsArray = getYjsArray();
-              if (!yjsArray || !owner.__doc__) {
-                if (isChildField && isReuse) {
-                  value?.[informAdoptionSymbol]?.(owner, key);
-                }
-                return [];
-              }
+              if (!yjsArray || !owner.__doc__) return [];
               const ops: YjsOp[] = [];
               if (isReuse && reuseFromIndex !== -1) {
                 ops.push({ kind: "array-delete", array: yjsArray, index: reuseFromIndex, length: 1 });
@@ -1693,12 +1696,15 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   content: [maybeReference(value, owner.__doc__)],
                 });
               }
-              if (isChildField && isReuse) {
-                value?.[informAdoptionSymbol]?.(owner, key);
-              }
               return ops;
             },
             notify: () => {
+              // Reused-element adoption AFTER the move lands ("after the move",
+              // applyNow above) — notify runs post-op-application inside the
+              // flush tx. Unconditional, matching applyNow.
+              if (isChildField && isReuse) {
+                value?.[informAdoptionSymbol]?.(owner, key);
+              }
               for (let i = originalLength; i < parsedElementKey; i++) {
                 trackModification(self, `${i}`);
               }

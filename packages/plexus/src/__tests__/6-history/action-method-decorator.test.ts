@@ -133,6 +133,17 @@ class Foo extends PlexusModel {
     throw new Error("boom");
   }
 
+  /**
+   * Opt-in rollback over an INDEXED set on an ABSENT container — container
+   * genesis lives in the arms (applyNow/describe), not at statement time, so
+   * a rolled-back region must leave no trace of the field's Y.Array.
+   */
+  @syncing.action({ rollbackIf: () => true })
+  setTagThenThrow(): void {
+    this.tags[0] = 7;
+    throw new Error("boom");
+  }
+
   /** Structural detach mid-body — the vehicle for the detach-warning pin below. */
   @syncing.action
   detachFirstBar(): void {
@@ -652,6 +663,31 @@ describe("@syncing.action method decorator", () => {
     // Identity was never committed → "don't rely on uuid until we're done" holds by construction.
     expect(root.items.length).toBe(0);
     expect(shadowUpdates).toBe(0);
+  });
+
+  it("(array) rollbackIf on an indexed set leaves the wire pure — no statement-time container genesis", () => {
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+
+    expect(() => root.setTagThenThrow()).toThrow("boom");
+
+    // tags[0] = 7 was the field's FIRST write: the Y.Array is minted in the
+    // arms (applyNow eager / describe at flush), never at statement time — so
+    // a rolled-back region leaves zero updates and no container behind.
+    expect([...root.tags]).toEqual([]);
+    expect(shadowUpdates).toBe(0);
+  });
+
+  it("(array) a same-value no-op indexed set does not mint the container", () => {
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+
+    (root.tags as unknown[])[5] = undefined; // backing[5] === undefined → early return
+
+    expect(shadowUpdates).toBe(0);
+    expect(root.tags.length).toBe(0);
   });
 
   it("one undo step reverts the whole atomic batch", () => {

@@ -218,6 +218,13 @@ class Foo extends PlexusModel {
     this.bars.add(bar); // re-adopt: nets to away-and-back on bars
   }
 
+  /** Same-value indexed reaffirm: stage away to bars, then reaffirm at the STALE items[0]. */
+  @syncing.action
+  squashReaffirmIndexed(bar: Bar): void {
+    this.bars.add(bar); // staged: bar → bars
+    this.items[0] = bar; // backing stale (bar physically still at 0) → same-value reaffirm
+  }
+
   /** Ephemeral steal: adopt into a DOC-LESS owner eagerly, then steal into the region. */
   @syncing.action
   squashEphemeralSteal(foo2: Foo): Bar {
@@ -1140,6 +1147,18 @@ describe("@syncing.action method decorator", () => {
       expect(root.items.length).toBe(0);
       expect(bar.parent).toBe(root);
       expect(bar.parentField).toBe("bars");
+    });
+
+    it("same-value indexed reaffirm wins over an earlier staged move (stale backing)", () => {
+      const bar = new Bar({ label: "reaffirmed" });
+      root.items[0] = bar; // real home: items[0]
+
+      root.squashReaffirmIndexed(bar);
+
+      expect(root.items[0]).toBe(bar); // last assignment wins
+      expect(root.bars.has(bar)).toBe(false); // the earlier staged add was superseded
+      expect(bar.parent).toBe(root);
+      expect(bar.parentField).toBe("items");
     });
 
     it("ephemeral steal: an eagerly-adopted child is stolen into the region's doc-ful destination", () => {

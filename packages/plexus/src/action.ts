@@ -119,15 +119,20 @@
  *     its own single transaction at flush. Per-doc only (yjs has no cross-doc
  *     transaction); the region guarantees each doc's batch is whole.
  *   - MID-BODY STRUCTURAL STALENESS. The overlay is read-your-writes for the
- *     mutated field only; structural choreography (emancipate-from-source /
- *     adopt-into-destination) is FLUSH-time. Moving a child between collections
- *     mid-body therefore shows DUAL MEMBERSHIP (source still contains it) and a
- *     stale back-pointer (`child.parentField` names the source) until the flush
- *     resolves both. Chosen, not accidental: eager choreography in the overlay
- *     would mutate the SOURCE collection's mirror before the action is known to
- *     commit, and rollback could no longer restore the source from the op's own
- *     snapshot (an op only knows its destination). Pinned by the decorator
- *     suite's (b2).
+ *     mutated field's CONTENT only; ownership is squashed per entity (last
+ *     parent-assignment wins) and settled once at flush. Mid-body the two views
+ *     deliberately diverge in opposite directions: back-pointers (`child.parent`,
+ *     `child.parentField`, `child.parentFieldKey`) are staged-aware and answer
+ *     with the EFFECTIVE slot immediately (destination, or null after a plain
+ *     removal), while collection CONTENT stays stale — the source still contains
+ *     the child (DUAL MEMBERSHIP) until the flush sweeps it. One loud
+ *     consequence: re-inserting that child into a list that stalely still
+ *     contains it throws PlexusDuplicateChildError — the throw judges content,
+ *     not effective ownership, and honest noise beats silent divergence. Chosen,
+ *     not accidental: eager content choreography would mutate the SOURCE
+ *     collection's mirror before the action is known to commit, and rollback
+ *     could no longer restore the source from the op's own snapshot (an op only
+ *     knows its destination). Pinned by the decorator suite's (b2).
  *
  * ## Honest limits — crash-atomicity and async continuations
  *

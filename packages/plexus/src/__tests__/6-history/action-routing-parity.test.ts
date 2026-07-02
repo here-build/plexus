@@ -31,9 +31,9 @@ import { initTestPlexus } from "../_helpers/test-plexus.js";
  * A newly routed site later = one new alphabet entry below.
  *
  * Deliberately OUTSIDE the harness (parent-side projections only):
- *   - child BACK-POINTER visibility during the body — structural choreography
- *     (orphan/emancipate/adopt) is flush-time by design, so `child.parent` is
- *     stale mid-body; pinned separately in the decorator suite, not here.
+ *   - child BACK-POINTER visibility during the body — `child.parent` reads the
+ *     STAGED ownership layer mid-body (live reads; the real pointers settle at
+ *     flush); pinned separately in the decorator suite, not here.
  *   - `copyWithin`/`fill` on CHILD lists — duplicate-reference territory with
  *     its own warning path, not a parity target.
  *   - `setFromBase64`/`setFromHex`/`reverse`/`copyWithin` on byte fields —

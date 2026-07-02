@@ -199,7 +199,7 @@ const set = <
     notify: () => trackModification(object, context.name),
     revertOverlay: () => {
       // Silent restore. The overlay write was applied WITHOUT `trackModification`
-      // (deferred to `commit`), so no observer was ever invalidated by it. Undoing
+      // (deferred to `notify`), so no observer was ever invalidated by it. Undoing
       // it must therefore also be silent — a `trackModification` here would fire a
       // spurious re-run for a value that, from any observer's view, never changed.
       if (storedValue == undefined) {
@@ -271,7 +271,9 @@ const setChild = <
   };
 
   emitOrDefer(object.__doc__, {
-    // Non-action path: exactly the original choreography, verbatim.
+    // Non-action path: the original choreography — verbatim modulo the
+    // residence guard, which is vacuous eagerly (a resident occupant always
+    // passes) and only bites when a flush-time sweep re-enters this setter.
     applyNow: () =>
       maybeTransacting(object.__doc__, () => {
         // Orphanize the outgoing child only if it still RESIDES here — flush-time
@@ -300,9 +302,10 @@ const setChild = <
       // its materialization keeps its own origin (via `[referenceSymbol]`'s own
       // `maybeTransacting`) instead of being swallowed into the user's tx. This is
       // the same lazy call `informAdoptionSymbol` would otherwise make
-      // (PlexusModel.ts:414-415, `if (!internals.yjsModel && newParent.__doc__)`);
-      // running it here means phase-2's `informAdoptionSymbol` finds the child
-      // already materialized (yjsModel set) and only writes the parent edge.
+      // (PlexusModel.ts, `if (!internals.yjsModel && newParent.__doc__)`);
+      // running it here means the flush ownership pass (`settleAdoption` →
+      // `informAdoptionSymbol`) finds the child already materialized
+      // (yjsModel set) and only writes the parent edge.
       value?.[referenceSymbol]?.(object.__doc__!);
     },
     describe: () => {

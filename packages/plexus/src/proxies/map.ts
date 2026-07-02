@@ -206,9 +206,9 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         }
         return this;
       }
-      // Captured BEFORE overlay mutates backingStorage — `describe`/`revertOverlay`
-      // run at flush time (or on rollback), when backingStorage already reflects
-      // the new value, so the pre-op state must be snapshotted here.
+      // Captured BEFORE overlay mutates backingStorage — they feed the orphan
+      // move right below and `notify`/`revertOverlay`, which run at flush time
+      // (or on rollback), when backingStorage already reflects the new value.
       const hadKey = backingStorage.has(mapKey);
       const oldValue = backingStorage.get(mapKey);
       // Statement-time serialization, shared by the move and the ops below.
@@ -226,7 +226,10 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         }
       }
       emitOrDefer(owner.__doc__, {
-        // Non-action path: exactly the original choreography, verbatim.
+        // Non-action path: the original choreography — verbatim modulo the
+        // residence guard, which is vacuous eagerly (a resident occupant
+        // always passes) and only bites when a flush-time sweep re-enters
+        // this proxy.
         applyNow: () => {
           ensureYjsMap();
           maybeTransacting(owner.__doc__, () => {
@@ -269,8 +272,9 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         overlay: () => {
           // Fail-fast on illegal adoption (cycle, cross-doc, self) BEFORE any state
           // change — pure check, no yjs write. Materialization deferred to
-          // `materialize` (phase 1); old-value orphanization + parent-edge write
-          // deferred to `describe` (phase 2, both real transitive writes).
+          // `materialize` (phase 1); old-value orphanization + the parent edge
+          // settle once at flush via the staged `moves` (ownership pass) —
+          // `describe` stays content-only.
           if (isChildField) {
             value?.[validateAdoptionSymbol]?.(owner, key, serializedSubKey!);
           }
@@ -346,8 +350,9 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       if (!backingStorage.has(mapKey)) {
         return false;
       }
-      // Captured BEFORE overlay removes the entry — `describe`/`revertOverlay`
-      // run at flush time (or on rollback), after backingStorage already lost it.
+      // Captured BEFORE overlay removes the entry — they feed the orphan move
+      // below and `notify`/`revertOverlay`, which run at flush time (or on
+      // rollback), after backingStorage already lost it.
       const oldValue = backingStorage.get(mapKey);
       const canonicalKey = backingStorage.getCanonicalKey(mapKey);
       // Statement-time serialization — the same string form the orphan move's
@@ -355,7 +360,10 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       // fresh entity key must not materialize it.
       const serializedSubKey = isChildField ? serializeKeyNonMinting(mapKey, owner.__doc__) : null;
       emitOrDefer(owner.__doc__, {
-        // Non-action path: exactly the original choreography, verbatim.
+        // Non-action path: the original choreography — verbatim modulo the
+        // residence guard, which is vacuous eagerly (a resident occupant
+        // always passes) and only bites when a flush-time sweep re-enters
+        // this proxy.
         applyNow: () => {
           maybeTransacting(owner.__doc__, () => {
             // Handle child tracking - orphan the value being deleted, but only
@@ -421,8 +429,8 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       if (backingStorage.size === 0) {
         return;
       }
-      // Snapshotted BEFORE overlay empties backingStorage — used both for the
-      // deferred orphanization loop (`describe`) and the silent rollback restore.
+      // Snapshotted BEFORE overlay empties backingStorage — it feeds the orphan
+      // moves right below and the silent rollback restore in `revertOverlay`.
       const priorEntries: [K, V][] = [...backingStorage.entries()];
       // Statement-time per-entry serialization — each orphan move's `from.meta`
       // needs the key its child was filed under, computed once here.
@@ -436,7 +444,10 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
             }))
         : [];
       emitOrDefer(owner.__doc__, {
-        // Non-action path: exactly the original choreography, verbatim.
+        // Non-action path: the original choreography — verbatim modulo the
+        // residence guard, which is vacuous eagerly (a resident occupant
+        // always passes) and only bites when a flush-time sweep re-enters
+        // this proxy.
         applyNow: () => {
           maybeTransacting(owner.__doc__, () => {
             // Handle child tracking - orphan all values that actually RESIDE
@@ -530,8 +541,10 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       const oldValueSet = new Set(backingStorage.values());
       const newValueSet = new Set(newEntries.map(([_, v]) => v));
 
-      // Ownership FACTS for the squash, statement-time serialized (shared by
-      // the move and describe()'s written key). Every model VALUE in the new
+      // Ownership FACTS for the squash, statement-time serialized into each
+      // move's `meta` (`describe()` re-serializes the keys inside the flush tx;
+      // phase-1 key materialization guarantees the forms agree). Every model
+      // VALUE in the new
       // entries declares adopt — even KEPT ones — because mid-region the
       // backing map can be stale (the value may be staged elsewhere by a
       // later statement); the engine no-ops true reaffirmations. Every model
@@ -562,7 +575,10 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       }
 
       emitOrDefer(owner.__doc__, {
-        // Non-action path: exactly the original choreography, verbatim.
+        // Non-action path: the original choreography — verbatim modulo the
+        // residence guard, which is vacuous eagerly (a resident occupant
+        // always passes) and only bites when a flush-time sweep re-enters
+        // this proxy.
         applyNow: () => {
           ensureYjsMap();
           maybeTransacting(owner.__doc__, () => {
@@ -638,8 +654,9 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         overlay: () => {
           // Fail-fast on illegal adoption for truly-new child values, BEFORE any
           // state change — pure check, no yjs write. Genesis deferred to
-          // `materialize`; old-value orphanization + parent-edge writes deferred
-          // to `describe` (both real transitive writes).
+          // `materialize` (phase 1); old-value orphanization + the parent edges
+          // settle once at flush via the staged `moves` (ownership pass) —
+          // `describe` stays content-only.
           if (isChildField) {
             for (const [k, v] of newEntries) {
               if (v && !oldValueSet.has(v)) {

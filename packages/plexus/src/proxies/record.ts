@@ -104,9 +104,9 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
             if (Object.keys(proxyTarget).length === 0) {
               return;
             }
-            // Snapshot for the (silent) overlay inverse — orphanization also reads
-            // this in `describe`, since by then the overlay has already emptied
-            // `proxyTarget`.
+            // Snapshot taken at statement time, before the overlay empties
+            // `proxyTarget` — it feeds the ownership moves right below and the
+            // (silent) overlay inverse in `revertOverlay`.
             const previousEntries = { ...proxyTarget };
             const stagedMoves: OwnershipMove[] = isChildField
               ? Object.entries(previousEntries)
@@ -114,7 +114,10 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
                   .map(([k, child]) => ({ child, orphan: true as const, from: { parent: owner, field: key, meta: k } }))
               : [];
             emitOrDefer(owner.__doc__, {
-              // Non-action path: exactly the original choreography, verbatim.
+              // Non-action path: the original choreography — verbatim modulo the
+              // residence guards, which are vacuous eagerly (a resident occupant
+              // always passes) and only bite when flush-time sweeps re-enter
+              // this proxy.
               applyNow: () => {
                 // Clear parent tracking for all child values that still RESIDE
                 // here (flush-time sweeps re-enter this proxy for content-only
@@ -374,7 +377,10 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
         }
 
         emitOrDefer(owner.__doc__, {
-          // Non-action path: exactly the original choreography, verbatim.
+          // Non-action path: the original choreography — verbatim modulo the
+          // residence guard, which is vacuous eagerly (a resident occupant
+          // always passes) and only bites when flush-time sweeps re-enter
+          // this proxy.
           applyNow: () => {
             if (value !== undefined) ensureYjsMap();
             maybeTransacting(owner.__doc__, () => {
@@ -482,12 +488,16 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
         return true;
       }
 
-      // Snapshot for the (silent) overlay inverse; orphanization also reads this
-      // in `describe`, since by then the overlay has already deleted the key.
+      // Snapshot taken at statement time, before the overlay deletes the key —
+      // it feeds the ownership move below and the (silent) overlay inverse in
+      // `revertOverlay`.
       const previousValue = proxyTarget[elementKey];
       let overlayDeleted = false;
       emitOrDefer(owner.__doc__, {
-        // Non-action path: exactly the original choreography, verbatim.
+        // Non-action path: the original choreography — verbatim modulo the
+        // residence guard, which is vacuous eagerly (a resident occupant
+        // always passes) and only bites when flush-time sweeps re-enter
+        // this proxy.
         applyNow: () => {
           maybeTransacting(owner.__doc__, () => {
             // Handle parent tracking for child fields — only if the value still

@@ -275,10 +275,10 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           //    Example: push(a, a) throws error to prevent [existing..., a, a]
           //
           // 2. Reuse Detection: If pushing an item that already exists elsewhere in the array,
-          //    we call informAdoptionSymbol instead of requestAdoptionSymbol after the operation.
-          //    This handles moving items within the same array (though this creates duplicates - see note).
-          //    Example: arr = [a, b], push(a) → triggers reuse path but STILL creates duplicate [a, b, a]
-          //    NOTE: This is legacy behavior - consider throwing on reuse to be consistent with splice/assign
+          //    it is MOVED to the end — the old occurrence is spliced out, then the element
+          //    is pushed. Example: arr = [a, b], push(a) → [b, a]. Reused items get
+          //    informAdoptionSymbol (their parent pointer already names this owner) instead
+          //    of the full requestAdoptionSymbol choreography new items get.
           //
           // 3. Parent Tracking Sequence:
           //    - requestAdoptionSymbol: Called BEFORE push for new items
@@ -1087,7 +1087,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             });
             return self;
           };
-        case "clear": // arr.assign(newElements) → replace entire array contents
+        case "clear": // arr.clear() → remove all elements
           return () => {
             const priorItems = backingArray.slice();
 
@@ -1422,7 +1422,12 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
     },
 
     set(_, elementKey, value) {
-      // Ensure container exists before tracked transaction for index assignment
+      // Ensure container exists before tracked transaction for index assignment.
+      // Mid-region this is an EAGER yjs write, and an exempt one: field-array
+      // container genesis is DETERMINISTIC — `materializeArrayForField` (via
+      // `materializeVirtualStruct`) would mint the identical empty container at
+      // flush, so creating it now changes no observable content and cannot
+      // diverge from the deferred replay.
       if (
         typeof elementKey === "string" &&
         elementKey !== "length" &&

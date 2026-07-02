@@ -16,7 +16,7 @@
  * peers) BEFORE the exception propagates. There is NO rollback, anywhere.
  *
  * ─── WHAT PLEXUS ADDS ───────────────────────────────────────────────────────
- * `maybeTransacting(doc, fn)` (utils/utils.ts) is the one helper every mutation
+ * `maybeTransacting(doc, fn)` (utils/transacting.ts) is the one helper every mutation
  * path funnels through. On throw, its OUTERMOST `catch` does
  * `pendingNotifications.clear()` — discarding the local MobX notification flush
  * for THAT batch — then re-throws. The write already committed + broadcast; only

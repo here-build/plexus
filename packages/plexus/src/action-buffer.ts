@@ -42,7 +42,10 @@
  * flush tx (post-genesis, so child refs and field-maps exist) and returns the
  * ops as data. Transitive genesis / adoption / field-map materialization stay as
  * calls into the protected core (they own their own transaction semantics and
- * nest into the flush tx) — they are plexus choreography, not leaf yjs ops.
+ * nest into the flush tx) — they are plexus choreography, not leaf yjs ops. One
+ * deliberate asymmetry: `maybeReference` on a REF VALUE (a non-child entity
+ * reference) can mint that entity's genesis inside `describe()` — riding the
+ * flush tx exactly as it rides the user tx on the eager path. Parity, not a leak.
  *
  * ## Ownership mid-body — staged squash, settled once at flush
  *
@@ -106,10 +109,12 @@
  *
  * ## Why the core write path is unchanged (`applyNow`)
  *
- * Every routed site passes its ORIGINAL choreography verbatim as `applyNow`. When
- * no region is active (the overwhelming common case), `emitOrDefer` runs exactly
- * `applyNow()` and nothing else. Mutations outside an action are byte-for-byte what
- * they were before routing.
+ * Every routed site passes its ORIGINAL choreography as `applyNow` — verbatim
+ * modulo residence guards on the orphanization arms, which are vacuous eagerly
+ * (a resident occupant always passes) and only bite when flush-time sweeps
+ * re-enter a proxy. When no region is active (the overwhelming common case),
+ * `emitOrDefer` runs exactly `applyNow()` and nothing else. Mutations outside
+ * an action behave exactly as they did before routing.
  */
 
 import type * as Y from "yjs";

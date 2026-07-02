@@ -206,10 +206,10 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
               overlay: () => {
                 // Fail-fast on illegal adoption (cycle, cross-doc, self) BEFORE any
                 // state change — pure check, no yjs write. Materialization is deferred
-                // to `materialize` (phase 1); the parent-edge write to `commit` (phase
-                // 2). Optional-chained on the symbol (not `instanceof`) to match the
-                // original choreography and avoid a runtime dependency on the type-only
-                // PlexusModel import.
+                // to `materialize` (phase 1); the parent edge settles once at flush
+                // via the staged `moves` (ownership pass). Optional-chained on the
+                // symbol (not `instanceof`) to match the original choreography and
+                // avoid a runtime dependency on the type-only PlexusModel import.
                 if (isChildField) {
                   value?.[validateAdoptionSymbol]?.(owner, key);
                 }
@@ -220,12 +220,13 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                 // transaction so its materialization keeps its own origin (via
                 // `[referenceSymbol]`'s own `maybeTransacting`) instead of being
                 // swallowed into the user's tx — the bug this rework exists to fix.
-                // This is the same call `informAdoption` makes at PlexusModel.ts:414-415;
-                // running it here means the phase-2 `requestAdoption` finds the child
-                // already materialized (yjsModel set) and only writes the parent edge.
+                // This is the same call `informAdoption` (PlexusModel.ts) makes
+                // before writing the parent edge; running it here means the flush
+                // ownership pass (`settleAdoption`) finds the child already
+                // materialized (yjsModel set) and only writes the parent edge.
                 // NOTE: the OWNER's field-map materialization (`ensureYjsMap`) is NOT
                 // genesis of a new entity — it is part of the user's own edit, so it
-                // stays in `commit` and rides the user transaction.
+                // stays in `describe` and rides the flush transaction.
                 if (isChildField) {
                   value?.[referenceSymbol]?.(owner.__doc__!);
                 }
@@ -250,7 +251,7 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                 // Materialization + adoption were deferred (phases 1/2) and never ran on
                 // a rollback, so the child was neither materialized nor adopted — just
                 // undo the overlay add. Silent: the overlay `add` fired no
-                // `trackModification` (deferred to `commit`), so no observer saw it;
+                // `trackModification` (deferred to `notify`), so no observer saw it;
                 // undoing it must be silent too, or we'd fire a spurious re-run for a
                 // net-zero change.
                 backingSet.delete(value);
@@ -265,13 +266,16 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
             if (backingSet.size === 0) return;
 
             // Snapshot the pre-clear contents — overlay empties both collections
-            // immediately, so `describe`/`revertOverlay` (running later, at flush)
-            // need this to orphanize children and restore the mirror on rollback.
+            // immediately; the orphan `moves` below are built from the snapshot,
+            // and `revertOverlay` (running later, on rollback) restores the mirror.
             const previousItems = Array.from(backingSet);
             const previousSerialized = new Map(serializedToElement);
 
             emitOrDefer(owner.__doc__, {
-              // Non-action path: exactly the original choreography, verbatim.
+              // Non-action path: the original choreography — verbatim modulo the
+              // residence guard, which is vacuous eagerly (a resident occupant
+              // always passes) and only bites when a flush-time sweep re-enters
+              // this proxy.
               applyNow: () => {
                 maybeTransacting(owner.__doc__!, () => {
                   if (isChildField) {
@@ -328,8 +332,11 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
             if (!backingSet.has(value)) return false;
 
             emitOrDefer(owner.__doc__, {
-              // Non-action path: exactly the original choreography, verbatim
-              // (minus the guard, which now runs before emitOrDefer).
+              // Non-action path: the original choreography — verbatim minus the
+              // has-guard (now run before emitOrDefer) and modulo the residence
+              // guard, which is vacuous eagerly (a resident occupant always
+              // passes) and only bites when a flush-time sweep re-enters this
+              // proxy.
               applyNow: () => {
                 backingSet.delete(value);
 
@@ -392,9 +399,10 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
           return (newValues: Iterable<T>) => {
             const newValuesSet = new Set(newValues);
             // Snapshot the pre-assign state — overlay mutates `backingSet`
-            // immediately, so materialize/describe/revertOverlay (running later,
-            // at flush) need this to tell new children from kept ones, orphanize
-            // removed ones, and restore the mirror on rollback.
+            // immediately, so everything that must tell new children from kept
+            // ones (`overlay`'s validation, phase-1 `materialize`) or restore
+            // the mirror on rollback (`revertOverlay`) reads this snapshot; the
+            // orphan `moves` below are built from it too.
             const previousBackingSet = new Set(backingSet);
             const previousSerialized = new Map(serializedToElement);
 
@@ -416,7 +424,10 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
             }
 
             emitOrDefer(owner.__doc__, {
-              // Non-action path: exactly the original choreography, verbatim.
+              // Non-action path: the original choreography — verbatim modulo the
+              // residence guard, which is vacuous eagerly (a resident occupant
+              // always passes) and only bites when a flush-time sweep re-enters
+              // this proxy.
               applyNow: () => {
                 if (newValuesSet.size > 0) ensureYjsMap();
                 const yjsMap = getYjsMap();

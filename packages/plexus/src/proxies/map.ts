@@ -24,7 +24,7 @@ import {
   trackModification,
   VALUES_SYMBOL,
 } from "../tracking.js";
-import { deserializeKey, serializeKey } from "./key-serialization.js";
+import { deserializeKey, materializeKeyEntities, serializeKey, serializeKeyNonMinting } from "./key-serialization.js";
 import { bucketCount, telemetry } from "../telemetry.js";
 import { undoManagerNotifications } from "../utils/undoManagerNotifications.js";
 import { maybeReference, maybeTransacting } from "../utils/utils.js";
@@ -194,7 +194,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         // sees THIS statement as the last word; the engine no-ops it when it's
         // a true reaffirmation. Non-child fields keep the cheap early return.
         if (isChildField && value instanceof PlexusModel) {
-          const serializedSubKey = serializeKey(mapKey, owner.__doc__);
+          const serializedSubKey = serializeKeyNonMinting(mapKey, owner.__doc__);
           emitOrDefer(owner.__doc__, {
             applyNow: () => this,
             overlay: () => {},
@@ -211,9 +211,11 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       // the new value, so the pre-op state must be snapshotted here.
       const hadKey = backingStorage.has(mapKey);
       const oldValue = backingStorage.get(mapKey);
-      // Statement-time serialization, shared by the move and the ops below —
-      // hoisted here so the move's `meta` and describe()'s written key agree.
-      const serializedSubKey = isChildField ? serializeKey(mapKey, owner.__doc__) : null;
+      // Statement-time serialization, shared by the move and the ops below.
+      // Non-minting: a fresh entity key must not do doc work (genesis) at
+      // statement time — flush phase 1 materializes it, and settle/describe
+      // re-serialize the global form from the raw key.
+      const serializedSubKey = isChildField ? serializeKeyNonMinting(mapKey, owner.__doc__) : null;
       const stagedMoves: OwnershipMove[] = [];
       if (isChildField) {
         if (oldValue instanceof PlexusModel && oldValue !== value) {
@@ -280,6 +282,9 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           if (isChildField) {
             value?.[referenceSymbol]?.(owner.__doc__!);
           }
+          // Key entities materialize UNCONDITIONALLY — value maps admit entity
+          // keys too, and describe() serializes the key inside the flush tx.
+          materializeKeyEntities(mapKey, owner.__doc__!);
         },
         describe: () => {
           // Phase 2 — content-only. Ownership choreography (orphan/adopt) is
@@ -346,8 +351,9 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       const oldValue = backingStorage.get(mapKey);
       const canonicalKey = backingStorage.getCanonicalKey(mapKey);
       // Statement-time serialization — the same string form the orphan move's
-      // `meta` carries, computed once here.
-      const serializedSubKey = isChildField ? serializeKey(mapKey, owner.__doc__) : null;
+      // `meta` carries, computed once here. Non-minting: deleting under a
+      // fresh entity key must not materialize it.
+      const serializedSubKey = isChildField ? serializeKeyNonMinting(mapKey, owner.__doc__) : null;
       emitOrDefer(owner.__doc__, {
         // Non-action path: exactly the original choreography, verbatim.
         applyNow: () => {
@@ -426,7 +432,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
             .map(([k, value]) => ({
               child: value,
               orphan: true as const,
-              from: { parent: owner, field: key, meta: serializeKey(k, owner.__doc__) },
+              from: { parent: owner, field: key, meta: serializeKeyNonMinting(k, owner.__doc__) },
             }))
         : [];
       emitOrDefer(owner.__doc__, {
@@ -541,7 +547,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
                 stagedMoves.push({
                   child: value,
                   orphan: true,
-                  from: { parent: owner, field: key, meta: serializeKey(k, owner.__doc__) },
+                  from: { parent: owner, field: key, meta: serializeKeyNonMinting(k, owner.__doc__) },
                 });
               }
             }
@@ -549,7 +555,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         }
         for (const [k, v] of newEntries) {
           if (v instanceof PlexusModel) {
-            const serializedSubKey = serializeKey(k, owner.__doc__);
+            const serializedSubKey = serializeKeyNonMinting(k, owner.__doc__);
             stagedMoves.push({ child: v, parent: owner, field: key, meta: serializedSubKey, rawKey: k });
           }
         }
@@ -637,7 +643,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           if (isChildField) {
             for (const [k, v] of newEntries) {
               if (v && !oldValueSet.has(v)) {
-                const serializedSubKey = serializeKey(k, owner.__doc__);
+                const serializedSubKey = serializeKeyNonMinting(k, owner.__doc__);
                 v[validateAdoptionSymbol]?.(owner, key, serializedSubKey);
               }
             }
@@ -656,6 +662,11 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
                 v?.[referenceSymbol]?.(owner.__doc__!);
               }
             }
+          }
+          // Key entities materialize UNCONDITIONALLY — value maps admit entity
+          // keys too, and describe() serializes each key inside the flush tx.
+          for (const [k] of newEntries) {
+            materializeKeyEntities(k, owner.__doc__!);
           }
         },
         describe: () => {

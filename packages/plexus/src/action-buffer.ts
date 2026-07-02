@@ -186,8 +186,8 @@ export function applyYjsOp(op: YjsOp): void {
  * `rawKey` is present on child-map slots only: the raw (unserialized) map key.
  * Anything that crosses the statement→flush boundary — residue sweeps, the
  * settle's parentData meta — must NOT string-compare statement-form meta
- * (entity keys serialize local-form on doc-less owners, global-form once
- * materialized); it goes through the public map proxy / re-serialization in
+ * (entity keys serialize local-form while the key entity is fresh, global-form
+ * once doc-backed); it goes through the public map proxy / re-serialization in
  * flush context via `rawKey` instead.
  */
 export interface EffectiveActionParent {

@@ -1,7 +1,7 @@
 import invariant from "tiny-invariant";
 import type * as Y from "yjs";
 
-import { emitOrDefer, type YjsOp } from "../atomic-buffer.js";
+import { emitOrDefer, type YjsOp } from "../action-buffer.js";
 import { deref } from "../deref.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
@@ -109,7 +109,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
             // `proxyTarget`.
             const previousEntries = { ...proxyTarget };
             emitOrDefer(owner.__doc__, {
-              // Non-atomic path: exactly the original choreography, verbatim.
+              // Non-action path: exactly the original choreography, verbatim.
               applyNow: () => {
                 // Clear parent tracking for all child values
                 if (isChildField) {
@@ -162,7 +162,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
             const previousEntries = { ...proxyTarget };
 
             emitOrDefer(owner.__doc__, {
-              // Non-atomic path: exactly the original choreography, verbatim.
+              // Non-action path: exactly the original choreography, verbatim.
               applyNow: () => {
                 ensureYjsMap(); // create container outside tracked transaction
                 maybeTransacting(owner.__doc__, () => {
@@ -331,7 +331,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
         // Track key changes: key added (wasn't present, now has value) or removed (was present, now undefined)
         const structureChanged = (hadKeyBefore && value === undefined) || (!hadKeyBefore && value !== undefined);
         emitOrDefer(owner.__doc__, {
-          // Non-atomic path: exactly the original choreography, verbatim.
+          // Non-action path: exactly the original choreography, verbatim.
           applyNow: () => {
             if (value !== undefined) ensureYjsMap();
             maybeTransacting(owner.__doc__, () => {
@@ -432,7 +432,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
       // in `describe`, since by then the overlay has already deleted the key.
       const previousValue = proxyTarget[elementKey];
       emitOrDefer(owner.__doc__, {
-        // Non-atomic path: exactly the original choreography, verbatim.
+        // Non-action path: exactly the original choreography, verbatim.
         applyNow: () => {
           maybeTransacting(owner.__doc__, () => {
             // Handle parent tracking for child fields

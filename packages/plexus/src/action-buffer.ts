@@ -1,20 +1,17 @@
 /**
- * Deferred-buffer engine for `@syncing.atomic` — the spec-based transaction core.
- * See `docs/working-proposals/syncing-atomic-spec-based-transactions.md`.
+ * Deferred-buffer engine for `@syncing.action` — the spec-based transaction core.
  *
- * ───────────────────────────────────────────────────────────────────────────
- * A REGION, NOT A SINGLE-DOC CONTEXT
- * ───────────────────────────────────────────────────────────────────────────
- * An atomic body opens a computation REGION: one ordered list of deferred
+ * ## A region, not a single-doc context
+ *
+ * An action body opens a computation REGION: one ordered list of deferred
  * changes, each tagged with the doc it targets. The region is doc-agnostic — a
  * body may touch several docs, and each doc's changes are burst into its OWN
  * transaction at flush. "Outermost" is purely a sync-stack notion: the frame
- * with no atomic parent owns the flush; nested frames defer into the same region
+ * with no action parent owns the flush; nested frames defer into the same region
  * and own a savepoint slice.
  *
- * ───────────────────────────────────────────────────────────────────────────
- * WHY A BUFFER — POSTPONEMENT, not "hold a transaction open"
- * ───────────────────────────────────────────────────────────────────────────
+ * ## Why a buffer — postponement, not "hold a transaction open"
+ *
  * The buffer's job is to decouple *when intent is expressed* (the method body,
  * running in program order so it can read its own writes) from *when and where
  * each effect executes* (the flush). Postponement is the point — rollback is a
@@ -37,9 +34,8 @@
  * validation (eager, at overlay) from the writes (phase 2) makes the writes
  * inert: nothing fallible is left to throw mid-flush.
  *
- * ───────────────────────────────────────────────────────────────────────────
- * CHANGES ARE DATA — `YjsOp` op-describing objects
- * ───────────────────────────────────────────────────────────────────────────
+ * ## Changes are data — `YjsOp` op-describing objects
+ *
  * Every leaf yjs mutation this layer owns is expressed as a `YjsOp` descriptor
  * and applied through the single `applyYjsOp` dispatcher — the sole toucher of
  * `Y.Map` / `Y.Array` / `PlexusWrapper`. A site's `describe()` runs inside the
@@ -48,37 +44,34 @@
  * calls into the protected core (they own their own transaction semantics and
  * nest into the flush tx) — they are plexus choreography, not leaf yjs ops.
  *
- * ───────────────────────────────────────────────────────────────────────────
- * LIMINALITY — instant bypass, marked for rollback
- * ───────────────────────────────────────────────────────────────────────────
+ * ## Liminality — instant bypass, marked for rollback
+ *
  * A mutation to a LIMINAL (preview) doc has different atomicity guarantees and is
  * applied INSTANTLY (its own `applyNow`), never buffered — the preview shadow is
- * the atomic unit already. A lightweight marker is still pushed into the region so
+ * its own transactional unit already. A lightweight marker is still pushed into the region so
  * savepoint slicing sees it; if a rollback reverts a slice containing a liminal
  * marker, we warn that the liminal effect was applied instantly and cannot be
  * rolled back here (commit/revertLiminality own it).
  *
- * ───────────────────────────────────────────────────────────────────────────
- * THROW SEMANTICS — commit-on-crash is the DEFAULT
- * ───────────────────────────────────────────────────────────────────────────
+ * ## Throw semantics — commit-on-crash is the DEFAULT
+ *
  * A throwing body does NOT roll back by default. This matches both hosts we sit
  * between: JavaScript (an exception never unwinds the effects of statements that
  * already ran) and yjs (`transact` finalizes in `finally`, never rolls back). So
  * the writes buffered BEFORE the throw are flushed, then the error rethrows.
  *
  * Rollback is OPT-IN, per decorated method, via an error predicate:
- * `@syncing.atomic({ rollbackIf: (error) => boolean })`. When the predicate
+ * `@syncing.action({ rollbackIf: (error) => boolean })`. When the predicate
  * matches the thrown error, the frame's buffered slice is discarded (yjs was
  * never touched → the wire stays pure) and its overlay writes are inversed to
  * restore the local mirror. The error rethrows either way.
  *
- * ───────────────────────────────────────────────────────────────────────────
- * WHY THE CORE WRITE PATH IS UNCHANGED (`applyNow`)
- * ───────────────────────────────────────────────────────────────────────────
+ * ## Why the core write path is unchanged (`applyNow`)
+ *
  * Every routed site passes its ORIGINAL choreography verbatim as `applyNow`. When
  * no region is active (the overwhelming common case), `emitOrDefer` runs exactly
- * `applyNow()` and nothing else. Non-atomic mutations are byte-for-byte what they
- * were before routing.
+ * `applyNow()` and nothing else. Mutations outside an action are byte-for-byte what
+ * they were before routing.
  */
 
 import type * as Y from "yjs";
@@ -193,7 +186,7 @@ interface Region {
 /**
  * The active region, or null. Doc-agnostic: a region batches mutations to any
  * number of docs, bursting one transaction per doc at flush. A nested
- * `@syncing.atomic` reuses it (its mutations defer into the same ordered list,
+ * `@syncing.action` reuses it (its mutations defer into the same ordered list,
  * owning a savepoint slice).
  */
 let current: Region | null = null;
@@ -222,8 +215,8 @@ export function emitOrDefer(doc: Y.Doc | null | undefined, ops: EmitOps): void {
     return;
   }
   if (isLiminalDoc(doc)) {
-    // Liminal writes happen instantly — the preview shadow is already the atomic
-    // unit, with its own guarantees. We still record the marker so savepoint
+    // Liminal writes happen instantly — the preview shadow is already its own
+    // transactional unit, with its own guarantees. We still record the marker so savepoint
     // slicing / rollback can report that a liminal effect can't be reverted here.
     ops.applyNow();
     current.entries.push({ kind: "liminal", doc });
@@ -267,7 +260,7 @@ function revertRegionFrom(region: Region, from: number): void {
   if (sawLiminal) {
     // eslint-disable-next-line no-console
     console.warn(
-      "@syncing.atomic rollback: a reverted change targeted a liminal (preview) doc. Liminal writes " +
+      "@syncing.action rollback: a reverted change targeted a liminal (preview) doc. Liminal writes " +
         "apply instantly and are NOT rolled back here — use revertLiminality() to discard the preview.",
     );
   }
@@ -313,7 +306,7 @@ function flush(region: Region): void {
 }
 
 /**
- * Run `body` as one atomic region.
+ * Run `body` as one action region.
  *
  *  - Success: flush the region (phase 1 outside any tx, phase 2 one tx per doc).
  *  - Throw with no matching `rollbackIf`: commit-on-crash — flush what was buffered
@@ -324,7 +317,7 @@ function flush(region: Region): void {
  * Nested calls share the outer region but own a savepoint slice; the OUTERMOST
  * call owns the single flush.
  */
-export function runAtomic<T>(body: () => T, rollbackIf?: (error: unknown) => boolean): T {
+export function runAction<T>(body: () => T, rollbackIf?: (error: unknown) => boolean): T {
   // NESTED: share the outer region, own a savepoint slice.
   if (current !== null) {
     const region = current;

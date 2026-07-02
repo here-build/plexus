@@ -1,28 +1,32 @@
 /**
- * `@syncing.atomic` — run a PlexusModel method body as ONE atomic Plexus
- * transaction PER DOC it touches. See
- * `docs/working-proposals/syncing-atomic-spec-based-transactions.md` and the
- * engine in `./atomic-buffer.ts`.
+ * `@syncing.action` — run a PlexusModel method body as ONE Plexus transaction
+ * PER DOC it touches (a *syncing action*: a collapsed unit of intent). The engine
+ * lives in `./action-buffer.ts`.
  *
- * "Atomic" here means, for each doc the body mutates:
- *   - ONE yjs transaction (one `update` event),
+ * For each doc the body mutates, the action guarantees:
+ *   - ONE yjs transaction (one `update` event, delivered whole/atomically to peers),
  *   - ONE undo unit (a single `undo()` reverts that doc's whole batch),
- *   - peers see all-or-nothing of THAT update (delivered whole).
+ *   - peers see all-or-nothing of THAT update.
  *
  * A body may touch several docs; each doc is burst into its own single
  * transaction at flush (genesis first, outside any transaction). This is a
  * doc-agnostic REGION, not a single held-open transaction.
  *
- * THROW is commit-on-crash BY DEFAULT — writes buffered before the throw are
- * flushed, then the error rethrows (matches JS + yjs, which never unwind
- * completed effects). Rollback is opt-in, per method, via an error predicate:
+ * ## Why this exists — yjs transactions are BATCHING, not ACID
+ *
+ * A yjs transaction groups writes into one update; it does NOT give all-or-nothing.
+ * A throw mid-transaction commits the partial and broadcasts it — there is no
+ * rollback (yjs finalizes in `finally`, by design as a low-level CRDT). This is the
+ * ACID-shaped layer the ecosystem keeps reaching for, built the principled way:
+ * N mutations → one update / one undo step per doc, plus OPT-IN all-or-nothing on
+ * throw. Without the opt-in it means exactly what yjs means — one batched update.
  *
  * ```ts
  * class Foo extends PlexusModel {
  *   @syncing accessor count!: number;
  *   @syncing.child.set accessor bars!: Set<Bar>;
  *
- *   @syncing.atomic                       // commit-on-crash (default)
+ *   @syncing.action                       // commit-on-crash (default)
  *   doStuff() {
  *     this.count = 1;
  *     this.bars.add(new Bar({ ... }));    // materializes a new entity mid-method
@@ -30,35 +34,81 @@
  *     // ↑ all deferred; replayed as exactly ONE flush at method return
  *   }
  *
- *   @syncing.atomic({ rollbackIf: (e) => e instanceof PlexusCycleError })
+ *   @syncing.action({ rollbackIf: (e) => e instanceof PlexusCycleError })
  *   risky() { ... }                       // discards the batch if the predicate matches
  * }
  * ```
  *
- * ───────────────────────────────────────────────────────────────────────────
- * HOW IT WORKS — DEFERRED BUFFER (postponement, not "hold a transaction open")
- * ───────────────────────────────────────────────────────────────────────────
- * `runAtomic` opens a computation region. While it is active, each routed
- * mutation site applies its LOCAL OVERLAY immediately (so the body reads its own
- * writes) but BUFFERS its effect, tagged with the doc it targets. On success the
- * flush runs in two phases — genesis/materialization OUTSIDE any transaction (its
- * own origin), then the inert yjs writes grouped per doc, each doc's writes inside
- * ONE `maybeTransacting(doc)` → one transaction / update / undo item per doc. On a
- * `rollbackIf` match the buffer is DISCARDED (yjs never touched → wire-pure) and
- * the overlay inverses replay in reverse to restore the mirror. See
- * `./atomic-buffer.ts` for why routing the leaf sites suffices (parent-edge /
- * materialization writes ride the flush transitively).
+ * ## How it works — deferred buffer + eager overlay
  *
- * Re-entrancy: a nested `@syncing.atomic` defers into the outer region (owning its
+ * The shift from "hold a transaction open" to POSTPONEMENT:
+ *   - yjs writes are DEFERRED — buffered as inert effects, nothing hits a Y.Doc
+ *     until the flush;
+ *   - the in-memory layer is EAGER — each routed site applies its LOCAL OVERLAY
+ *     (the backing mirror) immediately, so the body reads its own pending writes.
+ *
+ * `runAction` opens the region; each routed mutation overlays now and buffers its
+ * effect tagged with the target doc. On success the flush runs in two phases —
+ * genesis/materialization OUTSIDE any transaction (its own origin), then the inert
+ * yjs writes grouped per doc, each doc's writes inside ONE `maybeTransacting(doc)`
+ * → one transaction / update / undo item per doc. Routing the LEAF sites suffices:
+ * parent-edge and materialization writes ride the flush transitively.
+ *
+ * WIRE-PURITY. Because yjs is untouched until the flush, a rolled-back action
+ * broadcasts NOTHING — the buffer is centralized across every doc touched, so the
+ * "separate docs → separate updates → can't net-zero" objection never arises: the
+ * writes simply never happened. (Scoped to user-mutation writes; see GENESIS.)
+ *
+ * Re-entrancy: a nested `@syncing.action` defers into the outer region (owning its
  * own savepoint slice), so the outermost method owns the single flush.
  *
- * ───────────────────────────────────────────────────────────────────────────
- * BOUNDARY BEHAVIOR (intentional, asserted / documented — NOT a TODO)
- * ───────────────────────────────────────────────────────────────────────────
+ * ## Genesis — a re-derived virtual layer, NOT a user mutation
+ *
+ * Entity materialization (genesis) is its own kind and runs in flush phase 1,
+ * OUTSIDE the user's transaction, with its own origin. Conceptually the entity was
+ * always there; genesis only materializes the observation of it. It is deterministic
+ * and content-addressed, so every peer re-derives the identical structure — it is
+ * wire-SAFE (idempotent), not wire-absent. The action neither buffers a rollback for
+ * genesis nor unwinds it: on rollback the flush never runs, so a rolled-back
+ * creation simply never materializes (no orphan). This is why wire-purity above is
+ * a claim about user-mutation writes, explicitly excluding the genesis virtual layer.
+ *
+ * ## Throw — commit-on-crash by DEFAULT; rollback is opt-in; scope is SYNCED state
+ *
+ * By default a throw is commit-on-crash: writes buffered before the throw are
+ * flushed, then the error rethrows — matching both hosts we sit between (JS, where
+ * an exception never unwinds statements that already ran, and yjs, which never rolls
+ * back). Rollback is per-method opt-in via `{ rollbackIf: (error) => boolean }`.
+ *
+ * When it fires, rollback reverts SYNCED state only — mentally "drop the synced
+ * writes and re-sync," not "recover a snapshot": the buffer is discarded (yjs never
+ * touched → wire-pure) and the overlay inverses replay in reverse to restore the
+ * mirror. Ephemeral / transient / derived local state is NOT rolled back — exactly
+ * as any throwing JS method leaves its non-synced side effects. The error rethrows
+ * either way; `rollbackIf` decides STATE, never control flow.
+ *
+ * ESCAPED-ENTITY hazard: an entity materialized in a body that then rolls back can
+ * leak out (returned, closed over, stashed) as a live handle that will never sync.
+ * The synchronous wrapping kills the common case (no `await` → it can't escape to a
+ * later turn); side-effect escape remains a matter of discipline, not structure.
+ *
+ * ## Identity — no uuid until commit (ordinal is the within-action handle)
+ *
+ * An entity created during the body has NO uuid until the flush — identity is
+ * DERIVED from integration, not minted, and integration is deferred. Reading
+ * `.uuid` mid-action for such an entity throws by design: the constraint is "don't
+ * rely on uuid until we're done here, because we might still roll this back." The
+ * ordinal is the local, materialization-stable handle available now (and the React
+ * key); the uuid is the global id available post-commit. Store entity REFS, not uuid
+ * strings — a ref resolves to its uuid at commit.
+ *
+ * ## Boundary behavior (intentional, asserted / documented — NOT a TODO)
+ *
  *   - LIMINALITY: a mutation to a liminal (preview) doc applies INSTANTLY — the
- *     preview shadow is already the atomic unit, with its own guarantees. It is
- *     never buffered; a marker is recorded so a rollback slice can warn that a
- *     liminal effect cannot be reverted here (that is `revertLiminality()`'s job).
+ *     preview shadow is already its own transactional unit, with its own
+ *     guarantees. It is never buffered; a marker is recorded so a rollback slice
+ *     can warn that a liminal effect cannot be reverted here (that is
+ *     `revertLiminality()`'s job).
  *   - EMPTY REGION. A method that mutates nothing buffers nothing; the flush is
  *     skipped entirely (no empty transaction, so a pending `stopCapturing` is not
  *     cancelled).
@@ -66,21 +116,36 @@
  *     mutations; those apply immediately (there is no doc to defer into) and are
  *     simply not collapsed. No warning — the region handles it gracefully.
  *   - MULTI-DOC. A body that mutates several docs is fully supported: each doc gets
- *     its own single transaction at flush. Atomicity is per-doc (yjs has no
- *     cross-doc transaction); the region guarantees each doc's batch is whole.
+ *     its own single transaction at flush. Per-doc only (yjs has no cross-doc
+ *     transaction); the region guarantees each doc's batch is whole.
  *
- * ───────────────────────────────────────────────────────────────────────────
- * ASYNC IS A COMPILE ERROR (not a runtime warning)
- * ───────────────────────────────────────────────────────────────────────────
- * The deferral region is synchronous and flushes when the body RETURNS. An async
- * body would buffer only up to its first `await`; everything after runs after the
- * region has closed. Rather than warn at runtime, the decorator's return type is
- * branded so decorating a method whose return type is a `Promise` is a TYPE ERROR
- * at the declaration site — the wrong state is unrepresentable.
+ * ## Honest limits — crash-atomicity and async continuations
  *
- * ───────────────────────────────────────────────────────────────────────────
- * OUT-OF-ENVELOPE (correct-but-unbatched → LOUD once-per-method dev warning)
- * ───────────────────────────────────────────────────────────────────────────
+ *   - CROSS-DOC IS STRUCTURALLY ALL-OR-NOTHING, NOT 2-PHASE-COMMIT. The
+ *     STACK-TOPMOST action owns the single flush: every doc's transaction fires in
+ *     ONE synchronous burst at the outermost boundary (`flush` loops
+ *     `maybeTransacting(doc)` per doc over inert, pre-validated writes — no user
+ *     code, no `await`, nothing fallible between them). A nested action never
+ *     flushes; its writes — including ones to OTHER docs — defer into the same
+ *     region and burst with the rest. So in normal control flow it is all-or-nothing
+ *     across docs: no logical interleaving can leave a partial. The one residual is
+ *     a hard PROCESS CRASH literally between two per-doc transactions; closing that
+ *     needs 2-phase commit across docs (out of scope). Named, not hidden.
+ *   - A DEFERRED-BODY METHOD IS A COMPILE ERROR. The region is synchronous and
+ *     flushes when the body RETURNS; a body that doesn't run to completion on call
+ *     escapes it — an `async` body buffers only up to its first `await`, and a
+ *     generator (sync OR async) runs lazily on iteration, not at all when called.
+ *     Rather than warn at runtime, the decorator does not ACCEPT such a method: when
+ *     the return is a `Promise` / `AsyncIterable` / `AsyncIterator` / `Iterator`
+ *     (a generator) the `target` parameter collapses to `never`, so decorating it is
+ *     a TYPE ERROR at the declaration site — the wrong state is unrepresentable.
+ *   - ASYNC-CONTINUATION MUTATIONS are a permanent non-goal. The buffer closes over
+ *     the synchronous body only; a write from a `setTimeout` / microtask / deferred
+ *     callback fires outside the body and cannot be captured. Mutate synced state
+ *     only from within the synchronous body.
+ *
+ * ## Out-of-envelope (correct-but-unbatched → LOUD once-per-method dev warning)
+ *
  *   - UNROUTED MUTATION KIND. Until every emission site is routed through the
  *     buffer, a not-yet-routed mutation inside the body takes its normal eager
  *     write path — it hits yjs DURING the body, so it is NOT batched and does NOT
@@ -92,7 +157,7 @@
 
 import type * as Y from "yjs";
 
-import { isDeferring, isLiminalDoc, runAtomic } from "./atomic-buffer.js";
+import { isDeferring, isLiminalDoc, runAction } from "./action-buffer.js";
 import type { PlexusModel } from "./PlexusModel.js";
 import { transactionObserverHook } from "./utils/utils.js";
 
@@ -107,43 +172,78 @@ const warnOnce = (seen: WeakSet<object>, key: object, message: string): void => 
   console.warn(message);
 };
 
-/** Per-method configuration for the factory form `@syncing.atomic({ ... })`. */
-export interface AtomicOptions {
+/** Per-method configuration for the factory form `@syncing.action({ ... })`. */
+export interface ActionOptions {
   /**
    * Opt-in rollback. When the body throws and this predicate returns `true` for
-   * the thrown error, the atomic batch is discarded (the wire stays pure and the
+   * the thrown error, the action's batch is discarded (the wire stays pure and the
    * local mirror is restored) instead of the default commit-on-crash. The error
    * rethrows either way.
    */
   readonly rollbackIf?: (error: unknown) => boolean;
 }
 
-type AtomicMethod<This extends PlexusModel, Args extends unknown[], Return> = (
+type ActionMethod<This extends PlexusModel, Args extends unknown[], Return> = (
   this: This,
   ...args: Args
 ) => Return;
 
 /**
- * Compile-time rejection type for async bodies. It carries a unique-symbol brand
- * and is therefore NOT assignable to a method slot — returning it from the
- * decorator surfaces as a type error at the `@syncing.atomic` declaration, with
- * the message below shown in the mismatch.
+ * Return shapes that prove the method body does NOT run to completion when called,
+ * so the decorator refuses a method that returns one — the region is synchronous
+ * and flushes on RETURN.
+ *
+ *   - `Promise`         — an `async` body suspends at its first `await`, buffering
+ *                         only the writes before it;
+ *   - `AsyncIterable` / `AsyncIterator`
+ *                       — an `async function*` (the `[Symbol.asyncIterator]` side)
+ *                         or a hand-rolled async `.next()`-only object;
+ *   - `Iterator`        — a SYNC generator (`function*` → `Generator`, which is an
+ *                         `Iterator`) whose body runs lazily on iteration, not on
+ *                         call, so its mutations miss the region entirely.
+ *
+ * `Iterator` (not `Iterable`) is the deliberate cut: `string`, arrays, `Map`/`Set`
+ * are `Iterable` but not `Iterator`, so a body that legitimately RETURNS one of
+ * those is untouched. The one over-broad case is a body that returns a live
+ * iterator it built eagerly (`return map.values()`) — its body DID complete, but it
+ * reads as an `Iterator` and is rejected; wrap it (`[...map.values()]`) if you hit
+ * it. The real invariant is "the body runs to completion when called."
+ *
+ * Two assignability edges, resolved opposite ways in `SyncActionMethod`:
+ *   - `(): never` (an always-throwing body, explicitly annotated) would match here
+ *     only because `never` is assignable to EVERYTHING — but such a body does run
+ *     at call time, and commit-on-crash is precisely its designed semantics, so it
+ *     is escaped back to accepted;
+ *   - `(): any` matches for the same assignability reason and is KEPT rejected on
+ *     purpose: an `any` return may well be a `Promise`, so the decorator demands
+ *     the real annotation instead of admitting sloppily-typed async. (`unknown`
+ *     stays accepted — unlike `any` it cannot silently BE a promise downstream
+ *     without narrowing.)
  */
-declare const asyncNotAllowed: unique symbol;
-interface AsyncMethodNotAllowed {
-  readonly [asyncNotAllowed]: "@syncing.atomic cannot decorate an async method: the deferral region is synchronous and flushes when the body returns. Make the method synchronous.";
-}
+type DeferredDelivery = Promise<unknown> | AsyncIterable<unknown> | AsyncIterator<unknown> | Iterator<unknown>;
 
 /**
- * Maps a method type to the decorator's return type: the method itself when
- * synchronous, or the un-assignable `AsyncMethodNotAllowed` brand when its return
- * type is a Promise (non-distributive `[Return]` so only a wholly-async return is
- * rejected). Applied to both the bare overload and the factory's returned
- * decorator so async is banned in both usages.
+ * The method type the decorator ACCEPTS. The ban is at the INPUT: when `Return`
+ * is a `DeferredDelivery` the whole parameter collapses to `never`, so an async
+ * method, an async generator, or a sync generator is simply not an accepted
+ * argument — the error lands on the `@syncing.action` line as "not assignable",
+ * with no brand and nothing leaking into the decorator's output type. For a body
+ * that returns synchronously it is the ordinary `ActionMethod`, and because that
+ * clean naked function type is the conditional's FALSE branch, `This` / `Args` /
+ * `Return` still infer from it (so the decorated method keeps its real return
+ * type). The `[Return]` wrapper is non-distributive, so only a wholly-deferred
+ * return is rejected (`Promise<T> | T` — a body that may hand back a promise it
+ * built synchronously — stays accepted; its continuation writes are the
+ * documented ASYNC-CONTINUATION non-goal, not a laziness proof).
+ *
+ * The leading `[Return] extends [never]` arm escapes the one assignability false
+ * positive: an explicitly-annotated always-throwing method (see `DeferredDelivery`).
  */
-type AtomicResult<This extends PlexusModel, Args extends unknown[], Return> = [Return] extends [Promise<unknown>]
-  ? AsyncMethodNotAllowed
-  : AtomicMethod<This, Args, Return>;
+type SyncActionMethod<This extends PlexusModel, Args extends unknown[], Return> = [Return] extends [never]
+  ? ActionMethod<This, Args, Return>
+  : [Return] extends [DeferredDelivery]
+    ? never
+    : ActionMethod<This, Args, Return>;
 
 /**
  * The decorator the factory form returns. Generic in its call signature so it
@@ -151,51 +251,52 @@ type AtomicResult<This extends PlexusModel, Args extends unknown[], Return> = [R
  * typed parameters (e.g. `foo(kind: "a" | "b")`) must decorate cleanly, which a
  * non-generic `unknown[]` signature would reject on contravariant arg checking.
  */
-interface GenericAtomicDecorator {
+interface GenericActionDecorator {
   <This extends PlexusModel, Args extends unknown[], Return>(
-    target: AtomicMethod<This, Args, Return>,
-    context: ClassMethodDecoratorContext<This, AtomicMethod<This, Args, Return>>,
-  ): AtomicResult<This, Args, Return>;
+    target: SyncActionMethod<This, Args, Return>,
+    context: ClassMethodDecoratorContext<This, ActionMethod<This, Args, Return>>,
+  ): ActionMethod<This, Args, Return>;
 }
 
 /**
- * `@syncing.atomic` method decorator. Constrained to `PlexusModel` receivers —
+ * `@syncing.action` method decorator. Constrained to `PlexusModel` receivers —
  * the whole point is batching model mutations, which flow through docs the
  * receiver owns. Applying it to a non-PlexusModel method is meaningless (and a
- * type error). Applying it to an async method is a type error (see
- * `AsyncMethodNotAllowed`).
+ * type error). Applying it to an async method, an async generator, or a sync
+ * generator is a type error too — the `target` parameter is not satisfiable by a
+ * `DeferredDelivery` return (see `SyncActionMethod`).
  *
  * Two usages:
- *   - bare       `@syncing.atomic`                 — commit-on-crash (default);
- *   - configured `@syncing.atomic({ rollbackIf })` — opt-in rollback predicate.
+ *   - bare       `@syncing.action`                 — commit-on-crash (default);
+ *   - configured `@syncing.action({ rollbackIf })` — opt-in rollback predicate.
  */
-export function atomic<This extends PlexusModel, Args extends unknown[], Return>(
-  target: AtomicMethod<This, Args, Return>,
-  context: ClassMethodDecoratorContext<This, AtomicMethod<This, Args, Return>>,
-): AtomicResult<This, Args, Return>;
-export function atomic(options: AtomicOptions): GenericAtomicDecorator;
-export function atomic(
-  targetOrOptions: AtomicMethod<PlexusModel, unknown[], unknown> | AtomicOptions,
-  maybeContext?: ClassMethodDecoratorContext<PlexusModel, AtomicMethod<PlexusModel, unknown[], unknown>>,
+export function action<This extends PlexusModel, Args extends unknown[], Return>(
+  target: SyncActionMethod<This, Args, Return>,
+  context: ClassMethodDecoratorContext<This, ActionMethod<This, Args, Return>>,
+): ActionMethod<This, Args, Return>;
+export function action(options: ActionOptions): GenericActionDecorator;
+export function action(
+  targetOrOptions: ActionMethod<PlexusModel, unknown[], unknown> | ActionOptions,
+  maybeContext?: ClassMethodDecoratorContext<PlexusModel, ActionMethod<PlexusModel, unknown[], unknown>>,
 ): unknown {
-  // Factory form: `@syncing.atomic({ rollbackIf })` → return the actual decorator.
+  // Factory form: `@syncing.action({ rollbackIf })` → return the actual decorator.
   if (typeof targetOrOptions !== "function") {
     const { rollbackIf } = targetOrOptions;
-    return (target: AtomicMethod<PlexusModel, unknown[], unknown>, context: ClassMethodDecoratorContext) =>
-      buildAtomicMethod(target, context, rollbackIf);
+    return (target: ActionMethod<PlexusModel, unknown[], unknown>, context: ClassMethodDecoratorContext) =>
+      buildActionMethod(target, context, rollbackIf);
   }
-  // Bare form: `@syncing.atomic` (TC39 invokes it as `(method, context)`).
-  return buildAtomicMethod(targetOrOptions, maybeContext!, undefined);
+  // Bare form: `@syncing.action` (TC39 invokes it as `(method, context)`).
+  return buildActionMethod(targetOrOptions, maybeContext!, undefined);
 }
 
-function buildAtomicMethod<This extends PlexusModel, Args extends unknown[], Return>(
-  target: AtomicMethod<This, Args, Return>,
-  context: ClassMethodDecoratorContext<This, AtomicMethod<This, Args, Return>>,
+function buildActionMethod<This extends PlexusModel, Args extends unknown[], Return>(
+  target: ActionMethod<This, Args, Return>,
+  context: ClassMethodDecoratorContext<This, ActionMethod<This, Args, Return>>,
   rollbackIf: ((error: unknown) => boolean) | undefined,
-): AtomicMethod<This, Args, Return> {
-  const label = `@syncing.atomic: method "${String(context.name)}"`;
+): ActionMethod<This, Args, Return> {
+  const label = `@syncing.action: method "${String(context.name)}"`;
 
-  return function atomicMethod(this: This, ...args: Args): Return {
+  return function actionMethod(this: This, ...args: Args): Return {
     // UNROUTED-MUTATION detection. A routed mutation only overlays during the
     // body (no real transaction until flush); a liminal write is expected to apply
     // instantly. So a real transaction opening on any NON-liminal doc WHILE the
@@ -213,7 +314,7 @@ function buildAtomicMethod<This extends PlexusModel, Args extends unknown[], Ret
 
     let result: Return;
     try {
-      result = runAtomic(() => target.apply(this, args), rollbackIf);
+      result = runAction(() => target.apply(this, args), rollbackIf);
     } finally {
       transactionObserverHook.observe = previousObserver;
     }
@@ -222,9 +323,9 @@ function buildAtomicMethod<This extends PlexusModel, Args extends unknown[], Ret
       warnOnce(
         warnedUnroutedMethods,
         target,
-        `${label} performed a mutation kind that is NOT yet routed through the atomic buffer. ` +
+        `${label} performed a mutation kind that is NOT yet routed through the action buffer. ` +
           `That write hit yjs eagerly during the body — so it was NOT batched into the single ` +
-          `transaction and will NOT roll back on throw. Restrict atomic bodies to the routed ` +
+          `transaction and will NOT roll back on throw. Restrict action bodies to the routed ` +
           `mutation kinds until the full emission rewrite lands.`,
       );
     }

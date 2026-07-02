@@ -3,7 +3,7 @@
  *
  * Ownership is stored REDUNDANTLY in Plexus: a parent holds the child in a
  * collection field (Y.Map/Y.Array), AND the child holds a single parent-pointer
- * (`PARENT_ATTR`). The single-pointer LWW argument (see the @syncing.atomic
+ * (`PARENT_ATTR`). The single-pointer LWW argument (see the @syncing.action
  * design proposal §8, "moves preserve identity") only reconciles the POINTER,
  * not the two collection edges.
  *

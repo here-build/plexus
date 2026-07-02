@@ -26,7 +26,7 @@
  *   Layer 3  `Plexus.transact`    — `maybeTransacting(liminalDoc, fn)`
  * Layers 1–3 share this machinery → identical throw behavior (partial COMMITS).
  *
- * Layer 4  `@syncing.atomic` is the spec-based engine (`atomic-buffer.ts`). It
+ * Layer 4  `@syncing.action` is the spec-based engine (`action-buffer.ts`). It
  * does NOT hold a transaction open — it DEFERS every yjs write into a buffer and
  * flushes on completion. Its throw DEFAULT is COMMIT-ON-CRASH, the same verdict
  * as layers 1–3: the pre-throw writes reach the model + wire. The one subtlety is
@@ -34,7 +34,7 @@
  * not in the flush), the flush's notification is NOT discarded — so the local
  * observer is left FRESH, not stale (the mirror-image of layers 2/3). Real
  * all-or-nothing rollback is OPT-IN, per method, via
- * `@syncing.atomic({ rollbackIf: (error) => boolean })`: a matching predicate
+ * `@syncing.action({ rollbackIf: (error) => boolean })`: a matching predicate
  * discards the buffer (wire stays pure) and inverses the overlay. The layer-4 and
  * nested-atomic rows below pin both the default and the opt-in.
  *
@@ -99,27 +99,27 @@ class Foo extends PlexusModel {
   @syncing.child accessor boxB!: Box | null; // reparent target
 
   /** Layer-4 parity probe: one write, then throw — commit-on-crash default. */
-  @syncing.atomic
+  @syncing.action
   atomicThrowAfterOne(): void {
     this.a = 1;
     throw new Error("boom");
   }
 
   /** Opt-in rollback probe: one write, then throw — the predicate discards the batch. */
-  @syncing.atomic({ rollbackIf: () => true })
+  @syncing.action({ rollbackIf: () => true })
   atomicRollbackAfterOne(): void {
     this.a = 1;
     throw new Error("boom");
   }
 
   /** Nesting probe: an atomic method that calls another atomic method which throws. */
-  @syncing.atomic
+  @syncing.action
   outerAtomic(): void {
     this.a = 1;
     this.innerAtomicThrows();
   }
 
-  @syncing.atomic
+  @syncing.action
   innerAtomicThrows(): void {
     this.b = 1;
     throw new Error("boom");
@@ -258,8 +258,8 @@ describe("throw inside a transaction — complete behavior characterization", ()
     expect(seen).toEqual([0]);
   });
 
-  it("layer 4 (@syncing.atomic): COMMIT-ON-CRASH by default — partial commits like layers 1–3, but observer stays FRESH", () => {
-    // The spec-based @syncing.atomic engine DEFERS every yjs write into a buffer
+  it("layer 4 (@syncing.action): COMMIT-ON-CRASH by default — partial commits like layers 1–3, but observer stays FRESH", () => {
+    // The spec-based @syncing.action engine DEFERS every yjs write into a buffer
     // and, by default, FLUSHES the pre-throw writes before rethrowing (commit-on-
     // crash — matching JS + yjs finalization). Unlike layers 2/3, the throw happens
     // in the BODY, not inside the flush's maybeTransacting, so the flush completes
@@ -276,7 +276,7 @@ describe("throw inside a transaction — complete behavior characterization", ()
     expect(seen).toEqual([0, 1]); // observer SAW the commit (flush not suppressed)
   });
 
-  it("layer 4 opt-in (@syncing.atomic({ rollbackIf })): a matching predicate ROLLS BACK — no commit, no update", () => {
+  it("layer 4 opt-in (@syncing.action({ rollbackIf })): a matching predicate ROLLS BACK — no commit, no update", () => {
     // Opt-in rollback: the predicate matches the thrown error, so the buffer is
     // discarded (yjs never touched → wire pure) and the overlay is inversed.
     const shadow = root.__doc__!;
@@ -541,7 +541,7 @@ describe("throw inside a transaction — complete behavior characterization", ()
     expect(seen).toEqual(["0,0"]); // observer saw NEITHER — outer cleared the whole batch
   });
 
-  it("inner-nested throw via @syncing.atomic: neither frame opts into rollback → BOTH writes COMMIT-ON-CRASH in one flush", () => {
+  it("inner-nested throw via @syncing.action: neither frame opts into rollback → BOTH writes COMMIT-ON-CRASH in one flush", () => {
     const peer = syncedPeer();
     const shadow = root.__doc__!;
     let shadowUpdates = 0;
@@ -550,7 +550,7 @@ describe("throw inside a transaction — complete behavior characterization", ()
     expect(() => root.outerAtomic()).toThrow("boom");
 
     // The nested atomic defers into the OUTERMOST buffer (savepoint slice). The inner
-    // throw escapes to the outer runAtomic; with no rollbackIf on either frame it is
+    // throw escapes to the outer runAction; with no rollbackIf on either frame it is
     // commit-on-crash, so the outermost frame flushes the whole buffer once, then
     // rethrows. Both writes reach the model + wire in a single transaction.
     expect(root.a).toBe(1); // outer write committed

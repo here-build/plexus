@@ -1,7 +1,7 @@
 import invariant from "tiny-invariant";
 import type * as Y from "yjs";
 
-import { emitOrDefer, type YjsOp } from "../atomic-buffer.js";
+import { emitOrDefer, type YjsOp } from "../action-buffer.js";
 import { deref } from "../deref.js";
 import { PlexusDuplicateChildError } from "../errors.js";
 import { PlexusModel } from "../PlexusModel.js";

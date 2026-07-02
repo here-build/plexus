@@ -4,7 +4,7 @@ import type * as Y from "yjs";
 
 import { isInCloneTransaction } from "../clone.js";
 import { deref } from "../deref.js";
-import { emitOrDefer, type YjsOp } from "../atomic-buffer.js";
+import { emitOrDefer, type YjsOp } from "../action-buffer.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import {
@@ -195,7 +195,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       const hadKey = backingStorage.has(mapKey);
       const oldValue = backingStorage.get(mapKey);
       emitOrDefer(owner.__doc__, {
-        // Non-atomic path: exactly the original choreography, verbatim.
+        // Non-action path: exactly the original choreography, verbatim.
         applyNow: () => {
           ensureYjsMap();
           maybeTransacting(owner.__doc__, () => {
@@ -319,7 +319,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       const oldValue = backingStorage.get(mapKey);
       const canonicalKey = backingStorage.getCanonicalKey(mapKey);
       emitOrDefer(owner.__doc__, {
-        // Non-atomic path: exactly the original choreography, verbatim.
+        // Non-action path: exactly the original choreography, verbatim.
         applyNow: () => {
           maybeTransacting(owner.__doc__, () => {
             // Handle child tracking - orphan the value being deleted
@@ -383,7 +383,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       // deferred orphanization loop (`describe`) and the silent rollback restore.
       const priorEntries: [K, V][] = [...backingStorage.entries()];
       emitOrDefer(owner.__doc__, {
-        // Non-atomic path: exactly the original choreography, verbatim.
+        // Non-action path: exactly the original choreography, verbatim.
         applyNow: () => {
           maybeTransacting(owner.__doc__, () => {
             // Handle child tracking - orphan all values
@@ -477,7 +477,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       const newValueSet = new Set(newEntries.map(([_, v]) => v));
 
       emitOrDefer(owner.__doc__, {
-        // Non-atomic path: exactly the original choreography, verbatim.
+        // Non-action path: exactly the original choreography, verbatim.
         applyNow: () => {
           ensureYjsMap();
           maybeTransacting(owner.__doc__, () => {

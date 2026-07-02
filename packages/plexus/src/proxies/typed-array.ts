@@ -1,4 +1,4 @@
-import { emitOrDefer } from "../atomic-buffer.js";
+import { emitOrDefer } from "../action-buffer.js";
 import { PlexusTypedArrayAliasError } from "../errors.js";
 import { type PlexusModel } from "../PlexusModel.js";
 import { bytesProxyRawSymbol } from "../proxy-runtime-types.js";
@@ -149,7 +149,7 @@ export const buildTypedArrayProxy = (initial: Uint8Array, owner: PlexusModel, ke
       bytes = next;
     };
     emitOrDefer(owner.__doc__, {
-      // Non-atomic path: exactly the original choreography, verbatim.
+      // Non-action path: exactly the original choreography, verbatim.
       applyNow: () =>
         maybeTransacting(owner.__doc__, () => {
           writeOverlay();

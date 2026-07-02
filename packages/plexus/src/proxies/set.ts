@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 
-import { emitOrDefer, type YjsOp } from "../atomic-buffer.js";
+import { emitOrDefer, type YjsOp } from "../action-buffer.js";
 import type { PlexusModel } from "../PlexusModel.js";
 import {
   type AllowedYJSKeyValue,
@@ -168,7 +168,7 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
               }
             };
             emitOrDefer(owner.__doc__, {
-              // Non-atomic path: exactly the original choreography, verbatim.
+              // Non-action path: exactly the original choreography, verbatim.
               applyNow: () => {
                 // Adoption materializes the child onto the owner's doc and writes
                 // the parent edge (see PlexusModel.informAdoption) — real yjs writes.
@@ -254,7 +254,7 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
             const previousSerialized = new Map(serializedToElement);
 
             emitOrDefer(owner.__doc__, {
-              // Non-atomic path: exactly the original choreography, verbatim.
+              // Non-action path: exactly the original choreography, verbatim.
               applyNow: () => {
                 maybeTransacting(owner.__doc__!, () => {
                   if (isChildField) {
@@ -306,7 +306,7 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
             if (!backingSet.has(value)) return false;
 
             emitOrDefer(owner.__doc__, {
-              // Non-atomic path: exactly the original choreography, verbatim
+              // Non-action path: exactly the original choreography, verbatim
               // (minus the guard, which now runs before emitOrDefer).
               applyNow: () => {
                 backingSet.delete(value);
@@ -372,7 +372,7 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
             const previousSerialized = new Map(serializedToElement);
 
             emitOrDefer(owner.__doc__, {
-              // Non-atomic path: exactly the original choreography, verbatim.
+              // Non-action path: exactly the original choreography, verbatim.
               applyNow: () => {
                 if (newValuesSet.size > 0) ensureYjsMap();
                 const yjsMap = getYjsMap();

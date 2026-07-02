@@ -53,7 +53,7 @@ class Foo extends PlexusModel {
    *  - read-overlay (reads its own pending writes into `log`)
    *  - add-child + mid-method materialization (`new Bar()`)
    */
-  @syncing.atomic
+  @syncing.action
   doStuff(log: unknown[]): number {
     this.count = 1;
     log.push(this.count); // read own write → 1
@@ -64,7 +64,7 @@ class Foo extends PlexusModel {
     return this.count; // → 2
   }
 
-  /** Same mutations WITHOUT @syncing.atomic — baseline for the transaction count. */
+  /** Same mutations WITHOUT @syncing.action — baseline for the transaction count. */
   doStuffUnbatched(): void {
     this.count = 1;
     this.bars.add(new Bar({ label: "x" }));
@@ -72,21 +72,21 @@ class Foo extends PlexusModel {
   }
 
   /** Val-only atomic body — no child materialization (keeps the liminality assertion clean). */
-  @syncing.atomic
+  @syncing.action
   bumpCount(): void {
     this.count = 1;
     this.count = 2;
   }
 
   /** Value-list push — no genesis; the array-insert leaf ops collapse into the flush. */
-  @syncing.atomic
+  @syncing.action
   pushTags(): void {
     this.tags.push(10);
     this.tags.push(20);
   }
 
   /** Child-list push — genesis rides its own tx; the array-insert + parent edge ride the batch. */
-  @syncing.atomic
+  @syncing.action
   pushItems(): void {
     this.items.push(new Bar({ label: "a" }));
     this.items.push(new Bar({ label: "b" }));
@@ -97,7 +97,7 @@ class Foo extends PlexusModel {
    * whose snapshot-splice restore is otherwise untested. The pushes overlay into the
    * backing array, then the throw rolls the whole slice back: backing restored, wire pure.
    */
-  @syncing.atomic({ rollbackIf: () => true })
+  @syncing.action({ rollbackIf: () => true })
   pushTagsThenThrow(): void {
     this.tags.push(10);
     this.tags.push(20);
@@ -110,20 +110,20 @@ class Foo extends PlexusModel {
    * creation never happens. Nothing reaches the doc; the entity's identity was
    * never committed ("don't rely on uuid until we're done").
    */
-  @syncing.atomic({ rollbackIf: () => true })
+  @syncing.action({ rollbackIf: () => true })
   pushItemThenThrow(): void {
     this.items.push(new Bar({ label: "ghost" }));
     throw new Error("boom");
   }
 
   /** Single val set — used to probe the ephemeral (doc-less receiver) path. */
-  @syncing.atomic
+  @syncing.action
   justSet(): void {
     this.count = 7;
   }
 
   /** Mutates the receiver AND a DIFFERENT doc — the multi-doc case (one tx per doc). */
-  @syncing.atomic
+  @syncing.action
   touchOther(other: Other): void {
     this.count = 3; // receiver's doc → its own single transaction
     other.value = 99; // OTHER doc → its own single transaction
@@ -137,7 +137,7 @@ class Foo extends PlexusModel {
    * writes (`count`, `meta`) still collapse into the single flush; the raw eager
    * write opens its own transaction mid-body and trips the detector.
    */
-  @syncing.atomic
+  @syncing.action
   touchUnrouted(): void {
     this.count = 1; // routed → deferred
     this.meta.set("k", 1); // routed → deferred (batches into the flush)
@@ -150,7 +150,7 @@ class Foo extends PlexusModel {
    * Throws after a partial write. DEFAULT = commit-on-crash: the pre-throw write
    * is flushed (matches JS + yjs, which never unwind completed effects).
    */
-  @syncing.atomic
+  @syncing.action
   throwMidway(): void {
     this.count = 1;
     throw new Error("boom");
@@ -158,7 +158,7 @@ class Foo extends PlexusModel {
   }
 
   /** Opt-in rollback: any throw discards the whole batch (wire stays pure). */
-  @syncing.atomic({ rollbackIf: () => true })
+  @syncing.action({ rollbackIf: () => true })
   throwWithRollback(): void {
     this.count = 1;
     throw new Error("boom");
@@ -168,7 +168,7 @@ class Foo extends PlexusModel {
    * Selective rollback: the predicate matches only RangeError. A plain Error
    * commits-on-crash; a RangeError rolls back.
    */
-  @syncing.atomic({ rollbackIf: (error) => error instanceof RangeError })
+  @syncing.action({ rollbackIf: (error) => error instanceof RangeError })
   throwSelective(kind: "range" | "plain"): void {
     this.count = 5;
     if (kind === "range") throw new RangeError("range");
@@ -176,20 +176,78 @@ class Foo extends PlexusModel {
   }
 
   /**
-   * Async body — a COMPILE ERROR. The deferral region is synchronous, so an async
-   * body is banned at the type level via the `AsyncMethodNotAllowed` brand. The
+   * Async body — a COMPILE ERROR. The deferral region is synchronous, so a body
+   * that returns a `Promise` is banned at the INPUT: its return makes the `target`
+   * parameter collapse to `never`, so it is not an accepted argument. The
    * `@ts-expect-error` below IS the assertion that the ban fires; if the ban ever
    * regressed, tsc would flag the unused expect-error.
    */
-  // @ts-expect-error @syncing.atomic cannot decorate an async method (AsyncMethodNotAllowed)
-  @syncing.atomic
+  // @ts-expect-error @syncing.action does not accept an async method: its Promise return makes the `target` parameter `never`
+  @syncing.action
   async doAsync(): Promise<number> {
     this.count = 4; // synchronous prefix still runs before the promise is returned
     return this.count;
   }
+
+  /**
+   * Async GENERATOR — also a COMPILE ERROR. Its `AsyncGenerator` return is an
+   * `AsyncIterable`/`AsyncIterator`, so it too makes the `target` parameter `never`
+   * and is not an accepted argument: the body runs lazily on iteration, after the
+   * region has closed. The `@ts-expect-error` IS the assertion; a regression makes
+   * it unused → tsc error.
+   */
+  // @ts-expect-error @syncing.action does not accept an async generator: its AsyncGenerator return makes the `target` parameter `never`
+  @syncing.action
+  async *doAsyncGen(): AsyncGenerator<number> {
+    this.count = 5;
+    yield this.count;
+  }
+
+  /**
+   * SYNC GENERATOR — also a COMPILE ERROR. A `function*` returns a `Generator`,
+   * which is an `Iterator`, so its return makes the `target` parameter `never`. The
+   * body runs lazily on the first `.next()`, not when called — so its mutations
+   * would miss the synchronous region entirely, exactly the async-generator hazard
+   * minus the `await`. `Iterator` (not `Iterable`) is the cut: a body returning a
+   * `string`/array/`Map` — `Iterable` but not `Iterator` — stays accepted.
+   */
+  // @ts-expect-error @syncing.action does not accept a sync generator: its Generator (an Iterator) return makes the `target` parameter `never`
+  @syncing.action
+  *doSyncGen(): Generator<number> {
+    this.count = 6;
+    yield this.count;
+  }
+
+  /**
+   * `(): never` — ACCEPTED, via the ban's explicit escape arm. `[never] extends
+   * [X]` is true for ANY `X` (`never` is assignable to everything), so without
+   * the leading `[Return] extends [never]` arm in `SyncActionMethod` this
+   * always-throwing method would be a false positive of the deferred-delivery
+   * ban. This fixture IS the regression guard for that arm: if the escape were
+   * dropped, decorating this method would become a tsc error.
+   */
+  @syncing.action
+  doNeverReturn(): never {
+    this.count = 7;
+    throw new Error("never-return");
+  }
+
+  /**
+   * `(): any` — REJECTED, on purpose. `[any] extends [X]` is also always true
+   * (`any` is bidirectionally assignable), so the ban catches it — and stays:
+   * an `any` may BE a Promise, and accepting it would admit sloppily-typed
+   * genuinely-async bodies. Annotate the real return type to decorate. The
+   * `@ts-expect-error` IS the assertion, mirroring the async fixtures above.
+   */
+  // @ts-expect-error @syncing.action does not accept an `any` return: it may be a Promise — annotate the real return type
+  @syncing.action
+  doAny(): any {
+    this.count = 8;
+    return this.count;
+  }
 }
 
-describe("@syncing.atomic method decorator", () => {
+describe("@syncing.action method decorator", () => {
   let doc: Y.Doc;
   let plexus: TestPlexus<Foo>;
   let root: Foo;
@@ -245,7 +303,7 @@ describe("@syncing.atomic method decorator", () => {
     expect(mainUpdates).toBe(2);
   });
 
-  it("baseline: WITHOUT @syncing.atomic the same mutations emit multiple updates", () => {
+  it("baseline: WITHOUT @syncing.action the same mutations emit multiple updates", () => {
     const shadow = root.__doc__!;
     let shadowUpdates = 0;
     shadow.on("update", () => shadowUpdates++);
@@ -258,7 +316,12 @@ describe("@syncing.atomic method decorator", () => {
 
   it("(b) read-overlay: the body reads its own pending writes", () => {
     const log: unknown[] = [];
-    const returned = root.doStuff(log);
+    // Typed as `number` on purpose: a compile-time guard that the input-side async
+    // ban preserved return-type fidelity. The ban poisons the whole `target`
+    // parameter to `never` for async returns, with the clean `ActionMethod` as the
+    // conditional's FALSE branch — so `Return` still infers from a naked function
+    // type. If that regressed to widening (`=> unknown`), this assignment fails tsc.
+    const returned: number = root.doStuff(log);
 
     expect(log).toEqual([1, 1, 2]); // count=1, bars.size=1, count=2 — all read mid-transaction
     expect(returned).toBe(2);
@@ -340,20 +403,20 @@ describe("@syncing.atomic method decorator", () => {
     expect(root.bars.size).toBe(0);
   });
 
-  it("re-entrancy: a nested @syncing.atomic call still yields ONE transaction", () => {
+  it("re-entrancy: a nested @syncing.action call still yields ONE transaction", () => {
     @syncing("AtomicNested")
     class Nested extends PlexusModel {
       @syncing accessor a!: number;
       @syncing accessor b!: number;
 
-      @syncing.atomic
+      @syncing.action
       outer(): void {
         this.a = 1;
         this.inner();
         this.a = 2;
       }
 
-      @syncing.atomic
+      @syncing.action
       inner(): void {
         this.b = 1;
         this.b = 2;
@@ -373,12 +436,64 @@ describe("@syncing.atomic method decorator", () => {
     expect(nestedRoot.b).toBe(2);
   });
 
+  it("nested cross-doc: the OUTERMOST action fires EVERY doc's transaction in one burst (structural all-or-nothing, not 2-phase)", () => {
+    // Outer touches its own doc (A); the nested inner touches a DIFFERENT doc (B)
+    // as well as doc A. If the inner flushed at ITS boundary, doc B's update would
+    // land BEFORE "inner-returned". It must not: the stack-topmost action owns the
+    // single flush, so BOTH docs' transactions burst only after the whole outermost
+    // body has finished. This is the structural all-or-nothing guarantee — the only
+    // way to observe a cross-doc partial is a hard process crash mid-burst (no
+    // 2-phase commit), which no synchronous control flow can produce.
+    @syncing("AtomicOutermost")
+    class Outermost extends PlexusModel {
+      @syncing accessor a!: number;
+
+      @syncing.action
+      outer(other: Other, log: string[]): void {
+        this.a = 1;
+        this.inner(other);
+        log.push("inner-returned");
+        this.a = 2;
+        log.push("outer-body-end");
+      }
+
+      @syncing.action
+      inner(other: Other): void {
+        other.value = 99; // DIFFERENT doc (B) → must defer to the OUTERMOST flush
+        this.a = 5; // doc A
+      }
+    }
+    entityClasses.set("AtomicOutermost", Outermost);
+
+    const { root: om } = initTestPlexus(new Outermost({ a: 0 }));
+    const { root: otherRoot } = initTestPlexus(new Other({ value: 0 }));
+    const docA = om.__doc__!;
+    const docB = otherRoot.__doc__!;
+
+    const log: string[] = [];
+    docA.on("update", () => log.push("A-update"));
+    docB.on("update", () => log.push("B-update"));
+
+    om.outer(otherRoot, log);
+
+    // Both doc updates fire AFTER the whole body completed — no transaction opened
+    // at the inner boundary or mid-outer. Docs burst in first-touched order (A, B).
+    expect(log).toEqual(["inner-returned", "outer-body-end", "A-update", "B-update"]);
+    // Exactly one transaction per doc (per-doc atomicity; three A-writes collapse).
+    expect(log.filter((e) => e === "A-update")).toHaveLength(1);
+    expect(log.filter((e) => e === "B-update")).toHaveLength(1);
+    // Final committed state on both docs.
+    expect(om.a).toBe(2);
+    expect(otherRoot.value).toBe(99);
+  });
+
   // ── OUT-OF-ENVELOPE: loud-but-correct boundaries ──────────────────────────
 
   it("async body is a COMPILE error, not a runtime warning", async () => {
-    // The ban is enforced by tsc via the `AsyncMethodNotAllowed` brand — see the
-    // `@ts-expect-error` on `doAsync`'s decorator. At runtime the wrapper still runs
-    // the synchronous prefix; there is no runtime thenable warning any more.
+    // The ban is enforced by tsc at the INPUT — the Promise return collapses the
+    // `target` parameter to `never`; see the `@ts-expect-error` on `doAsync`'s
+    // decorator. At runtime the wrapper still runs the synchronous prefix; there is
+    // no runtime thenable warning any more.
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const promise = root.doAsync();
@@ -426,7 +541,7 @@ describe("@syncing.atomic method decorator", () => {
     expect(shadow.getMap("unrouted-probe").get("probe")).toBe(1);
 
     const warnedUnrouted = warnSpy.mock.calls.some(
-      ([message]) => typeof message === "string" && message.includes("NOT yet routed through the atomic buffer"),
+      ([message]) => typeof message === "string" && message.includes("NOT yet routed through the action buffer"),
     );
     expect(warnedUnrouted).toBe(true);
 
@@ -511,7 +626,20 @@ describe("@syncing.atomic method decorator", () => {
     expect(shadowUpdates).toBe(1);
   });
 
-  it("@syncing.atomic({ rollbackIf }) discards the batch: wire stays pure, mirror restored", () => {
+  it("`(): never` body (always-throws) is accepted by the ban's escape arm and commits-on-crash", () => {
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+
+    expect(() => root.doNeverReturn()).toThrow("never-return");
+
+    // The escape arm admitted the method (see the fixture's docstring); at
+    // runtime it behaves as any other throwing body: default commit-on-crash.
+    expect(root.count).toBe(7);
+    expect(shadowUpdates).toBe(1);
+  });
+
+  it("@syncing.action({ rollbackIf }) discards the batch: wire stays pure, mirror restored", () => {
     const shadow = root.__doc__!;
     let shadowUpdates = 0;
     shadow.on("update", () => shadowUpdates++);
@@ -577,7 +705,7 @@ describe("@syncing.atomic method decorator", () => {
       // Outer writes `a`, calls a rolling-back inner that writes+throws `b`, catches
       // it, then writes `a` again. Commit-on-crash for the outer; the inner's slice
       // is reverted by its own predicate.
-      @syncing.atomic
+      @syncing.action
       outer(): void {
         this.a = 1;
         try {
@@ -588,7 +716,7 @@ describe("@syncing.atomic method decorator", () => {
         this.a = 2;
       }
 
-      @syncing.atomic({ rollbackIf: () => true })
+      @syncing.action({ rollbackIf: () => true })
       innerRollback(): void {
         this.b = 9;
         throw new Error("inner");

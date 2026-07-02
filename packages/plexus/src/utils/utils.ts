@@ -79,10 +79,10 @@ export const flushNotificationsHook: { wrapper?: (fn: () => void) => void } = {}
 
 /**
  * Optional observer fired exactly once each time a NEW outermost `doc.transact`
- * opens for a doc — NOT for nested/shadow sub-transactions. `@syncing.atomic`
- * installs this for the duration of an atomic body to spot cross-doc mutations:
+ * opens for a doc — NOT for nested/shadow sub-transactions. `@syncing.action`
+ * installs this for the duration of an action body to spot cross-doc mutations:
  * a doc OTHER than the receiver's opening its own transaction sits OUTSIDE the
- * receiver's single-doc atomic batch. Mirrors `flushNotificationsHook` — an
+ * receiver's single-doc action batch. Mirrors `flushNotificationsHook` — an
  * unset observer costs one optional-call check on the cold (real-transact) path
  * and nothing on the hot (nested) path.
  */
@@ -192,7 +192,7 @@ export const maybeTransacting = <T>(doc: Y.Doc | null | undefined, fn: () => T):
   try {
     docInTransactionMotion.add(doc);
     // Outermost (real) transaction opening for this doc — notify any installed
-    // observer (e.g. `@syncing.atomic`'s cross-doc detector). Nested/shadow
+    // observer (e.g. `@syncing.action`'s cross-doc detector). Nested/shadow
     // sub-transactions returned above never reach here.
     transactionObserverHook.observe?.(doc);
 

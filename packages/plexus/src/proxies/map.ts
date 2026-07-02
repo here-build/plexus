@@ -4,8 +4,8 @@ import type * as Y from "yjs";
 
 import { isInCloneTransaction } from "../clone.js";
 import { deref } from "../deref.js";
-import { emitOrDefer, type YjsOp } from "../action-buffer.js";
-import type { PlexusModel } from "../PlexusModel.js";
+import { emitOrDefer, type OwnershipMove, type YjsOp } from "../action-buffer.js";
+import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import {
   informAdoptionSymbol,
@@ -187,6 +187,23 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
     set(this: This, mapKey: K, value: V): This {
       invariant(!virtualFactory, "VirtualMap: .set() is blocked — use .get(key) to auto-materialize");
       if (backingStorage.get(mapKey) === value) {
+        // STALE-MEMBERSHIP RULE: mid-region the backing map can be stale — the
+        // value may already have been staged to a DIFFERENT parent by a later
+        // statement elsewhere, even though this map's backing still shows it
+        // here. Declare the reaffirmation as a moves-only emit so the squash
+        // sees THIS statement as the last word; the engine no-ops it when it's
+        // a true reaffirmation. Non-child fields keep the cheap early return.
+        if (isChildField && value instanceof PlexusModel) {
+          const serializedSubKey = serializeKey(mapKey, owner.__doc__);
+          emitOrDefer(owner.__doc__, {
+            applyNow: () => this,
+            overlay: () => {},
+            describe: () => [],
+            notify: () => {},
+            revertOverlay: () => {},
+            moves: [{ child: value, parent: owner, field: key, meta: serializedSubKey, rawKey: mapKey }],
+          });
+        }
         return this;
       }
       // Captured BEFORE overlay mutates backingStorage — `describe`/`revertOverlay`
@@ -194,6 +211,18 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       // the new value, so the pre-op state must be snapshotted here.
       const hadKey = backingStorage.has(mapKey);
       const oldValue = backingStorage.get(mapKey);
+      // Statement-time serialization, shared by the move and the ops below —
+      // hoisted here so the move's `meta` and describe()'s written key agree.
+      const serializedSubKey = isChildField ? serializeKey(mapKey, owner.__doc__) : null;
+      const stagedMoves: OwnershipMove[] = [];
+      if (isChildField) {
+        if (oldValue instanceof PlexusModel && oldValue !== value) {
+          stagedMoves.push({ child: oldValue, orphan: true, from: { parent: owner, field: key, meta: serializedSubKey } });
+        }
+        if (value instanceof PlexusModel) {
+          stagedMoves.push({ child: value, parent: owner, field: key, meta: serializedSubKey, rawKey: mapKey });
+        }
+      }
       emitOrDefer(owner.__doc__, {
         // Non-action path: exactly the original choreography, verbatim.
         applyNow: () => {
@@ -207,9 +236,13 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
               // Validate adoption BEFORE any state changes (throws on cycle)
               value?.[validateAdoptionSymbol]?.(owner, key, serializedSubKey);
 
-              // Now safe to orphan old value and adopt new one
+              // Now safe to orphan old value (only if it actually RESIDES here —
+              // a flush-time sweep re-enters this proxy for content-only
+              // removals) and adopt new one
               const oldValue = backingStorage.get(mapKey);
-              oldValue?.[requestOrphanizationSymbol]?.();
+              if (oldValue instanceof PlexusModel && oldValue.parent === owner && oldValue.parentField === key) {
+                oldValue[requestOrphanizationSymbol]?.();
+              }
               value?.[requestAdoptionSymbol]?.(owner, key, serializedSubKey);
             }
 
@@ -237,8 +270,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           // `materialize` (phase 1); old-value orphanization + parent-edge write
           // deferred to `describe` (phase 2, both real transitive writes).
           if (isChildField) {
-            const serializedSubKey = serializeKey(mapKey, owner.__doc__);
-            value?.[validateAdoptionSymbol]?.(owner, key, serializedSubKey);
+            value?.[validateAdoptionSymbol]?.(owner, key, serializedSubKey!);
           }
           backingStorage.set(mapKey, value);
         },
@@ -250,16 +282,10 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           }
         },
         describe: () => {
-          // Phase 2 — the child (if any) is already materialized (phase 1). Run
-          // the transitive core prep (owner field-map genesis, old-value
-          // orphanization, parent-edge adoption) as calls, then RETURN the leaf
-          // field-map write as a `map-set` op.
+          // Phase 2 — content-only. Ownership choreography (orphan/adopt) is
+          // declared via `moves` above and settled once by the flush ownership
+          // pass; this returns only the leaf field-map write.
           ensureYjsMap();
-          if (isChildField) {
-            const serializedSubKey = serializeKey(mapKey, owner.__doc__);
-            oldValue?.[requestOrphanizationSymbol]?.();
-            value?.[requestAdoptionSymbol]?.(owner, key, serializedSubKey);
-          }
           const yjsMap = getYjsMap();
           if (!yjsMap || !owner.__doc__) return [];
           const serializedKey = serializeKey(mapKey, owner.__doc__);
@@ -284,6 +310,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
             backingStorage.delete(mapKey);
           }
         },
+        moves: stagedMoves,
       });
       return self;
     },
@@ -318,14 +345,21 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       // run at flush time (or on rollback), after backingStorage already lost it.
       const oldValue = backingStorage.get(mapKey);
       const canonicalKey = backingStorage.getCanonicalKey(mapKey);
+      // Statement-time serialization — the same string form the orphan move's
+      // `meta` carries, computed once here.
+      const serializedSubKey = isChildField ? serializeKey(mapKey, owner.__doc__) : null;
       emitOrDefer(owner.__doc__, {
         // Non-action path: exactly the original choreography, verbatim.
         applyNow: () => {
           maybeTransacting(owner.__doc__, () => {
-            // Handle child tracking - orphan the value being deleted
+            // Handle child tracking - orphan the value being deleted, but only
+            // if it actually RESIDES here (a flush-time sweep re-enters this
+            // proxy for content-only removals).
             if (isChildField) {
               const oldValue = backingStorage.get(mapKey);
-              oldValue?.[informOrphanizationSymbol]?.();
+              if (oldValue instanceof PlexusModel && oldValue.parent === owner && oldValue.parentField === key) {
+                oldValue[informOrphanizationSymbol]?.();
+              }
             }
 
             // Get canonical key before delete (delete preserves it as WeakRef)
@@ -348,11 +382,9 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           backingStorage.delete(mapKey);
         },
         describe: () => {
-          // Orphanization is transitive core (a real write) — run it here,
-          // matching where the original ran it (before the delete), NOT in overlay.
-          if (isChildField) {
-            oldValue?.[informOrphanizationSymbol]?.();
-          }
+          // Phase 2 — content-only. Ownership choreography (orphan) is
+          // declared via `moves` below and settled once by the flush
+          // ownership pass; this returns only the leaf field-map write.
           if (!owner.__doc__) return [];
           const serializedKey = serializeKey(mapKey, owner.__doc__);
           serializedToKey.delete(serializedKey);
@@ -370,6 +402,10 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           // Silently restore the deleted entry.
           backingStorage.set(mapKey, oldValue as V);
         },
+        moves:
+          isChildField && oldValue instanceof PlexusModel
+            ? [{ child: oldValue, orphan: true, from: { parent: owner, field: key, meta: serializedSubKey } }]
+            : undefined,
       });
       return true;
     },
@@ -382,14 +418,29 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       // Snapshotted BEFORE overlay empties backingStorage — used both for the
       // deferred orphanization loop (`describe`) and the silent rollback restore.
       const priorEntries: [K, V][] = [...backingStorage.entries()];
+      // Statement-time per-entry serialization — each orphan move's `from.meta`
+      // needs the key its child was filed under, computed once here.
+      const stagedMoves: OwnershipMove[] = isChildField
+        ? priorEntries
+            .filter((entry): entry is [K, V & PlexusModel] => entry[1] instanceof PlexusModel)
+            .map(([k, value]) => ({
+              child: value,
+              orphan: true as const,
+              from: { parent: owner, field: key, meta: serializeKey(k, owner.__doc__) },
+            }))
+        : [];
       emitOrDefer(owner.__doc__, {
         // Non-action path: exactly the original choreography, verbatim.
         applyNow: () => {
           maybeTransacting(owner.__doc__, () => {
-            // Handle child tracking - orphan all values
+            // Handle child tracking - orphan all values that actually RESIDE
+            // here (a flush-time sweep re-enters this proxy for content-only
+            // removals).
             if (isChildField) {
               for (const value of backingStorage.values()) {
-                value?.[informOrphanizationSymbol]?.();
+                if (value instanceof PlexusModel && value.parent === owner && value.parentField === key) {
+                  value[informOrphanizationSymbol]?.();
+                }
               }
             }
 
@@ -403,13 +454,9 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           backingStorage.clear();
         },
         describe: () => {
-          // Orphanization is transitive core (real writes) — run it here, matching
-          // where the original ran it (before the clear), NOT in overlay.
-          if (isChildField) {
-            for (const [, value] of priorEntries) {
-              value?.[informOrphanizationSymbol]?.();
-            }
-          }
+          // Phase 2 — content-only. Ownership choreography (orphan) is
+          // declared via `moves` below and settled once by the flush
+          // ownership pass; this returns only the leaf field-map write.
           serializedToKey.clear();
           const yjsMap = getYjsMap();
           if (!yjsMap) return [];
@@ -424,6 +471,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
             backingStorage.set(k, v);
           }
         },
+        moves: stagedMoves,
       });
     },
 
@@ -476,6 +524,37 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       const oldValueSet = new Set(backingStorage.values());
       const newValueSet = new Set(newEntries.map(([_, v]) => v));
 
+      // Ownership FACTS for the squash, statement-time serialized (shared by
+      // the move and describe()'s written key). Every model VALUE in the new
+      // entries declares adopt — even KEPT ones — because mid-region the
+      // backing map can be stale (the value may be staged elsewhere by a
+      // later statement); the engine no-ops true reaffirmations. Every model
+      // value dropped from the old set (not present in the new set) declares
+      // orphan-with-from, naming the slot (key) it's leaving.
+      const stagedMoves: OwnershipMove[] = [];
+      if (isChildField) {
+        for (const value of oldValueSet) {
+          if (value instanceof PlexusModel && !newValueSet.has(value)) {
+            // Find the key(s) this value was filed under prior to assign.
+            for (const [k, v] of priorEntries) {
+              if (v === value) {
+                stagedMoves.push({
+                  child: value,
+                  orphan: true,
+                  from: { parent: owner, field: key, meta: serializeKey(k, owner.__doc__) },
+                });
+              }
+            }
+          }
+        }
+        for (const [k, v] of newEntries) {
+          if (v instanceof PlexusModel) {
+            const serializedSubKey = serializeKey(k, owner.__doc__);
+            stagedMoves.push({ child: v, parent: owner, field: key, meta: serializedSubKey, rawKey: k });
+          }
+        }
+      }
+
       emitOrDefer(owner.__doc__, {
         // Non-action path: exactly the original choreography, verbatim.
         applyNow: () => {
@@ -500,9 +579,16 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
                 }
               }
 
-              // Now safe to orphan values that aren't in the new set
+              // Now safe to orphan values that aren't in the new set — but only
+              // if they actually RESIDE here (a flush-time sweep re-enters
+              // this proxy for content-only removals).
               for (const value of oldValueSet) {
-                if (value && !newValueSet.has(value)) {
+                if (
+                  value instanceof PlexusModel &&
+                  !newValueSet.has(value) &&
+                  value.parent === owner &&
+                  value.parentField === key
+                ) {
                   value[informOrphanizationSymbol]?.();
                 }
               }
@@ -573,24 +659,11 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           }
         },
         describe: () => {
-          // Phase 2 — new children are already materialized (phase 1). Run the
-          // transitive core prep (owner field-map genesis, old-value
-          // orphanization, parent-edge adoption), then RETURN the resulting
-          // ops — a clear followed by N sets — for the engine to apply.
+          // Phase 2 — content-only. Ownership choreography (orphan/adopt) is
+          // declared via `moves` below and settled once by the flush
+          // ownership pass; this returns only the leaf field-map writes — a
+          // clear followed by N sets.
           ensureYjsMap();
-          if (isChildField) {
-            for (const value of oldValueSet) {
-              if (value && !newValueSet.has(value)) {
-                value[informOrphanizationSymbol]?.();
-              }
-            }
-            for (const [k, v] of newEntries) {
-              if (v && !oldValueSet.has(v)) {
-                const serializedSubKey = serializeKey(k, owner.__doc__);
-                v[requestAdoptionSymbol]?.(owner, key, serializedSubKey);
-              }
-            }
-          }
           const yjsMap = getYjsMap();
           if (!yjsMap || !owner.__doc__) return [];
           const doc = owner.__doc__;
@@ -613,6 +686,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
             backingStorage.set(k, v);
           }
         },
+        moves: stagedMoves,
       });
     },
 

@@ -1,7 +1,7 @@
 import type * as Y from "yjs";
 
-import { emitOrDefer, type YjsOp } from "../action-buffer.js";
-import type { PlexusModel } from "../PlexusModel.js";
+import { emitOrDefer, type OwnershipMove, type YjsOp } from "../action-buffer.js";
+import { PlexusModel } from "../PlexusModel.js";
 import {
   type AllowedYJSKeyValue,
   type AllowedYJSValue,
@@ -157,7 +157,25 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
       if (SET_MUTATING.has(elementKey)) {
         if (elementKey === "add") {
           return (value: T) => {
-            if (backingSet.has(value)) return false;
+            if (backingSet.has(value)) {
+              // STALE-MEMBERSHIP: mid-region the backing set can be stale — this
+              // member may already be staged to another parent even though it's
+              // still physically present here. A true reaffirmation must still
+              // reach the engine so the LAST statement wins the squash (the
+              // engine no-ops a genuine no-change); non-child fields (or a
+              // non-PlexusModel value) have no ownership to reassert, so they
+              // keep the original no-op return.
+              if (!isChildField || !(value instanceof PlexusModel)) return false;
+              emitOrDefer(owner.__doc__, {
+                applyNow: () => false,
+                overlay: () => {},
+                describe: () => [],
+                notify: () => {},
+                revertOverlay: () => {},
+                moves: [{ child: value, parent: owner, field: key }],
+              });
+              return false;
+            }
 
             const writeYjs = () => {
               const yjsMap = getYjsMap();
@@ -167,6 +185,8 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                 yjsMap.set(sk, maybeReference(value, owner.__doc__!));
               }
             };
+            const stagedMoves: OwnershipMove[] =
+              isChildField && value instanceof PlexusModel ? [{ child: value, parent: owner, field: key }] : [];
             emitOrDefer(owner.__doc__, {
               // Non-action path: exactly the original choreography, verbatim.
               applyNow: () => {
@@ -211,15 +231,11 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                 }
               },
               describe: () => {
-                // Phase 2 — the child is already materialized (phase 1). Run the
-                // transitive core prep (owner field-map genesis + parent-edge
-                // adoption) as calls — they own their own tx semantics and nest into
-                // the flush transaction — then RETURN the leaf field-map write as a
+                // Phase 2 — PURE CONTENT: ownership is settled once at flush by
+                // the region engine (via `moves`), not choreographed here. Run
+                // the field-map genesis, then RETURN the leaf write as a
                 // `map-set` op for the engine to apply through `applyYjsOp`.
                 ensureYjsMap();
-                if (isChildField) {
-                  value?.[requestAdoptionSymbol]?.(owner, key);
-                }
                 const yjsMap = getYjsMap();
                 if (!yjsMap || !owner.__doc__) return [];
                 const sk = serializeKey(value, owner.__doc__);
@@ -239,6 +255,7 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                 // net-zero change.
                 backingSet.delete(value);
               },
+              moves: stagedMoves,
             });
             return true;
           };
@@ -258,8 +275,14 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
               applyNow: () => {
                 maybeTransacting(owner.__doc__!, () => {
                   if (isChildField) {
+                    // Orphanize only items that actually RESIDE here — a
+                    // flush-time residue sweep re-enters this proxy for a
+                    // content-only removal while the child's pointers already
+                    // name another home (or none).
                     for (const item of backingSet) {
-                      item?.[informOrphanizationSymbol]?.();
+                      if (item instanceof PlexusModel && item.parent === owner && item.parentField === key) {
+                        item[informOrphanizationSymbol]?.();
+                      }
                     }
                   }
                   backingSet.clear();
@@ -275,14 +298,8 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                 serializedToElement.clear();
               },
               describe: () => {
-                // Orphanization is transitive core (writes the child's parent
-                // edge) — deferred to the flush tx, matching where the original
-                // ran it relative to the yjs clear.
-                if (isChildField) {
-                  for (const item of previousItems) {
-                    item?.[informOrphanizationSymbol]?.();
-                  }
-                }
+                // PURE CONTENT — ownership (orphanizing every prior member) is
+                // settled once at flush by the region engine via `moves`.
                 const yjsMap = getYjsMap();
                 if (!yjsMap) return [];
                 return [{ kind: "map-clear", map: yjsMap }];
@@ -296,6 +313,11 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                 for (const item of previousItems) backingSet.add(item);
                 for (const [sk, el] of previousSerialized) serializedToElement.set(sk, el);
               },
+              moves: isChildField
+                ? previousItems
+                    .filter((item): item is T & PlexusModel => item instanceof PlexusModel)
+                    .map((child) => ({ child, orphan: true as const, from: { parent: owner, field: key } }))
+                : undefined,
             });
           };
         }
@@ -311,8 +333,12 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
               applyNow: () => {
                 backingSet.delete(value);
 
-                if (isChildField) {
-                  value?.[informOrphanizationSymbol]?.();
+                // Orphanize only if the child actually RESIDES here — a
+                // flush-time residue sweep re-enters this proxy for a
+                // content-only removal while the child's pointers already
+                // name another home (or none).
+                if (isChildField && value instanceof PlexusModel && value.parent === owner && value.parentField === key) {
+                  value[informOrphanizationSymbol]?.();
                 }
 
                 maybeTransacting(owner.__doc__, () => {
@@ -330,11 +356,8 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                 backingSet.delete(value);
               },
               describe: () => {
-                // Orphanization is transitive core — deferred to the flush tx,
-                // matching where the original ran it (before the yjs delete).
-                if (isChildField) {
-                  value?.[informOrphanizationSymbol]?.();
-                }
+                // PURE CONTENT — ownership (orphanizing this member) is
+                // settled once at flush by the region engine via `moves`.
                 if (!owner.__doc__) return [];
                 const yjsMap = getYjsMap();
                 const sk = serializeKey(value, owner.__doc__);
@@ -350,6 +373,10 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                 // Silent — overlay fired no trackModification, so undoing it must not either.
                 backingSet.add(value);
               },
+              moves:
+                isChildField && value instanceof PlexusModel
+                  ? [{ child: value, orphan: true as const, from: { parent: owner, field: key } }]
+                  : undefined,
             });
             return true;
           };
@@ -371,6 +398,23 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
             const previousBackingSet = new Set(backingSet);
             const previousSerialized = new Map(serializedToElement);
 
+            // Ownership FACTS for the squash: EVERY asserted member (kept AND
+            // new) declares adopt — a kept member may be staged elsewhere
+            // mid-region (stale membership), so the engine must see the LAST
+            // statement to no-op a true reaffirmation. Every dropped member
+            // declares orphan-with-from.
+            const stagedMoves: OwnershipMove[] = [];
+            if (isChildField) {
+              for (const item of previousBackingSet) {
+                if (item instanceof PlexusModel && !newValuesSet.has(item)) {
+                  stagedMoves.push({ child: item, orphan: true, from: { parent: owner, field: key } });
+                }
+              }
+              for (const value of newValuesSet) {
+                if (value instanceof PlexusModel) stagedMoves.push({ child: value, parent: owner, field: key });
+              }
+            }
+
             emitOrDefer(owner.__doc__, {
               // Non-action path: exactly the original choreography, verbatim.
               applyNow: () => {
@@ -387,9 +431,17 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                         value[validateAdoptionSymbol]?.(owner, key);
                       }
                     }
-                    // Orphan removed values
+                    // Orphan removed values that actually RESIDE here — a
+                    // flush-time residue sweep re-enters this proxy for a
+                    // content-only removal while the child's pointers already
+                    // name another home (or none).
                     for (const item of backingSet) {
-                      if (item && !newValuesSet.has(item)) {
+                      if (
+                        item instanceof PlexusModel &&
+                        !newValuesSet.has(item) &&
+                        item.parent === owner &&
+                        item.parentField === key
+                      ) {
                         item[informOrphanizationSymbol]?.();
                       }
                     }
@@ -445,27 +497,11 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                 }
               },
               describe: () => {
-                // Phase 2 — orphan values dropped from the set (transitive core,
-                // matching where the original ran it, relative to the clear).
-                if (isChildField) {
-                  for (const item of previousBackingSet) {
-                    if (item && !newValuesSet.has(item)) {
-                      item[informOrphanizationSymbol]?.();
-                    }
-                  }
-                }
-
+                // PURE CONTENT — ownership (orphanizing dropped members,
+                // adopting kept + new ones) is settled once at flush by the
+                // region engine via `moves`.
                 if (newValuesSet.size > 0) ensureYjsMap();
                 const yjsMap = getYjsMap();
-
-                // Parent-edge write for every surviving value — children already
-                // materialized (phase 1) are a no-op re-adoption (informAdoption
-                // short-circuits on unchanged parent/field/metadata).
-                if (isChildField) {
-                  for (const value of newValuesSet) {
-                    if (value) value[requestAdoptionSymbol]?.(owner, key);
-                  }
-                }
 
                 serializedToElement.clear();
                 if (!yjsMap) return [];
@@ -491,6 +527,7 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                 serializedToElement.clear();
                 for (const [sk, el] of previousSerialized) serializedToElement.set(sk, el);
               },
+              moves: stagedMoves,
             });
           };
         case Symbol.toStringTag:

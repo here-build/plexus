@@ -1,7 +1,7 @@
 import invariant from "tiny-invariant";
 import type * as Y from "yjs";
 
-import { emitOrDefer, type YjsOp } from "../action-buffer.js";
+import { emitOrDefer, type OwnershipMove, type YjsOp } from "../action-buffer.js";
 import { deref } from "../deref.js";
 import { PlexusDuplicateChildError } from "../errors.js";
 import { PlexusModel } from "../PlexusModel.js";
@@ -293,6 +293,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             const reusedIndices: number[] = [];
             const reusedElements: T[] = [];
             const newElements: T[] = [];
+            const stagedMoves: OwnershipMove[] = [];
             if (isChildField) {
               PlexusDuplicateChildError.uniquenessInvariant(elements, owner, key, "push");
               for (const element of elements) {
@@ -300,9 +301,15 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   const existingIndex = backingArray.indexOf(element);
                   if (existingIndex === -1) {
                     newElements.push(element);
+                    stagedMoves.push({ child: element, parent: owner, field: key });
                   } else {
                     reusedIndices.push(existingIndex);
                     reusedElements.push(element);
+                    // Reuse classifies against STALE mid-region membership — the
+                    // element may be staged to another parent. Declaring the
+                    // adoption keeps the squash on the LAST statement; the engine
+                    // gates it to a no-op when it's a true reaffirmation.
+                    stagedMoves.push({ child: element, parent: owner, field: key });
                   }
                 }
               }
@@ -389,11 +396,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               },
               describe: () => {
                 ensureYjsArray();
-                if (isChildField) {
-                  for (const element of newElements) {
-                    element?.[requestAdoptionSymbol]?.(owner, key);
-                  }
-                }
                 const yjsArray = getYjsArray();
                 if (!yjsArray || !owner.__doc__) return [];
                 const ops: YjsOp[] = [];
@@ -409,19 +411,12 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 return ops;
               },
               notify: () => {
-                // Reused-element adoption belongs AFTER the push lands (invariant #3
-                // above) — notify runs post-op-application, inside the flush tx,
-                // matching applyNow's position. Unconditional, like applyNow's.
-                if (isChildField) {
-                  for (const element of reusedElements) {
-                    element?.[informAdoptionSymbol]?.(owner, key);
-                  }
-                }
                 trackModification(self, ACCESS_ALL_SYMBOL);
               },
               revertOverlay: () => {
                 backingArray.splice(0, backingArray.length, ...backingSnapshot);
               },
+              moves: stagedMoves,
             });
             return backingArray.length;
           };
@@ -431,6 +426,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             const reusedIndices: number[] = [];
             const reusedElements: T[] = [];
             const newElements: T[] = [];
+            const stagedMoves: OwnershipMove[] = [];
             if (isChildField) {
               PlexusDuplicateChildError.uniquenessInvariant(elements, owner, key, "unshift");
               for (const element of elements) {
@@ -438,9 +434,12 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   const existingIndex = backingArray.indexOf(element);
                   if (existingIndex === -1) {
                     newElements.push(element);
+                    stagedMoves.push({ child: element, parent: owner, field: key });
                   } else {
                     reusedIndices.push(existingIndex);
                     reusedElements.push(element);
+                    // Reuse classifies against STALE mid-region membership (see push).
+                    stagedMoves.push({ child: element, parent: owner, field: key });
                   }
                 }
               }
@@ -527,11 +526,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               },
               describe: () => {
                 ensureYjsArray();
-                if (isChildField) {
-                  for (const element of newElements) {
-                    element?.[requestAdoptionSymbol]?.(owner, key);
-                  }
-                }
                 const yjsArray = getYjsArray();
                 if (!yjsArray || !owner.__doc__) return [];
                 const ops: YjsOp[] = [];
@@ -547,21 +541,12 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 return ops;
               },
               notify: () => {
-                // Reused-element adoption at notify — post-op-application, inside
-                // the flush tx. applyNow adopts between the backing write and the
-                // yjs write; both orders are within one tx (commit-identical), and
-                // notify restores what describe's `!yjsArray` early-return used to
-                // skip: applyNow adopts unconditionally.
-                if (isChildField) {
-                  for (const element of reusedElements) {
-                    element?.[informAdoptionSymbol]?.(owner, key);
-                  }
-                }
                 trackModification(self, ACCESS_ALL_SYMBOL);
               },
               revertOverlay: () => {
                 backingArray.splice(0, backingArray.length, ...backingSnapshot);
               },
+              moves: stagedMoves,
             });
             return backingArray.length;
           };
@@ -598,6 +583,23 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               }
             }
             const reusedItemSet = new Set(itemsToRemoveFirst.map(({ item }) => item));
+            const stagedMoves: OwnershipMove[] = [];
+            if (isChildField) {
+              // Ownership FACTS for the squash: removed-and-not-reinserted →
+              // orphan from THIS slot; every (re)inserted model → adopt. Reuse
+              // classifies against STALE mid-region membership — an element
+              // staged elsewhere still shows up in backingArray — so
+              // reinsertions must declare their adoption too; the engine
+              // no-ops true reaffirmations.
+              for (const item of removedItems) {
+                if (item instanceof PlexusModel && !reusedItemSet.has(item) && !itemsToInsert.includes(item)) {
+                  stagedMoves.push({ child: item, orphan: true, from: { parent: owner, field: key } });
+                }
+              }
+              for (const item of itemsToInsert) {
+                if (item instanceof PlexusModel) stagedMoves.push({ child: item, parent: owner, field: key });
+              }
+            }
             const backingSnapshot = backingArray.slice();
 
             emitOrDefer(owner.__doc__, {
@@ -666,10 +668,20 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
 
                   // Update parent tracking for child fields
                   if (isChildField) {
-                    // Items being truly removed (not reused elsewhere) need orphanization
+                    // Items being truly removed (not reused elsewhere) need
+                    // orphanization — but only when they actually RESIDE here.
+                    // A flush-time residue sweep or an emancipation re-enters
+                    // this proxy while the child's pointers name another home
+                    // (or none): content-only removal then, pointers preserved.
                     const reusedItemSet = new Set(itemsToRemoveFirst.map(({ item }) => item));
                     for (const item of removedItems) {
-                      if (item && !reusedItemSet.has(item as T) && !itemsToInsert.includes(item as T)) {
+                      if (
+                        item instanceof PlexusModel &&
+                        !reusedItemSet.has(item as T) &&
+                        !itemsToInsert.includes(item as T) &&
+                        item.parent === owner &&
+                        item.parentField === key
+                      ) {
                         item[informOrphanizationSymbol]?.();
                       }
                     }
@@ -740,19 +752,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               },
               describe: () => {
                 if (itemsToInsert.length > 0) ensureYjsArray();
-                if (isChildField) {
-                  for (const item of removedItems) {
-                    if (item && !reusedItemSet.has(item as T) && !itemsToInsert.includes(item as T)) {
-                      item[informOrphanizationSymbol]?.();
-                    }
-                  }
-                  for (const item of trulyNewItems) {
-                    item?.[requestAdoptionSymbol]?.(owner, key);
-                  }
-                  for (const { item } of itemsToRemoveFirst) {
-                    item?.[informAdoptionSymbol]?.(owner, key);
-                  }
-                }
                 const yjsArray = getYjsArray();
                 if (!yjsArray || !owner.__doc__) return [];
                 const ops: YjsOp[] = [];
@@ -778,6 +777,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               revertOverlay: () => {
                 backingArray.splice(0, backingArray.length, ...backingSnapshot);
               },
+              moves: stagedMoves,
             });
             return removedItems;
           };
@@ -800,10 +800,12 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
 
                   backingArray.pop();
 
-                  // Update parent tracking - only orphanize if item doesn't exist elsewhere
-                  if (isChildField && removedItem) {
+                  // Update parent tracking - only orphanize if item doesn't
+                  // exist elsewhere AND actually resides here (flush-time
+                  // sweeps re-enter this proxy for content-only removals).
+                  if (isChildField && removedItem instanceof PlexusModel) {
                     const stillExists = backingArray.includes(removedItem);
-                    if (!stillExists) {
+                    if (!stillExists && removedItem.parent === owner && removedItem.parentField === key) {
                       removedItem[informOrphanizationSymbol]?.();
                     }
                   }
@@ -822,9 +824,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 backingArray.pop();
               },
               describe: () => {
-                if (isChildField && removedItem && !stillExistsElsewhere) {
-                  removedItem[informOrphanizationSymbol]?.();
-                }
                 const yjsArray = getYjsArray();
                 if (!yjsArray || yjsArray.length === 0) return [];
                 return [{ kind: "array-delete", array: yjsArray, index: yjsArray.length - 1, length: 1 }];
@@ -835,6 +834,10 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               revertOverlay: () => {
                 backingArray.splice(0, backingArray.length, ...backingSnapshot);
               },
+              moves:
+                isChildField && removedItem instanceof PlexusModel && !stillExistsElsewhere
+                  ? [{ child: removedItem, orphan: true, from: { parent: owner, field: key } }]
+                  : undefined,
             });
             return removedItem;
           };
@@ -855,10 +858,12 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
 
                   backingArray.shift();
 
-                  // Update parent tracking - only orphanize if item doesn't exist elsewhere
-                  if (isChildField && removedItem) {
+                  // Update parent tracking - only orphanize if item doesn't
+                  // exist elsewhere AND actually resides here (flush-time
+                  // sweeps re-enter this proxy for content-only removals).
+                  if (isChildField && removedItem instanceof PlexusModel) {
                     const stillExists = backingArray.includes(removedItem);
-                    if (!stillExists) {
+                    if (!stillExists && removedItem.parent === owner && removedItem.parentField === key) {
                       removedItem[informOrphanizationSymbol]?.();
                     }
                   }
@@ -877,9 +882,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 backingArray.shift();
               },
               describe: () => {
-                if (isChildField && removedItem && !stillExistsElsewhere) {
-                  removedItem[informOrphanizationSymbol]?.();
-                }
                 const yjsArray = getYjsArray();
                 if (!yjsArray || yjsArray.length === 0) return [];
                 return [{ kind: "array-delete", array: yjsArray, index: 0, length: 1 }];
@@ -890,6 +892,10 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               revertOverlay: () => {
                 backingArray.splice(0, backingArray.length, ...backingSnapshot);
               },
+              moves:
+                isChildField && removedItem instanceof PlexusModel && !stillExistsElsewhere
+                  ? [{ child: removedItem, orphan: true, from: { parent: owner, field: key } }]
+                  : undefined,
             });
             return removedItem;
           };
@@ -1088,10 +1094,13 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             emitOrDefer(owner.__doc__, {
               applyNow: () => {
                 const yjsArray = getYjsArray();
-                // Clear parent tracking for all items
+                // Clear parent tracking for all items that actually reside here
+                // (flush-time sweeps re-enter proxies for content-only removals).
                 if (yjsArray && isChildField) {
                   for (const item of backingArray) {
-                    item?.[informOrphanizationSymbol]?.();
+                    if (item instanceof PlexusModel && item.parent === owner && item.parentField === key) {
+                      item[informOrphanizationSymbol]?.();
+                    }
                   }
                 }
 
@@ -1104,11 +1113,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               },
               describe: () => {
                 const yjsArray = getYjsArray();
-                if (yjsArray && isChildField) {
-                  for (const item of priorItems) {
-                    item?.[informOrphanizationSymbol]?.();
-                  }
-                }
                 if (!yjsArray || yjsArray.length === 0) return [];
                 return [{ kind: "array-delete", array: yjsArray, index: 0, length: yjsArray.length }];
               },
@@ -1118,6 +1122,11 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               revertOverlay: () => {
                 backingArray.splice(0, backingArray.length, ...priorItems);
               },
+              moves: isChildField
+                ? priorItems
+                    .filter((item): item is T & PlexusModel => item instanceof PlexusModel)
+                    .map((child) => ({ child, orphan: true as const, from: { parent: owner, field: key } }))
+                : undefined,
             });
           };
         case "assign": // arr.assign(newElements) → replace entire array contents
@@ -1130,6 +1139,18 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             }
             const removedItems = isChildField ? setDifference(new Set(backingArray), new Set(newElements)) : new Set<T>();
             const addedItems = isChildField ? setDifference(new Set(newElements), new Set(backingArray)) : new Set<T>();
+            const stagedMoves: OwnershipMove[] = [];
+            for (const item of removedItems) {
+              if (item instanceof PlexusModel) {
+                stagedMoves.push({ child: item, orphan: true, from: { parent: owner, field: key } });
+              }
+            }
+            // Every asserted member declares its adoption — a KEPT element may
+            // be staged elsewhere mid-region (stale membership); the engine
+            // no-ops true reaffirmations.
+            for (const item of isChildField ? newElements : []) {
+              if (item instanceof PlexusModel) stagedMoves.push({ child: item, parent: owner, field: key });
+            }
             const backingSnapshot = backingArray.slice();
 
             emitOrDefer(owner.__doc__, {
@@ -1149,9 +1170,13 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                       item?.[validateAdoptionSymbol]?.(owner, key);
                     }
 
-                    // Now safe to orphan removed items and adopt added items
+                    // Now safe to orphan removed items and adopt added items —
+                    // orphanize only what actually RESIDES here (flush-time
+                    // sweeps re-enter proxies for content-only removals).
                     for (const item of removedItems) {
-                      item?.[informOrphanizationSymbol]?.();
+                      if (item instanceof PlexusModel && item.parent === owner && item.parentField === key) {
+                        item[informOrphanizationSymbol]?.();
+                      }
                     }
                     for (const item of addedItems) {
                       item?.[requestAdoptionSymbol]?.(owner, key);
@@ -1182,14 +1207,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               },
               describe: () => {
                 if (newElements.length > 0) ensureYjsArray();
-                if (isChildField) {
-                  for (const item of removedItems) {
-                    item?.[informOrphanizationSymbol]?.();
-                  }
-                  for (const item of addedItems) {
-                    item?.[requestAdoptionSymbol]?.(owner, key);
-                  }
-                }
                 const yjsArray = getYjsArray();
                 if (!yjsArray || !owner.__doc__) return [];
                 const ops: YjsOp[] = [];
@@ -1212,6 +1229,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               revertOverlay: () => {
                 backingArray.splice(0, backingArray.length, ...backingSnapshot);
               },
+              moves: stagedMoves,
             });
           };
         case "length": // Report length access to this array
@@ -1271,6 +1289,22 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               }
               const removedItems = setDifference(new Set(backingArray), new Set(resultingArray));
               const addedItems = setDifference(new Set(resultingArray), new Set(backingArray));
+              // Child fields only — refs don't own, so a ref-array mutation
+              // must stage no ownership claims. Wholesale replacement asserts
+              // the FULL content: kept elements re-declare adoption too (they
+              // may be staged elsewhere mid-region); the engine no-ops true
+              // reaffirmations.
+              const stagedMoves: OwnershipMove[] = [];
+              if (isChildField) {
+                for (const item of removedItems) {
+                  if (item instanceof PlexusModel) {
+                    stagedMoves.push({ child: item, orphan: true, from: { parent: owner, field: key } });
+                  }
+                }
+                for (const item of resultingArray) {
+                  if (item instanceof PlexusModel) stagedMoves.push({ child: item, parent: owner, field: key });
+                }
+              }
               const backingSnapshot = backingArray.slice();
 
               emitOrDefer(owner.__doc__, {
@@ -1295,9 +1329,13 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                       }
                     }
 
-                    // Now safe to orphan removed items and adopt added items
+                    // Now safe to orphan removed items and adopt added items —
+                    // orphanize only what actually RESIDES here (flush-time
+                    // sweeps re-enter proxies for content-only removals).
                     for (const item of removedItems) {
-                      item?.[informOrphanizationSymbol]?.();
+                      if (item instanceof PlexusModel && item.parent === owner && item.parentField === key) {
+                        item[informOrphanizationSymbol]?.();
+                      }
                     }
                     for (const item of addedItems) {
                       item?.[requestAdoptionSymbol]?.(owner, key);
@@ -1329,12 +1367,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 },
                 describe: () => {
                   ensureYjsArray();
-                  for (const item of removedItems) {
-                    item?.[informOrphanizationSymbol]?.();
-                  }
-                  for (const item of addedItems) {
-                    item?.[requestAdoptionSymbol]?.(owner, key);
-                  }
                   const yjsArray = getYjsArray();
                   if (!yjsArray || !owner.__doc__) return [];
                   const ops: YjsOp[] = [];
@@ -1355,6 +1387,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 revertOverlay: () => {
                   backingArray.splice(0, backingArray.length, ...backingSnapshot);
                 },
+                moves: stagedMoves,
               });
               return result;
             };
@@ -1418,10 +1451,14 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               const yjsArray = getYjsArray();
               if (Number.isSafeInteger(newLength) && newLength >= 0) {
                 if (newLength < backingArray.length) {
-                  // Clear parent tracking for truncated items
+                  // Clear parent tracking for truncated items that actually
+                  // reside here (flush-time sweeps re-enter proxies for
+                  // content-only removals).
                   if (isChildField) {
                     for (const item of backingArray.slice(newLength)) {
-                      item?.[informOrphanizationSymbol]?.();
+                      if (item instanceof PlexusModel && item.parent === owner && item.parentField === key) {
+                        item[informOrphanizationSymbol]?.();
+                      }
                     }
                   }
                   backingArray.length = newLength;
@@ -1455,11 +1492,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           },
           describe: () => {
             const yjsArray = getYjsArray();
-            if (isChildField) {
-              for (const item of removedForTruncation) {
-                item?.[informOrphanizationSymbol]?.();
-              }
-            }
             if (!yjsArray) return [];
             if (truncating) {
               const deleteLength = yjsArray.length - newLength;
@@ -1483,6 +1515,9 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           revertOverlay: () => {
             backingArray.splice(0, backingArray.length, ...backingSnapshot);
           },
+          moves: removedForTruncation
+            .filter((item): item is T & PlexusModel => item instanceof PlexusModel)
+            .map((child) => ({ child, orphan: true as const, from: { parent: owner, field: key } })),
         });
         return true;
       }
@@ -1565,9 +1600,16 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   // Save old item at target position (after potential splice adjustment)
                   const oldItem = backingArray[targetIndex];
 
-                  // Orphanize old item if it exists and it's different from new value
-                  if (oldItem && oldItem !== value) {
-                    oldItem?.[informOrphanizationSymbol]?.();
+                  // Orphanize old item if it differs from the new value and
+                  // actually RESIDES here (flush-time sweeps re-enter this
+                  // proxy for content-only removals).
+                  if (
+                    oldItem instanceof PlexusModel &&
+                    oldItem !== value &&
+                    oldItem.parent === owner &&
+                    oldItem.parentField === key
+                  ) {
+                    oldItem[informOrphanizationSymbol]?.();
                   }
 
                   // For new items (not reuse), call requestAdoptionSymbol
@@ -1650,14 +1692,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               }
             },
             describe: () => {
-              if (isChildField) {
-                if (oldItem && oldItem !== value) {
-                  oldItem?.[informOrphanizationSymbol]?.();
-                }
-                if (!isReuse) {
-                  value?.[requestAdoptionSymbol]?.(owner, key);
-                }
-              }
               const yjsArray = getYjsArray();
               if (!yjsArray || !owner.__doc__) return [];
               const ops: YjsOp[] = [];
@@ -1699,12 +1733,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               return ops;
             },
             notify: () => {
-              // Reused-element adoption AFTER the move lands ("after the move",
-              // applyNow above) — notify runs post-op-application inside the
-              // flush tx. Unconditional, matching applyNow.
-              if (isChildField && isReuse) {
-                value?.[informAdoptionSymbol]?.(owner, key);
-              }
               for (let i = originalLength; i < parsedElementKey; i++) {
                 trackModification(self, `${i}`);
               }
@@ -1720,6 +1748,17 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             revertOverlay: () => {
               backingArray.splice(0, backingArray.length, ...backingSnapshot);
             },
+            // Replaced occupant → orphan from THIS slot; the incoming value →
+            // adopt, for reuse too (stale-membership rule; the engine no-ops
+            // true reaffirmations). Refs stage nothing — refs don't own.
+            moves: isChildField
+              ? [
+                  ...(oldItem instanceof PlexusModel && oldItem !== value
+                    ? [{ child: oldItem, orphan: true as const, from: { parent: owner, field: key } }]
+                    : []),
+                  ...(value instanceof PlexusModel ? [{ child: value, parent: owner, field: key }] : []),
+                ]
+              : undefined,
           });
           return true;
         }

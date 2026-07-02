@@ -1,16 +1,15 @@
 import invariant from "tiny-invariant";
 import type * as Y from "yjs";
 
-import { emitOrDefer, type YjsOp } from "../action-buffer.js";
+import { emitOrDefer, type OwnershipMove, type YjsOp } from "../action-buffer.js";
 import { deref } from "../deref.js";
-import type { PlexusModel } from "../PlexusModel.js";
+import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import {
   informOrphanizationSymbol,
   materializationSymbol,
   referenceSymbol,
   requestAdoptionSymbol,
-  requestOrphanizationSymbol,
   validateAdoptionSymbol,
 } from "../proxy-runtime-types.js";
 import { bucketCount, telemetry } from "../telemetry.js";
@@ -108,13 +107,22 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
             // this in `describe`, since by then the overlay has already emptied
             // `proxyTarget`.
             const previousEntries = { ...proxyTarget };
+            const stagedMoves: OwnershipMove[] = isChildField
+              ? Object.entries(previousEntries)
+                  .filter((entry): entry is [string, T & PlexusModel] => entry[1] instanceof PlexusModel)
+                  .map(([k, child]) => ({ child, orphan: true as const, from: { parent: owner, field: key, meta: k } }))
+              : [];
             emitOrDefer(owner.__doc__, {
               // Non-action path: exactly the original choreography, verbatim.
               applyNow: () => {
-                // Clear parent tracking for all child values
+                // Clear parent tracking for all child values that still RESIDE
+                // here (flush-time sweeps re-enter this proxy for content-only
+                // removals).
                 if (isChildField) {
                   for (const value of Object.values(proxyTarget)) {
-                    value?.[informOrphanizationSymbol]?.();
+                    if (value instanceof PlexusModel && value.parent === owner && value.parentField === key) {
+                      value[informOrphanizationSymbol]?.();
+                    }
                   }
                 }
 
@@ -130,13 +138,6 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
                 }
               },
               describe: () => {
-                // Orphanization (transitive core) — of the children that WERE here,
-                // matching where the original ran it.
-                if (isChildField) {
-                  for (const value of Object.values(previousEntries)) {
-                    value?.[informOrphanizationSymbol]?.();
-                  }
-                }
                 const yjsMap = getYjsMap();
                 if (!yjsMap) return [];
                 return [{ kind: "map-clear", map: yjsMap }];
@@ -148,6 +149,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
                 // Silent restore — the overlay's clear fired no `trackModification`.
                 Object.assign(proxyTarget, previousEntries);
               },
+              moves: stagedMoves,
             });
           };
         case "assign":
@@ -161,6 +163,27 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
             const oldValueSet = new Set(Object.values(proxyTarget));
             const newValueSet = new Set(entriesArray.map(([_, v]) => v));
             const previousEntries = { ...proxyTarget };
+            // STALE-MEMBERSHIP RULE (assign-like full replacement): every model
+            // value KEPT IN the new entries declares adopt (even if unchanged —
+            // it may be staged to another parent this region; the engine's
+            // stageMoves no-ops a true reaffirmation against EFFECTIVE
+            // ownership). Every removed model value declares orphan-with-from.
+            // A value moving between keys within this record falls out
+            // naturally: only its LAST adopt (its final entry) survives the
+            // per-child squash.
+            const stagedMoves: OwnershipMove[] = isChildField
+              ? [
+                  ...Object.entries(previousEntries)
+                    .filter(
+                      (entry): entry is [string, T & PlexusModel] =>
+                        entry[1] instanceof PlexusModel && !newValueSet.has(entry[1]),
+                    )
+                    .map(([k, child]) => ({ child, orphan: true as const, from: { parent: owner, field: key, meta: k } })),
+                  ...entriesArray
+                    .filter((entry): entry is [string, T & PlexusModel] => entry[1] instanceof PlexusModel)
+                    .map(([k, child]) => ({ child, parent: owner, field: key, meta: k })),
+                ]
+              : [];
 
             emitOrDefer(owner.__doc__, {
               // Non-action path: the original choreography over the shared snapshot.
@@ -176,9 +199,16 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
                       }
                     }
 
-                    // Now safe to orphan values that aren't in the new set
+                    // Now safe to orphan values that aren't in the new set and
+                    // still RESIDE here (flush-time sweeps re-enter this proxy
+                    // for content-only removals).
                     for (const value of oldValueSet) {
-                      if (value && !newValueSet.has(value)) {
+                      if (
+                        value instanceof PlexusModel &&
+                        !newValueSet.has(value) &&
+                        value.parent === owner &&
+                        value.parentField === key
+                      ) {
                         value[informOrphanizationSymbol]?.();
                       }
                     }
@@ -205,8 +235,8 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
               overlay: () => {
                 // Fail-fast on illegal adoptions for truly-new values BEFORE any
                 // state change — pure check, no yjs write. Genesis is deferred to
-                // `materialize`; orphan-removed + adopt-new + the leaf writes to
-                // `describe`.
+                // `materialize`; ownership choreography moves to `moves`; the
+                // leaf writes to `describe`.
                 if (isChildField) {
                   for (const [k, v] of entriesArray) {
                     if (v && !oldValueSet.has(v as any)) {
@@ -231,20 +261,6 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
               },
               describe: () => {
                 ensureYjsMap();
-                if (isChildField) {
-                  // Orphan removed values (transitive core), then adopt new ones —
-                  // children already materialized (phase 1).
-                  for (const value of oldValueSet) {
-                    if (value && !newValueSet.has(value)) {
-                      value[informOrphanizationSymbol]?.();
-                    }
-                  }
-                  for (const [k, v] of entriesArray) {
-                    if (v && !oldValueSet.has(v as any)) {
-                      v[requestAdoptionSymbol]?.(owner, key, k);
-                    }
-                  }
-                }
                 const map = getYjsMap();
                 if (!map) return [];
                 const ops: YjsOp[] = [{ kind: "map-clear", map }];
@@ -263,6 +279,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
                 }
                 Object.assign(proxyTarget, previousEntries);
               },
+              moves: stagedMoves,
             });
           };
         case materializationSymbol:
@@ -322,6 +339,34 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
         const previousValue = proxyTarget[elementKey];
         // Track key changes: key added (wasn't present, now has value) or removed (was present, now undefined)
         const structureChanged = (hadKeyBefore && value === undefined) || (!hadKeyBefore && value !== undefined);
+
+        // STALE-MEMBERSHIP RULE: mid-region the backing record is stale — a true
+        // reaffirmation (backing already holds `value` at this key) must still
+        // declare its adopt move, because `value` may be staged to another
+        // parent this region. For a non-child field, this is a real no-op: emit
+        // nothing. For a child field, emit a moves-only statement — applyNow
+        // returns the original (no-op) result, overlay/describe/notify/
+        // revertOverlay are all no-ops, and the engine itself gates true
+        // reaffirmations against EFFECTIVE ownership (stageMoves), so a
+        // genuinely-unstaged value costs nothing.
+        if (hadKeyBefore && previousValue === value) {
+          if (!isChildField) return true;
+          emitOrDefer(owner.__doc__, {
+            applyNow: () => {
+              // Nothing to do — backing/yjs already hold this value at this key.
+            },
+            overlay: () => {},
+            describe: () => [],
+            notify: () => {},
+            revertOverlay: () => {},
+            moves:
+              value instanceof PlexusModel
+                ? [{ child: value, parent: owner, field: key, meta: elementKey }]
+                : undefined,
+          });
+          return true;
+        }
+
         emitOrDefer(owner.__doc__, {
           // Non-action path: exactly the original choreography, verbatim.
           applyNow: () => {
@@ -339,8 +384,17 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
               if (isChildField) {
                 // VALIDATE FIRST before any state changes (throws on cycle)
                 value?.[validateAdoptionSymbol]?.(owner, key, elementKey);
-                // Now safe to orphan old value and adopt new one
-                proxyTarget[elementKey]?.[requestOrphanizationSymbol]?.();
+                // Now safe to orphan old value (only if it still RESIDES here —
+                // flush-time sweeps re-enter this proxy for content-only
+                // removals) and adopt new one
+                const oldItem = proxyTarget[elementKey];
+                if (
+                  oldItem instanceof PlexusModel &&
+                  oldItem.parent === owner &&
+                  oldItem.parentField === key
+                ) {
+                  oldItem[informOrphanizationSymbol]?.();
+                }
                 value?.[requestAdoptionSymbol]?.(owner, key, elementKey);
               }
               // undefined = delete key, null = explicit "nothing" value
@@ -358,8 +412,8 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
           },
           overlay: () => {
             // Fail-fast on illegal adoption BEFORE any state change — pure check,
-            // no yjs write. Genesis is deferred to `materialize`; orphan-old +
-            // adopt-new + the leaf write to `describe`.
+            // no yjs write. Genesis is deferred to `materialize`; ownership
+            // choreography moves to `moves`; the leaf write to `describe`.
             if (isChildField) {
               value?.[validateAdoptionSymbol]?.(owner, key, elementKey);
             }
@@ -378,12 +432,6 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
           },
           describe: () => {
             if (value !== undefined) ensureYjsMap();
-            if (isChildField) {
-              // Orphan the value being replaced (transitive core), then adopt the
-              // new one — it's already materialized (phase 1).
-              previousValue?.[requestOrphanizationSymbol]?.();
-              value?.[requestAdoptionSymbol]?.(owner, key, elementKey);
-            }
             const yjsMap = getYjsMap();
             if (!yjsMap) return [];
             return value === undefined
@@ -405,6 +453,14 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
               delete proxyTarget[elementKey];
             }
           },
+          moves: isChildField
+            ? [
+                ...(previousValue instanceof PlexusModel && previousValue !== value
+                  ? [{ child: previousValue, orphan: true as const, from: { parent: owner, field: key, meta: elementKey } }]
+                  : []),
+                ...(value instanceof PlexusModel ? [{ child: value, parent: owner, field: key, meta: elementKey }] : []),
+              ]
+            : undefined,
         });
         return true;
       }
@@ -428,9 +484,14 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
         // Non-action path: exactly the original choreography, verbatim.
         applyNow: () => {
           maybeTransacting(owner.__doc__, () => {
-            // Handle parent tracking for child fields
+            // Handle parent tracking for child fields — only if the value still
+            // RESIDES here (flush-time sweeps re-enter this proxy for
+            // content-only removals).
             if (isChildField) {
-              proxyTarget[elementKey]?.[informOrphanizationSymbol]?.();
+              const oldItem = proxyTarget[elementKey];
+              if (oldItem instanceof PlexusModel && oldItem.parent === owner && oldItem.parentField === key) {
+                oldItem[informOrphanizationSymbol]?.();
+              }
             }
             getYjsMap()?.delete(elementKey);
             if (Reflect.deleteProperty(proxyTarget, elementKey)) {
@@ -445,14 +506,14 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
         },
         // No `materialize` — deletes never genesis a child.
         describe: () => {
-          // Orphanization (transitive core), matching where the original ran it.
-          if (isChildField) {
-            previousValue?.[informOrphanizationSymbol]?.();
-          }
           const yjsMap = getYjsMap();
           if (!yjsMap) return [];
           return [{ kind: "map-delete", map: yjsMap, key: elementKey }];
         },
+        moves:
+          isChildField && previousValue instanceof PlexusModel
+            ? [{ child: previousValue, orphan: true as const, from: { parent: owner, field: key, meta: elementKey } }]
+            : undefined,
         notify: () => {
           // Track only if the delete took — applyNow's Reflect guard, mirrored.
           if (!overlayDeleted) return;

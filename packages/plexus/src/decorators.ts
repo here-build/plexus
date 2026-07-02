@@ -226,6 +226,28 @@ const setChild = <
   );
   const storedValue = internals.backingStorage.get(context.name) as T;
   if (storedValue === value) {
+    // Mid-region the backing slot can be stale (another statement may have
+    // staged this child elsewhere without this field's snapshot changing) —
+    // this reassignment must still reach the engine as an ownership FACT so
+    // the squash can judge it against the child's EFFECTIVE slot. No content
+    // write is needed (the stored value is unchanged): moves-only, so the
+    // engine either no-ops a true reaffirmation or corrects a stale one.
+    emitOrDefer(object.__doc__, {
+      applyNow: () => {
+        /* no-op: value identical to the current stored value outside a region */
+      },
+      overlay: () => {
+        /* no-op: backingStorage already holds this value */
+      },
+      describe: () => [],
+      notify: () => {
+        /* no-op: no content changed */
+      },
+      revertOverlay: () => {
+        /* no-op: overlay never wrote anything */
+      },
+      moves: value instanceof PlexusModel ? [{ child: value, parent: object, field: context.name }] : undefined,
+    });
     return;
   }
 
@@ -252,7 +274,12 @@ const setChild = <
     // Non-action path: exactly the original choreography, verbatim.
     applyNow: () =>
       maybeTransacting(object.__doc__, () => {
-        storedValue?.[requestOrphanizationSymbol]?.();
+        // Orphanize the outgoing child only if it still RESIDES here — flush-time
+        // sweeps re-enter this setter for content-only removals (e.g. `#emancipate`
+        // nulling this very slot), where the child has already left.
+        if (storedValue instanceof PlexusModel && storedValue.parent === object && storedValue.parentField === context.name) {
+          storedValue[requestOrphanizationSymbol]();
+        }
         writeOverlay();
         // for that flow, we could've used [requestAdoptionSymbol], but it has some extra checks we just skip
         // old: orphan, removed, new: placed both inside backing storage and old location, has old parent
@@ -279,15 +306,11 @@ const setChild = <
       value?.[referenceSymbol]?.(object.__doc__!);
     },
     describe: () => {
-      // Phase 2 — transitive core prep as direct calls (they own their own tx
-      // semantics and nest into the flush transaction), in the SAME relative order
-      // as the original choreography: orphan the outgoing child, then emancipate +
-      // adopt the incoming one. The child is already materialized (phase 1), so
-      // `informAdoptionSymbol` here only writes the parent edge. Then RETURN the
-      // field-map leaf write as a `YjsOp` for the engine to apply.
-      storedValue?.[requestOrphanizationSymbol]?.();
-      value?.[requestEmancipationSymbol]?.();
-      value?.[informAdoptionSymbol]?.(object, context.name);
+      // Phase 2 — PURE CONTENT. Ownership choreography (orphan the outgoing
+      // child, emancipate + adopt the incoming one) is no longer performed
+      // here — it's declared as `moves` below and settled ONCE per entity by
+      // the flush ownership pass. This is just the field-map leaf write as a
+      // `YjsOp` for the engine to apply.
       const wrapper = object.__yjsFieldsMap__;
       if (!wrapper) return [];
       return value == undefined
@@ -296,17 +319,26 @@ const setChild = <
     },
     notify: () => trackModification(object, context.name),
     revertOverlay: () => {
-      // Silent restore of the backingStorage mirror. Orphanization/emancipation/
-      // adoption are transitive core and were deferred to `describe` (phase 2),
-      // which never ran on a rollback, so no structural parent pointer or yjs
-      // parent-edge was ever touched — only the overlay write needs undoing, and
-      // silently: the overlay fired no `trackModification`, so no observer saw it.
+      // Silent restore of the backingStorage mirror. Ownership choreography is
+      // declared as `moves` (inversed by the engine via `undoMoves` on savepoint
+      // rollback), which never settled on a rollback, so no structural parent
+      // pointer or yjs parent-edge was ever touched — only the overlay write
+      // needs undoing, and silently: the overlay fired no `trackModification`,
+      // so no observer saw it.
       if (storedValue == undefined) {
         internals.backingStorage.delete(context.name);
       } else {
         internals.backingStorage.set(context.name, storedValue);
       }
     },
+    // Outgoing child → orphan from THIS slot; incoming value → adopt. The
+    // engine squashes per entity and no-ops true reaffirmations.
+    moves: [
+      ...(storedValue instanceof PlexusModel && storedValue !== value
+        ? [{ child: storedValue, orphan: true as const, from: { parent: object, field: context.name } }]
+        : []),
+      ...(value instanceof PlexusModel ? [{ child: value, parent: object, field: context.name }] : []),
+    ],
   });
 };
 

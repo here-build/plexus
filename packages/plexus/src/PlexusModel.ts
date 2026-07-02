@@ -4,7 +4,7 @@ import invariant from "tiny-invariant";
 import type { Constructor, ReadonlyDeep } from "type-fest";
 import * as Y from "yjs";
 
-import { effectiveActionParentOf, registerRegionOwnershipOps } from "./action-buffer.js";
+import { effectiveActionParentOf, isDeferring, isLiminalDoc, registerRegionOwnershipOps } from "./action-buffer.js";
 import { clone } from "./clone.js";
 import { encode } from "./crdt-uuid.js";
 import { deref } from "./deref.js";
@@ -476,6 +476,19 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   }
 
   [requestOrphanizationSymbol]() {
+    if (isDeferring() && this.__doc__ && !isLiminalDoc(this.__doc__)) {
+      // Structural orphanization cannot be deferred: #emancipate clears yjs
+      // parent data RAW (no maybeTransacting), which also pre-falsifies
+      // informOrphanization's hasParent gate — so the action's unrouted-
+      // mutation detector never sees this write. Warn directly instead.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `@syncing.action: ${this.__type__} was structurally detached during an action body. ` +
+          "Detach/orphanization is not routed through the action buffer: it applies immediately, " +
+          "is visible on the wire before the action commits, and will NOT roll back if the " +
+          "action throws. Move the detach outside the action, or reassign the child instead.",
+      );
+    }
     this.#emancipate();
     this[informOrphanizationSymbol]();
   }

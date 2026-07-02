@@ -58,6 +58,12 @@ class Foo extends PlexusModel {
   @syncing.child.map
   accessor slots!: Map<Bar, Bar>;
 
+  // A routed VALUE map with ENTITY keys — no child ownership, but describe()
+  // still serializes the key at flush: fresh-key genesis must be phase 1, not
+  // a write inside the flush transaction.
+  @syncing.map
+  accessor refs!: Map<Bar, number>;
+
   /**
    * Atomic body exercising every covered mutation kind:
    *  - val set (`count`)
@@ -217,6 +223,75 @@ class Foo extends PlexusModel {
     this.slots.set(key, first);
     this.slots.set(key, second); // overwrite: first is orphaned having never been real
     return { first, second };
+  }
+
+  /** Fresh entity as key: statement time must do NO doc work — key genesis belongs to flush phase 1. */
+  @syncing.action
+  squashFreshKey(report: { midKey?: unknown; midGet?: boolean }): { key: Bar; value: Bar } {
+    const key = new Bar({ label: "fresh-key" });
+    const value = new Bar({ label: "keyed-value" });
+    this.slots.set(key, value);
+    report.midGet = this.slots.get(key) === value; // read own staged write — raw-keyed, no serialization
+    report.midKey = value.parentFieldKey; // staged meta round-trips to the key entity mid-region
+    return { key, value };
+  }
+
+  /** Fresh-key set that rolls back: the key must never have been materialized. */
+  @syncing.action({ rollbackIf: () => true })
+  squashFreshKeyThrow(): void {
+    this.slots.set(new Bar({ label: "phantom-key" }), new Bar({ label: "phantom-value" }));
+    throw new Error("boom");
+  }
+
+  /** Move an EXISTING child under a fresh key: adopt-over-real with a statement-form meta. */
+  @syncing.action
+  squashFreshKeyMove(bar: Bar): Bar {
+    const key = new Bar({ label: "move-key" });
+    this.slots.set(key, bar);
+    return key;
+  }
+
+  /** Fresh-key set then delete: nets to no entry; the key still materializes (eager parity). */
+  @syncing.action
+  squashFreshKeySetThenDelete(): Bar {
+    const key = new Bar({ label: "transient-key" });
+    this.slots.set(key, new Bar({ label: "transient-value" }));
+    this.slots.delete(key);
+    return key;
+  }
+
+  /** Inner slice sets a fresh key then throws; its rollback must unwind the key's would-be genesis too. */
+  @syncing.action({ rollbackIf: () => true })
+  squashFreshKeyInnerThrow(): void {
+    this.slots.set(new Bar({ label: "inner-key" }), new Bar({ label: "inner-value" }));
+    throw new Error("inner");
+  }
+
+  /** Outer commits AROUND a reverted fresh-key slice — the flush must not resurrect it. */
+  @syncing.action
+  squashFreshKeyOuterSurvives(): void {
+    this.count = 41;
+    try {
+      this.squashFreshKeyInnerThrow();
+    } catch {
+      // inner slice reverted — the fresh key's staging unwinds with it
+    }
+    this.count = 42;
+  }
+
+  /** Fresh entity key on a VALUE map: describe() serializes it — genesis must be phase 1, not in-tx. */
+  @syncing.action
+  squashFreshValueKey(): Bar {
+    const key = new Bar({ label: "value-key" });
+    this.refs.set(key, 42);
+    return key;
+  }
+
+  /** Value-map fresh key that rolls back — no genesis, wire pure. */
+  @syncing.action({ rollbackIf: () => true })
+  squashFreshValueKeyThrow(): void {
+    this.refs.set(new Bar({ label: "phantom-value-key" }), 7);
+    throw new Error("boom");
   }
 
   /** Inner slice stages a move then throws; its rollbackIf unwinds the staging. */
@@ -384,7 +459,16 @@ describe("@syncing.action method decorator", () => {
     entityClasses.set("AtomicBar", Bar);
     entityClasses.set("AtomicOther", Other);
     const result = initTestPlexus(
-      new Foo({ count: 0, bars: new Set(), meta: new Map(), tags: [], items: [], kids: new Map(), slots: new Map() }),
+      new Foo({
+        count: 0,
+        bars: new Set(),
+        meta: new Map(),
+        tags: [],
+        items: [],
+        kids: new Map(),
+        slots: new Map(),
+        refs: new Map(),
+      }),
     );
     doc = result.doc;
     plexus = result.plexus;
@@ -1102,6 +1186,102 @@ describe("@syncing.action method decorator", () => {
       expect(b.parent).toBe(a);
       expect(a.children.includes(b)).toBe(true);
       expect(tree.children.includes(b)).toBe(false);
+    });
+
+    describe("fresh entity keys", () => {
+      it("fresh key commits: genesis lands in flush phase 1 with its own origin — key materialized, entry present", () => {
+        const shadow = root.__doc__!;
+        let updates = 0;
+        shadow.on("update", () => updates++);
+        const report: { midKey?: unknown; midGet?: boolean } = {};
+
+        const { key, value } = root.squashFreshKey(report);
+
+        expect(report.midGet).toBe(true); // raw-keyed overlay read
+        expect(report.midKey).toBe(key); // staged meta round-trips to the key entity mid-region
+        expect(root.slots.get(key)).toBe(value);
+        expect(value.parent).toBe(root);
+        expect(value.parentField).toBe("slots");
+        expect(value.parentFieldKey).toBe(key); // settled meta (global form) round-trips too
+        expect(() => key.uuid).not.toThrow();
+        expect(plexus.loadEntity(key.uuid)).toBeTruthy(); // really in the doc, not just id-minted
+        // key genesis + value genesis (phase 1, own origins) + ONE flush tx
+        expect(updates).toBe(3);
+      });
+
+      it("fresh key rollback: statement time did NO doc work — no genesis, wire pure", () => {
+        const shadow = root.__doc__!;
+        let updates = 0;
+        shadow.on("update", () => updates++);
+
+        expect(() => root.squashFreshKeyThrow()).toThrow("boom");
+
+        // Not even the key's genesis fired: "don't rely on uuid until we're
+        // done" holds for KEYS the same way it holds for child values.
+        expect(updates).toBe(0);
+        expect(root.slots.size).toBe(0);
+      });
+
+      it("fresh key adopts an EXISTING child: the move settles under a key that is born at flush", () => {
+        const bar = new Bar({ label: "mover" });
+        root.bars.add(bar);
+
+        const key = root.squashFreshKeyMove(bar);
+
+        expect(root.slots.get(key)).toBe(bar);
+        expect(root.bars.size).toBe(0); // emancipated from the real home
+        expect(bar.parentField).toBe("slots");
+        expect(bar.parentFieldKey).toBe(key);
+        expect(plexus.loadEntity(key.uuid)).toBeTruthy();
+      });
+
+      it("fresh key set-then-delete nets to no entry; the key still materializes (eager parity)", () => {
+        const key = root.squashFreshKeySetThenDelete();
+
+        expect(root.slots.size).toBe(0);
+        // Parity with the eager path, which also materializes the key of a
+        // subsequently-deleted entry: content ops replay both statements.
+        expect(() => key.uuid).not.toThrow();
+        expect(plexus.loadEntity(key.uuid)).toBeTruthy();
+      });
+
+      it("savepoint: a reverted fresh-key slice leaves no trace even though the region commits", () => {
+        const shadow = root.__doc__!;
+        let updates = 0;
+        shadow.on("update", () => updates++);
+
+        root.squashFreshKeyOuterSurvives();
+
+        expect(root.count).toBe(42); // outer writes flushed
+        expect(root.slots.size).toBe(0); // inner slice fully unwound
+        expect(updates).toBe(1); // just the outer flush — no stray genesis from the reverted slice
+      });
+
+      it("VALUE-map fresh entity key: genesis is phase 1 (own origin), not inside the flush transaction", () => {
+        const shadow = root.__doc__!;
+        let updates = 0;
+        shadow.on("update", () => updates++);
+
+        const key = root.squashFreshValueKey();
+
+        expect(root.refs.get(key)).toBe(42);
+        expect(plexus.loadEntity(key.uuid)).toBeTruthy();
+        // Genesis in its own transaction (phase 1) + ONE flush tx. A single
+        // update would mean the key was minted INSIDE the user transaction —
+        // wrong origin, wrong undo granularity.
+        expect(updates).toBe(2);
+      });
+
+      it("VALUE-map fresh key rollback: wire pure, identity never minted", () => {
+        const shadow = root.__doc__!;
+        let updates = 0;
+        shadow.on("update", () => updates++);
+
+        expect(() => root.squashFreshValueKeyThrow()).toThrow("boom");
+
+        expect(updates).toBe(0);
+        expect(root.refs.size).toBe(0);
+      });
     });
   });
 });

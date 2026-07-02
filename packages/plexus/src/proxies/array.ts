@@ -1536,6 +1536,25 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           }
 
           if (backingArray[parsedElementKey] === value) {
+            // STALE-MEMBERSHIP RULE: mid-region the backing array is stale —
+            // the child sitting at this index may have been staged AWAY to
+            // another parent by an earlier deferred statement. Reaffirming it
+            // here must re-assert ownership (last assignment wins), exactly
+            // like map's same-value fast path: a moves-only emission with
+            // no-op arms. Outside a region the engine ignores `moves` and
+            // `applyNow` is the plain early-return; a true reaffirmation is
+            // gated against EFFECTIVE ownership in the squash, so an
+            // already-settled child stages nothing.
+            if (isChildField && value instanceof PlexusModel) {
+              emitOrDefer(owner.__doc__, {
+                applyNow: () => true,
+                overlay: () => {},
+                describe: () => [],
+                notify: () => {},
+                revertOverlay: () => {},
+                moves: [{ child: value, parent: owner, field: key }],
+              });
+            }
             return true;
           }
 

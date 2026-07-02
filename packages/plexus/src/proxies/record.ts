@@ -423,6 +423,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
       // Snapshot for the (silent) overlay inverse; orphanization also reads this
       // in `describe`, since by then the overlay has already deleted the key.
       const previousValue = proxyTarget[elementKey];
+      let overlayDeleted = false;
       emitOrDefer(owner.__doc__, {
         // Non-action path: exactly the original choreography, verbatim.
         applyNow: () => {
@@ -440,7 +441,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
           });
         },
         overlay: () => {
-          delete proxyTarget[elementKey];
+          overlayDeleted = Reflect.deleteProperty(proxyTarget, elementKey);
         },
         // No `materialize` — deletes never genesis a child.
         describe: () => {
@@ -453,6 +454,8 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
           return [{ kind: "map-delete", map: yjsMap, key: elementKey }];
         },
         notify: () => {
+          // Track only if the delete took — applyNow's Reflect guard, mirrored.
+          if (!overlayDeleted) return;
           trackModification(self, elementKey);
           trackModification(self, KEYS_SYMBOL);
           trackModification(self, ENTRIES_LENGTH_SYMBOL);

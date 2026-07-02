@@ -118,6 +118,16 @@
  *   - MULTI-DOC. A body that mutates several docs is fully supported: each doc gets
  *     its own single transaction at flush. Per-doc only (yjs has no cross-doc
  *     transaction); the region guarantees each doc's batch is whole.
+ *   - MID-BODY STRUCTURAL STALENESS. The overlay is read-your-writes for the
+ *     mutated field only; structural choreography (emancipate-from-source /
+ *     adopt-into-destination) is FLUSH-time. Moving a child between collections
+ *     mid-body therefore shows DUAL MEMBERSHIP (source still contains it) and a
+ *     stale back-pointer (`child.parentField` names the source) until the flush
+ *     resolves both. Chosen, not accidental: eager choreography in the overlay
+ *     would mutate the SOURCE collection's mirror before the action is known to
+ *     commit, and rollback could no longer restore the source from the op's own
+ *     snapshot (an op only knows its destination). Pinned by the decorator
+ *     suite's (b2).
  *
  * ## Honest limits — crash-atomicity and async continuations
  *

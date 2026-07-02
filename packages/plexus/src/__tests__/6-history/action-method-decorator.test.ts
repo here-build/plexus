@@ -116,6 +116,19 @@ class Foo extends PlexusModel {
     throw new Error("boom");
   }
 
+  /**
+   * Moves an EXISTING child from `bars` (child set) into `items` (child list),
+   * reporting what the body observes mid-move — the vehicle for the
+   * structural-staleness pin below.
+   */
+  @syncing.action
+  moveFirstBarIntoItems(report: { dualMembership?: boolean; parentFieldDuring?: string | null }): void {
+    const bar = [...this.bars][0]!;
+    this.items.push(bar);
+    report.dualMembership = this.bars.has(bar) && this.items.includes(bar);
+    report.parentFieldDuring = bar.parentField;
+  }
+
   /** Single val set — used to probe the ephemeral (doc-less receiver) path. */
   @syncing.action
   justSet(): void {
@@ -325,6 +338,39 @@ describe("@syncing.action method decorator", () => {
 
     expect(log).toEqual([1, 1, 2]); // count=1, bars.size=1, count=2 — all read mid-transaction
     expect(returned).toBe(2);
+  });
+
+  it("(b2) mid-body structural STALENESS is chosen: a cross-collection child move shows dual membership + stale back-pointer until flush", () => {
+    // Eager oracle first: performed bare, the move detaches immediately —
+    // single membership at every observable moment.
+    const eager = initTestPlexus(new Foo({ count: 0, bars: new Set(), meta: new Map(), tags: [], items: [] })).root;
+    const ebar = new Bar({ label: "mover" });
+    eager.bars.add(ebar);
+    eager.items.push(ebar);
+    expect(eager.bars.has(ebar)).toBe(false);
+    expect(eager.items.includes(ebar)).toBe(true);
+    expect(ebar.parentField).toBe("items");
+
+    // The SAME move inside an action. Structural choreography (emancipate from
+    // the source, adopt into the destination) is FLUSH-time by design: running
+    // it in the overlay would mutate the SOURCE collection's mirror before the
+    // action is known to commit, and rollback could no longer restore the
+    // source from the op's own snapshot (the op only knows its destination).
+    // The cost, pinned here so it never regresses silently into "bug":
+    // during the body the child appears in BOTH collections and its
+    // back-pointer still names the source field.
+    const bar = new Bar({ label: "mover" });
+    root.bars.add(bar);
+    const report: { dualMembership?: boolean; parentFieldDuring?: string | null } = {};
+    root.moveFirstBarIntoItems(report);
+
+    expect(report.dualMembership).toBe(true); // stale: source not yet emancipated
+    expect(report.parentFieldDuring).toBe("bars"); // stale: adoption is flush-time
+
+    // After flush: identical to the eager oracle.
+    expect(root.bars.has(bar)).toBe(false);
+    expect(root.items.includes(bar)).toBe(true);
+    expect(bar.parentField).toBe("items");
   });
 
   it("(c) final materialized state is correct and reaches the main doc", () => {

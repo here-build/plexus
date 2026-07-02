@@ -483,6 +483,11 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       // parent data RAW (no maybeTransacting), which also pre-falsifies
       // informOrphanization's hasParent gate — so the action's unrouted-
       // mutation detector never sees this write. Warn directly instead.
+      // Doc-less and liminal receivers are excluded on their own terms, not
+      // by luck: a doc-less child has no yjs parent data to clear (nothing
+      // hits the wire), and a liminal doc applies instantly by contract (the
+      // preview session owns atomicity) — the same receivers whose writes
+      // settle instantly everywhere else in the engine.
       // eslint-disable-next-line no-console
       console.warn(
         `@syncing.action: ${this.__type__} was structurally detached during an action body. ` +

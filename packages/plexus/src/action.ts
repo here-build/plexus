@@ -317,8 +317,7 @@ function buildActionMethod<This extends PlexusModel, Args extends unknown[], Ret
 
   return function actionMethod(this: This, ...args: Args): Return {
     // PRE-OPEN TRANSACTION detection. Called inside an already-open transaction
-    // (e.g. `plexus.transact(() => model.action())`, or synchronously from a
-    // notification fired inside another action's flush), the region cannot own
+    // (e.g. `plexus.transact(() => model.action())`), the region cannot own
     // its boundaries: the flush's per-doc transactions nest silently into the
     // outer one — genesis and content merge into the caller's transaction (no
     // separate undo step, no origin separation) — and the unrouted-mutation

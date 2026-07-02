@@ -313,6 +313,10 @@ function flush(region: Region): void {
  *    before the throw, then rethrow (matches JS + yjs finalization semantics).
  *  - Throw matching `rollbackIf`: discard the buffer (yjs never written → wire-pure),
  *    restore the local mirror by inversing the overlays in reverse, then rethrow.
+ *  - `rollbackIf` ITSELF throwing: settles as commit-on-crash (the predicate never
+ *    affirmatively matched) and the predicate's error propagates — per JS catch
+ *    semantics — instead of the body's. The region is never abandoned: one of
+ *    revert/flush always runs, so the mirror cannot silently outrun yjs.
  *
  * Nested calls share the outer region but own a savepoint slice; the OUTERMOST
  * call owns the single flush.
@@ -341,13 +345,23 @@ export function runAction<T>(body: () => T, rollbackIf?: (error: unknown) => boo
     result = body();
   } catch (error) {
     current = previous;
-    if (rollbackIf?.(error)) {
-      // ROLLBACK: discard everything, restore the mirror. Wire stays pure.
-      revertRegionFrom(region, 0);
-      throw error;
+    // The predicate is user code and may itself throw. Standard JS applies — its
+    // error replaces the body's — but the region MUST still settle: an abandoned
+    // buffer would leave the mirror permanently ahead of yjs. The `finally`
+    // guarantees exactly one of revert/flush runs; a throwing predicate settles
+    // as commit-on-crash (it never affirmatively matched).
+    let matched = false;
+    try {
+      matched = rollbackIf?.(error) ?? false;
+    } finally {
+      if (matched) {
+        // ROLLBACK: discard everything, restore the mirror. Wire stays pure.
+        revertRegionFrom(region, 0);
+      } else {
+        // COMMIT-ON-CRASH (default): flush what was buffered before the throw.
+        flush(region);
+      }
     }
-    // COMMIT-ON-CRASH (default): flush what was buffered before the throw, rethrow.
-    flush(region);
     throw error;
   }
 

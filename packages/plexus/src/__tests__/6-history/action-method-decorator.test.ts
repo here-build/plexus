@@ -670,6 +670,36 @@ describe("@syncing.action method decorator", () => {
     expect(root2.count).toBe(0);
   });
 
+  it("a rollbackIf that ITSELF throws settles as commit-on-crash: buffer flushed, predicate's error propagates", () => {
+    @syncing("AtomicBadPredicate")
+    class BadPredicate extends PlexusModel {
+      @syncing accessor n!: number;
+
+      @syncing.action({
+        rollbackIf: () => {
+          throw new Error("predicate-broke");
+        },
+      })
+      write(): void {
+        this.n = 1;
+        throw new Error("body-boom");
+      }
+    }
+    entityClasses.set("AtomicBadPredicate", BadPredicate);
+
+    const { root: bp } = initTestPlexus(new BadPredicate({ n: 0 }));
+    const shadow = bp.__doc__!;
+    let updates = 0;
+    shadow.on("update", () => updates++);
+
+    // Per JS catch semantics the predicate's error replaces the body's…
+    expect(() => bp.write()).toThrow("predicate-broke");
+    // …but the region SETTLED as commit-on-crash: the buffered write reached yjs.
+    // An abandoned buffer would leave the mirror silently ahead of the wire.
+    expect(bp.n).toBe(1);
+    expect(updates).toBe(1);
+  });
+
   it("liminality + rollbackIf: the liminal write applies INSTANTLY, is NOT rolled back, and warns", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     let mainUpdates = 0;

@@ -1422,20 +1422,6 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
     },
 
     set(_, elementKey, value) {
-      // Ensure container exists before tracked transaction for index assignment.
-      // Mid-region this is an EAGER yjs write, and an exempt one: field-array
-      // container genesis is DETERMINISTIC — `materializeArrayForField` (via
-      // `materializeVirtualStruct`) would mint the identical empty container at
-      // flush, so creating it now changes no observable content and cannot
-      // diverge from the deferred replay.
-      if (
-        typeof elementKey === "string" &&
-        elementKey !== "length" &&
-        Number.isSafeInteger(Number.parseInt(elementKey))
-      ) {
-        ensureYjsArray();
-      }
-
       if (elementKey === "length") {
         // Handle array length truncation
         const newLength = Number(value);
@@ -1583,6 +1569,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
 
           emitOrDefer(owner.__doc__, {
             applyNow: () => {
+              ensureYjsArray();
               return maybeTransacting(owner.__doc__, () => {
                 // Track original length to detect extension
                 const originalLength = backingArray.length;
@@ -1716,6 +1703,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               }
             },
             describe: () => {
+              ensureYjsArray();
               const yjsArray = getYjsArray();
               if (!yjsArray || !owner.__doc__) return [];
               const ops: YjsOp[] = [];

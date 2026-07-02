@@ -152,8 +152,9 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
           };
         case "assign":
           return (newEntries: Record<string, AllowedYJSValue> | Iterable<[string, AllowedYJSValue]>) => {
-            // Shared by overlay/materialize/describe/revertOverlay below. `applyNow`
-            // recomputes its own copies, verbatim, inside its own closure.
+            // Snapshot ONCE, shared by every branch below — `newEntries` may be a
+            // one-shot iterable (generator, map.entries()), so it must be consumed
+            // exactly once.
             const entriesArray: [string, AllowedYJSValue][] = [
               ...(Symbol.iterator in newEntries ? newEntries : Object.entries(newEntries)),
             ];
@@ -162,20 +163,11 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
             const previousEntries = { ...proxyTarget };
 
             emitOrDefer(owner.__doc__, {
-              // Non-action path: exactly the original choreography, verbatim.
+              // Non-action path: the original choreography over the shared snapshot.
               applyNow: () => {
                 ensureYjsMap(); // create container outside tracked transaction
                 maybeTransacting(owner.__doc__, () => {
-                  // Convert to array for multiple iterations
-                  const entriesArray: [string, AllowedYJSValue][] = [
-                    ...(Symbol.iterator in newEntries ? newEntries : Object.entries(newEntries)),
-                  ];
-
-                  // For child fields, calculate what needs to be adopted/orphaned
-                  // and VALIDATE all adoptions BEFORE any state changes
-                  const oldValueSet = new Set(Object.values(proxyTarget));
-                  const newValueSet = new Set(entriesArray.map(([_, v]) => v));
-
+                  // For child fields, VALIDATE all adoptions BEFORE any state changes
                   if (isChildField) {
                     // VALIDATE FIRST: Check all truly new values can be adopted
                     for (const [k, v] of entriesArray) {

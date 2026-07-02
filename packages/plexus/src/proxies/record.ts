@@ -1,7 +1,7 @@
 import invariant from "tiny-invariant";
 import type * as Y from "yjs";
 
-import { emitOrDefer, type OwnershipMove, type YjsOp } from "../action-buffer.js";
+import { emitOrDefer, isDeferring, type OwnershipMove, type YjsOp } from "../action-buffer.js";
 import { deref } from "../deref.js";
 import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
@@ -10,6 +10,7 @@ import {
   materializationSymbol,
   referenceSymbol,
   requestAdoptionSymbol,
+  requestOrphanizationSymbol,
   validateAdoptionSymbol,
 } from "../proxy-runtime-types.js";
 import { bucketCount, telemetry } from "../telemetry.js";
@@ -340,20 +341,25 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
         // Track key changes: key added (wasn't present, now has value) or removed (was present, now undefined)
         const structureChanged = (hadKeyBefore && value === undefined) || (!hadKeyBefore && value !== undefined);
 
-        // STALE-MEMBERSHIP RULE: mid-region the backing record is stale — a true
-        // reaffirmation (backing already holds `value` at this key) must still
-        // declare its adopt move, because `value` may be staged to another
-        // parent this region. For a non-child field, this is a real no-op: emit
-        // nothing. For a child field, emit a moves-only statement — applyNow
-        // returns the original (no-op) result, overlay/describe/notify/
-        // revertOverlay are all no-ops, and the engine itself gates true
-        // reaffirmations against EFFECTIVE ownership (stageMoves), so a
-        // genuinely-unstaged value costs nothing.
-        if (hadKeyBefore && previousValue === value) {
+        // STALE-MEMBERSHIP RULE (deferred regions only): mid-region the backing
+        // record is stale — a true reaffirmation (backing already holds `value`
+        // at this key) must still declare its adopt move, because `value` may
+        // be staged to another parent this region. For a non-child field, this
+        // is a real no-op: emit nothing. For a child field, emit a moves-only
+        // statement — overlay/describe/notify/revertOverlay are all no-ops, and
+        // the engine itself gates true reaffirmations against EFFECTIVE
+        // ownership (stageMoves), so a genuinely-unstaged value costs nothing.
+        // OUTSIDE a region this fast path must not exist: the original
+        // choreography re-ran the full write on a same-value set (transient
+        // orphan/re-adopt churn included), and the eager path stays
+        // byte-for-byte original — so we fall through to it.
+        if (hadKeyBefore && previousValue === value && isDeferring()) {
           if (!isChildField) return true;
           emitOrDefer(owner.__doc__, {
             applyNow: () => {
-              // Nothing to do — backing/yjs already hold this value at this key.
+              // Reached mid-region only on the instant paths (doc-less or
+              // liminal doc) — backing/yjs already hold this value, and the
+              // moves settle immediately.
             },
             overlay: () => {},
             describe: () => [],
@@ -393,7 +399,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
                   oldItem.parent === owner &&
                   oldItem.parentField === key
                 ) {
-                  oldItem[informOrphanizationSymbol]?.();
+                  oldItem[requestOrphanizationSymbol]?.();
                 }
                 value?.[requestAdoptionSymbol]?.(owner, key, elementKey);
               }

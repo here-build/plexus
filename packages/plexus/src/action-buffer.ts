@@ -149,7 +149,7 @@ export type YjsOp =
   | { readonly kind: "array-delete"; readonly array: Y.Array<AllowedYValue>; readonly index: number; readonly length: number };
 
 /** The single dispatcher every deferred leaf write flows through. Runs inside the flush tx. */
-export function applyYjsOp(op: YjsOp): void {
+function applyYjsOp(op: YjsOp): void {
   switch (op.kind) {
     case "attr-set":
       op.wrapper.set(op.key, op.value);

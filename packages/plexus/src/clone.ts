@@ -18,26 +18,47 @@ const postMappingFill = new Set<() => void>();
 let childMapTempEntries: WeakMap<PlexusModel, Map<string, [AllowedYJSMapKey, AllowedYJSValue][]>> | null = null;
 
 /**
- * Cloning is following the behavior from many other libraries.
- * Most of the things are pretty simple and based on "if it's child it should be cloned too",
- * except one edge case that caused this logic bloat:
- * class Model {
- *     @syncing accessor nonChild: ChildModel;
- *     @syncing.child accessor child: ChildModel;
- * }
+ * THE CLONE LAW — read this before "fixing" anything about ref handling here.
  *
- * Plexus allows same entity to be used in both places for sane reasons (e.g. primaryVariant: Variant, variants: Variant[])
- * and it was causing weird things happening initially, because primaryVariant was preserved from old entity during clone.
- * Only correct solution (that is executed by e.g. Immer) here is this:
- * - we gather everything we're going to clone
- * - we assign them into cloneTransactionMapping (by doing empty constructor spawn - before we start fields traversal)
- * - we run recursive clone on child-fields (fields that produce new entities), prefilling cloneTransactionMapping
- * - then we execute normal fields
+ * clone() copies the OWNED subtree: child fields recurse, every cloned entity
+ * gets fresh identity. Non-owning refs follow the closure-conversion rule:
  *
- * current implementation may be buggy (needs research) on specific edge case:
- * class Model { @syncing accessor state = new SomeState(); } - it will be uselessly spawning fields via constructor.
- * Potential variance of what may happen is quite big so hard to predict how it can affect. Probably
- * nothing bad - yet the inverted field configuration flow in constructor is making things weird.
+ *   - a ref whose target is inside the same top-level clone REBINDS to the
+ *     target's clone (bound variables rename);
+ *   - a ref whose target is outside is PRESERVED verbatim (free variables
+ *     stay free).
+ *
+ * This is the only globally consistent rule, not a convention:
+ *   - remapping free refs would require inventing targets (transitively
+ *     deep-cloning the world) or stealing existing ones;
+ *   - preserving in-set refs would alias clone internals to source internals.
+ *
+ * That second failure is real history. Plexus allows the same entity in a ref
+ * field and a child field (e.g. primaryVariant: Variant + variants: Variant[]),
+ * and early clone preserved the ref — so the clone's primaryVariant pointed
+ * into the SOURCE's subtree. Hence the two-phase implementation below (same
+ * approach as e.g. Immer): register everything being cloned into
+ * cloneTransactionMapping first (empty constructor spawn, before field
+ * traversal), recurse child fields prefilling the mapping, then fill ref
+ * fields through it (mapping.get(target) ?? target).
+ *
+ * If a call site needs a FREE ref rebound, that is a composition decision at
+ * the call site — never widen clone's rule. Three recipes:
+ *   1. clone the owner that owns both — the mapping rebinds automatically;
+ *   2. prop override: entity.clone({ ref: newTarget });
+ *   3. plain assignment after cloning — refs don't own, assignment never
+ *      steals.
+ *
+ * Ownership-polarity trap (how consumers get this wrong): a getter returning
+ * a borrowed ref and an owning constructor-bag field have the same static
+ * type. Feeding refs harvested from a clone into an owning field of a fresh
+ * entity is an adoption attempt on doc-backed entities — forbidden
+ * (PlexusDocMismatchError). "Harvested from a clone" ≠ "safe to own".
+ *
+ * Known wart (needs research): `@syncing accessor state = new SomeState()`
+ * uselessly spawns fields via constructor during the registration phase; the
+ * inverted field-configuration flow in the constructor makes edge behavior
+ * hard to predict.
  */
 
 export function clone<Model extends PlexusModel>(source: Model, newProps: Partial<Model> = {}) {

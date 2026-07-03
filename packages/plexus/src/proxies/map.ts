@@ -198,10 +198,9 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         if (isChildField && value instanceof PlexusModel && isDeferring() && owner.__doc__ && !isLiminalDoc(owner.__doc__)) {
           const serializedSubKey = serializeKeyNonMinting(mapKey, owner.__doc__);
           emitOrDefer(owner.__doc__, {
-            applyNow: () => this,
+            applyNow: () => {},
             overlay: () => {},
             describe: () => [],
-            notify: () => {},
             revertOverlay: () => {},
             moves: [{ child: value, parent: owner, field: key, meta: serializedSubKey, rawKey: mapKey }],
           });

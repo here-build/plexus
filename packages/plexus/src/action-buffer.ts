@@ -195,7 +195,7 @@ function applyYjsOp(op: YjsOp): void {
  * once doc-backed); it goes through the public map proxy / re-serialization in
  * flush context via `rawKey` instead.
  */
-export interface EffectiveActionParent {
+interface EffectiveActionParent {
   readonly parent: PlexusModel;
   readonly field: string;
   readonly meta: string | null;
@@ -224,7 +224,7 @@ export type OwnershipMove =
   | { readonly child: PlexusModel; readonly orphan: true; readonly from: OwnershipSlot };
 
 /** The slot an orphan move removed its child from. */
-export interface OwnershipSlot {
+interface OwnershipSlot {
   readonly parent: PlexusModel;
   readonly field: string;
   readonly meta?: string | null;

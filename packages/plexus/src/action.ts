@@ -174,8 +174,7 @@ import type * as Y from "yjs";
 
 import { isDeferring, isLiminalDoc, runAction } from "./action-buffer.js";
 import type { PlexusModel } from "./PlexusModel.js";
-import { isDocTransacting } from "./utils/transacting.js";
-import { transactionObserverHook } from "./utils/utils.js";
+import { isDocTransacting, transactionObserverHook } from "./utils/transacting.js";
 
 // The unrouted-mutation condition warns at most once per decorated method, keyed
 // on the original method fn (so re-entrant / repeated calls stay quiet).

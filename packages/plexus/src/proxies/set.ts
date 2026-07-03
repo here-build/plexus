@@ -171,10 +171,9 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
               if (!isChildField || !(value instanceof PlexusModel)) return false;
               if (isDeferring() && owner.__doc__ && !isLiminalDoc(owner.__doc__)) {
                 emitOrDefer(owner.__doc__, {
-                  applyNow: () => false,
+                  applyNow: () => {},
                   overlay: () => {},
                   describe: () => [],
-                  notify: () => {},
                   revertOverlay: () => {},
                   moves: [{ child: value, parent: owner, field: key }],
                 });
@@ -182,14 +181,6 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
               return false;
             }
 
-            const writeYjs = () => {
-              const yjsMap = getYjsMap();
-              if (yjsMap && owner.__doc__) {
-                const sk = serializeKey(value, owner.__doc__);
-                serializedToElement.set(sk, value);
-                yjsMap.set(sk, maybeReference(value, owner.__doc__!));
-              }
-            };
             const stagedMoves: OwnershipMove[] =
               isChildField && value instanceof PlexusModel ? [{ child: value, parent: owner, field: key }] : [];
             emitOrDefer(owner.__doc__, {
@@ -205,7 +196,12 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                 maybeTransacting(owner.__doc__!, () => {
                   trackModification(self, KEYS_SYMBOL);
                   trackModification(self, ENTRIES_LENGTH_SYMBOL);
-                  writeYjs();
+                  const yjsMap = getYjsMap();
+                  if (yjsMap && owner.__doc__) {
+                    const sk = serializeKey(value, owner.__doc__);
+                    serializedToElement.set(sk, value);
+                    yjsMap.set(sk, maybeReference(value, owner.__doc__!));
+                  }
                 });
               },
               overlay: () => {

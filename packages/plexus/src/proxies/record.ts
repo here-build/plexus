@@ -370,7 +370,6 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
             },
             overlay: () => {},
             describe: () => [],
-            notify: () => {},
             revertOverlay: () => {},
             moves:
               value instanceof PlexusModel

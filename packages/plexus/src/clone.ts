@@ -52,7 +52,9 @@ let childMapTempEntries: WeakMap<PlexusModel, Map<string, [AllowedYJSMapKey, All
  * Ownership-polarity trap (how consumers get this wrong): a getter returning
  * a borrowed ref and an owning constructor-bag field have the same static
  * type. Feeding refs harvested from a clone into an owning field of a fresh
- * entity is an adoption attempt on doc-backed entities — forbidden
+ * entity is an ADOPTION: within one doc it is legal and MOVES the original
+ * (the fresh owner materializes upward — wrap-in-place contagion), so if you
+ * meant "copy" you just stole the source's children; across docs it throws
  * (PlexusDocMismatchError). "Harvested from a clone" ≠ "safe to own".
  *
  * Known wart (needs research): `@syncing accessor state = new SomeState()`

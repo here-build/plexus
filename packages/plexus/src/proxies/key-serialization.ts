@@ -26,16 +26,16 @@ const BIGINT_REGEX = /^-?\d+n$/;
 // They can be interchanged: local IDs are always valid within the
 // current runtime; global IDs are valid across peers.
 
-let localIdCounter = 0;
-const entityToLocalId = new WeakMap<PlexusModel, string>();
-const localIdToEntity = new Map<string, WeakRef<PlexusModel>>();
+let serializationIdCounter = 0;
+const entityToSerializationId = new WeakMap<PlexusModel, string>();
+const serializationIdToEntity = new Map<string, WeakRef<PlexusModel>>();
 
-function getOrCreateLocalId(entity: PlexusModel): string {
-  let id = entityToLocalId.get(entity);
+function getOrCreateSerializationId(entity: PlexusModel): string {
+  let id = entityToSerializationId.get(entity);
   if (!id) {
-    id = `${localIdCounter++}`;
-    entityToLocalId.set(entity, id);
-    localIdToEntity.set(id, new WeakRef(entity));
+    id = `${serializationIdCounter++}`;
+    entityToSerializationId.set(entity, id);
+    serializationIdToEntity.set(id, new WeakRef(entity));
   }
   return id;
 }
@@ -118,7 +118,7 @@ function serializeValueLocal(item: AllowedYJSValue): string {
     if (item === -Infinity) return "-Infinity";
   }
   if (item instanceof PlexusModel) {
-    return JSON.stringify([getOrCreateLocalId(item)]);
+    return JSON.stringify([getOrCreateSerializationId(item)]);
   }
   return JSON.stringify(item);
 }
@@ -143,7 +143,7 @@ function deserializeValueFlexible(line: string, doc: Y.Doc | null): AllowedYJSKe
   // Check if it's a reference tuple: [id] or [id, docId]
   if (Array.isArray(parsed) && parsed.length > 0 && parsed.length <= 2 && typeof parsed[0] === "string") {
     // Try local resolution first
-    const localEntity = localIdToEntity.get(parsed[0])?.deref();
+    const localEntity = serializationIdToEntity.get(parsed[0])?.deref();
     if (localEntity) return localEntity;
     // Fall back to doc-based resolution
     if (doc) return deref(doc, parsed as AllowedYValue);

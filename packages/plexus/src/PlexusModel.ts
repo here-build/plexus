@@ -416,7 +416,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     // attached. The only impossibility: an entity already materialized in a
     // DIFFERENT doc. Entities never change docs.
     PlexusDocMismatchError.invariant(
-      !this.__doc__ || !newParent.__doc__ || newParent.__doc__ === this.__doc__,
+      !newParent.__doc__ || !this.__doc__ || newParent.__doc__ === this.__doc__,
       this,
       newParent,
     );

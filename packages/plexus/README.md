@@ -21,6 +21,38 @@ Rides MobX reactivity stack opt-in - both local and remote changes will trigger 
 
 If you'd rather build collaboration with classes than with `Y.Map.set("key", value)`, this is for you.
 
+## Contents
+
+- [Who this is for](#who-this-is-for)
+- [Quick Start](#quick-start)
+- [Defining Models](#defining-models)
+  - [Primitive Fields](#primitive-fields)
+  - [Collection Fields](#collection-fields)
+  - [Child Fields (Ownership)](#child-fields-ownership)
+  - [The Doc-Boundary Law](#the-doc-boundary-law)
+  - [Virtual Maps](#virtual-maps)
+  - [Map Keys](#map-keys)
+- [Constructor Patterns](#constructor-patterns)
+- [Inheritance](#inheritance)
+- [Entity Lifecycle](#entity-lifecycle)
+  - [Doc-Free Usage](#doc-free-usage)
+  - [Identity & UUIDs](#identity--uuids)
+  - [Navigation](#navigation)
+  - [Status](#status)
+  - [Operations](#operations)
+- [Reactivity](#reactivity)
+- [Transactions](#transactions)
+- [Undo / Redo](#undo--redo)
+- [Liminality (Ephemeral Gestures)](#liminality-ephemeral-gestures)
+- [Awareness (Presence)](#awareness-presence)
+- [Querying](#querying)
+- [Tree Walking](#tree-walking)
+- [Cross-Document Dependencies](#cross-document-dependencies)
+- [Telemetry](#telemetry)
+- [Error Types](#error-types)
+- [API Reference](#api-reference)
+- [License](#license)
+
 ## Quick Start
 
 > You will need to use **TypeScript** with **stage-3 decorators** specifically.

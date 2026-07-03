@@ -2,6 +2,7 @@ export * from "./proxy-runtime-types.js";
 export * from "./sentinels.js";
 
 export * from "./PlexusModel.js";
+export { mintLocalID, resetLocalIDs } from "./local-id.js";
 export * from "./decorators.js";
 export * from "./errors.js";
 export * from "./tracking.js";

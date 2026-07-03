@@ -379,6 +379,29 @@ Plexus.getArbitraryUUID = () => `test-${counter++}`;
 
 > **Singletons & the ordinal protocol.** Plexus entities are guaranteed singletons — one object per entity, *including across materialization* — so an entity's **pointer identity never changes**. If you need to identify entities **within a session** without a doc-synced UUID (e.g. ephemeral, not-yet-materialized models, whose `.uuid` would throw), use the [`ordinal`](../common/collections/src/ordinal/) protocol (`ordinal.id(entity)`): a stable, process-local handle keyed off that pointer identity, available *before* materialization.
 
+#### `.localID` — process-local creation-order identity
+
+Every entity also carries a `.localID`: a plain number minted from one global counter, eagerly at
+construction. It exists for **every** entity — ephemeral, rehydrated, cloned — before and independent
+of materialization, and is **never serialized** (absent from `toJSON()`, the yjs wire state, and every
+CRDT document). Because it is minted at construction (never lazily on first access), it is
+deterministic under a fixed creation order — the identity to reach for in tests and fixtures.
+
+`resetLocalIDs()` restarts the counter at 1 — a test hook for reproducible ids between tests. Reset
+only between tests: entities surviving from before the reset can collide with new ones.
+
+The three identity surfaces, side by side:
+
+| Surface | Scope | Available | Use for |
+|---|---|---|---|
+| `.uuid` | doc-synced CRDT identity | after materialization (throws before) | cross-peer references, storage |
+| `.localID` | process-local, creation-order | always (minted at construction) | test determinism, ephemeral-safe identity, debug labels |
+| [`ordinal.id(obj)`](../common/collections/src/ordinal/) | process-local, first-use-order | any object, plexus or not | identity for arbitrary objects outside plexus |
+
+`.localID` deliberately mirrors the ordinal protocol but keeps its **own counter domain**: resetting
+localIDs must never disturb ordinal ids (which canonicalize live path-map set keys elsewhere in the
+process).
+
 ### Navigation
 
 ```typescript

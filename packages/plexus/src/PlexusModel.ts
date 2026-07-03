@@ -9,6 +9,7 @@ import { clone } from "./clone.js";
 import { encode } from "./crdt-uuid.js";
 import { deref } from "./deref.js";
 import { documentEntityCaches } from "./entity-cache.js";
+import { mintLocalID } from "./local-id.js";
 import {
   PlexusCycleError,
   PlexusDependencyError,
@@ -136,12 +137,27 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   static getArbitraryUUID: () => string = nanoid;
   static readonly schema: GenericRecordSchema;
 
+  /**
+   * Process-local creation-order identity. Minted eagerly at construction for
+   * EVERY entity — ephemeral, rehydrated, cloned alike — so it exists before
+   * (and independent of) materialization, unlike `.uuid`. Never serialized:
+   * absent from `toJSON()`, the yjs wire state, and every CRDT document.
+   * See `local-id.ts` for the counter contract and `resetLocalIDs()`.
+   */
+  public readonly localID: number;
+
   constructor(init: unknown = {}) {
     // Test sentinel: throw self for constructor reachability testing
     if (init === PLEXUS_TEST_SENTINEL) {
       if (Plexus.testSentinels) throw PLEXUS_TEST_SENTINEL;
       init = {};
     }
+
+    // Creation-order identity — after the sentinel gate (aborted reachability
+    // probes must not consume ids), before everything else. Every construction
+    // path (user `new`, __materializeRaw__, __materializePredefined__) passes
+    // through this base constructor exactly once.
+    this.localID = mintLocalID();
 
     const isControlled = init === PLEXUS_CONTROLLED || init === PLEXUS_DERIVED;
     // Note: _isControlledConstruction is set by __materializeRaw__ / __materializePredefined__

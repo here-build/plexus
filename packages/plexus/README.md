@@ -522,6 +522,21 @@ risky() { /* ... */ } // a matching throw discards the batch — nothing hits th
 Because yjs stays untouched until the flush, a rolled-back action broadcasts **nothing**, even
 when the body spans multiple docs. See `src/action.ts` for the full mechanism and edge cases.
 
+**Boundaries.** The envelope has documented edges:
+
+- **Doc-less (ephemeral) receiver** — with no doc there is nothing to batch into: every write
+  lands eagerly, exactly as it would outside the action; no transaction, no undo unit, no
+  rollback (`rollbackIf` has nothing to discard), and no warning. Materialize the receiver
+  first if you need the guarantees.
+- **Async / generator bodies are a compile error** — the region is synchronous and flushes at
+  return, so a body that suspends (`async`) or runs lazily (generators) cannot be batched. The
+  ban is enforced at the input type; if it is bypassed (a cast, `any`, plain JS), the decorator
+  still warns once per method: at decoration time for declared shapes (`async`, `function*`,
+  `async function*`), at runtime when a body returns a thenable — returning a
+  synchronously-built promise is legal, but writes in its continuations land outside the region.
+- **Called inside `plexus.transact()`** — the action cannot own its transaction boundaries and
+  warns once; call actions outside `transact()` (the action IS the batch).
+
 ## Undo / Redo
 
 ```typescript

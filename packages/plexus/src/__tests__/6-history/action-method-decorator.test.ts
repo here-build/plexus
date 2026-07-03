@@ -10,6 +10,11 @@ import { PlexusModel } from "../../PlexusModel.js";
 import { maybeTransacting } from "../../utils/utils.js";
 import { initTestPlexus, type TestPlexus } from "../_helpers/test-plexus.js";
 
+// The warn assertion the suites below repeat: did any console.warn call carry
+// this substring? Structural spy type — only `mock.calls` is consulted.
+const warnedWith = (spy: { mock: { calls: unknown[][] } }, substring: string): boolean =>
+  spy.mock.calls.some(([message]) => typeof message === "string" && message.includes(substring));
+
 // A child entity materialized mid-method by the atomic body.
 @syncing("AtomicBar")
 class Bar extends PlexusModel {
@@ -828,10 +833,7 @@ describe("@syncing.action method decorator", () => {
     await expect(promise).resolves.toBe(4);
     expect(root.count).toBe(4);
 
-    const warnedThenable = warnSpy.mock.calls.some(
-      ([message]) => typeof message === "string" && message.includes("thenable"),
-    );
-    expect(warnedThenable).toBe(false);
+    expect(warnedWith(warnSpy, "thenable")).toBe(false);
 
     warnSpy.mockRestore();
   });
@@ -867,10 +869,7 @@ describe("@syncing.action method decorator", () => {
     expect(root.meta.get("k")).toBe(1);
     expect(shadow.getMap("unrouted-probe").get("probe")).toBe(1);
 
-    const warnedUnrouted = warnSpy.mock.calls.some(
-      ([message]) => typeof message === "string" && message.includes("NOT yet routed through the action buffer"),
-    );
-    expect(warnedUnrouted).toBe(true);
+    expect(warnedWith(warnSpy, "NOT yet routed through the action buffer")).toBe(true);
 
     warnSpy.mockRestore();
   });
@@ -925,10 +924,7 @@ describe("@syncing.action method decorator", () => {
     expect(bar.parent).toBeNull();
     expect(root.bars.has(bar)).toBe(false);
 
-    const warnedDetach = warnSpy.mock.calls.some(
-      ([message]) => typeof message === "string" && message.includes("structurally detached during an action body"),
-    );
-    expect(warnedDetach).toBe(true);
+    expect(warnedWith(warnSpy, "structurally detached during an action body")).toBe(true);
 
     warnSpy.mockRestore();
   });
@@ -957,10 +953,7 @@ describe("@syncing.action method decorator", () => {
     // flush's per-doc transactions nested into the caller's open transaction).
     expect(root.count).toBe(41);
 
-    const warnedPreOpen = warnSpy.mock.calls.some(
-      ([message]) => typeof message === "string" && message.includes("already-open transaction"),
-    );
-    expect(warnedPreOpen).toBe(true);
+    expect(warnedWith(warnSpy, "already-open transaction")).toBe(true);
 
     warnSpy.mockRestore();
   });
@@ -986,10 +979,7 @@ describe("@syncing.action method decorator", () => {
     // …and the pre-open-tx warn is correctly silent: the receiver's writes
     // route through no doc, so the caller's open transaction has nothing of
     // this region's to swallow. Canonical, not a detection miss.
-    const warnedPreOpen = warnSpy.mock.calls.some(
-      ([message]) => typeof message === "string" && message.includes("already-open transaction"),
-    );
-    expect(warnedPreOpen).toBe(false);
+    expect(warnedWith(warnSpy, "already-open transaction")).toBe(false);
 
     warnSpy.mockRestore();
   });
@@ -1010,10 +1000,7 @@ describe("@syncing.action method decorator", () => {
     // opened (and owned) doc A's transaction itself — one envelope, no nesting
     // to warn about. Canonical, not a detection miss.
     expect(rootDocUpdates).toBe(1);
-    const warnedPreOpen = warnSpy.mock.calls.some(
-      ([message]) => typeof message === "string" && message.includes("already-open transaction"),
-    );
-    expect(warnedPreOpen).toBe(false);
+    expect(warnedWith(warnSpy, "already-open transaction")).toBe(false);
 
     warnSpy.mockRestore();
   });
@@ -1158,10 +1145,7 @@ describe("@syncing.action method decorator", () => {
     // …stayed in the preview (never forwarded to main)…
     expect(mainUpdates).toBe(0);
     // …and the rollback loudly reported that it could not revert a liminal effect.
-    const warnedLiminal = warnSpy.mock.calls.some(
-      ([message]) => typeof message === "string" && message.includes("liminal"),
-    );
-    expect(warnedLiminal).toBe(true);
+    expect(warnedWith(warnSpy, "liminal")).toBe(true);
 
     plexus.revertLiminality();
     warnSpy.mockRestore();

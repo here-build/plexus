@@ -435,50 +435,16 @@ class Foo extends PlexusModel {
     throw new Error("plain");
   }
 
-  /**
-   * Async body — a COMPILE ERROR. The deferral region is synchronous, so a body
-   * that returns a `Promise` is banned at the INPUT: its return makes the `target`
-   * parameter collapse to `never`, so it is not an accepted argument. The
-   * `@ts-expect-error` below IS the assertion that the ban fires; if the ban ever
-   * regressed, tsc would flag the unused expect-error.
-   */
-  // @ts-expect-error @syncing.action does not accept an async method: its Promise return makes the `target` parameter `never`
-  @syncing.action
-  async doAsync(): Promise<number> {
-    this.count = 4; // synchronous prefix still runs before the promise is returned
-    return this.count;
-  }
+  // The deferred-delivery COMPILE-ERROR fixtures (async / async generator /
+  // sync generator) live INSIDE their tests in the OUT-OF-ENVELOPE section
+  // below, not here: decorating a bypassed shape now warns at DECORATION time,
+  // and a module-level fixture would fire that warning at file load — before
+  // any spy, polluting every run and making the warning untestable. The
+  // `@ts-expect-error` ban assertions moved with them (tsc typechecks
+  // function-body classes all the same).
 
   /**
-   * Async GENERATOR — also a COMPILE ERROR. Its `AsyncGenerator` return is an
-   * `AsyncIterable`/`AsyncIterator`, so it too makes the `target` parameter `never`
-   * and is not an accepted argument: the body runs lazily on iteration, after the
-   * region has closed. The `@ts-expect-error` IS the assertion; a regression makes
-   * it unused → tsc error.
-   */
-  // @ts-expect-error @syncing.action does not accept an async generator: its AsyncGenerator return makes the `target` parameter `never`
-  @syncing.action
-  async *doAsyncGen(): AsyncGenerator<number> {
-    this.count = 5;
-    yield this.count;
-  }
-
-  /**
-   * SYNC GENERATOR — also a COMPILE ERROR. A `function*` returns a `Generator`,
-   * which is an `Iterator`, so its return makes the `target` parameter `never`. The
-   * body runs lazily on the first `.next()`, not when called — so its mutations
-   * would miss the synchronous region entirely, exactly the async-generator hazard
-   * minus the `await`. `Iterator` (not `Iterable`) is the cut: a body returning a
-   * `string`/array/`Map` — `Iterable` but not `Iterator` — stays accepted.
-   */
-  // @ts-expect-error @syncing.action does not accept a sync generator: its Generator (an Iterator) return makes the `target` parameter `never`
-  @syncing.action
-  *doSyncGen(): Generator<number> {
-    this.count = 6;
-    yield this.count;
-  }
-
-  /**
+   * `(): never` — ACCEPTED, via the ban's explicit escape arm. `[never] extends
    * `(): never` — ACCEPTED, via the ban's explicit escape arm. `[never] extends
    * [X]` is true for ANY `X` (`never` is assignable to everything), so without
    * the leading `[Return] extends [never]` arm in `SyncActionMethod` this
@@ -821,19 +787,101 @@ describe("@syncing.action method decorator", () => {
 
   // ── OUT-OF-ENVELOPE: loud-but-correct boundaries ──────────────────────────
 
-  it("async body is a COMPILE error, not a runtime warning", async () => {
-    // The ban is enforced by tsc at the INPUT — the Promise return collapses the
-    // `target` parameter to `never`; see the `@ts-expect-error` on `doAsync`'s
-    // decorator. At runtime the wrapper still runs the synchronous prefix; there is
-    // no runtime thenable warning any more.
+  it("async body is a COMPILE error; a bypassed one warns once at decoration", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    /**
+     * Async body — a COMPILE ERROR at the input: the `Promise` return collapses
+     * the `target` parameter to `never` (see `SyncActionMethod`), and the
+     * `@ts-expect-error` IS that assertion — if the ban regressed, tsc would
+     * flag it as unused. The class is defined INSIDE the test so the
+     * decoration-time bypass warning fires under the spy.
+     */
+    @syncing("AsyncBypassFixture")
+    class AsyncBypassFixture extends PlexusModel {
+      @syncing
+      accessor count!: number;
 
-    const promise = root.doAsync();
+      // @ts-expect-error @syncing.action does not accept an async method: its Promise return makes the `target` parameter `never`
+      @syncing.action
+      async doAsync(): Promise<number> {
+        this.count = 4; // synchronous prefix still runs inside the region
+        return this.count;
+      }
+    }
 
-    await expect(promise).resolves.toBe(4);
-    expect(root.count).toBe(4);
+    expect(warnedWith(warnSpy, "declared `async`")).toBe(true);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
 
-    expect(warnedWith(warnSpy, "thenable")).toBe(false);
+    const { root: fixture } = initTestPlexus(new AsyncBypassFixture({ count: 0 }));
+    await expect(fixture.doAsync()).resolves.toBe(4);
+    expect(fixture.count).toBe(4);
+    await expect(fixture.doAsync()).resolves.toBe(4);
+    expect(warnSpy).toHaveBeenCalledTimes(1); // once per method — shared with the runtime arm
+
+    warnSpy.mockRestore();
+  });
+
+  it("generator bodies are COMPILE errors; bypassed ones warn at decoration and never run at call time", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    @syncing("GeneratorBypassFixture")
+    class GeneratorBypassFixture extends PlexusModel {
+      @syncing
+      accessor count!: number;
+
+      // @ts-expect-error @syncing.action does not accept a sync generator: its Generator (an Iterator) return makes the `target` parameter `never`
+      @syncing.action
+      *doSyncGen(): Generator<number> {
+        this.count = 6;
+        yield this.count;
+      }
+
+      // @ts-expect-error @syncing.action does not accept an async generator: its AsyncGenerator return makes the `target` parameter `never`
+      @syncing.action
+      async *doAsyncGen(): AsyncGenerator<number> {
+        this.count = 5;
+        yield this.count;
+      }
+    }
+
+    expect(warnedWith(warnSpy, "a generator (`function*`)")).toBe(true);
+    expect(warnedWith(warnSpy, "an async generator (`async function*`)")).toBe(true);
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+
+    // The decoration warning's stated hazard, demonstrated: calling the method
+    // runs NOTHING — the body executes on iteration, outside any region.
+    const fixture = new GeneratorBypassFixture({ count: 0 });
+    const gen = fixture.doSyncGen();
+    expect(fixture.count).toBe(0); // body did not run at call time
+    gen.next();
+    expect(fixture.count).toBe(6); // ran on iteration — outside any region
+    expect(warnSpy).toHaveBeenCalledTimes(2); // no per-call re-warn
+
+    warnSpy.mockRestore();
+  });
+
+  it("a body that returns a thenable tsc cannot see (typed `unknown`) warns once at runtime", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    @syncing("ThenableReturnFixture")
+    class ThenableReturnFixture extends PlexusModel {
+      @syncing
+      accessor count!: number;
+
+      @syncing.action
+      hidesPromise(): unknown {
+        this.count = 9; // the body DOES run to completion — this is the soft case
+        return Promise.resolve(this.count);
+      }
+    }
+
+    expect(warnSpy).not.toHaveBeenCalled(); // plain shape → no decoration warning
+
+    const fixture = new ThenableReturnFixture({ count: 0 });
+    fixture.hidesPromise();
+    expect(fixture.count).toBe(9);
+    expect(warnedWith(warnSpy, "returned a thenable")).toBe(true);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    fixture.hidesPromise();
+    expect(warnSpy).toHaveBeenCalledTimes(1); // once per method, not per call
 
     warnSpy.mockRestore();
   });

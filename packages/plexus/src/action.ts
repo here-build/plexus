@@ -183,12 +183,24 @@ const warnedUnroutedMethods = new WeakSet<object>();
 // Same once-per-method policy for the pre-open-transaction condition.
 const warnedPreOpenTxMethods = new WeakSet<object>();
 
+// One shared set for BOTH deferred-delivery bypass warnings (declared shape at
+// decoration time, thenable return at runtime): a bypassed `async` method is
+// detectable both ways, and one warning about the one defect is enough.
+const warnedDeferredDeliveryMethods = new WeakSet<object>();
+
 const warnOnce = (seen: WeakSet<object>, key: object, message: string): void => {
   if (seen.has(key)) return;
   seen.add(key);
   // eslint-disable-next-line no-console
   console.warn(message);
 };
+
+// Thenable sniff for the runtime bypass arm — the Promises/A+ shape: an object
+// or function carrying a callable `then`.
+const isThenable = (value: unknown): boolean =>
+  (typeof value === "object" || typeof value === "function") &&
+  value !== null &&
+  typeof (value as { then?: unknown }).then === "function";
 
 /** Per-method configuration for the factory form `@syncing.action({ ... })`. */
 export interface ActionOptions {
@@ -237,6 +249,15 @@ type ActionMethod<This extends PlexusModel, Args extends unknown[], Return> = (
  *     the real annotation instead of admitting sloppily-typed async. (`unknown`
  *     stays accepted — unlike `any` it cannot silently BE a promise downstream
  *     without narrowing.)
+ *
+ * The type ban is the guarantee; runtime adds a belt for bypasses (casts, `any`
+ * suppressions, plain-JS callers). Declared shapes — `async`, `function*`,
+ * `async function*` — are readable off the function object, so those warn once
+ * per method at DECORATION time, before any call. The one shape tsc cannot see
+ * through (a body typed e.g. `unknown` returning a promise it built) warns once
+ * per method at RUNTIME when it hands back a thenable — soft, because returning
+ * a synchronously-built promise is legal: that body DID run to completion, and
+ * only writes inside the promise's continuations fall outside the region.
  */
 type DeferredDelivery = Promise<unknown> | AsyncIterable<unknown> | AsyncIterator<unknown> | Iterator<unknown>;
 
@@ -314,6 +335,36 @@ function buildActionMethod<This extends PlexusModel, Args extends unknown[], Ret
 ): ActionMethod<This, Args, Return> {
   const label = `@syncing.action: method "${String(context.name)}"`;
 
+  // COMPILE-BAN BYPASS, decoration-time arm. `SyncActionMethod` rejects
+  // deferred-delivery bodies at the input, but a cast, an `any` suppression, or
+  // a plain-JS caller can smuggle one past tsc. The declared shapes are
+  // readable off the function object itself, so the defect is reported before
+  // any call — once per method, through the same set as the runtime thenable
+  // arm below (one warning per method about the one defect).
+  const shapeTag = Object.prototype.toString.call(target);
+  if (
+    shapeTag === "[object AsyncFunction]" ||
+    shapeTag === "[object GeneratorFunction]" ||
+    shapeTag === "[object AsyncGeneratorFunction]"
+  ) {
+    const [shape, consequence] =
+      shapeTag === "[object AsyncFunction]"
+        ? [
+            "declared `async`",
+            "only writes before its first await are batched; continuation writes land outside the region — unbatched, not rolled back",
+          ]
+        : [
+            shapeTag === "[object GeneratorFunction]" ? "a generator (`function*`)" : "an async generator (`async function*`)",
+            "its body does not run when called — it runs on iteration, after the region closed, so NONE of its writes are batched",
+          ];
+    warnOnce(
+      warnedDeferredDeliveryMethods,
+      target,
+      `${label} is ${shape}, bypassing the compile-time ban. The action region is synchronous ` +
+        `and flushes at return: ${consequence}.`,
+    );
+  }
+
   return function actionMethod(this: This, ...args: Args): Return {
     // PRE-OPEN TRANSACTION detection. Called inside an already-open transaction
     // (e.g. `plexus.transact(() => model.action())`), the region cannot own
@@ -365,6 +416,22 @@ function buildActionMethod<This extends PlexusModel, Args extends unknown[], Ret
           `That write hit yjs eagerly during the body — so it was NOT batched into the single ` +
           `transaction and will NOT roll back on throw. Restrict action bodies to the routed ` +
           `mutation kinds until the full emission rewrite lands.`,
+      );
+    }
+
+    // COMPILE-BAN BYPASS, runtime arm: the shape tsc cannot see through (a body
+    // typed e.g. `unknown` returning a promise it built) hands back a thenable.
+    // The body DID run to completion, and returning a synchronously-built
+    // promise can be intentional — so this is a soft once-per-method note, not
+    // an error: writes in the promise's continuations run after the flush,
+    // outside the region.
+    if (isThenable(result)) {
+      warnOnce(
+        warnedDeferredDeliveryMethods,
+        target,
+        `${label} returned a thenable. The region already flushed at return — writes in the ` +
+          `promise's continuations are NOT batched and NOT rolled back. If the body built the ` +
+          `promise synchronously and returns it intentionally, this is safe.`,
       );
     }
 

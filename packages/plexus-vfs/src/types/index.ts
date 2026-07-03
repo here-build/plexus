@@ -5,7 +5,9 @@ export type EncodingOpt = "utf8" | { encoding?: string } | undefined;
 /**
  * The Stats shape isomorphic-git folds into its index. `mode >> 12` is how
  * iso-git reads the entry type, so the octal type bits are load-bearing; `ino`
- * must be stable per entity across reads (we derive it from the PlexusUUID).
+ * must be stable per entity across reads (we derive it from the entity's
+ * `.localID` — doc-less trees are a supported use of this VFS, and `.localID`
+ * is available on ephemeral/unmaterialized entities where `.uuid` throws).
  */
 export interface Stats {
   mode: number;

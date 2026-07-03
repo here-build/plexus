@@ -160,7 +160,7 @@ export class PlexusFS extends PlexusDir implements NarrowedPromiseFsClient {
     const mtimeMs = node instanceof PlexusFile ? node.mtimeMs : 0;
     return {
       mode: isDir ? 0o04_0000 : 0o10_0644,
-      ino: uint32FromUUID(node.uuid),
+      ino: node.localID,
       size: node instanceof PlexusFile ? node.size : 0,
       mtimeMs,
       ctimeMs: mtimeMs,
@@ -177,24 +177,6 @@ export class PlexusFS extends PlexusDir implements NarrowedPromiseFsClient {
   lstat(path: string): Stats {
     return this.stat(path);
   }
-}
-
-/**
- * Stable uint32 from a PlexusUUID string (FNV-1a). iso-git folds `stat.ino` into
- * its index; it only needs to be stable per entity across reads, not globally
- * unique. FNV-1a over the UUID chars gives exactly that.
- */
-function uint32FromUUID(uuid: string): number {
-  let h = 0x81_1c_9d_c5;
-  for (let i = 0; i < uuid.length; i++) {
-    // charCodeAt (UTF-16 code units) is correct here: PlexusUUIDs are ASCII, so
-    // there are no surrogate pairs and the per-unit read is surrogate-safe.
-    // eslint-disable-next-line unicorn/prefer-code-point
-    h ^= uuid.charCodeAt(i);
-    // h * 16777619 (the FNV prime) via shifts, kept in uint32 by the final >>> 0
-    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
-  }
-  return h >>> 0;
 }
 
 function wantsUtf8(opts: EncodingOpt): boolean {

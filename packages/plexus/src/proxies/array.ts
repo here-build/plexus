@@ -290,6 +290,15 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             // Classification computed ONCE here (shared by overlay/materialize/describe/notify).
             // applyNow recomputes its own copy internally — it must stay a verbatim,
             // self-contained copy of the pre-action choreography.
+            //
+            // THE LAW (every routed site, all proxies): applyNow is SELF-CONTAINED.
+            // Statement-top prep — snapshots, prior-entry captures, staged moves —
+            // exists for the deferred arms alone (overlay/materialize/describe/
+            // notify/moves/revertOverlay), which is exactly what makes gating that
+            // prep on isDeferring() sound: the instant path never reads it.
+            // ONE forced exemption: record.assign — its input may be a one-shot
+            // iterable, so the statement-top materialization is necessarily shared
+            // with applyNow and stays ungated.
             const reusedIndices: number[] = [];
             const reusedElements: T[] = [];
             const newElements: T[] = [];

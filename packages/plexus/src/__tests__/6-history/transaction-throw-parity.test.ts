@@ -100,14 +100,14 @@ class Foo extends PlexusModel {
 
   /** Layer-4 parity probe: one write, then throw — commit-on-crash default. */
   @syncing.action
-  atomicThrowAfterOne(): void {
+  actionThrowAfterOne(): void {
     this.a = 1;
     throw new Error("boom");
   }
 
   /** Opt-in rollback probe: one write, then throw — the predicate discards the batch. */
   @syncing.action({ rollbackIf: () => true })
-  atomicRollbackAfterOne(): void {
+  actionRollbackAfterOne(): void {
     this.a = 1;
     throw new Error("boom");
   }
@@ -269,7 +269,7 @@ describe("throw inside a transaction — complete behavior characterization", ()
     shadow.on("update", () => shadowUpdates++);
     const seen = observe(() => root.a);
 
-    expect(() => root.atomicThrowAfterOne()).toThrow("boom");
+    expect(() => root.actionThrowAfterOne()).toThrow("boom");
 
     expect(root.a).toBe(1); // committed (buffer flushed before rethrow)
     expect(shadowUpdates).toBe(1); // one clean flush transaction
@@ -284,7 +284,7 @@ describe("throw inside a transaction — complete behavior characterization", ()
     shadow.on("update", () => shadowUpdates++);
     const seen = observe(() => root.a);
 
-    expect(() => root.atomicRollbackAfterOne()).toThrow("boom");
+    expect(() => root.actionRollbackAfterOne()).toThrow("boom");
 
     expect(root.a).toBe(0); // rolled back (buffer discarded)
     expect(shadowUpdates).toBe(0); // nothing committed → wire pure

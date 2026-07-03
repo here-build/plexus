@@ -4,7 +4,7 @@ import type * as Y from "yjs";
 
 import { isInCloneTransaction } from "../clone.js";
 import { deref } from "../deref.js";
-import { emitOrDefer, type OwnershipMove, type YjsOp } from "../action-buffer.js";
+import { emitOrDefer, isDeferring, type OwnershipMove, type YjsOp } from "../action-buffer.js";
 import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import {
@@ -431,18 +431,19 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       }
       // Snapshotted BEFORE overlay empties backingStorage — it feeds the orphan
       // moves right below and the silent rollback restore in `revertOverlay`.
-      const priorEntries: [K, V][] = [...backingStorage.entries()];
+      const priorEntries: [K, V][] | undefined = isDeferring() ? [...backingStorage.entries()] : undefined;
       // Statement-time per-entry serialization — each orphan move's `from.meta`
       // needs the key its child was filed under, computed once here.
-      const stagedMoves: OwnershipMove[] = isChildField
-        ? priorEntries
-            .filter((entry): entry is [K, V & PlexusModel] => entry[1] instanceof PlexusModel)
-            .map(([k, value]) => ({
-              child: value,
-              orphan: true as const,
-              from: { parent: owner, field: key, meta: serializeKeyNonMinting(k, owner.__doc__) },
-            }))
-        : [];
+      const stagedMoves: OwnershipMove[] | undefined =
+        isChildField && priorEntries
+          ? priorEntries
+              .filter((entry): entry is [K, V & PlexusModel] => entry[1] instanceof PlexusModel)
+              .map(([k, value]) => ({
+                child: value,
+                orphan: true as const,
+                from: { parent: owner, field: key, meta: serializeKeyNonMinting(k, owner.__doc__) },
+              }))
+          : undefined;
       emitOrDefer(owner.__doc__, {
         // Non-action path: the original choreography — verbatim modulo the
         // residence guard, which is vacuous eagerly (a resident occupant
@@ -484,6 +485,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         },
         revertOverlay: () => {
           // Silently restore the pre-clear backing contents.
+          if (!priorEntries) return;
           for (const [k, v] of priorEntries) {
             backingStorage.set(k, v);
           }
@@ -536,10 +538,10 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       // `materialize`, `describe`, and `revertOverlay` all need the same
       // old/new snapshots, and by flush time backingStorage already holds the
       // new entries.
-      const newEntries: [K, V][] = [...map.entries()];
-      const priorEntries: [K, V][] = [...backingStorage.entries()];
-      const oldValueSet = new Set(backingStorage.values());
-      const newValueSet = new Set(newEntries.map(([_, v]) => v));
+      const newEntries: [K, V][] | undefined = isDeferring() ? [...map.entries()] : undefined;
+      const priorEntries: [K, V][] | undefined = isDeferring() ? [...backingStorage.entries()] : undefined;
+      const oldValueSet = isDeferring() ? new Set(backingStorage.values()) : undefined;
+      const newValueSet = newEntries ? new Set(newEntries.map(([_, v]) => v)) : undefined;
 
       // Ownership FACTS for the squash, statement-time serialized into each
       // move's `meta` (`describe()` re-serializes the keys inside the flush tx;
@@ -550,8 +552,9 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
       // later statement); the engine no-ops true reaffirmations. Every model
       // value dropped from the old set (not present in the new set) declares
       // orphan-with-from, naming the slot (key) it's leaving.
-      const stagedMoves: OwnershipMove[] = [];
-      if (isChildField) {
+      let stagedMoves: OwnershipMove[] | undefined;
+      if (isChildField && newEntries && priorEntries && oldValueSet && newValueSet) {
+        stagedMoves = [];
         for (const value of oldValueSet) {
           if (value instanceof PlexusModel && !newValueSet.has(value)) {
             // Find the key(s) this value was filed under prior to assign.
@@ -652,6 +655,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           });
         },
         overlay: () => {
+          if (!newEntries || !oldValueSet) return;
           // Fail-fast on illegal adoption for truly-new child values, BEFORE any
           // state change — pure check, no yjs write. Genesis deferred to
           // `materialize` (phase 1); old-value orphanization + the parent edges
@@ -671,6 +675,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           }
         },
         materialize: () => {
+          if (!newEntries || !oldValueSet) return;
           // Phase 1 — GENESIS for truly-new CHILD values, run OUTSIDE the flush
           // transaction so each keeps its own origin.
           if (isChildField) {
@@ -693,7 +698,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
           // clear followed by N sets.
           ensureYjsMap();
           const yjsMap = getYjsMap();
-          if (!yjsMap || !owner.__doc__) return [];
+          if (!yjsMap || !owner.__doc__ || !newEntries) return [];
           const doc = owner.__doc__;
           serializedToKey.clear();
           const ops: YjsOp[] = [{ kind: "map-clear", map: yjsMap }];
@@ -709,6 +714,7 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         },
         revertOverlay: () => {
           // Silently restore the pre-assign backing contents.
+          if (!priorEntries) return;
           backingStorage.clear();
           for (const [k, v] of priorEntries) {
             backingStorage.set(k, v);

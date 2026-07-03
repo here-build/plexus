@@ -107,12 +107,13 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
             // Snapshot taken at statement time, before the overlay empties
             // `proxyTarget` — it feeds the ownership moves right below and the
             // (silent) overlay inverse in `revertOverlay`.
-            const previousEntries = { ...proxyTarget };
-            const stagedMoves: OwnershipMove[] = isChildField
-              ? Object.entries(previousEntries)
-                  .filter((entry): entry is [string, T & PlexusModel] => entry[1] instanceof PlexusModel)
-                  .map(([k, child]) => ({ child, orphan: true as const, from: { parent: owner, field: key, meta: k } }))
-              : [];
+            const previousEntries = isDeferring() ? { ...proxyTarget } : undefined;
+            const stagedMoves: OwnershipMove[] | undefined =
+              isChildField && previousEntries
+                ? Object.entries(previousEntries)
+                    .filter((entry): entry is [string, T & PlexusModel] => entry[1] instanceof PlexusModel)
+                    .map(([k, child]) => ({ child, orphan: true as const, from: { parent: owner, field: key, meta: k } }))
+                : undefined;
             emitOrDefer(owner.__doc__, {
               // Non-action path: the original choreography — verbatim modulo the
               // residence guards, which are vacuous eagerly (a resident occupant
@@ -151,7 +152,7 @@ export const buildRecordProxy = <T extends AllowedYJSValue>({
               },
               revertOverlay: () => {
                 // Silent restore — the overlay's clear fired no `trackModification`.
-                Object.assign(proxyTarget, previousEntries);
+                if (previousEntries) Object.assign(proxyTarget, previousEntries);
               },
               moves: stagedMoves,
             });

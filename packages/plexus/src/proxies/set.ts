@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 
-import { emitOrDefer, type OwnershipMove, type YjsOp } from "../action-buffer.js";
+import { emitOrDefer, isDeferring, type OwnershipMove, type YjsOp } from "../action-buffer.js";
 import { PlexusModel } from "../PlexusModel.js";
 import {
   type AllowedYJSKeyValue,
@@ -268,8 +268,8 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
             // Snapshot the pre-clear contents — overlay empties both collections
             // immediately; the orphan `moves` below are built from the snapshot,
             // and `revertOverlay` (running later, on rollback) restores the mirror.
-            const previousItems = Array.from(backingSet);
-            const previousSerialized = new Map(serializedToElement);
+            const previousItems = isDeferring() ? Array.from(backingSet) : undefined;
+            const previousSerialized = isDeferring() ? new Map(serializedToElement) : undefined;
 
             emitOrDefer(owner.__doc__, {
               // Non-action path: the original choreography — verbatim modulo the
@@ -314,10 +314,11 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
               },
               revertOverlay: () => {
                 // Silent — overlay fired no trackModification, so undoing it must not either.
+                if (!previousItems || !previousSerialized) return;
                 for (const item of previousItems) backingSet.add(item);
                 for (const [sk, el] of previousSerialized) serializedToElement.set(sk, el);
               },
-              moves: isChildField
+              moves: isChildField && previousItems
                 ? previousItems
                     .filter((item): item is T & PlexusModel => item instanceof PlexusModel)
                     .map((child) => ({ child, orphan: true as const, from: { parent: owner, field: key } }))
@@ -403,16 +404,17 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
             // ones (`overlay`'s validation, phase-1 `materialize`) or restore
             // the mirror on rollback (`revertOverlay`) reads this snapshot; the
             // orphan `moves` below are built from it too.
-            const previousBackingSet = new Set(backingSet);
-            const previousSerialized = new Map(serializedToElement);
+            const previousBackingSet = isDeferring() ? new Set(backingSet) : undefined;
+            const previousSerialized = isDeferring() ? new Map(serializedToElement) : undefined;
 
             // Ownership FACTS for the squash: EVERY asserted member (kept AND
             // new) declares adopt — a kept member may be staged elsewhere
             // mid-region (stale membership), so the engine must see the LAST
             // statement to no-op a true reaffirmation. Every dropped member
             // declares orphan-with-from.
-            const stagedMoves: OwnershipMove[] = [];
-            if (isChildField) {
+            let stagedMoves: OwnershipMove[] | undefined;
+            if (isChildField && previousBackingSet) {
+              stagedMoves = [];
               for (const item of previousBackingSet) {
                 if (item instanceof PlexusModel && !newValuesSet.has(item)) {
                   stagedMoves.push({ child: item, orphan: true, from: { parent: owner, field: key } });
@@ -484,6 +486,7 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
                 });
               },
               overlay: () => {
+                if (!previousBackingSet) return;
                 // Fail-fast on illegal adoption for genuinely NEW values (checked
                 // against the pre-assign snapshot) BEFORE any state change — pure
                 // check, no yjs write. Then sync the local-mirror collection.
@@ -500,7 +503,7 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
               materialize: () => {
                 // Phase 1 — genesis for children NEW to this field (kept children
                 // are already materialized; re-genesis-ing them would be wrong).
-                if (!isChildField) return;
+                if (!isChildField || !previousBackingSet) return;
                 for (const value of newValuesSet) {
                   if (value && !previousBackingSet.has(value)) {
                     value[referenceSymbol]?.(owner.__doc__!);
@@ -533,6 +536,7 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
               },
               revertOverlay: () => {
                 // Silent — overlay fired no trackModification, so undoing it must not either.
+                if (!previousBackingSet || !previousSerialized) return;
                 backingSet.clear();
                 for (const item of previousBackingSet) backingSet.add(item);
                 serializedToElement.clear();

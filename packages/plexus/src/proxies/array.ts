@@ -1,7 +1,7 @@
 import invariant from "tiny-invariant";
 import type * as Y from "yjs";
 
-import { emitOrDefer, type OwnershipMove, type YjsOp } from "../action-buffer.js";
+import { emitOrDefer, isDeferring, type OwnershipMove, type YjsOp } from "../action-buffer.js";
 import { deref } from "../deref.js";
 import { PlexusDuplicateChildError } from "../errors.js";
 import { PlexusModel } from "../PlexusModel.js";
@@ -315,7 +315,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               }
               reusedIndices.sort((a, b) => b - a);
             }
-            const backingSnapshot = backingArray.slice();
+            const backingSnapshot = isDeferring() ? backingArray.slice() : undefined;
 
             emitOrDefer(owner.__doc__, {
               applyNow: () => {
@@ -414,7 +414,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 trackModification(self, ACCESS_ALL_SYMBOL);
               },
               revertOverlay: () => {
-                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+                if (backingSnapshot) backingArray.splice(0, backingArray.length, ...backingSnapshot);
               },
               moves: stagedMoves,
             });
@@ -445,7 +445,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               }
               reusedIndices.sort((a, b) => b - a);
             }
-            const backingSnapshot = backingArray.slice();
+            const backingSnapshot = isDeferring() ? backingArray.slice() : undefined;
 
             emitOrDefer(owner.__doc__, {
               applyNow: () => {
@@ -544,7 +544,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 trackModification(self, ACCESS_ALL_SYMBOL);
               },
               revertOverlay: () => {
-                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+                if (backingSnapshot) backingArray.splice(0, backingArray.length, ...backingSnapshot);
               },
               moves: stagedMoves,
             });
@@ -600,7 +600,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 if (item instanceof PlexusModel) stagedMoves.push({ child: item, parent: owner, field: key });
               }
             }
-            const backingSnapshot = backingArray.slice();
+            const backingSnapshot = isDeferring() ? backingArray.slice() : undefined;
 
             emitOrDefer(owner.__doc__, {
               applyNow: () => {
@@ -775,7 +775,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 trackModification(self, ACCESS_ALL_SYMBOL);
               },
               revertOverlay: () => {
-                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+                if (backingSnapshot) backingArray.splice(0, backingArray.length, ...backingSnapshot);
               },
               moves: stagedMoves,
             });
@@ -790,7 +790,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             const removedItem = backingArray[lastIndex];
             const stillExistsElsewhere =
               isChildField && removedItem ? backingArray.indexOf(removedItem) !== lastIndex : false;
-            const backingSnapshot = backingArray.slice();
+            const backingSnapshot = isDeferring() ? backingArray.slice() : undefined;
 
             emitOrDefer(owner.__doc__, {
               applyNow: () => {
@@ -832,7 +832,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 trackModification(self, ACCESS_ALL_SYMBOL);
               },
               revertOverlay: () => {
-                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+                if (backingSnapshot) backingArray.splice(0, backingArray.length, ...backingSnapshot);
               },
               moves:
                 isChildField && removedItem instanceof PlexusModel && !stillExistsElsewhere
@@ -849,7 +849,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             const removedItem = backingArray[0];
             const stillExistsElsewhere =
               isChildField && removedItem ? backingArray.lastIndexOf(removedItem) !== 0 : false;
-            const backingSnapshot = backingArray.slice();
+            const backingSnapshot = isDeferring() ? backingArray.slice() : undefined;
 
             emitOrDefer(owner.__doc__, {
               applyNow: () => {
@@ -890,7 +890,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 trackModification(self, ACCESS_ALL_SYMBOL);
               },
               revertOverlay: () => {
-                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+                if (backingSnapshot) backingArray.splice(0, backingArray.length, ...backingSnapshot);
               },
               moves:
                 isChildField && removedItem instanceof PlexusModel && !stillExistsElsewhere
@@ -948,7 +948,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
           };
         case "sort": // arr.sort(compareFn) → sort in place
           return (compareFn?: (a: T, b: T) => number) => {
-            const backingSnapshot = backingArray.slice();
+            const backingSnapshot = isDeferring() ? backingArray.slice() : undefined;
             emitOrDefer(owner.__doc__, {
               applyNow: () => {
                 ensureYjsArray();
@@ -989,7 +989,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 trackModification(self, ACCESS_ALL_SYMBOL);
               },
               revertOverlay: () => {
-                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+                if (backingSnapshot) backingArray.splice(0, backingArray.length, ...backingSnapshot);
               },
             });
             return self;
@@ -1017,7 +1017,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               // Check if any non-null element appears more than once
               PlexusDuplicateChildError.uniquenessInvariant(tempArray, owner, key, "copyWithin");
             }
-            const backingSnapshot = backingArray.slice();
+            const backingSnapshot = isDeferring() ? backingArray.slice() : undefined;
 
             emitOrDefer(owner.__doc__, {
               applyNow: () => {
@@ -1082,7 +1082,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 trackModification(self, ACCESS_ALL_SYMBOL);
               },
               revertOverlay: () => {
-                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+                if (backingSnapshot) backingArray.splice(0, backingArray.length, ...backingSnapshot);
               },
             });
             return self;
@@ -1151,7 +1151,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             for (const item of isChildField ? newElements : []) {
               if (item instanceof PlexusModel) stagedMoves.push({ child: item, parent: owner, field: key });
             }
-            const backingSnapshot = backingArray.slice();
+            const backingSnapshot = isDeferring() ? backingArray.slice() : undefined;
 
             emitOrDefer(owner.__doc__, {
               applyNow: () => {
@@ -1227,7 +1227,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                 trackModification(self, ACCESS_ALL_SYMBOL);
               },
               revertOverlay: () => {
-                backingArray.splice(0, backingArray.length, ...backingSnapshot);
+                if (backingSnapshot) backingArray.splice(0, backingArray.length, ...backingSnapshot);
               },
               moves: stagedMoves,
             });
@@ -1305,7 +1305,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   if (item instanceof PlexusModel) stagedMoves.push({ child: item, parent: owner, field: key });
                 }
               }
-              const backingSnapshot = backingArray.slice();
+              const backingSnapshot = isDeferring() ? backingArray.slice() : undefined;
 
               emitOrDefer(owner.__doc__, {
                 applyNow: () => {
@@ -1385,7 +1385,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
                   trackModification(self, ACCESS_ALL_SYMBOL);
                 },
                 revertOverlay: () => {
-                  backingArray.splice(0, backingArray.length, ...backingSnapshot);
+                  if (backingSnapshot) backingArray.splice(0, backingArray.length, ...backingSnapshot);
                 },
                 moves: stagedMoves,
               });
@@ -1433,7 +1433,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
         const extending = newLength > backingArray.length;
         const removedForTruncation = truncating && isChildField ? backingArray.slice(newLength) : [];
         const gapSize = extending ? newLength - backingArray.length : 0;
-        const backingSnapshot = backingArray.slice();
+        const backingSnapshot = isDeferring() ? backingArray.slice() : undefined;
 
         emitOrDefer(owner.__doc__, {
           applyNow: () => {
@@ -1504,7 +1504,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             trackModification(self, ENTRIES_LENGTH_SYMBOL);
           },
           revertOverlay: () => {
-            backingArray.splice(0, backingArray.length, ...backingSnapshot);
+            if (backingSnapshot) backingArray.splice(0, backingArray.length, ...backingSnapshot);
           },
           moves: removedForTruncation
             .filter((item): item is T & PlexusModel => item instanceof PlexusModel)
@@ -1565,7 +1565,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
             }
             oldItem = (scratch[targetIndex] ?? null) as T | null;
           }
-          const backingSnapshot = backingArray.slice();
+          const backingSnapshot = isDeferring() ? backingArray.slice() : undefined;
 
           emitOrDefer(owner.__doc__, {
             applyNow: () => {
@@ -1758,7 +1758,7 @@ export const buildArrayProxy = <T extends AllowedYJSValue>({
               }
             },
             revertOverlay: () => {
-              backingArray.splice(0, backingArray.length, ...backingSnapshot);
+              if (backingSnapshot) backingArray.splice(0, backingArray.length, ...backingSnapshot);
             },
             // Replaced occupant → orphan from THIS slot; the incoming value →
             // adopt, for reuse too (stale-membership rule; the engine no-ops

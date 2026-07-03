@@ -403,14 +403,23 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       PlexusCycleError.invariant(cur !== this, this, newParent, field, cur);
     }
 
-    // Check 5: Doc mismatch. A doc-backed child may only be adopted WITHIN
-    // its own doc: cross-doc adoption is a mismatch, and so is a doc-less
-    // (ephemeral) parent stealing a doc-backed child — once an entity has
-    // touched a doc it is materialized and wired there, and "moving" it under
-    // an unwired owner would actually materialize that owner into the child's
-    // doc instead. A doc-less child is always adoptable (it materializes into
-    // the parent's doc, or stays ephemeral).
-    PlexusDocMismatchError.invariant(!this.__doc__ || newParent.__doc__ === this.__doc__, this, newParent);
+    // Check 5: Doc mismatch. Materialization is contagious, in both
+    // directions: a doc-less child adopted by a doc-backed parent
+    // materializes into the parent's doc, and a doc-less PARENT adopting a
+    // doc-backed child materializes into the CHILD's doc — the parent
+    // becomes reachable via child.parent, and whatever is potentially
+    // reachable from a doc is materialized in it. The upward direction
+    // legalizes wrap-in-place:
+    //   node.kids.k = new Wrap({ kids: { k: node.kids.k } })
+    // whose intermediate state is a short frame of doc DETACHMENT — the
+    // wrapper materializes and owns the subtree before itself being
+    // attached. The only impossibility: an entity already materialized in a
+    // DIFFERENT doc. Entities never change docs.
+    PlexusDocMismatchError.invariant(
+      !this.__doc__ || !newParent.__doc__ || newParent.__doc__ === this.__doc__,
+      this,
+      newParent,
+    );
 
     // Check 6: Bound entity reparenting guard (derived genesis + cloned into virtual map)
     if (isBoundEntity(internals)) {

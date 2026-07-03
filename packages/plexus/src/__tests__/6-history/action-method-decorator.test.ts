@@ -3,7 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
-import { PlexusCycleError, PlexusDocMismatchError } from "../../errors.js";
+import { PlexusCycleError } from "../../errors.js";
 import { entityClasses } from "../../globals.js";
 import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
@@ -252,10 +252,10 @@ class Foo extends PlexusModel {
     ghost.rec["k"] = 1; // same value — but this receiver never defers
   }
 
-  /** Reverse steal (FORBIDDEN): a doc-less owner tries to adopt a doc-backed child. */
+  /** Upward materialization: a doc-less owner adopts a doc-backed child mid-region. */
   @syncing.action
-  squashReverseSteal(ghost: Foo, bar: Bar): void {
-    ghost.kids.set("x", bar); // throws: doc-backed child under doc-less parent
+  squashUpwardWrap(ghost: Foo, bar: Bar): void {
+    ghost.kids.set("x", bar); // legal: the ghost materializes into bar's doc
   }
 
   /** Same-value indexed reaffirm: stage away to bars, then reaffirm at the STALE items[0]. */
@@ -1326,7 +1326,7 @@ describe("@syncing.action method decorator", () => {
       expect(ghost.rec["k"]).toBe(1);
     });
 
-    it("reverse steal throws: a doc-less parent cannot adopt a doc-backed child", () => {
+    it("upward materialization: a doc-less parent adopting a doc-backed child materializes into the child's doc", () => {
       const ghost = new Foo({
         count: 0,
         bars: new Set(),
@@ -1339,15 +1339,17 @@ describe("@syncing.action method decorator", () => {
       const bar = new Bar({ label: "wired" });
       root.kids.set("home", bar); // bar touched the doc: materialized and wired there
 
-      expect(() => ghost.kids.set("x", bar)).toThrow(PlexusDocMismatchError);
+      expect(ghost.__doc__).toBe(null); // doc-less
+      ghost.kids.set("x", bar); // contagion runs UP: the ghost materializes into bar's doc
 
-      // Validation-first: the throw happened BEFORE any state modification.
-      expect(root.kids.get("home")).toBe(bar);
-      expect(bar.parent).toBe(root);
-      expect(ghost.kids.size).toBe(0);
+      expect(ghost.__doc__).toBe(root.__doc__); // materialized into bar's doc
+      expect(bar.parent).toBe(ghost);
+      expect(ghost.kids.get("x")).toBe(bar);
+      expect(root.kids.get("home")).toBeUndefined(); // moved out of the old home
+      expect(ghost.parent).toBe(null); // the detachment frame: materialized, not yet attached
     });
 
-    it("reverse steal throws inside an action body too — at the statement, tree intact", () => {
+    it("upward materialization works inside an action body too — instant path at the statement", () => {
       const ghost = new Foo({
         count: 0,
         bars: new Set(),
@@ -1360,12 +1362,14 @@ describe("@syncing.action method decorator", () => {
       const bar = new Bar({ label: "wired" });
       root.kids.set("home", bar);
 
-      // The doc-less receiver takes the instant path mid-region, so validation
-      // runs synchronously at the statement — same error, same intact tree.
-      expect(() => root.squashReverseSteal(ghost, bar)).toThrow(PlexusDocMismatchError);
-      expect(root.kids.get("home")).toBe(bar);
-      expect(bar.parent).toBe(root);
-      expect(ghost.kids.size).toBe(0);
+      // The doc-less receiver takes the instant path mid-region, so the
+      // adoption (and the ghost's upward materialization) lands at the statement.
+      root.squashUpwardWrap(ghost, bar);
+
+      expect(bar.parent).toBe(ghost);
+      expect(ghost.kids.get("x")).toBe(bar);
+      expect(root.kids.get("home")).toBeUndefined();
+      expect(ghost.__doc__).toBe(root.__doc__); // materialized mid-region, into the same doc
     });
 
     it("map re-key (delete@k1 + set@k2) moves the entry: old key gone, new key holds the child, pointers follow", () => {

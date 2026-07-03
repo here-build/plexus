@@ -102,8 +102,8 @@ class Project extends PlexusModel {
 
 **In-place Mutative Diffing**: Plexus performs diffing under the hood when you overwrite a collection.
 Reassigning a collection field (e.g. `project.tags = new Set(["a", "b"])`) does not create a new CRDT node and destroy the old one.
-Instead, it intelligently performs a granular diff (`add`/`delete` operations) against the existing `Y.Set`/`Y.Array`,
-maintaining the underlying CRDT struct identity and preserving observers flawlessly.
+Instead, it intelligently performs a granular diff (`add`/`delete` operations) against the existing CRDT node,
+maintaining the underlying struct identity and preserving observers flawlessly.
 
 ### Child Fields (Ownership)
 
@@ -135,6 +135,31 @@ const page = new Page({ name: "homepage" });
 project1.pages.push(page);    // page.parent === project1
 project2.pages.push(page);    // page.parent === project2, project1.pages is empty
 ```
+
+### The Doc-Boundary Law
+
+Reparenting obeys one law: **materialization is contagious**. Whatever is potentially reachable
+from a doc is materialized into that doc — in both directions:
+
+- doc-less child + doc-backed parent → the child (and its whole subtree) materializes **down**
+  into the parent's doc;
+- doc-backed child + doc-less parent → the parent materializes **up** into the child's doc
+  (it just became reachable via `child.parent`);
+- both doc-less → nothing materializes; both in the same doc → a plain reparent;
+- **already materialized in *different* docs → `PlexusDocMismatchError`.** Entities never
+  change docs.
+
+The upward direction is what makes **wrap-in-place** legal:
+
+```typescript
+// wrap an existing group one level deeper, in place:
+root.groups.leaf = new Group({ name: "wrapper", groups: { leaf: root.groups.leaf } });
+```
+
+The RHS evaluates first: the fresh doc-less wrapper adopts the doc-backed child from its
+constructor bag — materializing upward and taking ownership of the subtree while itself still
+detached — then the assignment re-attaches it one level up. A short, legal frame of doc
+detachment; the inner group is the same object throughout (moved, never copied).
 
 ### Virtual Maps
 
@@ -323,6 +348,14 @@ Some introspection behaves differently without a doc:
 - `.rootAncestor` → `null` (correct: there is no Plexus root to reach)
 - `.isDetached` → `false` (ephemeral entities are not considered detached — detachment is a materialized-entity concept)
 
+Doc-free is a **one-way road**, not a symmetric mode: entities begin doc-free and materialize the
+moment they become reachable from a doc (see [The Doc-Boundary Law](#the-doc-boundary-law)); they
+never go back. Two ways to use it:
+
+- **Staging** — build a subtree doc-free, attach it once; it materializes as a unit.
+- **"Just better MobX"** — run entire model graphs doc-free (tests, previews, tooling): full
+  reactivity and ownership physics without ever wiring up sync.
+
 ### Identity & UUIDs
 
 Every model instance has a stable `.uuid`.
@@ -378,10 +411,21 @@ entity.clone({ title: "Copy" });             // deep clone of child subtree with
 entity.toJSON();                             // plain object of all schema fields
 ```
 
-**Deep Sub-Tree Cloning**: The `.clone()` method provides deep cloning of your models.
-It recursively clones all child (owned) arrays, sets, maps, and objects,
-automatically creating fresh UUIDs and CRDT nodes for the copy while perfectly preserving the nested structure.
-Peer (reference) fields are smartly pointed to the existing identical instances rather than erroneously cloning external dependencies.
+**Deep Sub-Tree Cloning**: `.clone()` copies the **owned** subtree — children recurse, fresh
+identity everywhere (new UUIDs, new CRDT nodes), structure preserved. Non-owning refs follow the
+closure-conversion rule: a ref **rebinds** iff its target is inside the same top-level clone;
+otherwise it is **preserved** verbatim (free variables stay free). This is the only globally
+consistent rule. If a call site needs a free ref rebound, compose there: clone the owner that
+owns both (the mapping rebinds automatically), pass a prop override
+(`entity.clone({ ref: newTarget })`), or plainly assign after cloning (refs don't own —
+assignment never steals).
+
+> **Ownership-polarity trap**: a getter returning a borrowed ref and an owning constructor-bag
+> field have the same static type. Feeding refs harvested from a clone into an owning field of a
+> fresh entity is an **adoption**: within one doc it is legal and **moves** the original (the
+> fresh owner materializes upward — wrap-in-place contagion), so if you meant "copy" you just
+> stole the source's children; across docs it throws `PlexusDocMismatchError`. "Harvested from a
+> clone" ≠ "safe to own". Full derivation: [`src/clone.ts`](./src/clone.ts) header.
 
 **Native Snapshotting**: Because Plexus cleanly manages JavaScript object internals without hiding them behind opaque wrappers,
 native JS utilities work flawlessly straight out of the box.
@@ -445,6 +489,45 @@ Plexus handles it flawlessly by no-oping the inner boundary.
 You can wrap any granular helper mutation in a transaction without worrying about breaking batching when composing functions together.
 
 > MobX `action()` and `plexus.transact()` are separate — if mixing reactive systems, use both.
+
+### Action Methods (`@syncing.action`)
+
+`@syncing.action` runs a model method body as **one Plexus transaction per doc it touches** — a
+collapsed unit of intent:
+
+```typescript
+@syncing("Board")
+class Board extends PlexusModel {
+  @syncing accessor count!: number;
+  @syncing.child.set accessor bars!: Set<Bar>;
+
+  @syncing.action
+  doStuff() {
+    this.count = 1;
+    this.bars.add(new Bar({ label: "new" })); // materializes a new entity mid-method
+    this.count = 2;
+    // all deferred — replayed as exactly ONE flush at method return
+  }
+}
+```
+
+For each doc the body mutates, the action guarantees **one yjs transaction** (one `update` event,
+delivered whole to peers), **one undo unit**, and all-or-nothing visibility of that update. Yjs
+writes are deferred into a buffer while the in-memory layer applies eagerly — the body always
+reads its own pending writes. Nested actions defer into the outer region; the outermost method
+owns the single flush.
+
+By default a throw is **commit-on-crash**: writes buffered before the throw still flush, then the
+error rethrows — matching both hosts (JS never unwinds statements that already ran; yjs never
+rolls back). Rollback is opt-in:
+
+```typescript
+@syncing.action({ rollbackIf: (e) => e instanceof PlexusCycleError })
+risky() { /* ... */ } // a matching throw discards the batch — nothing hits the wire
+```
+
+Because yjs stays untouched until the flush, a rolled-back action broadcasts **nothing**, even
+when the body spans multiple docs. See `src/action.ts` for the full mechanism and edge cases.
 
 ## Undo / Redo
 
@@ -531,6 +614,36 @@ plexus.isLiminal;                  // true if in a liminal session
 > - State vector grows by one entry per committed session
 > - Ghost cleanup depends on Yjs UndoManager creating new Items for array deletion undo
 
+## Awareness (Presence)
+
+`PlexusAwareness` is a multi-channel presence protocol — a fork of `y-protocols/awareness` with
+the **same wire format**, so it works with existing providers (y-websocket, y-webrtc, …)
+unchanged.
+
+The difference: one user occupies **multiple clientIds**. Channel 0 carries the schema (the
+ordered field names) and the heartbeat; each presence field gets its own channel with its own
+clock. Fields update independently — a cursor moving at 60fps re-broadcasts only the cursor
+channel, never the user's name and avatar, and a channel sleeps entirely until its value changes.
+
+```typescript
+import { PlexusAwareness } from "@here.build/plexus";
+
+type Presence = { cursor: { x: number; y: number }; name: string };
+
+const awareness = new PlexusAwareness<Presence>(plexus.doc);
+awareness.setField("name", "V");                 // broadcast once, then sleeps
+awareness.setField("cursor", { x: 10, y: 20 });  // only the cursor channel updates
+awareness.getField("cursor");
+awareness.clearField("cursor");
+
+awareness.getPeerIds();     // base clientIds of live peers
+awareness.getPeer(peerId);  // assembled Partial<Presence> for one peer
+```
+
+Peers time out after 30s without a channel-0 heartbeat, and all their channels are cleaned up
+together. The wire codecs (`encodeAwarenessUpdate`, `applyAwarenessUpdate`,
+`removeAwarenessStates`, `modifyAwarenessUpdate`) are exported for provider integration.
+
 ## Querying
 
 ```typescript
@@ -591,18 +704,26 @@ const depRoot = plexus.addDependency(otherDocId, stateVector);
 Entity pointers remain stable after linking — dependencies are potentially upgradable
 (a dependency can later become a full peer or receive updates).
 
+## Telemetry
+
+Plexus instruments its hot paths through a no-op-by-default facade — zero overhead until an
+adapter is installed. `setTelemetryAdapter(...)` routes counters, gauges, histograms, and spans
+into your observability stack. Setup guide: [docs/telemetry.md](./docs/telemetry.md).
+
 ## Error Types
 
 Plexus throws specific error types with detailed console logging for ownership violations:
 
-| Error                       | When                                                |
-|-----------------------------|-----------------------------------------------------|
-| `PlexusSelfAdoptionError`   | Entity tries to adopt itself                        |
-| `PlexusCycleError`          | Adoption would create a cycle in the ownership tree |
-| `PlexusDependencyError`     | Attempting to modify a dependency entity            |
-| `PlexusRootParentError`     | Attempting to set a parent on the root entity       |
-| `PlexusDocMismatchError`    | Entities from different docs used in same operation |
-| `PlexusDuplicateChildError` | Same child appears twice in a child array/set       |
+| Error                        | When                                                                                                                                      |
+|------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `PlexusSelfAdoptionError`    | Entity tries to adopt itself                                                                                                              |
+| `PlexusCycleError`           | Adoption would create a cycle in the ownership tree                                                                                       |
+| `PlexusDependencyError`      | Attempting to modify a dependency entity                                                                                                  |
+| `PlexusRootParentError`      | Attempting to set a parent on the root entity                                                                                             |
+| `PlexusDocMismatchError`     | Adopting an entity already materialized in a *different* doc — entities never change docs                                                |
+| `PlexusDuplicateChildError`  | Same child appears twice in a child array/set                                                                                             |
+| `PlexusTypedArrayAliasError` | A typed-array member would hand back a live view onto the CRDT-tracked buffer (`subarray()`, `.buffer`) — take `.slice()` for a detached copy; mutate in place to sync |
+| `PlexusUnstorableValueError` | Writing a value yjs cannot store to a synced field (function, symbol, `Map`/`Set`, class instance) — allowed: primitives, `Uint8Array`, plain JSON, model references |
 
 ## API Reference
 

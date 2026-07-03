@@ -1,7 +1,8 @@
 import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
 import invariant from "tiny-invariant";
 
-import { atomic } from "./atomic.js";
+import { action } from "./action.js";
+import { emitOrDefer } from "./action-buffer.js";
 import {
   DiscriminateMap,
   type DiscriminatingIdentityDecorator,
@@ -29,6 +30,7 @@ import {
   type GenericRecordSchema,
   informAdoptionSymbol,
   type PlexusTagContainer,
+  referenceSymbol,
   requestEmancipationSymbol,
   requestOrphanizationSymbol,
   validateAdoptionSymbol,
@@ -162,18 +164,50 @@ const set = <
   // owned Uint8Array. The yjs attribute below gets the raw bytes via
   // `maybeReference` (which unwraps the proxy through its brand).
   const valueToStore = isTypedArray(value) ? wrapByteVal(value, object, context.name) : value;
-  maybeTransacting(object.__doc__, () => {
+  // Overlay = the synchronous backingStorage mirror (authoritative for reads).
+  const writeOverlay = () => {
     if (valueToStore == undefined) {
       internals.backingStorage.delete(context.name);
     } else {
       internals.backingStorage.set(context.name, valueToStore);
     }
-    if (valueToStore == undefined) {
-      object.__yjsFieldsMap__?.delete(context.name);
-    } else {
-      object.__yjsFieldsMap__?.set(context.name, maybeReference(valueToStore, object.__doc__!));
-    }
-    trackModification(object, context.name);
+  };
+  emitOrDefer(object.__doc__, {
+    // Non-action path: exactly the original choreography, verbatim.
+    applyNow: () =>
+      maybeTransacting(object.__doc__, () => {
+        writeOverlay();
+        if (valueToStore == undefined) {
+          object.__yjsFieldsMap__?.delete(context.name);
+        } else {
+          object.__yjsFieldsMap__?.set(context.name, maybeReference(valueToStore, object.__doc__!));
+        }
+        trackModification(object, context.name);
+      }),
+    overlay: writeOverlay,
+    // Phase-2 leaf writes as data. The field-map (a `PlexusWrapper` over the
+    // entity's `Y.XmlElement`) exists whenever the entity is materialized on a
+    // doc — which it is here, since a null doc would have taken `applyNow`. If it
+    // is somehow absent we emit nothing (matching the original `?.` no-op).
+    describe: () => {
+      const wrapper = object.__yjsFieldsMap__;
+      if (!wrapper) return [];
+      return valueToStore == undefined
+        ? [{ kind: "attr-delete", wrapper, key: context.name }]
+        : [{ kind: "attr-set", wrapper, key: context.name, value: maybeReference(valueToStore, object.__doc__!) }];
+    },
+    notify: () => trackModification(object, context.name),
+    revertOverlay: () => {
+      // Silent restore. The overlay write was applied WITHOUT `trackModification`
+      // (deferred to `notify`), so no observer was ever invalidated by it. Undoing
+      // it must therefore also be silent — a `trackModification` here would fire a
+      // spurious re-run for a value that, from any observer's view, never changed.
+      if (storedValue == undefined) {
+        internals.backingStorage.delete(context.name);
+      } else {
+        internals.backingStorage.set(context.name, storedValue);
+      }
+    },
   });
 };
 const setChild = <
@@ -192,6 +226,28 @@ const setChild = <
   );
   const storedValue = internals.backingStorage.get(context.name) as T;
   if (storedValue === value) {
+    // Mid-region the backing slot can be stale (another statement may have
+    // staged this child elsewhere without this field's snapshot changing) —
+    // this reassignment must still reach the engine as an ownership FACT so
+    // the squash can judge it against the child's EFFECTIVE slot. No content
+    // write is needed (the stored value is unchanged): moves-only, so the
+    // engine either no-ops a true reaffirmation or corrects a stale one.
+    emitOrDefer(object.__doc__, {
+      applyNow: () => {
+        /* no-op: value identical to the current stored value outside a region */
+      },
+      overlay: () => {
+        /* no-op: backingStorage already holds this value */
+      },
+      describe: () => [],
+      notify: () => {
+        /* no-op: no content changed */
+      },
+      revertOverlay: () => {
+        /* no-op: overlay never wrote anything */
+      },
+      moves: value instanceof PlexusModel ? [{ child: value, parent: object, field: context.name }] : undefined,
+    });
     return;
   }
 
@@ -204,26 +260,88 @@ const setChild = <
     value[validateAdoptionSymbol](object, context.name);
   }
 
-  maybeTransacting(object.__doc__, () => {
-    storedValue?.[requestOrphanizationSymbol]?.();
+  // Overlay = the synchronous backingStorage mirror (authoritative for reads).
+  const writeOverlay = () => {
     // old: orphan inside storage, new: attached to old parent
     if (value == undefined) {
       internals.backingStorage.delete(context.name);
     } else {
       internals.backingStorage.set(context.name, value);
     }
-    // for that flow, we could've used [requestAdoptionSymbol], but it has some extra checks we just skip
-    // old: orphan, removed, new: placed both inside backing storage and old location, has old parent
-    value?.[requestEmancipationSymbol]?.(); // removes using old parent pointer
-    // old: orphan, removed, new: removed from old location, only inside backing storage, has old parent
-    value?.[informAdoptionSymbol]?.(object, context.name);
-    // old: orphan, removed, new: removed from old location, only inside backing storage, has new parent
-    if (value == undefined) {
-      object.__yjsFieldsMap__?.delete(context.name);
-    } else {
-      object.__yjsFieldsMap__?.set(context.name, maybeReference(value, object.__doc__!));
-    }
-    trackModification(object, context.name);
+  };
+
+  emitOrDefer(object.__doc__, {
+    // Non-action path: the original choreography — verbatim modulo the
+    // residence guard, which is vacuous eagerly (a resident occupant always
+    // passes) and only bites when a flush-time sweep re-enters this setter.
+    applyNow: () =>
+      maybeTransacting(object.__doc__, () => {
+        // Orphanize the outgoing child only if it still RESIDES here — flush-time
+        // sweeps re-enter this setter for content-only removals (e.g. `#emancipate`
+        // nulling this very slot), where the child has already left.
+        if (storedValue instanceof PlexusModel && storedValue.parent === object && storedValue.parentField === context.name) {
+          storedValue[requestOrphanizationSymbol]();
+        }
+        writeOverlay();
+        // for that flow, we could've used [requestAdoptionSymbol], but it has some extra checks we just skip
+        // old: orphan, removed, new: placed both inside backing storage and old location, has old parent
+        value?.[requestEmancipationSymbol]?.(); // removes using old parent pointer
+        // old: orphan, removed, new: removed from old location, only inside backing storage, has old parent
+        value?.[informAdoptionSymbol]?.(object, context.name);
+        // old: orphan, removed, new: removed from old location, only inside backing storage, has new parent
+        if (value == undefined) {
+          object.__yjsFieldsMap__?.delete(context.name);
+        } else {
+          object.__yjsFieldsMap__?.set(context.name, maybeReference(value, object.__doc__!));
+        }
+        trackModification(object, context.name);
+      }),
+    overlay: writeOverlay,
+    materialize: () => {
+      // Phase 1 — GENESIS of the CHILD entity, run OUTSIDE the flush transaction so
+      // its materialization keeps its own origin (via `[referenceSymbol]`'s own
+      // `maybeTransacting`) instead of being swallowed into the user's tx. This is
+      // the same lazy call `informAdoptionSymbol` would otherwise make
+      // (PlexusModel.ts, `if (!internals.yjsModel && newParent.__doc__)`);
+      // running it here means the flush ownership pass (`settleAdoption` →
+      // `informAdoptionSymbol`) finds the child already materialized
+      // (yjsModel set) and only writes the parent edge.
+      value?.[referenceSymbol]?.(object.__doc__!);
+    },
+    describe: () => {
+      // Phase 2 — PURE CONTENT. Ownership choreography (orphan the outgoing
+      // child, emancipate + adopt the incoming one) is no longer performed
+      // here — it's declared as `moves` below and settled ONCE per entity by
+      // the flush ownership pass. This is just the field-map leaf write as a
+      // `YjsOp` for the engine to apply.
+      const wrapper = object.__yjsFieldsMap__;
+      if (!wrapper) return [];
+      return value == undefined
+        ? [{ kind: "attr-delete", wrapper, key: context.name }]
+        : [{ kind: "attr-set", wrapper, key: context.name, value: maybeReference(value, object.__doc__!) }];
+    },
+    notify: () => trackModification(object, context.name),
+    revertOverlay: () => {
+      // Silent restore of the backingStorage mirror. Ownership choreography is
+      // declared as `moves` (inversed by the engine via `undoMoves` on savepoint
+      // rollback), which never settled on a rollback, so no structural parent
+      // pointer or yjs parent-edge was ever touched — only the overlay write
+      // needs undoing, and silently: the overlay fired no `trackModification`,
+      // so no observer saw it.
+      if (storedValue == undefined) {
+        internals.backingStorage.delete(context.name);
+      } else {
+        internals.backingStorage.set(context.name, storedValue);
+      }
+    },
+    // Outgoing child → orphan from THIS slot; incoming value → adopt. The
+    // engine squashes per entity and no-ops true reaffirmations.
+    moves: [
+      ...(storedValue instanceof PlexusModel && storedValue !== value
+        ? [{ child: storedValue, orphan: true as const, from: { parent: object, field: context.name } }]
+        : []),
+      ...(value instanceof PlexusModel ? [{ child: value, parent: object, field: context.name }] : []),
+    ],
   });
 };
 
@@ -569,11 +687,11 @@ const buildDecorator = (kind: GenericRecordSchema[string]) =>
 
 export const syncing = Object.assign(syncingDecorator, {
   /**
-   * `@syncing.atomic` — method decorator that runs the method body as ONE
-   * atomic Plexus transaction (one yjs update, one undo step). See `atomic.ts`
+   * `@syncing.action` — method decorator that runs the method body as ONE
+   * Plexus transaction per doc (one yjs update, one undo step). See `action.ts`
    * for the full mechanism and the documented edge cases.
    */
-  atomic,
+  action,
   child: Object.assign(buildDecorator("child-val") as DiscriminatingIdentityDecorator, {
     record: buildDecorator("child-record") as DiscriminatingRecordDecorator,
     set: buildDecorator("child-set") as DiscriminatingSetDecorator,

@@ -1,3 +1,4 @@
+import { emitOrDefer } from "../action-buffer.js";
 import { PlexusTypedArrayAliasError } from "../errors.js";
 import { type PlexusModel } from "../PlexusModel.js";
 import { bytesProxyRawSymbol } from "../proxy-runtime-types.js";
@@ -139,12 +140,36 @@ export const buildTypedArrayProxy = (initial: Uint8Array, owner: PlexusModel, ke
   // the scalar yjs attribute, and fire the field atom `(owner, key)` — all in ONE
   // transaction, mirroring the val setter (decorators.ts `set`). Reactivity is
   // all-or-nothing, so every in-place write funnels through here and wakes the
-  // whole field.
+  // whole field. Routed through `emitOrDefer` — same VALUE-field template as the
+  // val setter: no genesis (bytes are a primitive, never a child entity).
   const commit = (next: Uint8Array): void => {
-    maybeTransacting(owner.__doc__, () => {
+    const previous = bytes;
+    // Overlay = the synchronous local `bytes` swap (authoritative for reads).
+    const writeOverlay = () => {
       bytes = next;
-      owner.__yjsFieldsMap__?.set(key, maybeReference(next, owner.__doc__!));
-      trackModification(owner, key);
+    };
+    emitOrDefer(owner.__doc__, {
+      // Non-action path: exactly the original choreography, verbatim.
+      applyNow: () =>
+        maybeTransacting(owner.__doc__, () => {
+          writeOverlay();
+          owner.__yjsFieldsMap__?.set(key, maybeReference(next, owner.__doc__!));
+          trackModification(owner, key);
+        }),
+      overlay: writeOverlay,
+      // Phase-2 leaf write as data. A byte val never deletes (there is no
+      // "undefined bytes" state), so this always sets.
+      describe: () => {
+        const wrapper = owner.__yjsFieldsMap__;
+        if (!wrapper) return [];
+        return [{ kind: "attr-set", wrapper, key, value: maybeReference(next, owner.__doc__!) }];
+      },
+      notify: () => trackModification(owner, key),
+      revertOverlay: () => {
+        // Silent restore — the overlay write fired no `trackModification`
+        // (deferred to the flush's `notify`), so undoing it must stay silent too.
+        bytes = previous;
+      },
     });
   };
 

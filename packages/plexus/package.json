@@ -21,6 +21,12 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./internals": {
+      "types": "./dist/internals.d.ts",
+      "import": "./dist/internals.js",
+      "require": "./dist/internals.js",
+      "default": "./dist/internals.js"
+    },
     "./mobx": {
       "types": "./dist/mobx/index.d.ts",
       "import": "./dist/mobx/index.js",

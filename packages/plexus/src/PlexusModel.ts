@@ -4,6 +4,7 @@ import invariant from "tiny-invariant";
 import type { Constructor, ReadonlyDeep } from "type-fest";
 import * as Y from "yjs";
 
+import { effectiveActionParentOf, isDeferring, isLiminalDoc, registerRegionOwnershipOps } from "./action-buffer.js";
 import { clone } from "./clone.js";
 import { encode } from "./crdt-uuid.js";
 import { deref } from "./deref.js";
@@ -61,6 +62,16 @@ export type ConcretePlexusConstructor<T extends PlexusModel = PlexusModel> = (ne
 const currentlyEmancipating = new WeakSet<PlexusModel>();
 
 const internalsStore = new WeakMap<PlexusModel, Internals<any>>();
+
+/**
+ * One ancestry step honoring an in-flight `@syncing.action`'s staged ownership:
+ * a superseded entity steps to its staged destination (or stops, if staged
+ * orphan); everything else steps through the real pointer.
+ */
+function effectiveParentStep(model: PlexusModel): PlexusModel | null {
+  const staged = effectiveActionParentOf(model);
+  return staged !== undefined ? (staged?.parent ?? null) : getInternals(model).parent;
+}
 
 // _isControlledConstruction lives on Plexus static (not module-scoped let)
 // because not every bundler allows cross-module mutation of exported let bindings.
@@ -262,7 +273,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
       if (current.isRoot) {
         return current as PlexusModel<null>;
       }
-      current = getInternals(current).parent;
+      current = effectiveParentStep(current);
     }
 
     return null; // Orphan
@@ -270,16 +281,29 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
 
   get parent(): Parent | null {
     trackAccess(this, "parent");
+    const staged = effectiveActionParentOf(this);
+    // The WeakMap erases the compile-time Parent generic; the staged parent IS
+    // this entity's parent by the declaring site's contract.
+    if (staged !== undefined) return staged === null ? null : (staged.parent as Parent);
     return this.__internals__.parent;
   }
 
   /** The field name on the parent that owns this entity (e.g. "children", "child"). */
   get parentField(): string | null {
+    const staged = effectiveActionParentOf(this);
+    if (staged !== undefined) return staged?.field ?? null;
     return this.__internals__.parentKey;
   }
 
   /** Key within the parent field. Record key (string), or deserialized map key (primitive, ReadonlySet, readonly array). */
   get parentFieldKey(): AllowedYJSMapKey | string | null {
+    const staged = effectiveActionParentOf(this);
+    if (staged === null) return null;
+    if (staged !== undefined) {
+      if (staged.meta === null) return null;
+      if (!staged.meta.includes("\n")) return staged.meta;
+      return deserializeKey(staged.meta, staged.parent.__doc__ ?? null);
+    }
     const internals = this.__internals__;
     const meta = internals.parentMetadata;
     if (meta === null) return null;
@@ -372,11 +396,25 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     PlexusDependencyError.invariant(!internals.isDependency, this, "adopted");
     PlexusRootParentError.invariant(!internals.isRoot, this, newParent);
     PlexusSelfAdoptionError.invariant(newParent !== this, this, field);
-    for (let cur: PlexusModel | null = newParent; cur; cur = getInternals(cur).parent) {
+    // Steps through STAGED ownership when an action region is open — a cycle
+    // expressed across two deferred statements must throw at the second
+    // statement, not mid-flush.
+    for (let cur: PlexusModel | null = newParent; cur; cur = effectiveParentStep(cur)) {
       PlexusCycleError.invariant(cur !== this, this, newParent, field, cur);
     }
 
-    // Check 5: Doc mismatch check
+    // Check 5: Doc mismatch. Materialization is contagious, in both
+    // directions: a doc-less child adopted by a doc-backed parent
+    // materializes into the parent's doc, and a doc-less PARENT adopting a
+    // doc-backed child materializes into the CHILD's doc — the parent
+    // becomes reachable via child.parent, and whatever is potentially
+    // reachable from a doc is materialized in it. The upward direction
+    // legalizes wrap-in-place:
+    //   node.kids.k = new Wrap({ kids: { k: node.kids.k } })
+    // whose intermediate state is a short frame of doc DETACHMENT — the
+    // wrapper materializes and owns the subtree before itself being
+    // attached. The only impossibility: an entity already materialized in a
+    // DIFFERENT doc. Entities never change docs.
     PlexusDocMismatchError.invariant(
       !newParent.__doc__ || !this.__doc__ || newParent.__doc__ === this.__doc__,
       this,
@@ -449,6 +487,24 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   }
 
   [requestOrphanizationSymbol]() {
+    if (isDeferring() && this.__doc__ && !isLiminalDoc(this.__doc__)) {
+      // Structural orphanization cannot be deferred: #emancipate clears yjs
+      // parent data RAW (no maybeTransacting), which also pre-falsifies
+      // informOrphanization's hasParent gate — so the action's unrouted-
+      // mutation detector never sees this write. Warn directly instead.
+      // Doc-less and liminal receivers are excluded on their own terms, not
+      // by luck: a doc-less child has no yjs parent data to clear (nothing
+      // hits the wire), and a liminal doc applies instantly by contract (the
+      // preview session owns atomicity) — the same receivers whose writes
+      // settle instantly everywhere else in the engine.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `@syncing.action: ${this.__type__} was structurally detached during an action body. ` +
+          "Detach/orphanization is not routed through the action buffer: it applies immediately, " +
+          "is visible on the wire before the action commits, and will NOT roll back if the " +
+          "action throws. Move the detach outside the action, or reassign the child instead.",
+      );
+    }
     this.#emancipate();
     this[informOrphanizationSymbol]();
   }
@@ -766,7 +822,13 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   #emancipate() {
     const internals = this.__internals__;
     PlexusDependencyError.invariant(!internals.isDependency, this, "emancipated");
-    if (!this.parent) {
+
+    // Emancipation leaves the REAL home — raw internals, deliberately NOT the
+    // staged-aware accessors. Mid-region, a staged assignment is not residence:
+    // the region settles staged slots itself (squash + residue sweeps at
+    // flush); this method's job is only the real membership and pointers.
+    // Outside a region the raw reads are identical to the accessors.
+    if (!internals.parent) {
       return;
     }
 
@@ -775,7 +837,7 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     }
     currentlyEmancipating.add(this);
 
-    const parent = this.parent;
+    const parent = internals.parent;
     const parentKey = internals.yjsModel
       ? (internals.yjsModel.parentKey ?? internals.parentKey!)
       : internals.parentKey!;
@@ -786,10 +848,17 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     internals.yjsModel?.clearParentData();
     internals.parent = null;
 
+    // Every arm removes THIS child only — identity-guarded, never slot-cleared.
+    // The set/list/map arms are identity-keyed by nature; val and record must
+    // check the occupant explicitly: during a region flush the content replay
+    // runs BEFORE the ownership settle, so a replaced child's old slot already
+    // holds its successor, and emancipation must not evict it.
     // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
     switch ((parent.constructor as PlexusConstructor).schema[parentKey]) {
       case "child-val":
-        parent[parentKey] = null;
+        if (parent[parentKey] === this) {
+          parent[parentKey] = null;
+        }
         break;
       case "child-set":
         parent[parentKey].delete(this);
@@ -802,7 +871,9 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
         break;
       }
       case "child-record":
-        delete parent[parentKey][extraParentMetadata!];
+        if (parent[parentKey][extraParentMetadata!] === this) {
+          delete parent[parentKey][extraParentMetadata!];
+        }
         break;
       case "child-map":
         // extraParentMetadata contains the serialized key
@@ -818,3 +889,106 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     currentlyEmancipating.delete(this);
   }
 }
+
+// ── Region ownership vtable ─────────────────────────────────────────────────
+// The action-buffer flush settles staged ownership through these ops. They
+// compose the EXISTING adoption choreography (emancipate → inform) — no new
+// symbols — and never re-validate: statement time already proved every move
+// against effective ownership, and a flush-time re-check could see transient
+// cycles across half-settled pointers that exist in neither the old nor the
+// new graph.
+registerRegionOwnershipOps({
+  realOf(model) {
+    const internals = getInternals(model);
+    // Dependencies never participate in moves (their mutations throw before
+    // any staging) — the guard narrows the Internals union.
+    if (internals.isDependency || !internals.parent) return null;
+    return {
+      parent: internals.parent,
+      field: internals.yjsModel ? (internals.yjsModel.parentKey ?? internals.parentKey!) : internals.parentKey!,
+      meta:
+        (internals.yjsModel ? (internals.yjsModel.parentMetadata ?? internals.parentMetadata) : internals.parentMetadata) ??
+        null,
+    };
+  },
+  settleAdoption(model, target) {
+    // Child-map metas are re-serialized in FLUSH context: the statement-form
+    // string may be local-form if the owner materialized this flush, while
+    // parentData needs the doc's global form.
+    const meta =
+      target.rawKey !== undefined
+        ? serializeKey(target.rawKey as AllowedYJSMapKey, target.parent.__doc__)
+        : (target.meta ?? undefined);
+    const internals = getInternals(model);
+    if (internals.parent === target.parent && internals.parentKey === target.field) {
+      if ((internals.parentMetadata ?? null) === (meta ?? null)) {
+        // Away-and-back squash: the child ends where it really lives. Running
+        // the emancipate would eat the content entry the region just replayed.
+        return;
+      }
+      // RE-KEY within one keyed collection: the region's content ops already
+      // moved the entry (delete+set), or a lone set left the old key to
+      // vacate. The generic emancipate scan is identity-only — it would find
+      // the child at its DESTINATION and eat it. Remove the child from any
+      // key except the destination, then just repoint.
+      const kind = (target.parent.constructor as PlexusConstructor).schema[target.field];
+      if (kind === "child-map") {
+        const map = (target.parent as PlexusModel & Record<string, any>)[target.field] as Map<unknown, unknown>;
+        for (const [k, v] of map.entries()) {
+          if (v === model && k !== target.rawKey) {
+            map.delete(k);
+            break;
+          }
+        }
+      } else if (kind === "child-record") {
+        const rec = (target.parent as PlexusModel & Record<string, any>)[target.field] as Record<
+          string,
+          PlexusModel
+        >;
+        for (const k of Object.keys(rec)) {
+          if (rec[k] === model && k !== meta) {
+            delete rec[k];
+            break;
+          }
+        }
+      }
+      model[informAdoptionSymbol](target.parent, target.field, meta);
+      return;
+    }
+    model[requestEmancipationSymbol]();
+    model[informAdoptionSymbol](target.parent, target.field, meta);
+  },
+  settleOrphan(model) {
+    model[requestOrphanizationSymbol]();
+  },
+  sweepResidue(model, target) {
+    const parent = target.parent as PlexusModel & Record<string, any>;
+    // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
+    switch ((parent.constructor as PlexusConstructor).schema[target.field]) {
+      case "child-val":
+        if (parent[target.field] === model) parent[target.field] = null;
+        break;
+      case "child-set":
+        (parent[target.field] as Set<PlexusModel>).delete(model);
+        break;
+      case "child-list": {
+        const list = parent[target.field] as unknown[];
+        const index = list.indexOf(model);
+        if (index !== -1) list.splice(index, 1);
+        break;
+      }
+      case "child-record":
+        if (target.meta !== null && parent[target.field][target.meta] === model) {
+          delete parent[target.field][target.meta];
+        }
+        break;
+      case "child-map": {
+        // rawKey through the public proxy: get/delete serialize the key in
+        // CURRENT doc context, matching the backing whatever form it took.
+        const map = parent[target.field] as Map<unknown, unknown>;
+        if (map.get(target.rawKey) === model) map.delete(target.rawKey);
+        break;
+      }
+    }
+  },
+});

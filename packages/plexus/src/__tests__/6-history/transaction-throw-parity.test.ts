@@ -16,7 +16,7 @@
  * peers) BEFORE the exception propagates. There is NO rollback, anywhere.
  *
  * ─── WHAT PLEXUS ADDS ───────────────────────────────────────────────────────
- * `maybeTransacting(doc, fn)` (utils/utils.ts) is the one helper every mutation
+ * `maybeTransacting(doc, fn)` (utils/transacting.ts) is the one helper every mutation
  * path funnels through. On throw, its OUTERMOST `catch` does
  * `pendingNotifications.clear()` — discarding the local MobX notification flush
  * for THAT batch — then re-throws. The write already committed + broadcast; only
@@ -24,8 +24,19 @@
  *   Layer 1  raw `doc.transact`   — the bare yjs primitive
  *   Layer 2  `maybeTransacting`   — the internal helper
  *   Layer 3  `Plexus.transact`    — `maybeTransacting(liminalDoc, fn)`
- *   Layer 4  `@syncing.atomic`    — `maybeTransacting(this.__doc__, body)`
- * Layers 2–4 are literally the same call → identical throw behavior.
+ * Layers 1–3 share this machinery → identical throw behavior (partial COMMITS).
+ *
+ * Layer 4  `@syncing.action` is the spec-based engine (`action-buffer.ts`). It
+ * does NOT hold a transaction open — it DEFERS every yjs write into a buffer and
+ * flushes on completion. Its throw DEFAULT is COMMIT-ON-CRASH, the same verdict
+ * as layers 1–3: the pre-throw writes reach the model + wire. The one subtlety is
+ * that because it defers and REPLAYS in a clean tx (the throw happened in the body,
+ * not in the flush), the flush's notification is NOT discarded — so the local
+ * observer is left FRESH, not stale (the mirror-image of layers 2/3). Real
+ * all-or-nothing rollback is OPT-IN, per method, via
+ * `@syncing.action({ rollbackIf: (error) => boolean })`: a matching predicate
+ * discards the buffer (wire stays pure) and inverses the overlay. The layer-4 and
+ * nested-atomic rows below pin both the default and the opt-in.
  *
  * ─── THE FOUR OBSERVERS (recorded per cell) ─────────────────────────────────
  *   (a) MODEL     — the entity itself (read-overlay / backingStorage)
@@ -87,21 +98,28 @@ class Foo extends PlexusModel {
   @syncing.child accessor boxA!: Box | null; // reparent source
   @syncing.child accessor boxB!: Box | null; // reparent target
 
-  /** Layer-4 parity probe: one write, then throw — as an atomic method. */
-  @syncing.atomic
-  atomicThrowAfterOne(): void {
+  /** Layer-4 parity probe: one write, then throw — commit-on-crash default. */
+  @syncing.action
+  actionThrowAfterOne(): void {
+    this.a = 1;
+    throw new Error("boom");
+  }
+
+  /** Opt-in rollback probe: one write, then throw — the predicate discards the batch. */
+  @syncing.action({ rollbackIf: () => true })
+  actionRollbackAfterOne(): void {
     this.a = 1;
     throw new Error("boom");
   }
 
   /** Nesting probe: an atomic method that calls another atomic method which throws. */
-  @syncing.atomic
+  @syncing.action
   outerAtomic(): void {
     this.a = 1;
     this.innerAtomicThrows();
   }
 
-  @syncing.atomic
+  @syncing.action
   innerAtomicThrows(): void {
     this.b = 1;
     throw new Error("boom");
@@ -240,17 +258,37 @@ describe("throw inside a transaction — complete behavior characterization", ()
     expect(seen).toEqual([0]);
   });
 
-  it("layer 4 (@syncing.atomic): partial COMMITS, ONE shadow update, observer STALE — the decorator INHERITS, doesn't add", () => {
+  it("layer 4 (@syncing.action): COMMIT-ON-CRASH by default — partial commits like layers 1–3, but observer stays FRESH", () => {
+    // The spec-based @syncing.action engine DEFERS every yjs write into a buffer
+    // and, by default, FLUSHES the pre-throw writes before rethrowing (commit-on-
+    // crash — matching JS + yjs finalization). Unlike layers 2/3, the throw happens
+    // in the BODY, not inside the flush's maybeTransacting, so the flush completes
+    // normally and its notification is NOT discarded → the observer is left FRESH.
     const shadow = root.__doc__!;
     let shadowUpdates = 0;
     shadow.on("update", () => shadowUpdates++);
     const seen = observe(() => root.a);
 
-    expect(() => root.atomicThrowAfterOne()).toThrow("boom");
+    expect(() => root.actionThrowAfterOne()).toThrow("boom");
 
-    expect(root.a).toBe(1);
-    expect(shadowUpdates).toBe(1);
-    expect(seen).toEqual([0]);
+    expect(root.a).toBe(1); // committed (buffer flushed before rethrow)
+    expect(shadowUpdates).toBe(1); // one clean flush transaction
+    expect(seen).toEqual([0, 1]); // observer SAW the commit (flush not suppressed)
+  });
+
+  it("layer 4 opt-in (@syncing.action({ rollbackIf })): a matching predicate ROLLS BACK — no commit, no update", () => {
+    // Opt-in rollback: the predicate matches the thrown error, so the buffer is
+    // discarded (yjs never touched → wire pure) and the overlay is inversed.
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+    const seen = observe(() => root.a);
+
+    expect(() => root.actionRollbackAfterOne()).toThrow("boom");
+
+    expect(root.a).toBe(0); // rolled back (buffer discarded)
+    expect(shadowUpdates).toBe(0); // nothing committed → wire pure
+    expect(seen).toEqual([0]); // observer sees no net change
   });
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -503,12 +541,22 @@ describe("throw inside a transaction — complete behavior characterization", ()
     expect(seen).toEqual(["0,0"]); // observer saw NEITHER — outer cleared the whole batch
   });
 
-  it("inner-nested throw via @syncing.atomic: outer atomic body's write ALSO commits when the inner atomic throws", () => {
+  it("inner-nested throw via @syncing.action: neither frame opts into rollback → BOTH writes COMMIT-ON-CRASH in one flush", () => {
+    const peer = syncedPeer();
+    const shadow = root.__doc__!;
+    let shadowUpdates = 0;
+    shadow.on("update", () => shadowUpdates++);
+
     expect(() => root.outerAtomic()).toThrow("boom");
 
-    // Inner threw, but the outer atomic held the single transaction — both land.
+    // The nested atomic defers into the OUTERMOST buffer (savepoint slice). The inner
+    // throw escapes to the outer runAction; with no rollbackIf on either frame it is
+    // commit-on-crash, so the outermost frame flushes the whole buffer once, then
+    // rethrows. Both writes reach the model + wire in a single transaction.
     expect(root.a).toBe(1); // outer write committed
     expect(root.b).toBe(1); // inner pre-throw write committed
+    expect([peer.a, peer.b]).toEqual([1, 1]); // both broadcast
+    expect(shadowUpdates).toBe(1); // one flush transaction for the whole buffer
   });
 
   it("throw CAUGHT inside the callback: the transaction completes NORMALLY → flush fires → observer SEES the write", () => {

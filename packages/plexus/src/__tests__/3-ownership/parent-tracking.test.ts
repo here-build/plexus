@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
-import { PlexusRootParentError } from "../../errors.js";
+import { PlexusDocMismatchError, PlexusRootParentError } from "../../errors.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import type { YPlexusNode } from "../../proxy-runtime-types.js";
 import { referenceSymbol } from "../../proxy-runtime-types.js";
@@ -690,6 +690,78 @@ describe("Parent Tracking", () => {
       expect(() => {
         materializedParent.child = depChild; // Trying to set dependency entity as child
       }).to.throw(); // Or might silently fail depending on implementation
+    });
+  });
+
+  describe("Contagious materialization (doc-boundary law)", () => {
+    // Materialization is contagious: whatever is potentially reachable from a
+    // doc is materialized in it. Downward (doc-backed parent adopts doc-less
+    // child) is exercised throughout this file; these pin the UPWARD direction
+    // and the single impossibility (cross-doc).
+    @syncing("WrapGroup")
+    class Group extends PlexusModel {
+      @syncing
+      accessor name!: string;
+
+      @syncing.child.record
+      accessor groups!: Record<string, Group>;
+    }
+
+    it("upward: a doc-less parent adopting a doc-backed child materializes into the child's doc", () => {
+      const parent = new Parent({ name: "parent", child: null, children: [], childSet: new Set(), childMap: {} });
+      const { root } = initTestPlexus<Parent>(parent);
+      const child = new Child({ name: "kid" });
+      root.child = child; // downward: child materialized into the doc
+
+      const ghost = new Parent({ name: "ghost", child: null, children: [], childSet: new Set(), childMap: {} });
+      expect(ghost.__doc__).to.equal(null); // doc-less
+
+      ghost.child = child; // upward: the ghost materializes into child's doc
+
+      expect(ghost.__doc__).to.equal(root.__doc__); // materialized (reachable via child.parent)
+      expect(child.parent).to.equal(ghost);
+      expect(root.child).to.equal(null); // moved out of the old home
+      expect(ghost.parent).to.equal(null); // detached frame: materialized, not yet attached
+    });
+
+    it("wrap-in-place: group.groups.k = new Group({ groups: { k: group.groups.k } }) — a short frame of doc detachment", () => {
+      const top = new Group({ name: "top", groups: {} });
+      const { root } = initTestPlexus<Group>(top);
+      const inner = new Group({ name: "inner", groups: {} });
+      root.groups.leaf = inner;
+      const innerUuid = inner.uuid;
+
+      // The RHS evaluates first: the fresh wrapper (doc-less) adopts the
+      // doc-backed inner via its constructor bag → the wrapper materializes
+      // upward and owns the subtree while DETACHED from the tree. The
+      // assignment then re-attaches it one level up.
+      root.groups.leaf = new Group({ name: "wrapper", groups: { leaf: root.groups.leaf } });
+
+      const wrapper = root.groups.leaf;
+      expect(wrapper.name).to.equal("wrapper");
+      expect(wrapper.parent).to.equal(root);
+      expect(wrapper.groups.leaf).to.equal(inner); // the same OBJECT: moved, not copied
+      expect(inner.parent).to.equal(wrapper);
+      expect(inner.uuid).to.equal(innerUuid); // identity survived the frame
+    });
+
+    it("cross-doc is the only impossibility: adopting an entity materialized in a DIFFERENT doc throws", () => {
+      const parentA = new Parent({ name: "A", child: null, children: [], childSet: new Set(), childMap: {} });
+      const { root: rootA } = initTestPlexus<Parent>(parentA);
+      const child = new Child({ name: "kid" });
+      rootA.child = child; // materialized in doc A
+
+      const parentB = new Parent({ name: "B", child: null, children: [], childSet: new Set(), childMap: {} });
+      const { root: rootB } = initTestPlexus<Parent>(parentB);
+
+      expect(() => {
+        rootB.child = child;
+      }).to.throw(PlexusDocMismatchError);
+
+      // Validation-first: nothing moved.
+      expect(rootA.child).to.equal(child);
+      expect(child.parent).to.equal(rootA);
+      expect(rootB.child).to.equal(null);
     });
   });
 

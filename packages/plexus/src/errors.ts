@@ -104,7 +104,7 @@ export class PlexusDocMismatchError extends PlexusError {
     public readonly newParent: PlexusModel,
   ) {
     super(
-      `Plexus<${child.__type__}#${safeUuid(child)}>: cannot adopt entity from different doc`,
+      `Plexus<${child.__type__}#${safeUuid(child)}>: cannot adopt entity from different doc — entities never change docs`,
       "Document mismatch during adoption:",
       {
         child: `${child.__type__}#${safeUuid(child)}`,

@@ -2,7 +2,7 @@ import invariant from "tiny-invariant";
 import type * as Y from "yjs";
 
 import { deref } from "../deref.js";
-import { PlexusModel } from "../PlexusModel.js";
+import { getInternals, PlexusModel } from "../PlexusModel.js";
 import {
   type AllowedYJSKeyValue,
   type AllowedYJSMapKey,
@@ -156,16 +156,7 @@ function deserializeValueFlexible(line: string, doc: Y.Doc | null): AllowedYJSKe
 
 // ── Key serialization (public API) ──────────────────────────────────
 
-/**
- * Serialize a key to a string for storage.
- * Format: Type\nValue1\nValue2\n...
- *
- * When doc is available, uses global canonical form (CRDT UUIDs).
- * When doc is null, uses local canonical form (incremental IDs).
- */
-export function serializeKey(key: AllowedYJSMapKey, doc: Y.Doc | null = null): string {
-  const sv = doc ? (item: AllowedYJSValue) => serializeValueGlobal(item, doc) : serializeValueLocal;
-
+function serializeKeyWith(sv: (item: AllowedYJSValue) => string, key: AllowedYJSMapKey): string {
   if (key instanceof Set) {
     // Serialize first (materializes entities in global mode), then sort.
     // Serialized form is deterministic and cross-peer stable.
@@ -178,6 +169,63 @@ export function serializeKey(key: AllowedYJSMapKey, doc: Y.Doc | null = null): s
     return [ARRAY_PREFIX, ...lines].join("\n");
   }
   return [VALUE_PREFIX, sv(key)].join("\n");
+}
+
+/**
+ * Serialize a key to a string for storage.
+ * Format: Type\nValue1\nValue2\n...
+ *
+ * When doc is available, uses global canonical form (CRDT UUIDs).
+ * When doc is null, uses local canonical form (incremental IDs).
+ */
+export function serializeKey(key: AllowedYJSMapKey, doc: Y.Doc | null = null): string {
+  const sv = doc ? (item: AllowedYJSValue) => serializeValueGlobal(item, doc) : serializeValueLocal;
+  return serializeKeyWith(sv, key);
+}
+
+/** An entity serializes globally without genesis iff it is already doc-backed. */
+function hasGlobalIdentity(item: PlexusModel): boolean {
+  const internals = getInternals(item);
+  if (internals.isDependency) return true;
+  return Boolean(internals.yjsModel);
+}
+
+/**
+ * Serialize a key WITHOUT doc side effects — the statement-time form.
+ *
+ * `serializeKey` with a doc MATERIALIZES fresh entities (genesis is a doc
+ * write). Deferred-region statements must not do doc work — the region may
+ * roll back, and genesis belongs to flush phase 1 with its own origin. So
+ * each entity serializes in the form it ALREADY has: global (a pure read of
+ * its reference tuple) when doc-backed, local (incremental id) when fresh.
+ * Both forms deserialize via `deserializeKey`, and each is stable per entity
+ * across a single-doc region; the flush re-serializes in global form.
+ */
+export function serializeKeyNonMinting(key: AllowedYJSMapKey, doc: Y.Doc | null): string {
+  if (!doc) return serializeKey(key, null);
+  const sv = (item: AllowedYJSValue) =>
+    item instanceof PlexusModel && !hasGlobalIdentity(item)
+      ? serializeValueLocal(item)
+      : serializeValueGlobal(item, doc);
+  return serializeKeyWith(sv, key);
+}
+
+/**
+ * Materialize every entity inside a key onto `doc` — the flush-phase-1 twin
+ * of `serializeKeyNonMinting`: key genesis happens here, OUTSIDE the flush
+ * transaction, so flush-time `serializeKey(key, doc)` is a pure read.
+ */
+export function materializeKeyEntities(key: AllowedYJSMapKey, doc: Y.Doc): void {
+  const visit = (item: AllowedYJSValue): void => {
+    if (item instanceof PlexusModel) item[referenceSymbol](doc);
+  };
+  if (key instanceof Set) {
+    for (const item of key) visit(item);
+  } else if (Array.isArray(key)) {
+    for (const item of key) visit(item);
+  } else {
+    visit(key);
+  }
 }
 
 /**

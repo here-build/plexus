@@ -58,16 +58,11 @@ describe("PlexusModel.localID", () => {
     expect(Number.isInteger(ephemeral.localID)).toBe(true);
   });
 
-  // In arbitrary mode .uuid mints instead of throwing; the contrast below is
-  // the feistel (production) contract. The skipIf dies with the mode itself.
-  it.skipIf(process.env.PLEXUS_UUID_MODE === "arbitrary")(
-    ".uuid on the same doc-less entity throws (contrast: localID is construction-time)",
-    () => {
-      const ephemeral = new LocalIdLeaf({ label: "ghost" });
-      expect(() => ephemeral.uuid).toThrowError(/accessed before materialization/);
-      expect(typeof ephemeral.localID).toBe("number");
-    },
-  );
+  it(".uuid on the same doc-less entity throws (contrast: localID is construction-time)", () => {
+    const ephemeral = new LocalIdLeaf({ label: "ghost" });
+    expect(() => ephemeral.uuid).toThrowError(/accessed before materialization/);
+    expect(typeof ephemeral.localID).toBe("number");
+  });
 
   it("is unchanged when an ephemeral entity later materializes", () => {
     const root = new LocalIdNode({ name: "root", kids: [] });

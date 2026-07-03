@@ -1,15 +1,11 @@
 /**
- * Dual-mode test config — THIS IS THE DEFAULT `pnpm test` for plexus. Runs
- * the full suite under both UUID modes because both are legit production
- * configurations exposed to users:
+ * Varianced test config — THIS IS THE DEFAULT `pnpm test` for plexus.
  *
- *   - `feistel`   — encoded, decodable, production default
- *   - `arbitrary` — counter-based, test/tooling path (also surfaced via
- *                   `PLEXUS_UUID_MODE=arbitrary` for consumers that need
- *                   reproducible IDs, e.g. fixture regenerators)
- *
- * Both modes must stay green; a regression in one is a shipping bug. Not a
- * nice-to-have — CI runs it every time.
+ * Historically ran the suite under two UUID modes (feistel/arbitrary); the
+ * arbitrary axis was retired in 2026-07 (UUIDs are feistel-only now — test
+ * determinism comes from `.localID`/`resetLocalIDs()` instead). The file and
+ * script wiring stay so a future variance axis (e.g. a yjs major, an
+ * alternative clock) drops in as another project entry.
  */
 import { defineConfig } from "vitest/config";
 
@@ -24,16 +20,6 @@ export default defineConfig({
           include: ["src/__tests__/**/*.test.{ts,tsx}"],
           // A test that throws between vi.spyOn and its explicit mockRestore
           // must not leak the spy into later tests.
-          restoreMocks: true,
-        },
-      },
-      {
-        test: {
-          name: "arbitrary",
-          globals: true,
-          environment: "node",
-          include: ["src/__tests__/**/*.test.{ts,tsx}"],
-          env: { PLEXUS_UUID_MODE: "arbitrary" },
           restoreMocks: true,
         },
       },

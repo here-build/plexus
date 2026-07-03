@@ -1,5 +1,4 @@
 import "@here.build/arrival-env";
-import { nanoid } from "nanoid";
 import invariant from "tiny-invariant";
 import type { Constructor, ReadonlyDeep } from "type-fest";
 import * as Y from "yjs";
@@ -132,9 +131,6 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
   static __forcedInternals__: Internals<any> | null = null;
   // eslint-disable-next-line sonarjs/public-static-readonly
   static modelName: string;
-  /** Override in tests for deterministic UUIDs. Only used when PLEXUS_UUID_MODE=arbitrary. */
-  // eslint-disable-next-line sonarjs/public-static-readonly
-  static getArbitraryUUID: () => string = nanoid;
   static readonly schema: GenericRecordSchema;
 
   /**
@@ -226,12 +222,6 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     if (doc) {
       this[referenceSymbol](doc);
       return internals.uuid!;
-    }
-    if (Plexus.uuidMode === "arbitrary") {
-      internals.uuid = `a${Plexus.getArbitraryUUID()}` as PlexusUUID;
-      internals.reference = [internals.uuid] as ReferenceTuple;
-      Object.freeze(internals.reference);
-      return internals.uuid;
     }
     throw new Error(`Plexus<${this.__type__}>: .uuid accessed before materialization`);
   }
@@ -624,19 +614,15 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
           `Plexus<${this.__type__}#${this.uuid}>: XmlElement exists in typeMap but yjsModel is missing. With append-only entity shells this should be unreachable.`,
         );
       } else {
-        if (Plexus.uuidMode === "arbitrary") {
-          internals.uuid = (internals.uuid ?? `a${Plexus.getArbitraryUUID()}`) as PlexusUUID;
-        } else {
-          // CRDT-native UUID: encode {clientId, clock} at materialization.
-          // The next clock tick will be consumed by typeMap.set — predict it now.
-          // binding === "bound" → b-prefix; genesis (clientId > uint32) → d-prefix; else → p-prefix
-          const predictedClock = Y.getState(doc.store, doc.clientID);
-          internals.uuid = encode(
-            doc.clientID,
-            predictedClock,
-            !internals.isDependency && internals.binding === "bound" ? "bound" : undefined,
-          ) as PlexusUUID;
-        }
+        // CRDT-native UUID: encode {clientId, clock} at materialization.
+        // The next clock tick will be consumed by typeMap.set — predict it now.
+        // binding === "bound" → b-prefix; genesis (clientId > uint32) → d-prefix; else → p-prefix
+        const predictedClock = Y.getState(doc.store, doc.clientID);
+        internals.uuid = encode(
+          doc.clientID,
+          predictedClock,
+          !internals.isDependency && internals.binding === "bound" ? "bound" : undefined,
+        ) as PlexusUUID;
         // type is encoded in XmlElement nodeName; fields stored directly as attributes (flat)
         yprojectObjectInstance = new Y.XmlElement(this.__type__);
         typeMap.set(internals.uuid, yprojectObjectInstance); // consumes predictedClock

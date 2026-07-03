@@ -99,17 +99,6 @@ export class Plexus<
   // eslint-disable-next-line sonarjs/public-static-readonly
   static __isControlledConstruction__: boolean = false;
 
-  /** Override in tests for deterministic UUIDs. Only used when PLEXUS_UUID_MODE=arbitrary. */
-  // eslint-disable-next-line sonarjs/public-static-readonly
-  public static uuidMode: "arbitrary" | undefined = (() => {
-    try {
-      return process.env.PLEXUS_UUID_MODE as "arbitrary" | undefined;
-    } catch {
-      return;
-    }
-  })();
-  // eslint-disable-next-line sonarjs/public-static-readonly
-  public static getArbitraryUUID: () => string = nanoid;
   readonly rootDependenciesRepresentation: ReadonlyDeep<Record<string, Root>> = new Proxy(
     {},
     {

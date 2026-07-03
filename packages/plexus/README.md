@@ -358,22 +358,12 @@ and logical clock into a single string, enabling **O(1) entity resolution**.
 Because they're derived from CRDT state, accessing `.uuid` **throws without a doc**.
 This is fine in production (models are materialized), but tests that inspect UUIDs on ephemeral models will crash.
 
-**Arbitrary mode** (`PLEXUS_UUID_MODE=arbitrary`) switches to a random UUID generator (nanoid by default),
-removing the doc constraint.
-Behavior is kept fully identical. Only thing that changes is entity resolution that becomes O(n) instead of O(1),
-which is irrelevant for test-sized datasets:
-
-```bash
-PLEXUS_UUID_MODE=arbitrary vitest run
-```
-
-`Plexus.getArbitraryUUID` can be overridden for deterministic test UUIDs.
-It's only effective in arbitrary mode — intentionally, to avoid implicit behavior differences in production:
-
-```typescript
-let counter = 0;
-Plexus.getArbitraryUUID = () => `test-${counter++}`;
-```
+**Deterministic tests.** UUIDs are always CRDT-native — there is no alternative UUID mode. (The
+former env-driven arbitrary counter mode was retired in 2026-07.) For reproducible identity
+in tests and fixtures, use [`.localID`](#localid--process-local-creation-order-identity): it is
+minted at construction from one global counter, exists on doc-less ephemerals (where `.uuid`
+throws), and `resetLocalIDs()` restarts it at 1 between tests — fixed creation order gives fixed
+ids, no env var required.
 
 `.documentId` returns the Y.Doc guid (`undefined` for unmaterialized or dependency entities).
 

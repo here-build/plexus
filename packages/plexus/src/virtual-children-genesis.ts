@@ -15,7 +15,6 @@ import * as Y from "yjs";
 import { encode as encodeUuid, murmur32 } from "./crdt-uuid.js";
 import { GENESIS_BASE, genesisApplyUpdate } from "./genesis-client.js";
 import { docPlexus } from "./plexus-registry.js";
-import { Plexus } from "./Plexus.js";
 import { getInternals, PlexusModel } from "./PlexusModel.js";
 import { serializeKey } from "./proxies/key-serialization.js";
 import type { AllowedVirtualMapKey, AllowedYValue } from "./proxy-runtime-types.js";
@@ -110,24 +109,6 @@ function computeVirtualGenesisId(
   const lo = murmur32(canonical, SEED_LO);
   const wide = (hi & 0x7_ff_ff) * 0x1_00_00_00_00 + (lo >>> 0);
   return (wide % GENESIS_RANGE) + GENESIS_BASE;
-}
-
-/**
- * Force CRDT-native UUID generation regardless of PLEXUS_UUID_MODE.
- * Genesis requires deterministic UUIDs — arbitrary mode would produce random ones.
- */
-function withNativeUUIDs<T>(fn: () => T): T {
-  if (Plexus.uuidMode) {
-    const saved = Plexus.uuidMode;
-    Plexus.uuidMode = undefined;
-    try {
-      return fn();
-    } finally {
-      Plexus.uuidMode = saved;
-    }
-  } else {
-    return fn();
-  }
 }
 
 /**
@@ -275,17 +256,15 @@ export function materializeVirtualChild<K extends AllowedVirtualMapKey, V extend
     });
 
     // ── Phase 1: content hash ──
-    const clientVector: Uint8Array = withNativeUUIDs(() => {
-      const entity1 = factory(mapKey);
-      docPlexus.set(tmpDoc, null as any);
-      entity1[referenceSymbol](tmpDoc);
-      const internals = getInternals(entity1);
-      invariant(!internals.isDependency, "Genesis factory must not produce dependency entities");
-      internals.unobserve?.();
-      internals.yjsModel!.setParentData(ownerUuid, fieldName, serializedMapKey);
-      docPlexus.delete(tmpDoc);
-      return getIndividualVector(tmpDoc, 0);
-    });
+    const entity1 = factory(mapKey);
+    docPlexus.set(tmpDoc, null as any);
+    entity1[referenceSymbol](tmpDoc);
+    const internals1 = getInternals(entity1);
+    invariant(!internals1.isDependency, "Genesis factory must not produce dependency entities");
+    internals1.unobserve?.();
+    internals1.yjsModel!.setParentData(ownerUuid, fieldName, serializedMapKey);
+    docPlexus.delete(tmpDoc);
+    const clientVector: Uint8Array = getIndividualVector(tmpDoc, 0);
 
     const genesisId = computeVirtualGenesisId(ownerUuid, fieldName, serializedMapKey, clientVector);
 
@@ -301,19 +280,16 @@ export function materializeVirtualChild<K extends AllowedVirtualMapKey, V extend
       configurable: true,
     });
 
-    let rootUuid: string;
-    const vector: Uint8Array = withNativeUUIDs(() => {
-      const entity2 = factory(mapKey);
-      docPlexus.set(tmpDoc2, null as any);
-      entity2[referenceSymbol](tmpDoc2);
-      const internals = getInternals(entity2);
-      invariant(!internals.isDependency, "Genesis factory must not produce dependency entities");
-      internals.unobserve?.();
-      internals.yjsModel!.setParentData(ownerUuid, fieldName, serializedMapKey);
-      docPlexus.delete(tmpDoc2);
-      rootUuid = entity2.uuid;
-      return Y.encodeStateAsUpdate(tmpDoc2);
-    });
+    const entity2 = factory(mapKey);
+    docPlexus.set(tmpDoc2, null as any);
+    entity2[referenceSymbol](tmpDoc2);
+    const internals2 = getInternals(entity2);
+    invariant(!internals2.isDependency, "Genesis factory must not produce dependency entities");
+    internals2.unobserve?.();
+    internals2.yjsModel!.setParentData(ownerUuid, fieldName, serializedMapKey);
+    docPlexus.delete(tmpDoc2);
+    const rootUuid = entity2.uuid;
+    const vector: Uint8Array = Y.encodeStateAsUpdate(tmpDoc2);
 
     tmpDoc.destroy();
     tmpDoc2.destroy();
@@ -322,7 +298,7 @@ export function materializeVirtualChild<K extends AllowedVirtualMapKey, V extend
     genesisApplyUpdate(doc, vector);
 
     doc.transact(() => {
-      yjsMap.set(serializedMapKey, [rootUuid!]);
+      yjsMap.set(serializedMapKey, [rootUuid]);
     }, GENESIS_ORIGIN);
   } finally {
     genesisDepth--;

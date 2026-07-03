@@ -4,7 +4,7 @@ import type * as Y from "yjs";
 
 import { isInCloneTransaction } from "../clone.js";
 import { deref } from "../deref.js";
-import { emitOrDefer, isDeferring, type OwnershipMove, type YjsOp } from "../action-buffer.js";
+import { emitOrDefer, isDeferring, isLiminalDoc, type OwnershipMove, type YjsOp } from "../action-buffer.js";
 import { PlexusModel } from "../PlexusModel.js";
 import type { AllowedYJSMapKey, AllowedYJSValue, AllowedYValue, ReadonlyField } from "../proxy-runtime-types.js";
 import {
@@ -193,7 +193,9 @@ export const buildMapProxy = <K extends AllowedYJSMapKey, V extends AllowedYJSVa
         // here. Declare the reaffirmation as a moves-only emit so the squash
         // sees THIS statement as the last word; the engine no-ops it when it's
         // a true reaffirmation. Non-child fields keep the cheap early return.
-        if (isChildField && value instanceof PlexusModel) {
+        // Gated on a deferring receiver (mirroring record.set): on the instant
+        // path there is no squash to win, so the plain early return stands.
+        if (isChildField && value instanceof PlexusModel && isDeferring() && owner.__doc__ && !isLiminalDoc(owner.__doc__)) {
           const serializedSubKey = serializeKeyNonMinting(mapKey, owner.__doc__);
           emitOrDefer(owner.__doc__, {
             applyNow: () => this,

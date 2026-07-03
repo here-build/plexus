@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 
-import { emitOrDefer, isDeferring, type OwnershipMove, type YjsOp } from "../action-buffer.js";
+import { emitOrDefer, isDeferring, isLiminalDoc, type OwnershipMove, type YjsOp } from "../action-buffer.js";
 import { PlexusModel } from "../PlexusModel.js";
 import {
   type AllowedYJSKeyValue,
@@ -165,15 +165,20 @@ export const buildSetProxy = <T extends AllowedYJSKeyValue>({
               // engine no-ops a genuine no-change); non-child fields (or a
               // non-PlexusModel value) have no ownership to reassert, so they
               // keep the original no-op return.
+              // Gated on a deferring receiver (mirroring record.set): on the
+              // instant path there is no squash to win, so the plain no-op
+              // return stands.
               if (!isChildField || !(value instanceof PlexusModel)) return false;
-              emitOrDefer(owner.__doc__, {
-                applyNow: () => false,
-                overlay: () => {},
-                describe: () => [],
-                notify: () => {},
-                revertOverlay: () => {},
-                moves: [{ child: value, parent: owner, field: key }],
-              });
+              if (isDeferring() && owner.__doc__ && !isLiminalDoc(owner.__doc__)) {
+                emitOrDefer(owner.__doc__, {
+                  applyNow: () => false,
+                  overlay: () => {},
+                  describe: () => [],
+                  notify: () => {},
+                  revertOverlay: () => {},
+                  moves: [{ child: value, parent: owner, field: key }],
+                });
+              }
               return false;
             }
 

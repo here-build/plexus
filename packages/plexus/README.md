@@ -377,6 +377,14 @@ of materialization, and is **never serialized** (absent from `toJSON()`, the yjs
 CRDT document). Because it is minted at construction (never lazily on first access), it is
 deterministic under a fixed creation order — the identity to reach for in tests and fixtures.
 
+**Dependency entities are the exception.** The determinism above assumes eager construction, which
+holds for owned/main-doc entities but not for dependencies: `Plexus.ts`'s `#materializeDependencyEntity`
+constructs an imported entity's local proxy lazily, on first access through the dependency Proxy — so
+its `.localID` reflects **first-access order**, not declaration or iteration order in the source
+document. That's still deterministic, but only if access order itself is fixed; fixtures needing stable
+ids for imported/dependency entities should touch them in an explicit, fixed sequence rather than rely
+on however the test happens to traverse them.
+
 `resetLocalIDs()` restarts the counter at 1 — a test hook for reproducible ids between tests. Reset
 only between tests: entities surviving from before the reset can collide with new ones.
 

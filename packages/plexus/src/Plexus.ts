@@ -248,7 +248,7 @@ export class Plexus<
                     fieldCache[key] ??= value
                       ? new Map(
                           Object.entries(value as Record<string, AllowedYValue>).map(([k, v]) => [
-                            deserializeKey(k, this.doc),
+                            deserializeKey(k, this.doc, resolveProjectId),
                             deref(this.doc, v, resolveProjectId),
                           ]),
                         )

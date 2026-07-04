@@ -130,7 +130,11 @@ function serializeValueLocal(item: AllowedYJSValue): string {
  * Tries local resolution first (for local IDs), then doc-based (for CRDT UUIDs).
  * Returns null for unresolvable entity references.
  */
-function deserializeValueFlexible(line: string, doc: Y.Doc | null): AllowedYJSKeyValue {
+function deserializeValueFlexible(
+  line: string,
+  doc: Y.Doc | null,
+  contextualDocumentId?: string, // only used for dependency docs internals — see deref()
+): AllowedYJSKeyValue {
   if (BIGINT_REGEX.test(line)) {
     return BigInt(line.slice(0, -1));
   }
@@ -146,7 +150,7 @@ function deserializeValueFlexible(line: string, doc: Y.Doc | null): AllowedYJSKe
     const localEntity = serializationIdToEntity.get(parsed[0])?.deref();
     if (localEntity) return localEntity;
     // Fall back to doc-based resolution
-    if (doc) return deref(doc, parsed as AllowedYValue);
+    if (doc) return deref(doc, parsed as AllowedYValue, contextualDocumentId);
     // Can't resolve
     return null as unknown as AllowedYJSKeyValue;
   }
@@ -235,10 +239,14 @@ export function materializeKeyEntities(key: AllowedYJSMapKey, doc: Y.Doc): void 
  * then doc-based resolution (CRDT UUIDs). Returns null for
  * unresolvable entity references.
  */
-export function deserializeKey(serialized: string, doc: Y.Doc | null = null): AllowedYJSMapKey {
+export function deserializeKey(
+  serialized: string,
+  doc: Y.Doc | null = null,
+  contextualDocumentId?: string, // only used for dependency docs internals — see deref()
+): AllowedYJSMapKey {
   const [prefix, ...lines] = serialized.split("\n");
 
-  const dv = (line: string) => deserializeValueFlexible(line, doc);
+  const dv = (line: string) => deserializeValueFlexible(line, doc, contextualDocumentId);
 
   switch (prefix) {
     case SET_PREFIX:

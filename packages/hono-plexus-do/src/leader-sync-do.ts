@@ -88,6 +88,13 @@ export abstract class PlexusLeaderSyncDO<Env extends PlexusSyncEnv> extends Dura
   protected abstract authorizeWebSocket(request: Request): Promise<WebSocketHandshakeResult | null>;
   protected abstract handleHttp(request: Request): Promise<Response | null>;
 
+  /** Read-only connections still receive every update and get syncStep1
+   *  answered (catch-up works), but their inbound syncStep2/update frames are
+   *  dropped before touching the doc. Default: nobody is read-only. */
+  protected isReadOnlyConnection(_ws: WebSocket): boolean {
+    return false;
+  }
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // Read the subclass lane config via the `lanes` getter (prototype-resolved
@@ -391,6 +398,7 @@ export abstract class PlexusLeaderSyncDO<Env extends PlexusSyncEnv> extends Dura
   private processYjsMessage(ws: WebSocket, data: Uint8Array): void {
     try {
       const response = handleYjsFrame(data, this.routing(), ws, ws, {
+        readOnly: this.isReadOnlyConnection(ws),
         allowMessageType: (messageType, socket) => {
           const lane = this.resolvedLanes.find((l) => l.messageType === messageType);
           if (!lane?.allowInbound) return true;

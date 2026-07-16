@@ -551,6 +551,32 @@ export class Plexus<
   }
 
   /**
+   * Tear down this Plexus instance: destroys both Y.Docs (main + shadow) and
+   * their UndoManagers. `this.doc.destroy()` alone would cascade into
+   * `this.awareness.destroy()` via the `doc.on("destroy", …)` listener
+   * `PlexusAwareness`'s own constructor registers (`awareness.ts`) — called
+   * explicitly here too, so the intent reads without tracing that side
+   * channel. The awareness heartbeat's `setInterval` (`awareness.ts`) is the
+   * one handle a one-shot bootstrap — mint a doc, read/write it, discard it;
+   * no sync provider, no peer ever attaches — otherwise leaves lingering
+   * forever, keeping a Node process alive long after its own work is done
+   * (see `@inhuman.tools/inhuman`'s `loadProjectFromDir`/`disposeProject`).
+   *
+   * NEVER call this on a doc anything else still holds a live reference to —
+   * a long-lived, peer-synced doc (the studio's collaborative session, for
+   * instance) must outlive any single consumer; only a throwaway,
+   * single-owner doc should ever be destroyed. Idempotent — safe to call more
+   * than once (every underlying `.destroy()` here tolerates repeat calls).
+   */
+  destroy(): void {
+    this.awareness.destroy();
+    this.__undoManager__.destroy();
+    this.__liminalUndoManager__.destroy();
+    this.__liminalDocument__.destroy();
+    this.doc.destroy();
+  }
+
+  /**
    * Connect to an existing Y.Doc that already has a root.
    * Returns existing instance if one exists for this class, otherwise creates new.
    * Doc must be synced before calling - if no root found, throws with helpful hint.

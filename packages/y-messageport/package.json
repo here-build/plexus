@@ -1,9 +1,8 @@
 {
   "name": "@here.build/y-messageport",
   "version": "0.1.0",
-  "private": true,
   "description": "Yjs sync + awareness provider over MessagePort. One Y.Doc per port. Pair with @here.build/y-control-channel for multi-doc routing.",
-  "license": "UNLICENSED",
+  "license": "FSL-1.1-MIT",
   "author": "here.build",
   "type": "module",
   "exports": {

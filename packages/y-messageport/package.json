@@ -1,9 +1,21 @@
 {
   "name": "@here.build/y-messageport",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "description": "Yjs sync + awareness provider over MessagePort. One Y.Doc per port. Pair with @here.build/y-control-channel for multi-doc routing.",
   "license": "FSL-1.1-MIT",
   "author": "here.build",
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://github.com/here-build/plexus#readme",
+  "bugs": {
+    "url": "https://github.com/here-build/plexus/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/here-build/plexus.git",
+    "directory": "packages/y-messageport"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -26,7 +38,14 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist/**/*",
-    "src/**/*"
+    "src/**/*",
+    "!**/__tests__",
+    "!**/__research__",
+    "!**/__benchmarks__",
+    "!**/__custdev__",
+    "!**/__visual__",
+    "!**/*.test.*",
+    "!**/*.stories.*"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

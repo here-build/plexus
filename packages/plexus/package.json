@@ -1,6 +1,6 @@
 {
   "name": "@here.build/plexus",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "description": "Reactive state management with automatic replication: make TypeScript classes sync across clients via Yjs CRDT.",
   "keywords": [
     "crdt",
@@ -13,6 +13,13 @@
   ],
   "license": "FSL-1.1-MIT",
   "author": "here.build",
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://github.com/here-build/plexus#readme",
+  "bugs": {
+    "url": "https://github.com/here-build/plexus/issues"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -98,7 +105,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/here-build/foundation.git",
-    "directory": "plexus"
+    "url": "https://github.com/here-build/plexus.git",
+    "directory": "packages/plexus"
   }
 }

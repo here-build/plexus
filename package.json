@@ -1,0 +1,19 @@
+{
+  "name": "@here.build/plexus-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Plexus — reactive state with automatic replication: TypeScript classes synced via CRDT (Yjs), full MobX integration, and the Durable Object sync server",
+  "scripts": {
+    "build": "turbo build",
+    "test": "turbo test",
+    "typecheck": "turbo typecheck",
+    "lint": "turbo lint"
+  },
+  "devDependencies": {
+    "turbo": "^2.9.0"
+  },
+  "packageManager": "pnpm@10.3.0",
+  "engines": {
+    "node": ">=22"
+  }
+}

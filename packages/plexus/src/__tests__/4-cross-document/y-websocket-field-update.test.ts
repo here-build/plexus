@@ -20,7 +20,7 @@
  * AFTER bootstrap renegotiates clientID, the shadow's identity drifts.
  *
  * To debug:
- *     cd foundations/plexus
+ *     cd plexus/packages/plexus
  *     pnpm test src/__tests__/4-cross-document/y-websocket-field-update.test.ts
  *
  * Probe data already collected (in arrival-chain-plexus-cache):

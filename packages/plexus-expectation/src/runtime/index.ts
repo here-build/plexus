@@ -2,4 +2,32 @@
  * PEW runtime domain — claim-owner host only.
  * UI and model authors must not import this entrypoint.
  */
-export {};
+
+export {
+  Orchestrator,
+  type BindEntry,
+  type LoadedModulesSource,
+  type OrchestratorHost,
+} from "./orchestrator.js";
+
+export { activate, bumpEpoch } from "./activate.js";
+export { cancelTree, collectOwnedSubtree } from "./cancel-tree.js";
+export { applyEmit, type ProgressApplier } from "./emit.js";
+export { planResolution } from "./plan-resolution.js";
+export {
+  modulesFromMap,
+  modulesFromRecord,
+  type ModuleRegistry,
+} from "./modules.js";
+export {
+  handleFromController,
+  snapshotDefinition,
+  type EmitFn,
+  type LaunchDefinitionSnapshot,
+  type ProgressPatch,
+  type ResolverEmit,
+  type ResolverHandle,
+  type ResolverStartInput,
+  type StartResolverFn,
+  type WorkIdentity,
+} from "./resolver.js";

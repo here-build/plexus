@@ -1,7 +1,7 @@
 /**
  * Author / UI → claim owner action shapes (data only — no execution).
  *
- * Claim owner applies these via runtime (`cancelTree`, `settleSurface`).
+ * Claim owner applies these via runtime (`Orchestrator.cancelTree`, `settleSurface`).
  * App domain never imports orchestration or runtime.
  */
 
@@ -10,7 +10,7 @@ export type SettleSurfaceDisposition = "allow" | "deny" | "abandon";
 
 /**
  * Request cancellation of a named work unit.
- * Claim owner runs abort-first `cancelTree` on the resolved Expectation.
+ * Claim owner runs abort-first `Orchestrator.cancelTree` on the resolved Expectation.
  */
 export type CancelIntent = {
   readonly type: "cancel";

@@ -6,10 +6,10 @@
  */
 
 import type { Expectation } from "../app/expectation.js";
+import { isTerminal } from "../app/lifecycle.js";
 import type { Orchestration } from "../orchestration/orchestration.js";
 
 import { activate } from "./activate.js";
-import { cancelTree } from "./cancel-tree.js";
 import { applyEmit, type ProgressApplier } from "./emit.js";
 import {
   DEFAULT_MAX_REBINDS,
@@ -32,6 +32,7 @@ import {
   type SettleSurfaceBody,
   type SettleSurfaceResult,
 } from "./surface-settle.js";
+import { transactEntity } from "./transact.js";
 
 /** Process-local bind entry for a claimed Expectation. */
 export type BindEntry = {
@@ -197,11 +198,52 @@ export class Orchestrator {
   }
 
   /**
-   * §3.5 cancelTree — abort-before-durable.
-   * Mandatory: AbortSignal fires before state becomes `cancelled`.
+   * §3.5 cancel subtree — abort-before-durable (money-critical).
+   *
+   * Claim-owner only: aborts live resolver handles, then writes durable
+   * `cancelled` on the owned subtree (children before parent), then clears
+   * process-local binds. Not an Expectation field write.
    */
   cancelTree(root: Expectation, reason?: unknown): void {
-    cancelTree(this, root, reason);
+    const nodes = this.#collectOwnedSubtree(root);
+
+    // ── ABORT PHASE — stop spend before durable settle ───────────────────
+    for (const E of nodes) {
+      const bind = this.binding.get(E);
+      if (bind && E.state === "running" && bind.handle && !bind.handle.aborted) {
+        bind.handle.abort(reason);
+      }
+    }
+
+    // ── DURABLE PHASE — children before parent ───────────────────────────
+    const durableOrder = [...nodes].reverse();
+    transactEntity(root, () => {
+      for (const E of durableOrder) {
+        if (!isTerminal(E.state)) {
+          E.transitionState("cancelled");
+        }
+      }
+    });
+
+    // ── Clear process-local maps ─────────────────────────────────────────
+    for (const E of nodes) {
+      this.clearBind(E);
+      this.clearActivating(E);
+    }
+    this.publishAwarenessBinds();
+  }
+
+  /** Root + owned descendants (pre-order). */
+  #collectOwnedSubtree(root: Expectation): Expectation[] {
+    const out: Expectation[] = [];
+    const walk = (E: Expectation) => {
+      out.push(E);
+      for (const child of E.children) {
+        walk(child);
+      }
+    };
+    walk(root);
+    return out;
   }
 
   /** §3.3 emit apply (inprocess sync path; out-of-proc host channels use this too). */

@@ -11,7 +11,6 @@ export {
 } from "./orchestrator.js";
 
 export { activate, bumpEpoch } from "./activate.js";
-export { cancelTree, collectOwnedSubtree } from "./cancel-tree.js";
 export { applyEmit, type ProgressApplier } from "./emit.js";
 export { planResolution } from "./plan-resolution.js";
 export {

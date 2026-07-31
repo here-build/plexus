@@ -11,7 +11,6 @@ import { Expectation } from "../app/expectation.js";
 import { isOpen, isTerminal } from "../app/lifecycle.js";
 
 import { activate } from "./activate.js";
-import { cancelTree } from "./cancel-tree.js";
 import { markAwaitingRebind } from "./liveness.js";
 import type { Orchestrator } from "./orchestrator.js";
 
@@ -132,7 +131,7 @@ export function reconcile(orch: Orchestrator, walk?: ReconcileWalk): void {
   // ── 1) Tree orphans under openWork ─────────────────────────────────────
   for (const E of openNodes) {
     if (isTreeOrphan(E)) {
-      cancelTree(orch, E, "parent_terminal");
+      orch.cancelTree(E, "parent_terminal");
     }
   }
 
@@ -141,7 +140,7 @@ export function reconcile(orch: Orchestrator, walk?: ReconcileWalk): void {
     if (isTerminal(E.state)) continue;
     if (reachable.has(E)) continue;
     if (isForestOrphan(E, reachable)) {
-      cancelTree(orch, E, "orphaned");
+      orch.cancelTree(E, "orphaned");
     }
   }
 

@@ -104,7 +104,7 @@ export abstract class Expectation extends PlexusModel {
    */
   @syncing.action
   cancelSubtreeDurable(): void {
-    for (const child of [...this.children].reverse()) {
+    for (const child of this.children.toReversed()) {
       child.cancelSubtreeDurable();
     }
     if (!isTerminal(this.state)) {

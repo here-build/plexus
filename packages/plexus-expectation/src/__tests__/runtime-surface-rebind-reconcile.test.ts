@@ -129,18 +129,54 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
   });
 
   it("T7: settleSurface not_claim_owner", () => {
+    let owner = true;
     const { orchestrator, E } = makeOrch({
       actors: [["test.tool", def("surface")]],
       modules: { surface: () => {} },
-      isClaimOwner: false,
+      isClaimOwner: () => owner,
     });
+    // Activate while claim owner, then flip — settle gate is independent of activate.
     orchestrator.activate(E);
+    expect(E.state).toBe("running");
+    owner = false;
     const result = orchestrator.settleSurface(E, {
       epoch: E.bindEpoch,
       disposition: "allow",
     });
     expect(result).toEqual({ ok: false, code: "not_claim_owner" });
     expect(E.state).toBe("running");
+  });
+
+  it("PR-9: activate refuses when isClaimOwner is false (dual-claim / observe-only)", () => {
+    const start = vi.fn();
+    const { orchestrator, E } = makeOrch({
+      isClaimOwner: false,
+      start,
+    });
+    orchestrator.activate(E);
+    expect(E.state).toBe("declared");
+    expect(start).not.toHaveBeenCalled();
+    expect(orchestrator.binding.has(E)).toBe(false);
+  });
+
+  it("PR-9: hasLiveClaimPeerBind true → claim orphan not re-bound locally", () => {
+    const { orchestrator, E } = makeOrch({
+      start: () => {
+        /* leave running */
+      },
+      hasLiveClaimPeerBind: () => true,
+    });
+    orchestrator.activate(E);
+    expect(E.state).toBe("running");
+    const epoch = E.bindEpoch;
+    orchestrator.clearBind(E); // claim orphan locally, but peer still advertises
+
+    orchestrator.reconcile();
+
+    // Peer still owns the bind — do not mark awaiting_rebind or re-activate.
+    expect(E.state).toBe("running");
+    expect(E.bindEpoch).toBe(epoch);
+    expect(orchestrator.binding.has(E)).toBe(false);
   });
 
   it("T21: settleSurface stale_epoch returns error to caller", () => {

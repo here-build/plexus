@@ -34,6 +34,9 @@ export function bumpEpoch(E: Expectation): number {
  */
 export function activate(orch: Orchestrator, E: Expectation): void {
   if (isTerminal(E.state)) return;
+  // Lease / dual-claim gate (§2.2 / PR-9): observe-only and dual claim-owner
+  // peers must not start resolvers. settleSurface already uses the same gate.
+  if (!orch.isClaimOwner()) return;
   if (orch.activating.has(E)) return;
 
   const existing = orch.binding.get(E);

@@ -4,13 +4,14 @@
  * - Unexpected resolver death → awaiting_rebind + rebindCount++
  * - Lease yield → abort then awaiting_rebind, rebindCount unchanged
  * - MAX_REBINDS caps activation from awaiting_rebind
+ *
+ * Durable halves use Expectation `@syncing.action` methods.
  */
 
 import type { Expectation } from "../app/expectation.js";
 import { isTerminal } from "../app/lifecycle.js";
 
 import type { Orchestrator } from "./orchestrator.js";
-import { transactEntity } from "./transact.js";
 
 /** Default cap on unexpected rebinds before activation fails with rebind_exhausted. */
 export const DEFAULT_MAX_REBINDS = 3;
@@ -38,17 +39,9 @@ export function markAwaitingRebind(
     bind.handle.abort(opts.reason ?? "awaiting_rebind");
   }
 
-  // ── DURABLE PHASE ──────────────────────────────────────────────────────
+  // ── DURABLE PHASE — one @syncing.action on E ───────────────────────────
   if (E.state !== "awaiting_rebind" || opts.incrementRebind) {
-    transactEntity(E, () => {
-      if (isTerminal(E.state)) return;
-      if (opts.incrementRebind) {
-        E.rebindCount += 1;
-      }
-      if (E.state !== "awaiting_rebind") {
-        E.transitionState("awaiting_rebind");
-      }
-    });
+    E.enterAwaitingRebind(opts.incrementRebind);
   }
 
   // ── Clear process-local maps ───────────────────────────────────────────
@@ -92,11 +85,7 @@ export function disposeLease(
   // ── DURABLE PHASE ──────────────────────────────────────────────────────
   for (const [E] of bound) {
     if (E.state === "running") {
-      transactEntity(E, () => {
-        if (E.state === "running") {
-          E.transitionState("awaiting_rebind");
-        }
-      });
+      E.transitionState("awaiting_rebind");
     }
   }
 

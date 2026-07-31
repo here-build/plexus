@@ -10,7 +10,7 @@ export {
   type OrchestratorHost,
 } from "./orchestrator.js";
 
-export { activate, bumpEpoch } from "./activate.js";
+export { activate } from "./activate.js";
 export { applyEmit, type ProgressApplier } from "./emit.js";
 export { planResolution } from "./plan-resolution.js";
 export {

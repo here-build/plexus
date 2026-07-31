@@ -6,7 +6,6 @@
  */
 
 import type { Expectation } from "../app/expectation.js";
-import { isTerminal } from "../app/lifecycle.js";
 import type { Orchestration } from "../orchestration/orchestration.js";
 
 import { activate } from "./activate.js";
@@ -32,7 +31,6 @@ import {
   type SettleSurfaceBody,
   type SettleSurfaceResult,
 } from "./surface-settle.js";
-import { transactEntity } from "./transact.js";
 
 /** Process-local bind entry for a claimed Expectation. */
 export type BindEntry = {
@@ -215,15 +213,8 @@ export class Orchestrator {
       }
     }
 
-    // ── DURABLE PHASE — children before parent ───────────────────────────
-    const durableOrder = [...nodes].reverse();
-    transactEntity(root, () => {
-      for (const E of durableOrder) {
-        if (!isTerminal(E.state)) {
-          E.transitionState("cancelled");
-        }
-      }
-    });
+    // ── DURABLE PHASE — one @syncing.action region on root (nested child cancels) ─
+    root.cancelSubtreeDurable();
 
     // ── Clear process-local maps ─────────────────────────────────────────
     for (const E of nodes) {

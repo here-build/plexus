@@ -7,7 +7,6 @@ import { isTerminal } from "../app/lifecycle.js";
 
 import type { Orchestrator } from "./orchestrator.js";
 import type { ProgressPatch, ResolverEmit } from "./resolver.js";
-import { transactEntity } from "./transact.js";
 
 /**
  * Apply a resolver emit against claim-owner state.
@@ -52,14 +51,7 @@ function settleTerminal(
   // Snapshot children before durable write — cascade after parent is terminal
   const children = [...E.children];
 
-  transactEntity(E, () => {
-    // Re-check inside transact (race with cancel)
-    if (E.state !== "running") return;
-    E.transitionState(terminal);
-  });
-
-  // Parent terminal → cancel open children (spec §3.5). Only if we actually sealed/failed.
-  if (E.state !== terminal) return;
+  if (!E.trySettleFromRunning(terminal)) return;
 
   orch.clearBind(E);
   orch.publishAwarenessBinds();

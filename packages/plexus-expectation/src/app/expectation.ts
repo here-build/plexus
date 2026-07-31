@@ -42,6 +42,9 @@ export abstract class Expectation extends PlexusModel {
    * Named writer for durable lifecycle.
    * Refuses any transition that would leave a terminal state.
    * Same-state writes are no-ops (idempotent dual-write friendly).
+   *
+   * This is a `@syncing.action`: it owns the batch (one update / one undo unit).
+   * Do not wrap calls in `plexus.transact` — that nests and degrades the envelope.
    */
   @syncing.action
   transitionState(next: Lifecycle): void {
@@ -51,6 +54,62 @@ export abstract class Expectation extends PlexusModel {
       throw new PewTerminalWriteError(this, from, next);
     }
     this.state = next;
+  }
+
+  /**
+   * Law 4: durable `running` + epoch bump in one action batch, before startResolver.
+   * @returns new bindEpoch, or `0` if already terminal (race).
+   */
+  @syncing.action
+  beginRunning(): number {
+    if (isTerminal(this.state)) return 0;
+    this.bindEpoch += 1;
+    this.transitionState("running");
+    return this.bindEpoch;
+  }
+
+  /**
+   * §5.6–5.7 durable half of await-rebind (abort is claim-owner process-local).
+   * When `incrementRebind`, bumps rebindCount in the same batch as the state write.
+   */
+  @syncing.action
+  enterAwaitingRebind(incrementRebind: boolean): void {
+    if (isTerminal(this.state)) return;
+    if (incrementRebind) {
+      this.rebindCount += 1;
+    }
+    if (this.state !== "awaiting_rebind") {
+      this.transitionState("awaiting_rebind");
+    }
+  }
+
+  /**
+   * Settle from `running` to a terminal in one action. Returns false if raced
+   * (not running, or epoch mismatch when `expectedEpoch` is set).
+   */
+  @syncing.action
+  trySettleFromRunning(
+    terminal: "sealed" | "failed" | "cancelled",
+    expectedEpoch?: number,
+  ): boolean {
+    if (this.state !== "running") return false;
+    if (expectedEpoch !== undefined && this.bindEpoch !== expectedEpoch) return false;
+    this.transitionState(terminal);
+    return true;
+  }
+
+  /**
+   * Durable cancel of this node and owned descendants (children first).
+   * Abort of resolver handles is claim-owner host responsibility before this call.
+   */
+  @syncing.action
+  cancelSubtreeDurable(): void {
+    for (const child of [...this.children].reverse()) {
+      child.cancelSubtreeDurable();
+    }
+    if (!isTerminal(this.state)) {
+      this.transitionState("cancelled");
+    }
   }
 
   /**

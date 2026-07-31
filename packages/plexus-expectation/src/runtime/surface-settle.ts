@@ -9,7 +9,6 @@ import type { SettleSurfaceDisposition } from "../app/intents.js";
 import { isTerminal } from "../app/lifecycle.js";
 
 import type { Orchestrator } from "./orchestrator.js";
-import { transactEntity } from "./transact.js";
 
 /** Body of a surface settle (from {@link import("../app/intents.js").SettleSurfaceIntent} after E resolve). */
 export type SettleSurfaceBody = {
@@ -57,18 +56,13 @@ export function settleSurface(
   // Snapshot children before durable write — cascade after parent is terminal
   const children = [...E.children];
 
-  let settled = false;
-  transactEntity(E, () => {
-    // Re-check inside transact (race with cancel / rebind)
-    if (E.state !== "running") return;
-    if (E.bindEpoch !== body.epoch) return;
-    E.transitionState(terminal);
-    settled = true;
-  });
-
-  // Race lost — do not clear bind if we didn't settle (cancelTree may own cleanup)
-  if (!settled) {
-    return { ok: false, code: "not_running" };
+  // One @syncing.action with race re-check (epoch + running)
+  if (!E.trySettleFromRunning(terminal, body.epoch)) {
+    // Race: cancel/rebind won — do not clear bind if cancelTree may own cleanup
+    if (E.state !== "running") {
+      return { ok: false, code: "not_running" };
+    }
+    return { ok: false, code: "stale_epoch" };
   }
 
   // Clear surface wait after durable success (surface is not paid process work)

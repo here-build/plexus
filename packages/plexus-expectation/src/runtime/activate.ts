@@ -1,8 +1,9 @@
 /**
  * activate(E) — claim-owner activation order (§5.3).
  *
- * Durable `running` + `bumpEpoch` BEFORE startResolver so early sync emits
- * and epoch fences are well-defined.
+ * Durable `running` + epoch bump BEFORE startResolver so early sync emits
+ * and epoch fences are well-defined. Durable writes use Expectation
+ * `@syncing.action` methods (not plexus.transact wrappers).
  */
 
 import type { Expectation } from "../app/expectation.js";
@@ -18,13 +19,6 @@ import {
   type ResolverHandle,
   type StartResolverFn,
 } from "./resolver.js";
-import { transactEntity } from "./transact.js";
-
-/** Bump bindEpoch by 1 in the current transaction context; return new value. */
-export function bumpEpoch(E: Expectation): number {
-  E.bindEpoch += 1;
-  return E.bindEpoch;
-}
 
 /**
  * Activate a single Expectation. Single-flight via `activating` set.
@@ -50,11 +44,9 @@ export function activate(orch: Orchestrator, E: Expectation): void {
 
   // §5.7 — unexpected rebind budget exhausted
   if (isRebindExhausted(E, orch.maxRebinds)) {
-    transactEntity(E, () => {
-      if (E.state === "awaiting_rebind") {
-        E.transitionState("failed");
-      }
-    });
+    if (E.state === "awaiting_rebind") {
+      E.transitionState("failed");
+    }
     orch.clearBind(E);
     orch.publishAwarenessBinds();
     return;
@@ -65,18 +57,13 @@ export function activate(orch: Orchestrator, E: Expectation): void {
     const outcome = planResolution(E, orch.getOrchestration(), orch.getLoadedModules());
 
     if (outcome.status === "missing") {
-      // Cancel may have raced into activating — don't leave terminal
       if (isTerminal(E.state)) return;
-      transactEntity(E, () => {
-        if (!isTerminal(E.state)) E.transitionState("missing");
-      });
+      E.transitionState("missing");
       return;
     }
     if (outcome.status === "refused") {
       if (isTerminal(E.state)) return;
-      transactEntity(E, () => {
-        if (!isTerminal(E.state)) E.transitionState("refused");
-      });
+      E.transitionState("refused");
       return;
     }
 
@@ -85,13 +72,8 @@ export function activate(orch: Orchestrator, E: Expectation): void {
     // Mid-activate cancel: durable already cancelled → stop
     if (isTerminal(E.state)) return;
 
-    // Durable running + epoch BEFORE any resolver body (law 4)
-    let epoch = 0;
-    transactEntity(E, () => {
-      if (isTerminal(E.state)) return;
-      epoch = bumpEpoch(E);
-      E.transitionState("running");
-    });
+    // Durable running + epoch BEFORE any resolver body (law 4) — one @syncing.action
+    const epoch = E.beginRunning();
 
     // Cancel raced into the durable write window
     if (E.state !== "running" || epoch === 0) return;
@@ -144,9 +126,7 @@ function failStart(orch: Orchestrator, E: Expectation, controller: AbortControll
   orch.clearBind(E);
   orch.publishAwarenessBinds();
   if (!isTerminal(E.state)) {
-    transactEntity(E, () => {
-      if (!isTerminal(E.state)) E.transitionState("failed");
-    });
+    E.transitionState("failed");
   }
 }
 

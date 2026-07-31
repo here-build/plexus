@@ -1,6 +1,7 @@
 /**
  * PEW orchestration domain — plan registry + LaunchDefinition.
  * Does not activate or write progress.
+ * Plan change is observed via MobX/Plexus reactions over the durable graph.
  */
 
 export {
@@ -14,5 +15,3 @@ export {
   type PlanActorsSource,
   type PlanResolution,
 } from "./plan-resolution.js";
-// plan-changed.ts stays private: A3 is claim-owner reactions over Orchestration.actors.
-// Re-export only when a product seed path needs the process-local signal.

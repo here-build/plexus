@@ -1,0 +1,56 @@
+{
+  "name": "@here.build/plexus-expectation",
+  "version": "0.0.0",
+  "private": true,
+  "description": "PEW — Plexus Expectation Workflow: durable open work with exclusive claim, plan resolution, and abort-before-cancel. Domains: app / orchestration / runtime.",
+  "license": "FSL-1.1-MIT",
+  "author": "here.build",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./app": {
+      "types": "./dist/app/index.d.ts",
+      "import": "./dist/app/index.js",
+      "default": "./dist/app/index.js"
+    },
+    "./orchestration": {
+      "types": "./dist/orchestration/index.d.ts",
+      "import": "./dist/orchestration/index.js",
+      "default": "./dist/orchestration/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "import": "./dist/runtime/index.js",
+      "default": "./dist/runtime/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "!**/__tests__",
+    "!**/*.test.*"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@here.build/plexus": "workspace:^",
+    "mobx": "6.15.0"
+  },
+  "devDependencies": {
+    "@here.build/tsconfig": "workspace:^",
+    "@types/node": "24.0.0",
+    "typescript": "5.8.3",
+    "vitest": "3.2.7",
+    "yjs": "13.6.30"
+  }
+}

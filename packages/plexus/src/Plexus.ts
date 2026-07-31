@@ -87,6 +87,20 @@ function originKindOf(origin: unknown): OriginKindLabel {
   return ORIGIN_KIND.EXTERNAL;
 }
 
+/**
+ * Construct-time undo environment for a Plexus instance.
+ * Immutable for the life of the instance (first successful bootstrap/connect wins).
+ *
+ * - `"full"` (default): allocate main + liminal UndoManagers; real undo/redo.
+ * - `"stub"`: no UndoManager allocation; undo/redo warn+no-op; liminality throws.
+ */
+export type PlexusUndoMode = "full" | "stub";
+
+/** Optional construction options. Defaults preserve existing full-undo behavior. */
+export type PlexusOptions = {
+  undo?: PlexusUndoMode;
+};
+
 export class Plexus<
   Root extends PlexusModel<null> & { dependencies?: Record<string, Root> },
   Awareness extends AwarenessShape = AwarenessShape,
@@ -267,8 +281,15 @@ export class Plexus<
   }
 
   protected readonly yTypes: Y.Map<Y.Map<YPlexusNode>>;
-  private readonly __undoManager__: UndoManager;
+  /** Main history UM — null when {@link undoMode} is `"stub"` (never allocated). */
+  private readonly __undoManager__: UndoManager | null;
   private __isUndoing__ = false;
+
+  /**
+   * Construct-time undo environment. Fixed for the life of this instance.
+   * `"stub"` never creates UndoManagers (agent/headless session planes).
+   */
+  readonly undoMode: PlexusUndoMode;
 
   /** Multi-channel awareness — owned by Plexus, exposed for providers and user state.
    *  The Awareness type parameter provides type-safe field access. */
@@ -276,16 +297,19 @@ export class Plexus<
 
   /** Shadow doc. gc:false — origin chains must survive for committed delta integration. */
   private readonly __liminalDocument__ = new Y.Doc({ gc: false });
-  private readonly __liminalUndoManager__!: UndoManager;
+  /** Liminal scaffolding UM — null when {@link undoMode} is `"stub"`. */
+  private readonly __liminalUndoManager__: UndoManager | null;
   private __liminalHeight__ = 0;
 
   // noinspection JSUnusedLocalSymbols
   protected constructor(
     public readonly doc: Y.Doc,
     public readonly root: Root,
+    options: PlexusOptions = {},
   ) {
     invariant(!docPlexus.has(doc), `Plexus<document#${doc.clientID}>: already initialized, singleton violation`);
     docPlexus.set(doc, this);
+    this.undoMode = options.undo ?? "full";
 
     const shadow = this.__liminalDocument__;
 
@@ -362,87 +386,93 @@ export class Plexus<
     // Root pointer on main (for remote peer discovery). After materialization — UUID is assigned there.
     getMetaMap(doc).set(YJS_GLOBALS.meta.wellKnown.root, getInternals(root).uuid!);
 
-    // Main UndoManager. ignoreRemoteMapChanges: committed deltas use different clientIds per session —
-    // without it, redoItem's conflict detection treats successive commits as "remote" and refuses undo.
-    //
-    // deleteFilter implements append-only entity shells:
-    // - Entity XmlElements in type sub-maps are never deleted (identity preservation)
-    // - Initial field values (created during materialization) are never deleted (floor state)
-    // - Post-materialization field writes ARE deleted (normal undo behavior)
-    //
-    // The filter discovers materialization boundaries dynamically: when it encounters
-    // an XmlElement Item in a typeMap, it records the clock. Items inside that XmlElement
-    // with clock ≤ materialization clock are protected (creation state).
-    //
-    // Load-bearing invariant: parent containers (Y.Array for child-list, Y.Map for
-    // child-map) hold UUID string tuples (ReferenceTuple), NOT embedded XmlElements.
-    // XmlElements live exclusively in typeMap sub-maps and are referenced by UUID
-    // elsewhere. This is why "content is at most 2 levels deep" holds — there is no
-    // nested XmlElement inside a container for the filter to miss, only string-tuple
-    // references that are safe to revert via redo. Do not "simplify" the 2-level
-    // walk without revalidating this invariant first.
-    //
-    // Structural check: is a Y.Map a type sub-map of yTypes?
-    // Type sub-maps are created via virtual genesis — permanent, never in undo cycle.
-    const yTypesRef = this.yTypes;
-    const isTypeSubMap = (parent: Y.AbstractType<any> | null): boolean => parent?.parent === yTypesRef;
+    // UndoManagers: full mode only. Stub never allocates — agent/headless planes
+    // would otherwise grow stack items on every SHADOW_TO_MAIN write.
+    if (this.undoMode === "full") {
+      // Main UndoManager. ignoreRemoteMapChanges: committed deltas use different clientIds per session —
+      // without it, redoItem's conflict detection treats successive commits as "remote" and refuses undo.
+      //
+      // deleteFilter implements append-only entity shells:
+      // - Entity XmlElements in type sub-maps are never deleted (identity preservation)
+      // - Initial field values (created during materialization) are never deleted (floor state)
+      // - Post-materialization field writes ARE deleted (normal undo behavior)
+      //
+      // The filter discovers materialization boundaries dynamically: when it encounters
+      // an XmlElement Item in a typeMap, it records the clock. Items inside that XmlElement
+      // with clock ≤ materialization clock are protected (creation state).
+      //
+      // Load-bearing invariant: parent containers (Y.Array for child-list, Y.Map for
+      // child-map) hold UUID string tuples (ReferenceTuple), NOT embedded XmlElements.
+      // XmlElements live exclusively in typeMap sub-maps and are referenced by UUID
+      // elsewhere. This is why "content is at most 2 levels deep" holds — there is no
+      // nested XmlElement inside a container for the filter to miss, only string-tuple
+      // references that are safe to revert via redo. Do not "simplify" the 2-level
+      // walk without revalidating this invariant first.
+      //
+      // Structural check: is a Y.Map a type sub-map of yTypes?
+      // Type sub-maps are created via virtual genesis — permanent, never in undo cycle.
+      const yTypesRef = this.yTypes;
+      const isTypeSubMap = (parent: Y.AbstractType<any> | null): boolean => parent?.parent === yTypesRef;
 
-    const entityCaches = documentEntityCaches;
-    const shadowDoc = shadow;
-    this.__undoManager__ = new UndoManager(this.yTypes, {
-      captureTimeout: 500,
-      trackedOrigins: new Set([SHADOW_TO_MAIN, COMMIT_DELTA_ORIGIN]),
-      ignoreRemoteMapChanges: true,
-      deleteFilter: (item) => {
-        const parent = item.parent;
-        // Item.parent is AbstractType | ID | null — only AbstractType has structural meaning here
-        if (!(parent instanceof Y.AbstractType)) return true;
+      const entityCaches = documentEntityCaches;
+      const shadowDoc = shadow;
+      this.__undoManager__ = new UndoManager(this.yTypes, {
+        captureTimeout: 500,
+        trackedOrigins: new Set([SHADOW_TO_MAIN, COMMIT_DELTA_ORIGIN]),
+        ignoreRemoteMapChanges: true,
+        deleteFilter: (item) => {
+          const parent = item.parent;
+          // Item.parent is AbstractType | ID | null — only AbstractType has structural meaning here
+          if (!(parent instanceof Y.AbstractType)) return true;
 
-        // 1. Entity shell in type sub-map → PROTECT (never delete entity identity)
-        if (isTypeSubMap(parent) && item.parentSub !== null) {
-          return false;
-        }
+          // 1. Entity shell in type sub-map → PROTECT (never delete entity identity)
+          if (isTypeSubMap(parent) && item.parentSub !== null) {
+            return false;
+          }
 
-        // 2. Creation content inside a protected XmlElement → PROTECT
-        //    Entity content is at most 2 levels deep:
-        //    Level 1: parent IS the XmlElement (attributes)
-        //    Level 2: parent is a Y.Map/Y.Array whose .parent is the XmlElement (containers)
-        const xmlEl: Y.XmlElement | null =
-          parent instanceof Y.XmlElement ? parent : parent.parent instanceof Y.XmlElement ? parent.parent : null;
+          // 2. Creation content inside a protected XmlElement → PROTECT
+          //    Entity content is at most 2 levels deep:
+          //    Level 1: parent IS the XmlElement (attributes)
+          //    Level 2: parent is a Y.Map/Y.Array whose .parent is the XmlElement (containers)
+          const xmlEl: Y.XmlElement | null =
+            parent instanceof Y.XmlElement ? parent : parent.parent instanceof Y.XmlElement ? parent.parent : null;
 
-        if (xmlEl && isTypeSubMap(xmlEl.parent)) {
-          // _item.parentSub is the UUID (map key) — no public API for this
-          const uuid: string | null =
-            (xmlEl as unknown as { _item?: { parentSub: string | null } })._item?.parentSub ?? null;
-          if (uuid) {
-            const model = entityCaches.get(shadowDoc).get(uuid)?.deref();
-            if (model) {
-              const internals = getInternals(model);
-              if (
-                !internals.isDependency &&
-                internals.materializationClock !== undefined &&
-                internals.materializationClient !== undefined &&
-                item.id.client === internals.materializationClient &&
-                item.id.clock < internals.materializationClock
-              ) {
-                return false; // creation content — protected
+          if (xmlEl && isTypeSubMap(xmlEl.parent)) {
+            // _item.parentSub is the UUID (map key) — no public API for this
+            const uuid: string | null =
+              (xmlEl as unknown as { _item?: { parentSub: string | null } })._item?.parentSub ?? null;
+            if (uuid) {
+              const model = entityCaches.get(shadowDoc).get(uuid)?.deref();
+              if (model) {
+                const internals = getInternals(model);
+                if (
+                  !internals.isDependency &&
+                  internals.materializationClock !== undefined &&
+                  internals.materializationClient !== undefined &&
+                  item.id.client === internals.materializationClient &&
+                  item.id.clock < internals.materializationClock
+                ) {
+                  return false; // creation content — protected
+                }
               }
             }
           }
-        }
 
-        return true;
-      },
-    });
+          return true;
+        },
+      });
 
-    // Liminal UndoManager — tracks only LIMINAL writes on shadow. captureTimeout:0 = no batching.
-    this.__liminalUndoManager__ = new UndoManager(getModelTypesMap(shadow), {
-      trackedOrigins: new Set([LIMINAL_ORIGIN]),
-      captureTimeout: 0,
-    });
+      // Liminal UndoManager — tracks only LIMINAL writes on shadow. captureTimeout:0 = no batching.
+      this.__liminalUndoManager__ = new UndoManager(getModelTypesMap(shadow), {
+        trackedOrigins: new Set([LIMINAL_ORIGIN]),
+        captureTimeout: 0,
+      });
+    } else {
+      this.__undoManager__ = null;
+      this.__liminalUndoManager__ = null;
+    }
 
     this.awareness = new PlexusAwareness(doc);
-
     // Auto-process peer liminal previews on awareness changes.
     // Collective TTL: all clients independently drop a session after LIMINAL_SESSION_TTL
     // seconds from startSec. Deterministic — no coordination needed.
@@ -472,82 +502,85 @@ export class Plexus<
       });
     }
 
-    // Strip genesis Items from UndoManager StackItems.
-    // Genesis clientIds live in the 0x1F namespace (>= GENESIS_BASE = 31 × 2^40).
-    // Liminal clientIds (0x01 namespace, [2^32, 2^33)) are NOT stripped — committed
-    // liminal changes are user decisions that must survive undo/redo.
-    this.__undoManager__.on("stack-item-added", (event) => {
-      const clients = event.stackItem.insertions.clients;
-      for (const clientId of clients.keys()) {
-        if (isGenesisClientId(clientId)) {
-          clients.delete(clientId);
-        }
-      }
-    });
-
-    // Wire up undo/redo notification bridge
-    const handler = this.__undoManager__.on("stack-item-popped", (event) => {
-      if (!this.__isUndoing__) {
-        return;
-      }
-      const notifiedTargets = new Set<PlexusModel | Y.AbstractType<any>>();
-      for (const yEvents of event.changedParentTypes.values()) {
-        // we have very specific issue here: when we're undo-ing the changeset that was including model materialization,
-        // we have it deleted, too, leading to funky state.
-        for (const evt of yEvents) {
-          // Skip outer types map events (type sub-map added/removed)
-          if (evt.target === this.yTypes) {
-            continue;
+    // Stack listeners only when a main UndoManager exists (full mode).
+    if (this.__undoManager__) {
+      // Strip genesis Items from UndoManager StackItems.
+      // Genesis clientIds live in the 0x1F namespace (>= GENESIS_BASE = 31 × 2^40).
+      // Liminal clientIds (0x01 namespace, [2^32, 2^33)) are NOT stripped — committed
+      // liminal changes are user decisions that must survive undo/redo.
+      this.__undoManager__.on("stack-item-added", (event) => {
+        const clients = event.stackItem.insertions.clients;
+        for (const clientId of clients.keys()) {
+          if (isGenesisClientId(clientId)) {
+            clients.delete(clientId);
           }
-          // Type sub-map event — entity added/deleted within a type
-          if (evt.target instanceof Y.Map && evt.target !== this.yTypes) {
-            for (const [id, change] of evt.changes.keys.entries()) {
-              const model = documentEntityCaches.get(shadow).get(id)?.deref();
-              if (!model) continue; // Entity may not be cached yet (e.g. from remote peer)
-              const internals = getInternals(model);
-              if (internals.isDependency) {
-                continue; // very likely we should not do anything; yet, this assumption is not 100%
-              }
+        }
+      });
 
-              if (notifiedTargets.has(model)) {
-                continue;
-              }
-              notifiedTargets.add(model);
-
-              if (change.action === "add") {
-                const newElement = (evt.target as Y.Map<YPlexusNode>).get(id)!;
-                if (internals.yjsModel?.element !== newElement) {
-                  // Entity re-appeared (e.g. peer sync). Re-wrap and re-observe.
-                  internals.yjsModel = new PlexusWrapper(newElement);
-                  model.__bootstrapObservation__();
-                  undoManagerNotifications.get(newElement)?.({
-                    attributesChanged: new Set([...Object.keys(model.__schema__), PlexusWrapper.PARENT_ATTR]),
-                  });
-                }
-                continue;
-              }
-              if (change.action === "delete") {
-                // With append-only shells + deleteFilter, this should rarely fire for
-                // local entities. May still occur for edge cases (external GC, dependency cleanup).
-                // Entity becomes detached but stays readable — no field deletion.
-                internals.unobserve?.();
-                internals.yjsModel = undefined;
-              }
-              // todo we may need to process "update" too
+      // Wire up undo/redo notification bridge
+      const handler = this.__undoManager__.on("stack-item-popped", (event) => {
+        if (!this.__isUndoing__) {
+          return;
+        }
+        const notifiedTargets = new Set<PlexusModel | Y.AbstractType<any>>();
+        for (const yEvents of event.changedParentTypes.values()) {
+          // we have very specific issue here: when we're undo-ing the changeset that was including model materialization,
+          // we have it deleted, too, leading to funky state.
+          for (const evt of yEvents) {
+            // Skip outer types map events (type sub-map added/removed)
+            if (evt.target === this.yTypes) {
+              continue;
             }
-            continue;
-          }
-          // Forward events to the target's notification handler
-          const target = evt.target;
+            // Type sub-map event — entity added/deleted within a type
+            if (evt.target instanceof Y.Map && evt.target !== this.yTypes) {
+              for (const [id, change] of evt.changes.keys.entries()) {
+                const model = documentEntityCaches.get(shadow).get(id)?.deref();
+                if (!model) continue; // Entity may not be cached yet (e.g. from remote peer)
+                const internals = getInternals(model);
+                if (internals.isDependency) {
+                  continue; // very likely we should not do anything; yet, this assumption is not 100%
+                }
 
-          if (!notifiedTargets.has(target)) {
-            notifiedTargets.add(target);
-            undoManagerNotifications.get(target)?.(evt);
+                if (notifiedTargets.has(model)) {
+                  continue;
+                }
+                notifiedTargets.add(model);
+
+                if (change.action === "add") {
+                  const newElement = (evt.target as Y.Map<YPlexusNode>).get(id)!;
+                  if (internals.yjsModel?.element !== newElement) {
+                    // Entity re-appeared (e.g. peer sync). Re-wrap and re-observe.
+                    internals.yjsModel = new PlexusWrapper(newElement);
+                    model.__bootstrapObservation__();
+                    undoManagerNotifications.get(newElement)?.({
+                      attributesChanged: new Set([...Object.keys(model.__schema__), PlexusWrapper.PARENT_ATTR]),
+                    });
+                  }
+                  continue;
+                }
+                if (change.action === "delete") {
+                  // With append-only shells + deleteFilter, this should rarely fire for
+                  // local entities. May still occur for edge cases (external GC, dependency cleanup).
+                  // Entity becomes detached but stays readable — no field deletion.
+                  internals.unobserve?.();
+                  internals.yjsModel = undefined;
+                }
+                // todo we may need to process "update" too
+              }
+              continue;
+            }
+            // Forward events to the target's notification handler
+            const target = evt.target;
+
+            if (!notifiedTargets.has(target)) {
+              notifiedTargets.add(target);
+              undoManagerNotifications.get(target)?.(evt);
+            }
           }
         }
-      }
-    });
-    this.__undoManager__.on("stack-item-added", handler);
+      });
+      this.__undoManager__.on("stack-item-added", handler);
+    }
   }
 
   /**
@@ -570,8 +603,8 @@ export class Plexus<
    */
   destroy(): void {
     this.awareness.destroy();
-    this.__undoManager__.destroy();
-    this.__liminalUndoManager__.destroy();
+    this.__undoManager__?.destroy();
+    this.__liminalUndoManager__?.destroy();
     this.__liminalDocument__.destroy();
     this.doc.destroy();
   }
@@ -582,7 +615,7 @@ export class Plexus<
    * Doc must be synced before calling - if no root found, throws with helpful hint.
    */
 
-  static connect(doc: Y.Doc) {
+  static connect(doc: Y.Doc, options?: PlexusOptions) {
     invariant(
       doc instanceof Y.Doc,
       "Plexus.connect: doc is not from Plexus's yjs (duplicate yjs module in node_modules)",
@@ -602,7 +635,7 @@ export class Plexus<
 
     invariant(rootUuid, `Plexus<document#${doc.clientID}>.connect: no root found, await sync first`);
 
-    return new this(doc, rootUuid as any);
+    return new this(doc, rootUuid as any, options);
   }
 
   /**
@@ -619,7 +652,12 @@ export class Plexus<
    * Bootstrap a new Y.Doc with the provided root entity.
    * Returns existing instance if one exists for this class.
    */
-  static bootstrap(root: PlexusModel, documentId: string = nanoid(), doc: Y.Doc = new Y.Doc({ guid: documentId })) {
+  static bootstrap(
+    root: PlexusModel,
+    documentId: string = nanoid(),
+    doc: Y.Doc = new Y.Doc({ guid: documentId }),
+    options?: PlexusOptions,
+  ) {
     invariant(
       doc instanceof Y.Doc,
       "Plexus.bootstrap: doc is not from Plexus's yjs (duplicate yjs module in node_modules)",
@@ -633,40 +671,51 @@ export class Plexus<
       );
       return existing;
     }
-    return new this(doc, root);
+    return new this(doc, root, options);
   }
 
   undo() {
+    if (this.undoMode === "stub") {
+      console.warn("[plexus] undo() is a no-op (undoMode=stub)");
+      return;
+    }
     // Undo during liminality: revert the liminal session first, then undo on prime
     if (this.isLiminal) this.revertLiminality();
 
+    const um = this.__undoManager__!;
     if (this.__isUndoing__) {
-      this.__undoManager__.undo();
+      um.undo();
     } else {
       this.__isUndoing__ = true;
-      this.__undoManager__.undo();
+      um.undo();
       this.__isUndoing__ = false;
     }
   }
 
   redo() {
+    if (this.undoMode === "stub") {
+      console.warn("[plexus] redo() is a no-op (undoMode=stub)");
+      return;
+    }
     // Redo during liminality: revert the liminal session first, then redo on prime
     if (this.isLiminal) this.revertLiminality();
 
+    const um = this.__undoManager__!;
     if (this.__isUndoing__) {
-      this.__undoManager__.redo();
+      um.redo();
     } else {
       this.__isUndoing__ = true;
-      this.__undoManager__.redo();
+      um.redo();
       this.__isUndoing__ = false;
     }
   }
 
   stopCapturing() {
+    if (this.undoMode === "stub") return;
     if (this.isLiminal) {
-      this.__liminalUndoManager__.stopCapturing();
+      this.__liminalUndoManager__!.stopCapturing();
     } else {
-      this.__undoManager__.stopCapturing();
+      this.__undoManager__!.stopCapturing();
     }
   }
 
@@ -729,6 +778,10 @@ export class Plexus<
   }
 
   enterLiminality(): void {
+    if (this.undoMode === "stub") {
+      // Honest: liminality requires UndoManagers for scaffolding removal (commit/revert).
+      throw new Error("Plexus.enterLiminality is unsupported when undoMode=stub");
+    }
     if (this.isLiminal) return;
     this.__liminalDocument__.clientID++;
     this.__liminalHeight__++;
@@ -745,6 +798,9 @@ export class Plexus<
   }
 
   commitLiminality(): void {
+    if (this.undoMode === "stub") {
+      throw new Error("Plexus.commitLiminality is unsupported when undoMode=stub");
+    }
     if (!this.isLiminal) return;
 
     const limId = this.__liminalDocument__.clientID;
@@ -755,9 +811,9 @@ export class Plexus<
 
     // Apply to main FIRST. Main→shadow forwarding propagates committed Items to shadow while
     // liminal scaffolding is intact (YATA origin references resolve in the pre-undo state).
-    this.__undoManager__.stopCapturing();
+    this.__undoManager__!.stopCapturing();
     Y.applyUpdate(this.doc, delta, COMMIT_DELTA_ORIGIN);
-    this.__undoManager__.stopCapturing();
+    this.__undoManager__!.stopCapturing();
 
     // Remove scaffolding. Only needed if the session created Items (inserts/writes).
     // Pure deletes have no limId structs — the committed delta's delete set handles them
@@ -770,7 +826,8 @@ export class Plexus<
       // array elements (ghost Items from mixed insert+delete sessions). Delete the ghost range.
       const shadowCid = this.__liminalDocument__.clientID;
       const clockBefore = getMaxClock(this.__liminalDocument__, shadowCid);
-      while (this.__liminalUndoManager__.canUndo()) this.__liminalUndoManager__.undo();
+      const limUm = this.__liminalUndoManager__!;
+      while (limUm.canUndo()) limUm.undo();
       const clockAfter = getMaxClock(this.__liminalDocument__, shadowCid);
       if (clockAfter > clockBefore) {
         Y.applyUpdate(
@@ -780,7 +837,7 @@ export class Plexus<
         );
       }
     }
-    this.__liminalUndoManager__.stopCapturing();
+    this.__liminalUndoManager__!.stopCapturing();
 
     // Fresh clientId — main never saw the liminal clocks, so continuing with the same ID
     // would create a clock gap and silently drop subsequent normal writes.
@@ -790,7 +847,7 @@ export class Plexus<
     this._stopBroadcastLoop();
     (this.awareness as PlexusAwareness).clearField("liminal");
     docLiminality.delete(this.doc);
-    this.__undoManager__.stopCapturing();
+    this.__undoManager__!.stopCapturing();
     if (telemetry.enabled && this.__liminalSpan__) {
       this.__liminalSpan__.end({
         outcome: "commit",
@@ -802,9 +859,13 @@ export class Plexus<
   }
 
   revertLiminality(): void {
+    if (this.undoMode === "stub") {
+      throw new Error("Plexus.revertLiminality is unsupported when undoMode=stub");
+    }
     if (!this.isLiminal) return;
 
-    while (this.__liminalUndoManager__.canUndo()) this.__liminalUndoManager__.undo();
+    const limUm = this.__liminalUndoManager__!;
+    while (limUm.canUndo()) limUm.undo();
     this.__liminalDocument__.clientID++;
 
     docTransactionOrigin.set(this.__liminalDocument__, SHADOW_TO_MAIN);
@@ -914,6 +975,14 @@ export class Plexus<
   private readonly __peerPreviews__ = new Map<number, { height: number; um: UndoManager; origin: symbol }>();
 
   applyPeerPreview(peerId: number, data: [number, number, string] | null | undefined): void {
+    // Peer previews need per-peer UndoManagers to un-apply; unsupported under stub.
+    if (this.undoMode === "stub") {
+      if (data != null) {
+        console.warn("[plexus] applyPeerPreview ignored (undoMode=stub)");
+      }
+      return;
+    }
+
     const existing = this.__peerPreviews__.get(peerId);
 
     if (data == null) {

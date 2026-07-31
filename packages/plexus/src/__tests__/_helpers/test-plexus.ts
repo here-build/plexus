@@ -2,7 +2,7 @@ import { nanoid } from "nanoid";
 import { onTestFinished } from "vitest";
 import * as Y from "yjs";
 
-import { Plexus } from "../../Plexus.js";
+import { Plexus, type PlexusOptions } from "../../Plexus.js";
 import type { PlexusModel } from "../../PlexusModel.js";
 
 /**
@@ -38,11 +38,12 @@ export function initTestPlexus<Root extends PlexusModel>(
   rootEntity: Root,
   dependencies: Record<string, Y.Doc> = {},
   documentId: string = nanoid(),
+  options?: PlexusOptions,
 ): { doc: Y.Doc; plexus: TestPlexus<Root>; root: Root } {
   const doc = new Y.Doc({ guid: documentId });
   registerDocCleanup(doc);
 
-  const plexus = TestPlexus.bootstrap(rootEntity, documentId, doc);
+  const plexus = TestPlexus.bootstrap(rootEntity, documentId, doc, options);
   for (const [depId, dep] of Object.entries(dependencies)) {
     plexus.addDependency(depId, Y.encodeStateAsUpdate(dep));
   }

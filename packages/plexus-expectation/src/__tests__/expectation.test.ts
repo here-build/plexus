@@ -1,13 +1,8 @@
 import "@here.build/plexus/mobx/register";
-
 import { PlexusModel, resetLocalIDs, syncing } from "@here.build/plexus";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-  Expectation,
-  PewTerminalWriteError,
-  type Lifecycle,
-} from "../app/index.js";
+import { Expectation, PewTerminalWriteError, type Lifecycle } from "../app/index.js";
 
 @syncing("@here.build/plexus-expectation:test.Expectation")
 class TestExpectation extends Expectation {
@@ -70,13 +65,7 @@ describe("Expectation", () => {
 
   describe("clone", () => {
     it("open clone allowed; always resets bindEpoch / rebindCount", () => {
-      for (const state of [
-        "declared",
-        "missing",
-        "refused",
-        "running",
-        "awaiting_rebind",
-      ] as const) {
+      for (const state of ["declared", "missing", "refused", "running", "awaiting_rebind"] as const) {
         const e = new TestExpectation({
           state,
           bindEpoch: 5,

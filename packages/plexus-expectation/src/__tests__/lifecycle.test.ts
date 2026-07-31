@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  isOpen,
-  isTerminal,
-  TERMINAL_LIFECYCLES,
-  type Lifecycle,
-} from "../app/lifecycle.js";
+import { isOpen, isTerminal, TERMINAL_LIFECYCLES, type Lifecycle } from "../app/lifecycle.js";
 
 const ALL: readonly Lifecycle[] = [
   "declared",

@@ -1,5 +1,5 @@
-import type { Lifecycle } from "./lifecycle.js";
 import type { Expectation } from "./expectation.js";
+import type { Lifecycle } from "./lifecycle.js";
 
 /**
  * Terminal write barrier: durable state must not leave `sealed` | `failed` | `cancelled`.
@@ -13,8 +13,6 @@ export class PewTerminalWriteError extends Error {
     public readonly from: Lifecycle,
     public readonly to: Lifecycle,
   ) {
-    super(
-      `PewTerminalWriteError: cannot leave terminal state ${from} → ${to} (kind=${expectation.kind})`,
-    );
+    super(`PewTerminalWriteError: cannot leave terminal state ${from} → ${to} (kind=${expectation.kind})`);
   }
 }

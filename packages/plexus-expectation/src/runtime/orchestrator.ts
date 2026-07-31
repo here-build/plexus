@@ -6,12 +6,6 @@
  * the abstract surface.
  */
 
-import { Expectation } from "../app/expectation.js";
-import type { SettleSurfaceDisposition } from "../app/intents.js";
-import { isTerminal } from "../app/lifecycle.js";
-import type { LaunchDefinition } from "../orchestration/launch-definition.js";
-import type { Orchestration } from "../orchestration/orchestration.js";
-
 import {
   LaunchDefinitionSnapshot,
   type ProgressPatch,
@@ -19,6 +13,11 @@ import {
   type ResolverHandle,
   type StartResolverFn,
 } from "./resolver.js";
+import { Expectation } from "../app/expectation.js";
+import type { SettleSurfaceDisposition } from "../app/intents.js";
+import { isTerminal } from "../app/lifecycle.js";
+import type { LaunchDefinition } from "../orchestration/launch-definition.js";
+import type { Orchestration } from "../orchestration/orchestration.js";
 
 export type BindEntry = {
   handle: ResolverHandle | null;
@@ -47,20 +46,11 @@ export type SettleSurfaceBody = {
 
 export type SettleSurfaceErrorCode = "not_claim_owner" | "not_running" | "stale_epoch";
 
-export type SettleSurfaceResult =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly code: SettleSurfaceErrorCode };
+export type SettleSurfaceResult = { readonly ok: true } | { readonly ok: false; readonly code: SettleSurfaceErrorCode };
 
-const ACTIVATE_STATES: ReadonlySet<string> = new Set([
-  "declared",
-  "missing",
-  "refused",
-  "awaiting_rebind",
-]);
+const ACTIVATE_STATES: ReadonlySet<string> = new Set(["declared", "missing", "refused", "awaiting_rebind"]);
 
-export function* walkExpectationForest(
-  roots: readonly Expectation[],
-): Generator<Expectation> {
+export function* walkExpectationForest(roots: readonly Expectation[]): Generator<Expectation> {
   const seen = new Set<Expectation>();
   const walk = function* (E: Expectation): Generator<Expectation> {
     if (seen.has(E)) return;
@@ -92,10 +82,7 @@ function isTreeOrphan(E: Expectation): boolean {
  * Non-terminal and not reachable from openWork roots.
  * Prefer Plexus `isDetached` when materialized.
  */
-function isForestOrphan(
-  E: Expectation,
-  reachable: ReadonlySet<Expectation>,
-): boolean {
+function isForestOrphan(E: Expectation, reachable: ReadonlySet<Expectation>): boolean {
   if (isTerminal(E.state)) return false;
   if (reachable.has(E)) return false;
   try {
@@ -182,9 +169,7 @@ export abstract class Orchestrator {
    * for product tests without a full host).
    */
   resolvePlan(kind: string): PlanResolution {
-    return Orchestrator.resolvePlan(kind, this.getOrchestration(), (mode) =>
-      this.supportsLaunchMode(mode),
-    );
+    return Orchestrator.resolvePlan(kind, this.getOrchestration(), (mode) => this.supportsLaunchMode(mode));
   }
 
   /**
@@ -286,8 +271,9 @@ export abstract class Orchestrator {
           provisional,
         });
         const bind = this.binding.get(E);
-        if (bind && bind.epoch === epoch && E.state === "running") {
-          this.setBind(E, { handle: handle ?? provisional, epoch });
+        // Sync complete may have settled before start returns — only keep bind if still live.
+        if (bind !== undefined && bind.epoch === epoch && E.state === "running") {
+          this.setBind(E, { handle, epoch });
         }
       } catch {
         this.#failStart(E, controller);
@@ -435,23 +421,20 @@ export abstract class Orchestrator {
     }
 
     const bind = this.binding.get(E);
-    if (!bind || bind.epoch !== E.bindEpoch || body.epoch !== E.bindEpoch) {
+    if (bind === undefined || bind.epoch !== E.bindEpoch || body.epoch !== E.bindEpoch) {
       return { ok: false, code: "stale_epoch" };
     }
 
-    const terminal: "sealed" | "cancelled" =
-      body.disposition === "abandon" ? "cancelled" : "sealed";
+    const terminal: "sealed" | "cancelled" = body.disposition === "abandon" ? "cancelled" : "sealed";
 
     const children = [...E.children];
 
     if (!E.trySettleFromRunning(terminal, body.epoch)) {
-      if (E.state !== "running") {
-        return { ok: false, code: "not_running" };
-      }
-      return { ok: false, code: "stale_epoch" };
+      // Race: cancelled/rebound under us, or epoch moved.
+      return { ok: false, code: E.state === "running" ? "stale_epoch" : "not_running" };
     }
 
-    if (bind.handle && !bind.handle.aborted) {
+    if (bind.handle !== null && !bind.handle.aborted) {
       bind.handle.abort(body.disposition);
     }
     this.clearBind(E);
@@ -507,7 +490,7 @@ export abstract class Orchestrator {
       this.clearBind(node);
       this.clearActivating(node);
     }
-    for (const node of [...this.activating]) {
+    for (const node of this.activating) {
       this.clearActivating(node);
     }
     this.publishAwarenessBinds();
@@ -532,11 +515,7 @@ export abstract class Orchestrator {
     }
 
     for (const node of collectReachable(this.getOpenWorkRoots())) {
-      if (
-        node.state === "running" &&
-        !this.binding.has(node) &&
-        !this.hasLiveClaimPeerBind(node)
-      ) {
+      if (node.state === "running" && !this.binding.has(node) && !this.hasLiveClaimPeerBind(node)) {
         this.markAwaitingRebind(node, {
           reason: "claim_orphan",
           incrementRebind: false,

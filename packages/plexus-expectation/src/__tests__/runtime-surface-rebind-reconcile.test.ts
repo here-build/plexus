@@ -4,7 +4,6 @@
  * Each host is an Orchestrator subclass — no makeOrch options bag.
  */
 import "@here.build/plexus/mobx/register";
-
 import { PlexusModel, resetLocalIDs, syncing } from "@here.build/plexus";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -97,7 +96,10 @@ class RebindHost extends Orchestrator {
   }
 
   /** Test seam — install a local bind without activate. */
-  installBind(E: Expectation, entry: { handle: { abort(reason?: unknown): void; readonly aborted: boolean }; epoch: number }): void {
+  installBind(
+    E: Expectation,
+    entry: { handle: { abort(reason?: unknown): void; readonly aborted: boolean }; epoch: number },
+  ): void {
     this.setBind(E, entry);
   }
 }

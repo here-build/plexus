@@ -3,12 +3,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import {
-  LaunchDefinition,
-  Orchestration,
-  type LaunchMode,
-  type ProgressMode,
-} from "../orchestration/index.js";
+import { LaunchDefinition, Orchestration, type LaunchMode, type ProgressMode } from "../orchestration/index.js";
 import { Orchestrator } from "../runtime/index.js";
 
 function def(partial: {
@@ -25,9 +20,9 @@ function def(partial: {
   });
 }
 
-function actors(
-  entries: ReadonlyArray<readonly [string, LaunchDefinition]> = [],
-): { get(kind: string): LaunchDefinition | undefined } {
+function actors(entries: ReadonlyArray<readonly [string, LaunchDefinition]> = []): {
+  get(kind: string): LaunchDefinition | undefined;
+} {
   return new Map(entries);
 }
 
@@ -44,11 +39,7 @@ describe("Orchestrator.resolvePlan", () => {
 
   it("T2: unsupported mode → refused", () => {
     const launch = def({ launchMode: "inprocess" });
-    const outcome = Orchestrator.resolvePlan(
-      "tool_call",
-      { actors: actors([["tool_call", launch]]) },
-      only("surface"),
-    );
+    const outcome = Orchestrator.resolvePlan("tool_call", { actors: actors([["tool_call", launch]]) }, only("surface"));
     expect(outcome.status).toBe("refused");
     if (outcome.status === "refused") {
       expect(outcome.def).toBe(launch);
@@ -89,15 +80,11 @@ describe("Orchestrator.resolvePlan", () => {
     const orchestration = new Orchestration({
       actors: new Map([["tool_call", launch]]),
     });
-    expect(
-      Orchestrator.resolvePlan("tool_call", orchestration, only("inprocess")),
-    ).toEqual({
+    expect(Orchestrator.resolvePlan("tool_call", orchestration, only("inprocess"))).toEqual({
       status: "bound",
       def: launch,
     });
-    expect(
-      Orchestrator.resolvePlan("missing_kind", orchestration, only("inprocess")),
-    ).toEqual({
+    expect(Orchestrator.resolvePlan("missing_kind", orchestration, only("inprocess"))).toEqual({
       status: "missing",
     });
   });

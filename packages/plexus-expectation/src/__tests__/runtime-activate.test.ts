@@ -4,18 +4,12 @@
  * Each host is an Orchestrator subclass — no makeOrch options bag.
  */
 import "@here.build/plexus/mobx/register";
-
 import { PlexusModel, resetLocalIDs, syncing } from "@here.build/plexus";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Expectation } from "../app/index.js";
 import { LaunchDefinition, Orchestration } from "../orchestration/index.js";
-import {
-  Orchestrator,
-  type ProgressPatch,
-  type ResolverStartInput,
-  type StartResolverFn,
-} from "../runtime/index.js";
+import { Orchestrator, type ProgressPatch, type ResolverStartInput, type StartResolverFn } from "../runtime/index.js";
 
 @syncing("@here.build/plexus-expectation:test.RuntimeExpectation")
 class TestExpectation extends Expectation {

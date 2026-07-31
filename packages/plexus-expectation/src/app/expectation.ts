@@ -84,10 +84,7 @@ export abstract class Expectation extends PlexusModel {
    * (not running, or epoch mismatch when `expectedEpoch` is set).
    */
   @syncing.action
-  trySettleFromRunning(
-    terminal: "sealed" | "failed" | "cancelled",
-    expectedEpoch?: number,
-  ): boolean {
+  trySettleFromRunning(terminal: "sealed" | "failed" | "cancelled", expectedEpoch?: number): boolean {
     if (this.state !== "running") return false;
     if (expectedEpoch !== undefined && this.bindEpoch !== expectedEpoch) return false;
     this.transitionState(terminal);
@@ -112,10 +109,7 @@ export abstract class Expectation extends PlexusModel {
    * Plexus clone: copy product fields + lifecycle; strip claim counters on the clone.
    * Source unchanged. Placement / activation after clone is product responsibility.
    */
-  override clone<T extends PlexusModel>(
-    this: T,
-    newProps: Partial<Omit<T, keyof PlexusModel>> = {},
-  ): T {
+  override clone<T extends PlexusModel>(this: T, newProps: Partial<Omit<T, keyof PlexusModel>> = {}): T {
     return super.clone({
       ...newProps,
       bindEpoch: 0,

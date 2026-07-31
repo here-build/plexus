@@ -62,7 +62,4 @@ export type ResolverHandle = {
  * Must honor `input.signal` for paid work. Return a handle if the module owns
  * extra teardown; otherwise the host wraps the AbortController.
  */
-export type StartResolverFn = (
-  input: ResolverStartInput,
-  emit: EmitFn,
-) => ResolverHandle | void;
+export type StartResolverFn = (input: ResolverStartInput, emit: EmitFn) => ResolverHandle | void;

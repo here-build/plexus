@@ -4,8 +4,8 @@
  */
 import { describe, expect, it } from "vitest";
 
-import * as root from "../index.js";
 import * as app from "../app/index.js";
+import * as root from "../index.js";
 import * as orchestration from "../orchestration/index.js";
 import * as runtime from "../runtime/index.js";
 

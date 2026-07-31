@@ -27,10 +27,13 @@ export type ResolverEmit =
 export type EmitFn = (message: ResolverEmit) => void;
 
 /**
- * Wire/log identity only. Local claim maps use the Expectation entity as key.
+ * Local start identity — kind only.
+ *
+ * Process-local claim maps key by the Expectation entity. Wire uuid is **not**
+ * snapped here: resolve `E.uuid` only at sync edges (awareness, journal, UI
+ * intents). Eager uuid in the activate/start loop is the wrong shape.
  */
 export type WorkIdentity = {
-  readonly uuid: string;
   readonly kind: string;
 };
 
@@ -54,17 +57,23 @@ export type ResolverHandle = {
 };
 
 /**
+ * Refuse Promise / thenable returns at the type level (`async` start → `never`).
+ * Hosts wrap async work outside PEW; the claim-owner loop is sync.
+ */
+type SyncOnly<T> = [T] extends [PromiseLike<unknown>] ? never : T;
+
+/**
  * Module start function. Receives snapshot input + emit; may complete sync
  * before returning. Must honor `input.signal` for paid work.
  *
- * Synchronous return only (Promise handles are refused). Host may wrap async
- * modules outside PEW. Return a handle if the module owns extra teardown;
+ * Return type is {@link SyncOnly} — `async` functions and Promise-returning
+ * starters are unassignable. Return a handle if the module owns extra teardown;
  * otherwise the host wraps the AbortController as the handle.
  */
 export type StartResolverFn = (
   input: ResolverStartInput,
   emit: EmitFn,
-) => ResolverHandle | void;
+) => SyncOnly<ResolverHandle | void>;
 
 /** Build a handle tied to an AbortController (fires signal on abort). */
 export function handleFromController(controller: AbortController): ResolverHandle {

@@ -11,9 +11,17 @@ import { LaunchDefinition, Orchestration } from "../orchestration/index.js";
 import {
   modulesFromRecord,
   Orchestrator,
+  type ModuleRegistry,
   type ResolverStartInput,
   type StartResolverFn,
 } from "../runtime/index.js";
+
+function asModules(m: ModuleRegistry | Record<string, StartResolverFn>): ModuleRegistry {
+  if (typeof (m as ModuleRegistry).register === "function") {
+    return m as ModuleRegistry;
+  }
+  return modulesFromRecord(m as Record<string, StartResolverFn>);
+}
 
 @syncing("@here.build/plexus-expectation:test.RuntimeExpectation")
 class TestExpectation extends Expectation {
@@ -41,7 +49,7 @@ function makeOrch(opts: {
   actors?: ReadonlyArray<readonly [string, LaunchDefinition]>;
   loaded?: ReadonlySet<string>;
   start?: StartResolverFn;
-  modules?: Record<string, StartResolverFn>;
+  modules?: ModuleRegistry | Record<string, StartResolverFn>;
   applyProgress?: (E: Expectation, patch: unknown) => void;
   snapshotProductFields?: (E: Expectation) => unknown;
 }): {
@@ -59,20 +67,21 @@ function makeOrch(opts: {
     openWork: [E],
   });
 
-  const modules =
+  const modules = asModules(
     opts.modules ??
-    (opts.start
-      ? { inprocess: opts.start }
-      : {
-          inprocess: ((_input, emit) => {
-            emit({ type: "complete", epoch: _input.epoch });
-          }) satisfies StartResolverFn,
-        });
+      (opts.start
+        ? { inprocess: opts.start }
+        : {
+            inprocess: ((_input, emit) => {
+              emit({ type: "complete", epoch: _input.epoch });
+            }) satisfies StartResolverFn,
+          }),
+  );
 
   const orchestrator = new Orchestrator({
     getOrchestration: () => forest.orchestration,
     loadedModules: opts.loaded ?? new Set(["inprocess", "surface"]),
-    modules: modulesFromRecord(modules),
+    modules,
     applyProgress: opts.applyProgress,
     snapshotProductFields:
       opts.snapshotProductFields ??
@@ -254,7 +263,7 @@ describe("runtime activate / emit", () => {
     const start = vi.fn();
     const { orchestrator, E } = makeOrch({
       actors: [["test.tool", def("surface")]],
-      modules: { inprocess: start, surface: start },
+      modules: modulesFromRecord({ inprocess: start, surface: start }),
     });
     orchestrator.activate(E);
     expect(E.state).toBe("running");
@@ -286,5 +295,38 @@ describe("runtime activate / emit", () => {
     });
     orchestrator.activate(E);
     expect(E.state).toBe("failed");
+  });
+
+  it("missing starter waits (no durable run); late register + noteModulesChanged activates", () => {
+    const launch = def("inprocess");
+    const E = new TestExpectation({ payload: "late" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch]]),
+      }),
+      openWork: [E],
+    });
+    const modules = modulesFromRecord({});
+    const orchestrator = new Orchestrator({
+      getOrchestration: () => forest.orchestration,
+      loadedModules: new Set(["inprocess", "surface"]),
+      modules,
+      getOpenWorkRoots: () => forest.openWork,
+      snapshotProductFields: (e) => ({ payload: (e as TestExpectation).payload }),
+    });
+
+    orchestrator.activate(E);
+    // Mode loaded, plan present, handler missing — wait, do not fail or run.
+    expect(E.state).toBe("declared");
+    expect(orchestrator.binding.has(E)).toBe(false);
+    expect(E.bindEpoch).toBe(0);
+
+    modules.register("inprocess", (input, emit) => {
+      emit({ type: "complete", epoch: input.epoch });
+    });
+    orchestrator.noteModulesChanged();
+
+    expect(E.state).toBe("sealed");
+    expect(E.bindEpoch).toBe(1);
   });
 });

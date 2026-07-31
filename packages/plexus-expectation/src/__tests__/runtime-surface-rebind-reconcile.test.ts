@@ -13,8 +13,16 @@ import {
   DEFAULT_MAX_REBINDS,
   modulesFromRecord,
   Orchestrator,
+  type ModuleRegistry,
   type StartResolverFn,
 } from "../runtime/index.js";
+
+function asModules(m: ModuleRegistry | Record<string, StartResolverFn>): ModuleRegistry {
+  if (typeof (m as ModuleRegistry).register === "function") {
+    return m as ModuleRegistry;
+  }
+  return modulesFromRecord(m as Record<string, StartResolverFn>);
+}
 
 @syncing("@here.build/plexus-expectation:test.Pr4Expectation")
 class TestExpectation extends Expectation {
@@ -42,7 +50,7 @@ function makeOrch(opts: {
   actors?: ReadonlyArray<readonly [string, LaunchDefinition]>;
   loaded?: ReadonlySet<string>;
   start?: StartResolverFn;
-  modules?: Record<string, StartResolverFn>;
+  modules?: ModuleRegistry | Record<string, StartResolverFn>;
   isClaimOwner?: boolean | (() => boolean);
   maxRebinds?: number;
   openWork?: TestExpectation[];
@@ -64,20 +72,21 @@ function makeOrch(opts: {
     openWork,
   });
 
-  const modules =
+  const modules = asModules(
     opts.modules ??
-    (opts.start
-      ? { inprocess: opts.start }
-      : {
-          inprocess: (() => {
-            /* leave running */
-          }) satisfies StartResolverFn,
-        });
+      (opts.start
+        ? { inprocess: opts.start }
+        : {
+            inprocess: (() => {
+              /* leave running */
+            }) satisfies StartResolverFn,
+          }),
+  );
 
   const orchestrator = new Orchestrator({
     getOrchestration: () => forest.orchestration,
     loadedModules: opts.loaded ?? new Set(["inprocess", "surface"]),
-    modules: modulesFromRecord(modules),
+    modules,
     isClaimOwner: opts.isClaimOwner,
     maxRebinds: opts.maxRebinds,
     getOpenWorkRoots: () => forest.openWork,
@@ -95,7 +104,7 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
     const start = vi.fn();
     const { orchestrator, E } = makeOrch({
       actors: [["test.tool", def("surface")]],
-      modules: { inprocess: start, surface: start },
+      modules: modulesFromRecord({ inprocess: start, surface: start }),
     });
 
     orchestrator.activate(E);
@@ -117,7 +126,7 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
   it("T7: surface abandon → cancelled", () => {
     const { orchestrator, E } = makeOrch({
       actors: [["test.tool", def("surface")]],
-      modules: { surface: () => {} },
+      modules: modulesFromRecord({ surface: () => {} }),
     });
     orchestrator.activate(E);
     const result = orchestrator.settleSurface(E, {
@@ -132,7 +141,7 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
     let owner = true;
     const { orchestrator, E } = makeOrch({
       actors: [["test.tool", def("surface")]],
-      modules: { surface: () => {} },
+      modules: modulesFromRecord({ surface: () => {} }),
       isClaimOwner: () => owner,
     });
     // Activate while claim owner, then flip — settle gate is independent of activate.
@@ -182,7 +191,7 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
   it("T21: settleSurface stale_epoch returns error to caller", () => {
     const { orchestrator, E } = makeOrch({
       actors: [["test.tool", def("surface")]],
-      modules: { surface: () => {} },
+      modules: modulesFromRecord({ surface: () => {} }),
     });
     orchestrator.activate(E);
     expect(E.bindEpoch).toBe(1);
@@ -207,7 +216,7 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
   it("T21: settleSurface not_running", () => {
     const { orchestrator, E } = makeOrch({
       actors: [["test.tool", def("surface")]],
-      modules: { surface: () => {} },
+      modules: modulesFromRecord({ surface: () => {} }),
     });
     expect(E.state).toBe("declared");
     const result = orchestrator.settleSurface(E, {

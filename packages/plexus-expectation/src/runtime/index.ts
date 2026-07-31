@@ -5,19 +5,27 @@
 
 export {
   Orchestrator,
+  DEFAULT_MAX_REBINDS,
+  collectReachable,
+  isForestOrphan,
+  isTreeOrphan,
+  walkExpectationForest,
   type BindEntry,
-  type LoadedModulesSource,
+  type MarkAwaitingRebindOpts,
   type OrchestratorHost,
+  type ProgressApplier,
+  type ReconcileWalk,
+  type SettleSurfaceBody,
+  type SettleSurfaceErrorCode,
+  type SettleSurfaceResult,
 } from "./orchestrator.js";
 
-export { activate } from "./activate.js";
-export { applyEmit, type ProgressApplier } from "./emit.js";
-export { planResolution } from "./plan-resolution.js";
 export {
   modulesFromMap,
   modulesFromRecord,
   type ModuleRegistry,
 } from "./modules.js";
+
 export {
   handleFromController,
   snapshotDefinition,
@@ -30,28 +38,3 @@ export {
   type StartResolverFn,
   type WorkIdentity,
 } from "./resolver.js";
-
-export {
-  settleSurface,
-  type SettleSurfaceBody,
-  type SettleSurfaceErrorCode,
-  type SettleSurfaceResult,
-} from "./surface-settle.js";
-
-export {
-  DEFAULT_MAX_REBINDS,
-  disposeLease,
-  isRebindExhausted,
-  markAwaitingRebind,
-  onResolverDeath,
-  type MarkAwaitingRebindOpts,
-} from "./liveness.js";
-
-export {
-  collectReachable,
-  isForestOrphan,
-  isTreeOrphan,
-  reconcile,
-  walkExpectationForest,
-  type ReconcileWalk,
-} from "./reconcile.js";

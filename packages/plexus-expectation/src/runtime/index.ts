@@ -31,3 +31,28 @@ export {
   type StartResolverFn,
   type WorkIdentity,
 } from "./resolver.js";
+
+export {
+  settleSurface,
+  type SettleSurfaceBody,
+  type SettleSurfaceErrorCode,
+  type SettleSurfaceResult,
+} from "./surface-settle.js";
+
+export {
+  DEFAULT_MAX_REBINDS,
+  disposeLease,
+  isRebindExhausted,
+  markAwaitingRebind,
+  onResolverDeath,
+  type MarkAwaitingRebindOpts,
+} from "./liveness.js";
+
+export {
+  collectReachable,
+  isForestOrphan,
+  isTreeOrphan,
+  reconcile,
+  walkExpectationForest,
+  type ReconcileWalk,
+} from "./reconcile.js";

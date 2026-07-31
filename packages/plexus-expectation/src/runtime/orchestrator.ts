@@ -11,14 +11,27 @@ import type { Orchestration } from "../orchestration/orchestration.js";
 import { activate } from "./activate.js";
 import { cancelTree } from "./cancel-tree.js";
 import { applyEmit, type ProgressApplier } from "./emit.js";
+import {
+  DEFAULT_MAX_REBINDS,
+  disposeLease,
+  markAwaitingRebind,
+  onResolverDeath,
+  type MarkAwaitingRebindOpts,
+} from "./liveness.js";
 import type { ModuleRegistry } from "./modules.js";
 import { modulesFromMap } from "./modules.js";
+import { reconcile, type ReconcileWalk } from "./reconcile.js";
 import type {
   ProgressPatch,
   ResolverEmit,
   ResolverHandle,
   StartResolverFn,
 } from "./resolver.js";
+import {
+  settleSurface,
+  type SettleSurfaceBody,
+  type SettleSurfaceResult,
+} from "./surface-settle.js";
 
 /** Process-local bind entry for a claimed Expectation. */
 export type BindEntry = {
@@ -43,8 +56,30 @@ export type OrchestratorHost = {
   snapshotProductFields?: (E: Expectation) => unknown;
   /** Optional progress patch applier (product fields). */
   applyProgress?: ProgressApplier;
-  /** Awareness `pew.binds` publish — optional / no-op for PR-3. */
+  /** Awareness `pew.binds` publish — optional / no-op for unit tests. */
   publishAwarenessBinds?: () => void;
+  /**
+   * Claim-owner gate for settleSurface (§5.4). Default `true`.
+   * Host may pass a live getter when lease ownership flips.
+   */
+  isClaimOwner?: boolean | (() => boolean);
+  /** Cap unexpected rebinds before `failed` (default {@link DEFAULT_MAX_REBINDS}). */
+  maxRebinds?: number;
+  /**
+   * Open-work forest roots for reconcile (§5.9). Required for
+   * `orchestrator.reconcile()` without an explicit walk argument.
+   */
+  getOpenWorkRoots?: () => readonly Expectation[];
+  /**
+   * Broader candidate walk for forest-orphan repair (optional).
+   * @see ReconcileWalk.walkCandidates
+   */
+  walkCandidates?: () => Iterable<Expectation>;
+  /**
+   * Live claim-owner peer bind probe (PR-9). Default: no peer.
+   * @see ReconcileWalk.hasLiveClaimPeerBind
+   */
+  hasLiveClaimPeerBind?: (E: Expectation) => boolean;
 };
 
 /**
@@ -58,6 +93,8 @@ export class Orchestrator {
   /** Live binds — entity keys, not uuid strings. */
   readonly binding: Map<Expectation, BindEntry> = new Map();
 
+  readonly maxRebinds: number;
+
   private readonly host: {
     getOrchestration: () => Orchestration;
     loadedModules: LoadedModulesSource;
@@ -65,6 +102,10 @@ export class Orchestrator {
     snapshotProductFields: (E: Expectation) => unknown;
     applyProgress: ProgressApplier;
     publishAwarenessBinds: () => void;
+    isClaimOwner: () => boolean;
+    getOpenWorkRoots?: () => readonly Expectation[];
+    walkCandidates?: () => Iterable<Expectation>;
+    hasLiveClaimPeerBind?: (E: Expectation) => boolean;
   };
 
   constructor(host: OrchestratorHost) {
@@ -73,6 +114,9 @@ export class Orchestrator {
         ? (host.modules as ModuleRegistry)
         : modulesFromMap(host.modules as ReadonlyMap<string, StartResolverFn>);
 
+    const isClaimOwnerOpt = host.isClaimOwner;
+    this.maxRebinds = host.maxRebinds ?? DEFAULT_MAX_REBINDS;
+
     this.host = {
       getOrchestration: host.getOrchestration,
       loadedModules: host.loadedModules,
@@ -80,6 +124,13 @@ export class Orchestrator {
       snapshotProductFields: host.snapshotProductFields ?? (() => ({})),
       applyProgress: host.applyProgress ?? (() => {}),
       publishAwarenessBinds: host.publishAwarenessBinds ?? (() => {}),
+      isClaimOwner:
+        typeof isClaimOwnerOpt === "function"
+          ? isClaimOwnerOpt
+          : () => isClaimOwnerOpt ?? true,
+      getOpenWorkRoots: host.getOpenWorkRoots,
+      walkCandidates: host.walkCandidates,
+      hasLiveClaimPeerBind: host.hasLiveClaimPeerBind,
     };
   }
 
@@ -108,6 +159,20 @@ export class Orchestrator {
 
   publishAwarenessBinds(): void {
     this.host.publishAwarenessBinds();
+  }
+
+  isClaimOwner(): boolean {
+    return this.host.isClaimOwner();
+  }
+
+  /** Reconcile walk from host options, if configured. */
+  getReconcileWalk(): ReconcileWalk | undefined {
+    if (!this.host.getOpenWorkRoots) return undefined;
+    return {
+      getOpenWorkRoots: this.host.getOpenWorkRoots,
+      walkCandidates: this.host.walkCandidates,
+      hasLiveClaimPeerBind: this.host.hasLiveClaimPeerBind,
+    };
   }
 
   // ── Process-local map mutators ─────────────────────────────────────────
@@ -142,5 +207,41 @@ export class Orchestrator {
   /** §3.3 emit apply (inprocess sync path; out-of-proc host channels use this too). */
   applyEmit(E: Expectation, message: ResolverEmit): void {
     applyEmit(this, E, message);
+  }
+
+  /** §5.4 surface settle (allow|deny|abandon). Structured result, no throw. */
+  settleSurface(E: Expectation, body: SettleSurfaceBody): SettleSurfaceResult {
+    return settleSurface(this, E, body);
+  }
+
+  /**
+   * §5.6 unexpected resolver death → awaiting_rebind + rebindCount++.
+   */
+  onResolverDeath(E: Expectation, reason?: unknown): void {
+    onResolverDeath(this, E, reason);
+  }
+
+  /**
+   * §5.6–5.7 mark unit awaiting rebind (abort-first).
+   * `incrementRebind: true` only for unexpected resolver loss.
+   */
+  markAwaitingRebind(E: Expectation, opts: MarkAwaitingRebindOpts): void {
+    markAwaitingRebind(this, E, opts);
+  }
+
+  /**
+   * §5.6 lease yield: abort all binds then awaiting_rebind without burning
+   * rebindCount (T20).
+   */
+  disposeLease(reason?: unknown): void {
+    disposeLease(this, reason);
+  }
+
+  /**
+   * §5.9 reconcile: tree/forest orphan cancel, claim-orphan rebind, activate sweep.
+   * Uses host `getOpenWorkRoots` when `walk` is omitted.
+   */
+  reconcile(walk?: ReconcileWalk): void {
+    reconcile(this, walk);
   }
 }

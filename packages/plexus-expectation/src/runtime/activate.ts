@@ -9,6 +9,7 @@ import type { Expectation } from "../app/expectation.js";
 import { isTerminal } from "../app/lifecycle.js";
 
 import { applyEmit } from "./emit.js";
+import { isRebindExhausted } from "./liveness.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { planResolution } from "./plan-resolution.js";
 import {
@@ -28,6 +29,8 @@ export function bumpEpoch(E: Expectation): number {
 /**
  * Activate a single Expectation. Single-flight via `activating` set.
  * Idempotent for healthy running binds.
+ *
+ * From `awaiting_rebind`: if `rebindCount > MAX_REBINDS` → `failed` (rebind_exhausted).
  */
 export function activate(orch: Orchestrator, E: Expectation): void {
   if (isTerminal(E.state)) return;
@@ -35,6 +38,18 @@ export function activate(orch: Orchestrator, E: Expectation): void {
 
   const existing = orch.binding.get(E);
   if (E.state === "running" && existing && isHealthy(existing)) return;
+
+  // §5.7 — unexpected rebind budget exhausted
+  if (isRebindExhausted(E, orch.maxRebinds)) {
+    transactEntity(E, () => {
+      if (E.state === "awaiting_rebind") {
+        E.transitionState("failed");
+      }
+    });
+    orch.clearBind(E);
+    orch.publishAwarenessBinds();
+    return;
+  }
 
   orch.activating.add(E);
   try {

@@ -20,7 +20,7 @@ const ALL: readonly Lifecycle[] = [
 
 describe("lifecycle helpers", () => {
   it("isTerminal covers sealed | failed | cancelled only", () => {
-    expect([...TERMINAL_LIFECYCLES].sort()).toEqual(["cancelled", "failed", "sealed"]);
+    expect([...TERMINAL_LIFECYCLES].toSorted()).toEqual(["cancelled", "failed", "sealed"]);
     for (const state of ALL) {
       const terminal = state === "sealed" || state === "failed" || state === "cancelled";
       expect(isTerminal(state)).toBe(terminal);

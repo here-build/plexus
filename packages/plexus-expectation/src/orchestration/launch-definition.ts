@@ -18,9 +18,8 @@ export class LaunchDefinition extends PlexusModel {
   /** Reserved: product intents may message the live resolver. */
   @syncing accessor acceptsMessages: boolean = false;
 
-  /** Whether the resolver is expected to emit progress patches. */
   @syncing accessor emitsProgress: boolean = false;
 
-  /** Progress coalesce policy when {@link emitsProgress} is true. */
+  /** Progress coalesce policy when `emitsProgress` is true. */
   @syncing accessor progressMode: ProgressMode = "none";
 }

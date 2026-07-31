@@ -8,12 +8,11 @@ export {
   type TerminalLifecycle,
   TERMINAL_LIFECYCLES,
   isTerminal,
-  isOpen,
 } from "./lifecycle.js";
 
-export { PewCloneOpenError, PewTerminalWriteError } from "./errors.js";
+export { PewTerminalWriteError } from "./errors.js";
 
-export { Expectation, assertCloneable } from "./expectation.js";
+export { Expectation } from "./expectation.js";
 
 export {
   type SettleSurfaceDisposition,

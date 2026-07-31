@@ -1,5 +1,7 @@
 /**
- * PR-3 runtime: cancelTree abort-first + races (T6, T15, T23, T26).
+ * Runtime: cancelTree abort-first + races (T6, T15, T23, T26).
+ *
+ * Each host is an Orchestrator subclass — no makeOrch options bag.
  */
 import "@here.build/plexus/mobx/register";
 
@@ -9,7 +11,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Expectation } from "../app/index.js";
 import { LaunchDefinition, Orchestration } from "../orchestration/index.js";
 import {
-  modulesFromRecord,
   Orchestrator,
   type EmitFn,
   type StartResolverFn,
@@ -26,7 +27,7 @@ class TestForest extends PlexusModel {
   @syncing.child.list accessor openWork: TestExpectation[] = [];
 }
 
-function def(): LaunchDefinition {
+function launch(): LaunchDefinition {
   return new LaunchDefinition({
     launchMode: "inprocess",
     acceptsMessages: false,
@@ -35,12 +36,57 @@ function def(): LaunchDefinition {
   });
 }
 
-function makeOrchestrator(forest: TestForest, start: StartResolverFn): Orchestrator {
-  return new Orchestrator({
-    getOrchestration: () => forest.orchestration,
-    loadedModules: new Set(["inprocess", "surface"]),
-    modules: modulesFromRecord({ inprocess: start }),
-  });
+/** Default cancel-suite claim-owner host. */
+class CancelHost extends Orchestrator {
+  readonly starters: Map<string, StartResolverFn>;
+
+  constructor(
+    readonly forest: TestForest,
+    start: StartResolverFn,
+  ) {
+    super();
+    this.starters = new Map([["inprocess", start]]);
+  }
+
+  getOrchestration(): Orchestration {
+    return this.forest.orchestration;
+  }
+
+  supportsLaunchMode(mode: string): boolean {
+    return mode === "inprocess" || mode === "surface";
+  }
+
+  resolveModule(kind: string, launchMode: string): StartResolverFn | undefined {
+    return this.starters.get(kind) ?? this.starters.get(launchMode);
+  }
+
+  registerModule(key: string, start: StartResolverFn): void {
+    this.starters.set(key, start);
+  }
+
+  isClaimOwner(): boolean {
+    return true;
+  }
+
+  getOpenWorkRoots(): readonly Expectation[] {
+    return this.forest.openWork;
+  }
+
+  walkCandidates(): Iterable<Expectation> {
+    return [];
+  }
+
+  hasLiveClaimPeerBind(_E: Expectation): boolean {
+    return false;
+  }
+
+  snapshotProductFields(_E: Expectation): unknown {
+    return {};
+  }
+
+  applyProgress(_E: Expectation, _patch: unknown): void {}
+
+  publishAwarenessBinds(): void {}
 }
 
 describe("runtime cancelTree", () => {
@@ -54,12 +100,11 @@ describe("runtime cancelTree", () => {
     const E = new TestExpectation();
     const forest = new TestForest({
       orchestration: new Orchestration({
-        actors: new Map([["test.tool", def()]]),
+        actors: new Map([["test.tool", launch()]]),
       }),
       openWork: [E],
     });
-
-    const orchestrator = makeOrchestrator(forest, (input) => {
+    const host = new CancelHost(forest, (input) => {
       signal = input.signal;
       signal.addEventListener("abort", () => {
         stateWhenAborted = E.state;
@@ -67,19 +112,19 @@ describe("runtime cancelTree", () => {
       });
     });
 
-    orchestrator.activate(E);
+    host.activate(E);
     expect(E.state).toBe("running");
     expect(signal).toBeDefined();
     expect(signal!.aborted).toBe(false);
 
-    orchestrator.cancelTree(E, "user_cancel");
+    host.cancelTree(E, "user_cancel");
 
     expect(abortBeforeCancelled).toBe(true);
     expect(stateWhenAborted).toBe("running");
     expect(signal!.aborted).toBe(true);
     expect(E.state).toBe("cancelled");
-    expect(orchestrator.binding.has(E)).toBe(false);
-    expect(orchestrator.activating.has(E)).toBe(false);
+    expect(host.binding.has(E)).toBe(false);
+    expect(host.activating.has(E)).toBe(false);
   });
 
   it("T6: cancelTree on parent cancels children (abort + durable)", () => {
@@ -87,29 +132,28 @@ describe("runtime cancelTree", () => {
     const parent = new TestExpectation({ children: [child] });
     const forest = new TestForest({
       orchestration: new Orchestration({
-        actors: new Map([["test.tool", def()]]),
+        actors: new Map([["test.tool", launch()]]),
       }),
       openWork: [parent],
     });
-
     const signals: AbortSignal[] = [];
-    const orchestrator = makeOrchestrator(forest, (input) => {
+    const host = new CancelHost(forest, (input) => {
       signals.push(input.signal);
     });
 
-    orchestrator.activate(parent);
-    orchestrator.activate(child);
+    host.activate(parent);
+    host.activate(child);
     expect(parent.state).toBe("running");
     expect(child.state).toBe("running");
     expect(signals).toHaveLength(2);
 
-    orchestrator.cancelTree(parent, "user_cancel");
+    host.cancelTree(parent, "user_cancel");
 
     expect(parent.state).toBe("cancelled");
     expect(child.state).toBe("cancelled");
     expect(signals.every((s) => s.aborted)).toBe(true);
-    expect(orchestrator.binding.has(parent)).toBe(false);
-    expect(orchestrator.binding.has(child)).toBe(false);
+    expect(host.binding.has(parent)).toBe(false);
+    expect(host.binding.has(child)).toBe(false);
   });
 
   it("T6: parent complete (terminal) cascades cancelTree on open children", () => {
@@ -117,30 +161,27 @@ describe("runtime cancelTree", () => {
     const parent = new TestExpectation({ children: [child] });
     const forest = new TestForest({
       orchestration: new Orchestration({
-        actors: new Map([["test.tool", def()]]),
+        actors: new Map([["test.tool", launch()]]),
       }),
       openWork: [parent],
     });
-
     let childAborted = false;
     let mode: "child" | "parent" = "child";
-
-    const orchestrator = makeOrchestrator(forest, (input, emit) => {
+    const host = new CancelHost(forest, (input, emit) => {
       input.signal.addEventListener("abort", () => {
         childAborted = true;
       });
       if (mode === "parent") {
         emit({ type: "complete", epoch: input.epoch });
       }
-      // child mode: leave running
     });
 
     mode = "child";
-    orchestrator.activate(child);
+    host.activate(child);
     expect(child.state).toBe("running");
 
     mode = "parent";
-    orchestrator.activate(parent);
+    host.activate(parent);
     expect(parent.state).toBe("sealed");
     expect(child.state).toBe("cancelled");
     expect(childAborted).toBe(true);
@@ -151,25 +192,23 @@ describe("runtime cancelTree", () => {
     const E = new TestExpectation();
     const forest = new TestForest({
       orchestration: new Orchestration({
-        actors: new Map([["test.tool", def()]]),
+        actors: new Map([["test.tool", launch()]]),
       }),
       openWork: [E],
     });
-
-    const orchestrator = makeOrchestrator(forest, (input, emit) => {
-      expect(orchestrator.activating.has(E)).toBe(true);
+    const host = new CancelHost(forest, (input, emit) => {
+      expect(host.activating.has(E)).toBe(true);
       expect(E.state).toBe("running");
-      orchestrator.cancelTree(E, "interrupt");
+      host.cancelTree(E, "interrupt");
       cancelDuringStart = true;
-      // Further emit must be dropped
       emit({ type: "complete", epoch: input.epoch });
     });
 
-    orchestrator.activate(E);
+    host.activate(E);
     expect(cancelDuringStart).toBe(true);
     expect(E.state).toBe("cancelled");
-    expect(orchestrator.binding.has(E)).toBe(false);
-    expect(orchestrator.activating.has(E)).toBe(false);
+    expect(host.binding.has(E)).toBe(false);
+    expect(host.activating.has(E)).toBe(false);
   });
 
   it("T26: complete after cancel dropped + AbortSignal fired", () => {
@@ -180,12 +219,11 @@ describe("runtime cancelTree", () => {
     const E = new TestExpectation();
     const forest = new TestForest({
       orchestration: new Orchestration({
-        actors: new Map([["test.tool", def()]]),
+        actors: new Map([["test.tool", launch()]]),
       }),
       openWork: [E],
     });
-
-    const orchestrator = makeOrchestrator(forest, (input, e) => {
+    const host = new CancelHost(forest, (input, e) => {
       emit = e;
       signal = input.signal;
       signal.addEventListener("abort", () => {
@@ -193,31 +231,32 @@ describe("runtime cancelTree", () => {
       });
     });
 
-    orchestrator.activate(E);
+    host.activate(E);
     expect(E.state).toBe("running");
 
-    orchestrator.cancelTree(E, "user_cancel");
+    host.cancelTree(E, "user_cancel");
     expect(abortFired).toBe(true);
     expect(signal!.aborted).toBe(true);
     expect(E.state).toBe("cancelled");
 
     emit!({ type: "complete", epoch: 1 });
-    expect(E.state).toBe("cancelled"); // not sealed
+    expect(E.state).toBe("cancelled");
   });
 
   it("cancel of declared (never activated) → cancelled", () => {
     const E = new TestExpectation();
     const forest = new TestForest({
       orchestration: new Orchestration({
-        actors: new Map([["test.tool", def()]]),
+        actors: new Map([["test.tool", launch()]]),
       }),
       openWork: [E],
     });
-    const orchestrator = makeOrchestrator(forest, () => {
+    const host = new CancelHost(forest, () => {
       throw new Error("should not start");
     });
+
     expect(E.state).toBe("declared");
-    orchestrator.cancelTree(E, "user_cancel");
+    host.cancelTree(E, "user_cancel");
     expect(E.state).toBe("cancelled");
   });
 });

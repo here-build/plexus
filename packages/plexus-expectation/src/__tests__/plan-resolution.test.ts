@@ -1,17 +1,15 @@
 /**
- * T1 / T2 — pure plan resolution (spec §4.3).
- * No runtime, no activate, no Expectation.
+ * Pure plan resolution via Orchestrator.resolvePlan (no activate).
  */
 import { describe, expect, it } from "vitest";
 
 import {
   LaunchDefinition,
   Orchestration,
-  resolvePlan,
   type LaunchMode,
-  type PlanActorsSource,
   type ProgressMode,
 } from "../orchestration/index.js";
+import { Orchestrator } from "../runtime/index.js";
 
 function def(partial: {
   launchMode: LaunchMode;
@@ -27,63 +25,79 @@ function def(partial: {
   });
 }
 
-function plan(
+function actors(
   entries: ReadonlyArray<readonly [string, LaunchDefinition]> = [],
-): PlanActorsSource {
-  return { actors: new Map(entries) };
+): { get(kind: string): LaunchDefinition | undefined } {
+  return new Map(entries);
 }
 
-describe("resolvePlan (T1 T2)", () => {
+const only =
+  (...modes: string[]) =>
+  (mode: string) =>
+    modes.includes(mode);
+
+describe("Orchestrator.resolvePlan", () => {
   it("T1: no plan → missing", () => {
-    const outcome = resolvePlan("tool_call", plan(), new Set(["inprocess"]));
+    const outcome = Orchestrator.resolvePlan("tool_call", { actors: actors() }, only("inprocess"));
     expect(outcome).toEqual({ status: "missing" });
   });
 
-  it("T2: unloaded mode → refused", () => {
+  it("T2: unsupported mode → refused", () => {
     const launch = def({ launchMode: "inprocess" });
-    // surface loaded, but plan wants inprocess
-    const outcome = resolvePlan("tool_call", plan([["tool_call", launch]]), new Set(["surface"]));
+    const outcome = Orchestrator.resolvePlan(
+      "tool_call",
+      { actors: actors([["tool_call", launch]]) },
+      only("surface"),
+    );
     expect(outcome.status).toBe("refused");
     if (outcome.status === "refused") {
       expect(outcome.def).toBe(launch);
     }
   });
 
-  it("bound when mode loaded", () => {
+  it("bound when mode supported", () => {
     const launch = def({
       launchMode: "surface",
       acceptsMessages: false,
       emitsProgress: false,
       progressMode: "none",
     });
-    const outcome = resolvePlan(
+    const outcome = Orchestrator.resolvePlan(
       "harness.approval",
-      plan([["harness.approval", launch]]),
-      new Set(["inprocess", "surface"]),
+      { actors: actors([["harness.approval", launch]]) },
+      only("inprocess", "surface"),
     );
     expect(outcome).toEqual({ status: "bound", def: launch });
   });
 
   it("unknown kind is missing even when other kinds are registered", () => {
     expect(
-      resolvePlan(
+      Orchestrator.resolvePlan(
         "other",
-        plan([["tool_call", def({ launchMode: "inprocess" })]]),
-        new Set(["inprocess"]),
+        { actors: actors([["tool_call", def({ launchMode: "inprocess" })]]) },
+        only("inprocess"),
       ),
     ).toEqual({ status: "missing" });
   });
 
-  it("accepts real Orchestration as PlanActorsSource", () => {
-    const launch = def({ launchMode: "inprocess", emitsProgress: true, progressMode: "lww" });
+  it("accepts real Orchestration", () => {
+    const launch = def({
+      launchMode: "inprocess",
+      emitsProgress: true,
+      progressMode: "lww",
+    });
     const orchestration = new Orchestration({
       actors: new Map([["tool_call", launch]]),
     });
-    expect(resolvePlan("tool_call", orchestration, new Set(["inprocess"]))).toEqual({
+    expect(
+      Orchestrator.resolvePlan("tool_call", orchestration, only("inprocess")),
+    ).toEqual({
       status: "bound",
       def: launch,
     });
-    expect(resolvePlan("missing_kind", orchestration, new Set(["inprocess"]))).toEqual({
+    expect(
+      Orchestrator.resolvePlan("missing_kind", orchestration, only("inprocess")),
+    ).toEqual({
       status: "missing",
     });
   });

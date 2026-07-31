@@ -5,36 +5,21 @@
 
 export {
   Orchestrator,
-  DEFAULT_MAX_REBINDS,
-  collectReachable,
-  isForestOrphan,
-  isTreeOrphan,
   walkExpectationForest,
   type BindEntry,
   type MarkAwaitingRebindOpts,
-  type OrchestratorHost,
-  type ProgressApplier,
-  type ReconcileWalk,
+  type PlanResolution,
   type SettleSurfaceBody,
   type SettleSurfaceErrorCode,
   type SettleSurfaceResult,
 } from "./orchestrator.js";
 
 export {
-  modulesFromMap,
-  modulesFromRecord,
-  type ModuleRegistry,
-} from "./modules.js";
-
-export {
-  handleFromController,
-  snapshotDefinition,
+  LaunchDefinitionSnapshot,
   type EmitFn,
-  type LaunchDefinitionSnapshot,
   type ProgressPatch,
   type ResolverEmit,
   type ResolverHandle,
   type ResolverStartInput,
   type StartResolverFn,
-  type WorkIdentity,
 } from "./resolver.js";

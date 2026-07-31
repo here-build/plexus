@@ -1,5 +1,5 @@
 /**
- * Durable Expectation lifecycle (§3.2).
+ * Durable Expectation lifecycle.
  *
  * Process-local activation maps (`binding` / `activating`) are runtime-only —
  * not part of this durable enum.
@@ -22,12 +22,10 @@ export type TerminalLifecycle = (typeof TERMINAL_LIFECYCLES)[number];
 
 const TERMINAL_SET: ReadonlySet<Lifecycle> = new Set(TERMINAL_LIFECYCLES);
 
-/** True when the unit is settled (`sealed` | `failed` | `cancelled`). */
 export function isTerminal(state: Lifecycle): state is TerminalLifecycle {
   return TERMINAL_SET.has(state);
 }
 
-/** True when work is still open (non-terminal). */
 export function isOpen(state: Lifecycle): boolean {
   return !isTerminal(state);
 }

@@ -1,5 +1,7 @@
 /**
- * PR-3 runtime: activate + emit (T1–T5, T9, T16, T19, T24, T25).
+ * Runtime: activate + emit (T1–T5, T9, T16, T19, T24, T25).
+ *
+ * Each host is an Orchestrator subclass — no makeOrch options bag.
  */
 import "@here.build/plexus/mobx/register";
 
@@ -9,19 +11,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Expectation } from "../app/index.js";
 import { LaunchDefinition, Orchestration } from "../orchestration/index.js";
 import {
-  modulesFromRecord,
   Orchestrator,
-  type ModuleRegistry,
+  type ProgressPatch,
   type ResolverStartInput,
   type StartResolverFn,
 } from "../runtime/index.js";
-
-function asModules(m: ModuleRegistry | Record<string, StartResolverFn>): ModuleRegistry {
-  if (typeof (m as ModuleRegistry).register === "function") {
-    return m as ModuleRegistry;
-  }
-  return modulesFromRecord(m as Record<string, StartResolverFn>);
-}
 
 @syncing("@here.build/plexus-expectation:test.RuntimeExpectation")
 class TestExpectation extends Expectation {
@@ -36,7 +30,7 @@ class TestForest extends PlexusModel {
   @syncing.child.list accessor openWork: TestExpectation[] = [];
 }
 
-function def(mode: "inprocess" | "surface" = "inprocess"): LaunchDefinition {
+function launch(mode: "inprocess" | "surface" = "inprocess"): LaunchDefinition {
   return new LaunchDefinition({
     launchMode: mode,
     acceptsMessages: false,
@@ -45,153 +39,210 @@ function def(mode: "inprocess" | "surface" = "inprocess"): LaunchDefinition {
   });
 }
 
-function makeOrch(opts: {
-  actors?: ReadonlyArray<readonly [string, LaunchDefinition]>;
-  loaded?: ReadonlySet<string>;
-  start?: StartResolverFn;
-  modules?: ModuleRegistry | Record<string, StartResolverFn>;
-  applyProgress?: (E: Expectation, patch: unknown) => void;
-  snapshotProductFields?: (E: Expectation) => unknown;
-}): {
-  forest: TestForest;
-  orchestrator: Orchestrator;
-  E: TestExpectation;
-} {
-  const launch = def("inprocess");
-  const actors = opts.actors ?? [["test.tool", launch]];
-  const E = new TestExpectation({ payload: "in" });
-  const forest = new TestForest({
-    orchestration: new Orchestration({
-      actors: new Map(actors),
-    }),
-    openWork: [E],
-  });
+/** Default test claim-owner host. Scenario hosts subclass and override abstract policy. */
+class ActivateHost extends Orchestrator {
+  /** kind and/or launchMode → starter. */
+  readonly starters: Map<string, StartResolverFn>;
+  private readonly modes: ReadonlySet<string>;
 
-  const modules = asModules(
-    opts.modules ??
-      (opts.start
-        ? { inprocess: opts.start }
-        : {
-            inprocess: ((_input, emit) => {
-              emit({ type: "complete", epoch: _input.epoch });
-            }) satisfies StartResolverFn,
-          }),
-  );
+  constructor(
+    readonly forest: TestForest,
+    starters: Record<string, StartResolverFn> = {},
+    modes: ReadonlySet<string> = new Set(["inprocess", "surface"]),
+  ) {
+    super();
+    this.starters = new Map(Object.entries(starters));
+    this.modes = modes;
+  }
 
-  const orchestrator = new Orchestrator({
-    getOrchestration: () => forest.orchestration,
-    loadedModules: opts.loaded ?? new Set(["inprocess", "surface"]),
-    modules,
-    applyProgress: opts.applyProgress,
-    snapshotProductFields:
-      opts.snapshotProductFields ??
-      ((e) => ({ payload: (e as TestExpectation).payload })),
-  });
+  getOrchestration(): Orchestration {
+    return this.forest.orchestration;
+  }
 
-  return { forest, orchestrator, E };
+  supportsLaunchMode(mode: string): boolean {
+    return this.modes.has(mode);
+  }
+
+  resolveModule(kind: string, launchMode: string): StartResolverFn | undefined {
+    return this.starters.get(kind) ?? this.starters.get(launchMode);
+  }
+
+  registerModule(key: string, start: StartResolverFn): void {
+    this.starters.set(key, start);
+  }
+
+  isClaimOwner(): boolean {
+    return true;
+  }
+
+  getOpenWorkRoots(): readonly Expectation[] {
+    return this.forest.openWork;
+  }
+
+  walkCandidates(): Iterable<Expectation> {
+    return [];
+  }
+
+  hasLiveClaimPeerBind(_E: Expectation): boolean {
+    return false;
+  }
+
+  snapshotProductFields(E: Expectation): unknown {
+    return { payload: (E as TestExpectation).payload };
+  }
+
+  applyProgress(_E: Expectation, _patch: ProgressPatch): void {}
+
+  publishAwarenessBinds(): void {}
+}
+
+class ProgressHost extends ActivateHost {
+  readonly patches: unknown[] = [];
+
+  override applyProgress(_E: Expectation, patch: ProgressPatch): void {
+    this.patches.push(patch);
+  }
 }
 
 describe("runtime activate / emit", () => {
   beforeEach(() => resetLocalIDs());
 
   it("T1: no plan → missing via activate", () => {
-    const { orchestrator, E } = makeOrch({ actors: [] });
-    orchestrator.activate(E);
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({ actors: new Map() }),
+      openWork: [E],
+    });
+    const host = new ActivateHost(forest, {
+      inprocess: (input, emit) => {
+        emit({ type: "complete", epoch: input.epoch });
+      },
+    });
+
+    host.activate(E);
     expect(E.state).toBe("missing");
-    expect(orchestrator.binding.has(E)).toBe(false);
+    expect(host.binding.has(E)).toBe(false);
   });
 
   it("T2: unloaded mode → refused via activate", () => {
-    const { orchestrator, E } = makeOrch({
-      loaded: new Set(["surface"]), // inprocess plan, surface only loaded
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
     });
-    orchestrator.activate(E);
+    // Plan wants inprocess; host only loads surface.
+    const host = new ActivateHost(
+      forest,
+      {
+        inprocess: (input, emit) => {
+          emit({ type: "complete", epoch: input.epoch });
+        },
+      },
+      new Set(["surface"]),
+    );
+
+    host.activate(E);
     expect(E.state).toBe("refused");
-    expect(orchestrator.binding.has(E)).toBe(false);
+    expect(host.binding.has(E)).toBe(false);
   });
 
   it("T3: inprocess progress + complete", () => {
-    const patches: unknown[] = [];
-    const { orchestrator, E } = makeOrch({
-      applyProgress: (_e, patch) => {
-        patches.push(patch);
-      },
-      start: (input, emit) => {
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
+    });
+    const host = new ProgressHost(forest, {
+      inprocess: (input, emit) => {
         emit({ type: "progress", epoch: input.epoch, patch: { n: 1 } });
         emit({ type: "progress", epoch: input.epoch, patch: { n: 2 } });
         emit({ type: "complete", epoch: input.epoch });
       },
     });
-    orchestrator.activate(E);
-    expect(patches).toEqual([{ n: 1 }, { n: 2 }]);
+
+    host.activate(E);
+    expect(host.patches).toEqual([{ n: 1 }, { n: 2 }]);
     expect(E.state).toBe("sealed");
-    expect(orchestrator.binding.has(E)).toBe(false);
+    expect(host.binding.has(E)).toBe(false);
     expect(E.bindEpoch).toBe(1);
   });
 
   it("T4: stale epoch emit dropped", () => {
-    const patches: unknown[] = [];
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
+    });
     let captured: { emit: Parameters<StartResolverFn>[1]; epoch: number } | undefined;
-    const { orchestrator, E } = makeOrch({
-      applyProgress: (_e, patch) => {
-        patches.push(patch);
-      },
-      start: (input, emit) => {
+    const host = new ProgressHost(forest, {
+      inprocess: (input, emit) => {
         captured = { emit, epoch: input.epoch };
-        // leave running — do not complete
       },
     });
-    orchestrator.activate(E);
+
+    host.activate(E);
     expect(E.state).toBe("running");
     expect(E.bindEpoch).toBe(1);
 
-    // Stale epoch
     captured!.emit({ type: "progress", epoch: 0, patch: { stale: true } });
     captured!.emit({ type: "complete", epoch: 0 });
-    expect(patches).toEqual([]);
+    expect(host.patches).toEqual([]);
     expect(E.state).toBe("running");
 
-    // Current epoch still works
     captured!.emit({ type: "progress", epoch: 1, patch: { ok: true } });
-    expect(patches).toEqual([{ ok: true }]);
+    expect(host.patches).toEqual([{ ok: true }]);
     captured!.emit({ type: "complete", epoch: 1 });
     expect(E.state).toBe("sealed");
   });
 
   it("T5 / T24: activation single-flight (concurrent activate)", () => {
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
+    });
     let entries = 0;
     let reentrantActivate = 0;
-    const { orchestrator, E } = makeOrch({
-      start: (input, emit) => {
+    const host = new ActivateHost(forest, {
+      inprocess: (input, emit) => {
         entries += 1;
-        // Nested activate while in activating set
-        orchestrator.activate(E);
-        if (orchestrator.activating.has(E)) {
-          reentrantActivate += 1;
-        }
-        // Second external-style call
-        orchestrator.activate(E);
+        host.activate(E);
+        if (host.activating.has(E)) reentrantActivate += 1;
+        host.activate(E);
         emit({ type: "complete", epoch: input.epoch });
       },
     });
-    orchestrator.activate(E);
+
+    host.activate(E);
     expect(entries).toBe(1);
     expect(reentrantActivate).toBe(1);
     expect(E.state).toBe("sealed");
-    // Healthy sealed: further activate is no-op
-    orchestrator.activate(E);
+    host.activate(E);
     expect(entries).toBe(1);
   });
 
   it("T9: resolver gets snapshot only — no Expectation entity / doc", () => {
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
+    });
     let seen: ResolverStartInput | undefined;
-    const { orchestrator, E } = makeOrch({
-      snapshotProductFields: (e) => ({ payload: (e as TestExpectation).payload }),
-      start: (input, emit) => {
+    const host = new ActivateHost(forest, {
+      inprocess: (input, emit) => {
         seen = input;
-        // Prove input is plain data
         const json = JSON.parse(JSON.stringify(input)) as ResolverStartInput;
-        expect(json.work.kind).toBe("test.tool");
+        expect(json.kind).toBe("test.tool");
         expect(json.epoch).toBe(1);
         expect(json.definition.launchMode).toBe("inprocess");
         expect(json.input).toEqual({ payload: "in" });
@@ -199,53 +250,73 @@ describe("runtime activate / emit", () => {
         emit({ type: "complete", epoch: input.epoch });
       },
     });
-    orchestrator.activate(E);
+
+    host.activate(E);
     expect(seen).toBeDefined();
-    // No Expectation / doc keys on the start payload
     expect(seen).not.toHaveProperty("expectation");
     expect(seen).not.toHaveProperty("doc");
     expect(seen).not.toHaveProperty("E");
-    // Values are snapshots, not live entity references
     expect(seen!.input).toEqual({ payload: "in" });
     expect(seen!.input).not.toBe(E);
   });
 
   it("T16: startResolver throw → failed, epoch burned", () => {
-    const { orchestrator, E } = makeOrch({
-      start: () => {
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
+    });
+    const host = new ActivateHost(forest, {
+      inprocess: () => {
         throw new Error("boom");
       },
     });
-    orchestrator.activate(E);
+
+    host.activate(E);
     expect(E.state).toBe("failed");
-    expect(E.bindEpoch).toBe(1); // burned, not rolled back
-    expect(orchestrator.binding.has(E)).toBe(false);
+    expect(E.bindEpoch).toBe(1);
+    expect(host.binding.has(E)).toBe(false);
   });
 
   it("T19: sync complete before startResolver returns is applied", () => {
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
+    });
     let stateAtReturn: string | undefined;
-    const { orchestrator, E } = makeOrch({
-      start: (input, emit) => {
+    const host = new ActivateHost(forest, {
+      inprocess: (input, emit) => {
         emit({ type: "complete", epoch: input.epoch });
-        // Observe from inside: already sealed before return
         stateAtReturn = E.state;
       },
     });
-    orchestrator.activate(E);
+
+    host.activate(E);
     expect(stateAtReturn).toBe("sealed");
     expect(E.state).toBe("sealed");
-    expect(orchestrator.binding.has(E)).toBe(false);
+    expect(host.binding.has(E)).toBe(false);
   });
 
   it("T25: binding/activating use entity keys (not uuid strings)", () => {
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
+    });
     let midBindKeys: unknown[] = [];
     let midActivatingHasEntity = false;
-    const { orchestrator, E } = makeOrch({
-      start: (input, emit) => {
-        midBindKeys = [...orchestrator.binding.keys()];
-        midActivatingHasEntity = orchestrator.activating.has(E);
-        expect(orchestrator.binding.has(E)).toBe(true);
-        // Map must not be keyed by uuid string
+    const host = new ActivateHost(forest, {
+      inprocess: (input, emit) => {
+        midBindKeys = [...host.binding.keys()];
+        midActivatingHasEntity = host.activating.has(E);
+        expect(host.binding.has(E)).toBe(true);
         for (const k of midBindKeys) {
           expect(typeof k).not.toBe("string");
           expect(k).toBeInstanceOf(Expectation);
@@ -253,78 +324,94 @@ describe("runtime activate / emit", () => {
         emit({ type: "complete", epoch: input.epoch });
       },
     });
-    orchestrator.activate(E);
+
+    host.activate(E);
     expect(midActivatingHasEntity).toBe(true);
     expect(midBindKeys).toHaveLength(1);
     expect(midBindKeys[0]).toBe(E);
   });
 
-  it("surface mode binds without startResolver", () => {
-    const start = vi.fn();
-    const { orchestrator, E } = makeOrch({
-      actors: [["test.tool", def("surface")]],
-      modules: modulesFromRecord({ inprocess: start, surface: start }),
+  it("surface mode uses mode-level starter (not inprocess)", () => {
+    const inprocess = vi.fn();
+    const surface = vi.fn(() => {
+      /* leave running — human settle */
     });
-    orchestrator.activate(E);
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("surface")]]),
+      }),
+      openWork: [E],
+    });
+    const host = new ActivateHost(forest, { inprocess, surface });
+
+    host.activate(E);
     expect(E.state).toBe("running");
-    expect(start).not.toHaveBeenCalled();
-    expect(orchestrator.binding.has(E)).toBe(true);
-    expect(orchestrator.binding.get(E)!.epoch).toBe(E.bindEpoch);
+    expect(inprocess).not.toHaveBeenCalled();
+    expect(surface).toHaveBeenCalledOnce();
+    expect(host.binding.has(E)).toBe(true);
+    expect(host.binding.get(E)!.epoch).toBe(E.bindEpoch);
   });
 
   it("running + healthy bind is idempotent", () => {
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
+    });
     let starts = 0;
-    const { orchestrator, E } = makeOrch({
-      start: () => {
+    const host = new ActivateHost(forest, {
+      inprocess: () => {
         starts += 1;
-        // stay running
       },
     });
-    orchestrator.activate(E);
-    orchestrator.activate(E);
+
+    host.activate(E);
+    host.activate(E);
     expect(starts).toBe(1);
     expect(E.state).toBe("running");
     expect(E.bindEpoch).toBe(1);
   });
 
   it("fail emit → failed", () => {
-    const { orchestrator, E } = makeOrch({
-      start: (input, emit) => {
-        emit({ type: "fail", epoch: input.epoch, reason: "x" });
-      },
-    });
-    orchestrator.activate(E);
-    expect(E.state).toBe("failed");
-  });
-
-  it("missing starter waits (no durable run); late register + noteModulesChanged activates", () => {
-    const launch = def("inprocess");
-    const E = new TestExpectation({ payload: "late" });
+    const E = new TestExpectation({ payload: "in" });
     const forest = new TestForest({
       orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch]]),
+        actors: new Map([["test.tool", launch("inprocess")]]),
       }),
       openWork: [E],
     });
-    const modules = modulesFromRecord({});
-    const orchestrator = new Orchestrator({
-      getOrchestration: () => forest.orchestration,
-      loadedModules: new Set(["inprocess", "surface"]),
-      modules,
-      getOpenWorkRoots: () => forest.openWork,
-      snapshotProductFields: (e) => ({ payload: (e as TestExpectation).payload }),
+    const host = new ActivateHost(forest, {
+      inprocess: (input, emit) => {
+        emit({ type: "fail", epoch: input.epoch, reason: "x" });
+      },
     });
 
-    orchestrator.activate(E);
-    // Mode loaded, plan present, handler missing — wait, do not fail or run.
+    host.activate(E);
+    expect(E.state).toBe("failed");
+  });
+
+  it("missing starter waits (no durable run); late register + reconcile activates", () => {
+    const E = new TestExpectation({ payload: "late" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
+    });
+    const host = new ActivateHost(forest, {});
+
+    host.activate(E);
     expect(E.state).toBe("declared");
-    expect(orchestrator.binding.has(E)).toBe(false);
+    expect(host.binding.has(E)).toBe(false);
     expect(E.bindEpoch).toBe(0);
 
-    modules.register("inprocess", (input, emit) => {
+    host.registerModule("inprocess", (input, emit) => {
       emit({ type: "complete", epoch: input.epoch });
     });
-    orchestrator.noteModulesChanged();
+    host.reconcile();
 
     expect(E.state).toBe("sealed");
     expect(E.bindEpoch).toBe(1);

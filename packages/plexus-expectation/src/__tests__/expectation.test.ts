@@ -4,9 +4,7 @@ import { PlexusModel, resetLocalIDs, syncing } from "@here.build/plexus";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
-  assertCloneable,
   Expectation,
-  PewCloneOpenError,
   PewTerminalWriteError,
   type Lifecycle,
 } from "../app/index.js";
@@ -70,16 +68,32 @@ describe("Expectation", () => {
     });
   });
 
-  describe("clone (T11)", () => {
-    it("T11: open (non-terminal) clone throws PewCloneOpenError", () => {
-      for (const state of ["declared", "missing", "refused", "running", "awaiting_rebind"] as const) {
-        const e = openExpectation(state);
-        expect(() => e.clone()).toThrow(PewCloneOpenError);
-        expect(() => assertCloneable(e)).toThrow(PewCloneOpenError);
+  describe("clone", () => {
+    it("open clone allowed; always resets bindEpoch / rebindCount", () => {
+      for (const state of [
+        "declared",
+        "missing",
+        "refused",
+        "running",
+        "awaiting_rebind",
+      ] as const) {
+        const e = new TestExpectation({
+          state,
+          bindEpoch: 5,
+          rebindCount: 2,
+          children: [],
+        });
+        const cloned = e.clone();
+        expect(cloned).not.toBe(e);
+        expect(cloned.state).toBe(state);
+        expect(cloned.bindEpoch).toBe(0);
+        expect(cloned.rebindCount).toBe(0);
+        expect(e.bindEpoch).toBe(5);
+        expect(e.rebindCount).toBe(2);
       }
     });
 
-    it("terminal clone succeeds and resets bindEpoch / rebindCount", () => {
+    it("terminal clone resets bindEpoch / rebindCount", () => {
       const e = new TestExpectation({
         state: "sealed",
         bindEpoch: 7,
@@ -91,21 +105,32 @@ describe("Expectation", () => {
       expect(cloned.state).toBe("sealed");
       expect(cloned.bindEpoch).toBe(0);
       expect(cloned.rebindCount).toBe(0);
-      // source unchanged
       expect(e.bindEpoch).toBe(7);
       expect(e.rebindCount).toBe(3);
     });
 
-    it("assertCloneable walks children — open child under terminal parent throws", () => {
-      const child = openExpectation("running");
+    it("parent with open child clones; claim counters reset on each node", () => {
+      const child = new TestExpectation({
+        state: "running",
+        bindEpoch: 4,
+        rebindCount: 1,
+        children: [],
+      });
       const parent = new TestExpectation({
         state: "sealed",
         bindEpoch: 1,
         rebindCount: 0,
         children: [child],
       });
-      expect(() => assertCloneable(parent)).toThrow(PewCloneOpenError);
-      expect(() => parent.clone()).toThrow(PewCloneOpenError);
+      const cloned = parent.clone();
+      expect(cloned.state).toBe("sealed");
+      expect(cloned.bindEpoch).toBe(0);
+      expect(cloned.rebindCount).toBe(0);
+      expect(cloned.children).toHaveLength(1);
+      const c0 = cloned.children[0]!;
+      expect(c0.state).toBe("running");
+      expect(c0.bindEpoch).toBe(0);
+      expect(c0.rebindCount).toBe(0);
     });
 
     it("terminal parent + terminal children clone resets each node", () => {

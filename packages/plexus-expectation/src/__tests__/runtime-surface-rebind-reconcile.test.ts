@@ -1,6 +1,7 @@
 /**
- * PR-4 runtime: surface settle + rebind + reconcile
- * (T7 T10 T14 T17 T20 T21 T22 T27).
+ * Runtime: surface settle + rebind + reconcile (T7 T10 T14 T17 T20 T21 T22 T27).
+ *
+ * Each host is an Orchestrator subclass — no makeOrch options bag.
  */
 import "@here.build/plexus/mobx/register";
 
@@ -9,20 +10,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Expectation } from "../app/index.js";
 import { LaunchDefinition, Orchestration } from "../orchestration/index.js";
-import {
-  DEFAULT_MAX_REBINDS,
-  modulesFromRecord,
-  Orchestrator,
-  type ModuleRegistry,
-  type StartResolverFn,
-} from "../runtime/index.js";
-
-function asModules(m: ModuleRegistry | Record<string, StartResolverFn>): ModuleRegistry {
-  if (typeof (m as ModuleRegistry).register === "function") {
-    return m as ModuleRegistry;
-  }
-  return modulesFromRecord(m as Record<string, StartResolverFn>);
-}
+import { Orchestrator, type StartResolverFn } from "../runtime/index.js";
+import { DEFAULT_MAX_REBINDS } from "../runtime/orchestrator.js";
 
 @syncing("@here.build/plexus-expectation:test.Pr4Expectation")
 class TestExpectation extends Expectation {
@@ -37,7 +26,7 @@ class TestForest extends PlexusModel {
   @syncing.child.list accessor openWork: TestExpectation[] = [];
 }
 
-function def(mode: "inprocess" | "surface" = "inprocess"): LaunchDefinition {
+function launch(mode: "inprocess" | "surface" = "inprocess"): LaunchDefinition {
   return new LaunchDefinition({
     launchMode: mode,
     acceptsMessages: false,
@@ -46,90 +35,156 @@ function def(mode: "inprocess" | "surface" = "inprocess"): LaunchDefinition {
   });
 }
 
-function makeOrch(opts: {
-  actors?: ReadonlyArray<readonly [string, LaunchDefinition]>;
-  loaded?: ReadonlySet<string>;
-  start?: StartResolverFn;
-  modules?: ModuleRegistry | Record<string, StartResolverFn>;
-  isClaimOwner?: boolean | (() => boolean);
-  maxRebinds?: number;
-  openWork?: TestExpectation[];
-  walkCandidates?: () => Iterable<Expectation>;
-  hasLiveClaimPeerBind?: (E: Expectation) => boolean;
-}): {
-  forest: TestForest;
-  orchestrator: Orchestrator;
-  E: TestExpectation;
-} {
-  const launch = def("inprocess");
-  const actors = opts.actors ?? [["test.tool", launch]];
-  const E = opts.openWork?.[0] ?? new TestExpectation({ payload: "in" });
-  const openWork = opts.openWork ?? [E];
-  const forest = new TestForest({
-    orchestration: new Orchestration({
-      actors: new Map(actors),
-    }),
-    openWork,
-  });
+/** Default rebind/settle claim-owner host. Scenario hosts override abstract policy. */
+class RebindHost extends Orchestrator {
+  readonly starters: Map<string, StartResolverFn>;
+  private readonly modes: ReadonlySet<string>;
 
-  const modules = asModules(
-    opts.modules ??
-      (opts.start
-        ? { inprocess: opts.start }
-        : {
-            inprocess: (() => {
-              /* leave running */
-            }) satisfies StartResolverFn,
-          }),
-  );
+  constructor(
+    readonly forest: TestForest,
+    starters: Record<string, StartResolverFn>,
+    modes: ReadonlySet<string> = new Set(["inprocess", "surface"]),
+    maxRebinds?: number,
+  ) {
+    super({ maxRebinds });
+    this.starters = new Map(Object.entries(starters));
+    this.modes = modes;
+  }
 
-  const orchestrator = new Orchestrator({
-    getOrchestration: () => forest.orchestration,
-    loadedModules: opts.loaded ?? new Set(["inprocess", "surface"]),
-    modules,
-    isClaimOwner: opts.isClaimOwner,
-    maxRebinds: opts.maxRebinds,
-    getOpenWorkRoots: () => forest.openWork,
-    walkCandidates: opts.walkCandidates,
-    hasLiveClaimPeerBind: opts.hasLiveClaimPeerBind,
-  });
+  getOrchestration(): Orchestration {
+    return this.forest.orchestration;
+  }
 
-  return { forest, orchestrator, E };
+  supportsLaunchMode(mode: string): boolean {
+    return this.modes.has(mode);
+  }
+
+  resolveModule(kind: string, launchMode: string): StartResolverFn | undefined {
+    return this.starters.get(kind) ?? this.starters.get(launchMode);
+  }
+
+  registerModule(key: string, start: StartResolverFn): void {
+    this.starters.set(key, start);
+  }
+
+  isClaimOwner(): boolean {
+    return true;
+  }
+
+  getOpenWorkRoots(): readonly Expectation[] {
+    return this.forest.openWork;
+  }
+
+  walkCandidates(): Iterable<Expectation> {
+    return [];
+  }
+
+  hasLiveClaimPeerBind(_E: Expectation): boolean {
+    return false;
+  }
+
+  snapshotProductFields(_E: Expectation): unknown {
+    return {};
+  }
+
+  applyProgress(_E: Expectation, _patch: unknown): void {}
+
+  publishAwarenessBinds(): void {}
+
+  /** Test seam — protected bind map. */
+  dropBind(E: Expectation): void {
+    this.releaseLocalBind(E);
+  }
+
+  /** Test seam — install a local bind without activate. */
+  installBind(E: Expectation, entry: { handle: { abort(reason?: unknown): void; readonly aborted: boolean }; epoch: number }): void {
+    this.setBind(E, entry);
+  }
+}
+
+/** isClaimOwner flips after activate (settle gate independent of bind). */
+class FlipClaimHost extends RebindHost {
+  owner = true;
+
+  override isClaimOwner(): boolean {
+    return this.owner;
+  }
+}
+
+/** Dual-claim / observe-only — activation refused. */
+class ObserveOnlyHost extends RebindHost {
+  override isClaimOwner(): boolean {
+    return false;
+  }
+}
+
+/** Peer still advertises the bind — claim orphan must not rebind locally. */
+class PeerBindHost extends RebindHost {
+  override hasLiveClaimPeerBind(_E: Expectation): boolean {
+    return true;
+  }
+}
+
+/** Forest-orphan scan includes units outside openWork. */
+class ForestScanHost extends RebindHost {
+  constructor(
+    forest: TestForest,
+    starters: Record<string, StartResolverFn>,
+    private readonly candidates: () => Iterable<Expectation>,
+  ) {
+    super(forest, starters, new Set(["inprocess"]));
+  }
+
+  override walkCandidates(): Iterable<Expectation> {
+    return this.candidates();
+  }
 }
 
 describe("PR-4 surface settle / rebind / reconcile", () => {
   beforeEach(() => resetLocalIDs());
 
   it("T7: surface settle seals without process", () => {
-    const start = vi.fn();
-    const { orchestrator, E } = makeOrch({
-      actors: [["test.tool", def("surface")]],
-      modules: modulesFromRecord({ inprocess: start, surface: start }),
+    const inprocess = vi.fn();
+    const surface = vi.fn(() => {
+      /* leave running for settleSurface */
     });
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("surface")]]),
+      }),
+      openWork: [E],
+    });
+    const host = new RebindHost(forest, { inprocess, surface });
 
-    orchestrator.activate(E);
+    host.activate(E);
     expect(E.state).toBe("running");
-    expect(start).not.toHaveBeenCalled();
-    expect(orchestrator.binding.has(E)).toBe(true);
+    expect(inprocess).not.toHaveBeenCalled();
+    expect(surface).toHaveBeenCalledOnce();
+    expect(host.binding.has(E)).toBe(true);
 
-    const result = orchestrator.settleSurface(E, {
+    const result = host.settleSurface(E, {
       epoch: E.bindEpoch,
       disposition: "allow",
     });
 
     expect(result).toEqual({ ok: true });
     expect(E.state).toBe("sealed");
-    expect(orchestrator.binding.has(E)).toBe(false);
-    expect(start).not.toHaveBeenCalled();
+    expect(host.binding.has(E)).toBe(false);
   });
 
   it("T7: surface abandon → cancelled", () => {
-    const { orchestrator, E } = makeOrch({
-      actors: [["test.tool", def("surface")]],
-      modules: modulesFromRecord({ surface: () => {} }),
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("surface")]]),
+      }),
+      openWork: [E],
     });
-    orchestrator.activate(E);
-    const result = orchestrator.settleSurface(E, {
+    const host = new RebindHost(forest, { surface: () => {} });
+
+    host.activate(E);
+    const result = host.settleSurface(E, {
       epoch: E.bindEpoch,
       disposition: "abandon",
     });
@@ -138,17 +193,19 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
   });
 
   it("T7: settleSurface not_claim_owner", () => {
-    let owner = true;
-    const { orchestrator, E } = makeOrch({
-      actors: [["test.tool", def("surface")]],
-      modules: modulesFromRecord({ surface: () => {} }),
-      isClaimOwner: () => owner,
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("surface")]]),
+      }),
+      openWork: [E],
     });
-    // Activate while claim owner, then flip — settle gate is independent of activate.
-    orchestrator.activate(E);
+    const host = new FlipClaimHost(forest, { surface: () => {} });
+
+    host.activate(E);
     expect(E.state).toBe("running");
-    owner = false;
-    const result = orchestrator.settleSurface(E, {
+    host.owner = false;
+    const result = host.settleSurface(E, {
       epoch: E.bindEpoch,
       disposition: "allow",
     });
@@ -158,54 +215,69 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
 
   it("PR-9: activate refuses when isClaimOwner is false (dual-claim / observe-only)", () => {
     const start = vi.fn();
-    const { orchestrator, E } = makeOrch({
-      isClaimOwner: false,
-      start,
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
     });
-    orchestrator.activate(E);
+    const host = new ObserveOnlyHost(forest, { inprocess: start });
+
+    host.activate(E);
     expect(E.state).toBe("declared");
     expect(start).not.toHaveBeenCalled();
-    expect(orchestrator.binding.has(E)).toBe(false);
+    expect(host.binding.has(E)).toBe(false);
   });
 
   it("PR-9: hasLiveClaimPeerBind true → claim orphan not re-bound locally", () => {
-    const { orchestrator, E } = makeOrch({
-      start: () => {
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
+    });
+    const host = new PeerBindHost(forest, {
+      inprocess: () => {
         /* leave running */
       },
-      hasLiveClaimPeerBind: () => true,
     });
-    orchestrator.activate(E);
+
+    host.activate(E);
     expect(E.state).toBe("running");
     const epoch = E.bindEpoch;
-    orchestrator.clearBind(E); // claim orphan locally, but peer still advertises
+    host.dropBind(E);
 
-    orchestrator.reconcile();
+    host.reconcile();
 
-    // Peer still owns the bind — do not mark awaiting_rebind or re-activate.
     expect(E.state).toBe("running");
     expect(E.bindEpoch).toBe(epoch);
-    expect(orchestrator.binding.has(E)).toBe(false);
+    expect(host.binding.has(E)).toBe(false);
   });
 
   it("T21: settleSurface stale_epoch returns error to caller", () => {
-    const { orchestrator, E } = makeOrch({
-      actors: [["test.tool", def("surface")]],
-      modules: modulesFromRecord({ surface: () => {} }),
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("surface")]]),
+      }),
+      openWork: [E],
     });
-    orchestrator.activate(E);
+    const host = new RebindHost(forest, { surface: () => {} });
+
+    host.activate(E);
     expect(E.bindEpoch).toBe(1);
 
-    const stale = orchestrator.settleSurface(E, {
+    const stale = host.settleSurface(E, {
       epoch: 0,
       disposition: "allow",
     });
     expect(stale).toEqual({ ok: false, code: "stale_epoch" });
     expect(E.state).toBe("running");
 
-    // Clear bind → also stale
-    orchestrator.clearBind(E);
-    const missingBind = orchestrator.settleSurface(E, {
+    host.dropBind(E);
+    const missingBind = host.settleSurface(E, {
       epoch: 1,
       disposition: "deny",
     });
@@ -214,12 +286,17 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
   });
 
   it("T21: settleSurface not_running", () => {
-    const { orchestrator, E } = makeOrch({
-      actors: [["test.tool", def("surface")]],
-      modules: modulesFromRecord({ surface: () => {} }),
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("surface")]]),
+      }),
+      openWork: [E],
     });
+    const host = new RebindHost(forest, { surface: () => {} });
+
     expect(E.state).toBe("declared");
-    const result = orchestrator.settleSurface(E, {
+    const result = host.settleSurface(E, {
       epoch: 0,
       disposition: "allow",
     });
@@ -228,62 +305,71 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
 
   it("unhealthy bind on re-activate → onResolverDeath (rebindCount++), not silent restart", () => {
     let starts = 0;
-    const { orchestrator, E } = makeOrch({
-      start: () => {
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
+    });
+    const host = new RebindHost(forest, {
+      inprocess: () => {
         starts += 1;
       },
     });
 
-    orchestrator.activate(E);
+    host.activate(E);
     expect(E.state).toBe("running");
     expect(starts).toBe(1);
-    const handle = orchestrator.binding.get(E)!.handle!;
-    // Abort without clearing bind (pathological: future channel death without cleanup)
+    const handle = host.binding.get(E)!.handle!;
     handle.abort("orphan_abort");
     expect(handle.aborted).toBe(true);
-    expect(orchestrator.binding.has(E)).toBe(true);
+    expect(host.binding.has(E)).toBe(true);
 
-    orchestrator.activate(E);
+    host.activate(E);
     expect(E.state).toBe("awaiting_rebind");
     expect(E.rebindCount).toBe(1);
-    expect(orchestrator.binding.has(E)).toBe(false);
-    // Did not start a second resolver without accounting
+    expect(host.binding.has(E)).toBe(false);
     expect(starts).toBe(1);
   });
 
   it("T10: unexpected death → awaiting_rebind → activate ≤ MAX", () => {
     let starts = 0;
-    const { orchestrator, E } = makeOrch({
-      start: () => {
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
+    });
+    const host = new RebindHost(forest, {
+      inprocess: () => {
         starts += 1;
-        // leave running
       },
     });
 
-    orchestrator.activate(E);
+    host.activate(E);
     expect(E.state).toBe("running");
     expect(starts).toBe(1);
     expect(E.rebindCount).toBe(0);
-    const signal1 = orchestrator.binding.get(E)!.handle!;
+    const signal1 = host.binding.get(E)!.handle!;
 
-    orchestrator.onResolverDeath(E, "process_exit");
+    host.onResolverDeath(E, "process_exit");
     expect(E.state).toBe("awaiting_rebind");
     expect(E.rebindCount).toBe(1);
-    expect(orchestrator.binding.has(E)).toBe(false);
+    expect(host.binding.has(E)).toBe(false);
     expect(signal1.aborted).toBe(true);
 
-    // Re-activate (A2) — under budget
-    orchestrator.activate(E);
+    host.activate(E);
     expect(E.state).toBe("running");
     expect(starts).toBe(2);
     expect(E.bindEpoch).toBe(2);
     expect(E.rebindCount).toBe(1);
 
-    // Multiple deaths within MAX still re-activate
     for (let i = 0; i < DEFAULT_MAX_REBINDS - 1; i++) {
-      orchestrator.onResolverDeath(E);
+      host.onResolverDeath(E);
       expect(E.state).toBe("awaiting_rebind");
-      orchestrator.activate(E);
+      host.activate(E);
       expect(E.state).toBe("running");
     }
     expect(E.rebindCount).toBe(DEFAULT_MAX_REBINDS);
@@ -291,36 +377,52 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
   });
 
   it("T17: rebindCount > MAX → failed on activate", () => {
-    const { orchestrator, E } = makeOrch({
-      start: () => {
-        /* leave running */
-      },
-      maxRebinds: 3,
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
     });
+    const host = new RebindHost(
+      forest,
+      {
+        inprocess: () => {
+          /* leave running */
+        },
+      },
+      new Set(["inprocess", "surface"]),
+      /* maxRebinds */ 3,
+    );
 
-    orchestrator.activate(E);
-    // Drive rebindCount past MAX
+    host.activate(E);
     for (let i = 0; i < 4; i++) {
-      orchestrator.onResolverDeath(E);
+      host.onResolverDeath(E);
       if (E.rebindCount <= 3) {
-        orchestrator.activate(E);
+        host.activate(E);
         expect(E.state).toBe("running");
       }
     }
     expect(E.rebindCount).toBe(4);
     expect(E.state).toBe("awaiting_rebind");
 
-    orchestrator.activate(E);
+    host.activate(E);
     expect(E.state).toBe("failed");
-    expect(orchestrator.binding.has(E)).toBe(false);
+    expect(host.binding.has(E)).toBe(false);
   });
 
   it("T20: lease yield aborts then awaiting_rebind; rebindCount unchanged", () => {
     let abortedBeforeState = false;
     let stateWhenAborted: string | undefined;
-
-    const { orchestrator, E } = makeOrch({
-      start: (input) => {
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
+    });
+    const host = new RebindHost(forest, {
+      inprocess: (input) => {
         input.signal.addEventListener("abort", () => {
           stateWhenAborted = E.state;
           abortedBeforeState = E.state === "running";
@@ -328,56 +430,46 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
       },
     });
 
-    orchestrator.activate(E);
+    host.activate(E);
     expect(E.state).toBe("running");
     expect(E.rebindCount).toBe(0);
-    const handle = orchestrator.binding.get(E)!.handle!;
+    const handle = host.binding.get(E)!.handle!;
 
-    orchestrator.disposeLease("lease_yield");
+    host.disposeLease("lease_yield");
 
     expect(abortedBeforeState).toBe(true);
     expect(stateWhenAborted).toBe("running");
     expect(handle.aborted).toBe(true);
     expect(E.state).toBe("awaiting_rebind");
-    expect(E.rebindCount).toBe(0); // unchanged — T20
-    expect(orchestrator.binding.has(E)).toBe(false);
-    expect(orchestrator.activating.has(E)).toBe(false);
+    expect(E.rebindCount).toBe(0);
+    expect(host.binding.has(E)).toBe(false);
+    expect(host.activating.has(E)).toBe(false);
 
-    // Can re-activate after handover
-    orchestrator.activate(E);
+    host.activate(E);
     expect(E.state).toBe("running");
     expect(E.rebindCount).toBe(0);
   });
 
   it("T14: missing → plan added → reconcile activate → running", () => {
+    const E = new TestExpectation();
     const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map(), // no plan yet
-      }),
-      openWork: [new TestExpectation()],
+      orchestration: new Orchestration({ actors: new Map() }),
+      openWork: [E],
     });
-    const E = forest.openWork[0]!;
-
-    const orchestrator = new Orchestrator({
-      getOrchestration: () => forest.orchestration,
-      loadedModules: new Set(["inprocess", "surface"]),
-      modules: modulesFromRecord({
-        inprocess: () => {
-          /* leave running */
-        },
-      }),
-      getOpenWorkRoots: () => forest.openWork,
+    const host = new RebindHost(forest, {
+      inprocess: () => {
+        /* leave running */
+      },
     });
 
-    orchestrator.activate(E);
+    host.activate(E);
     expect(E.state).toBe("missing");
 
-    // Plan added (A3-style) — replace actors map entry
-    forest.orchestration.actors = new Map([["test.tool", def("inprocess")]]);
+    forest.orchestration.actors = new Map([["test.tool", launch("inprocess")]]);
 
-    orchestrator.reconcile();
+    host.reconcile();
     expect(E.state).toBe("running");
-    expect(orchestrator.binding.has(E)).toBe(true);
+    expect(host.binding.has(E)).toBe(true);
   });
 
   it("T22: reconcile cancelTree on tree orphan", () => {
@@ -385,76 +477,66 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
     const parent = new TestExpectation({ children: [child] });
     const forest = new TestForest({
       orchestration: new Orchestration({
-        actors: new Map([["test.tool", def("inprocess")]]),
+        actors: new Map([["test.tool", launch("inprocess")]]),
       }),
       openWork: [parent],
     });
-
     let childAborted = false;
-    const orchestrator = new Orchestrator({
-      getOrchestration: () => forest.orchestration,
-      loadedModules: new Set(["inprocess"]),
-      modules: modulesFromRecord({
+    const host = new RebindHost(
+      forest,
+      {
         inprocess: (input) => {
           input.signal.addEventListener("abort", () => {
             childAborted = true;
           });
         },
-      }),
-      getOpenWorkRoots: () => forest.openWork,
-    });
+      },
+      new Set(["inprocess"]),
+    );
 
-    orchestrator.activate(parent);
-    orchestrator.activate(child);
+    host.activate(parent);
+    host.activate(child);
     expect(parent.state).toBe("running");
     expect(child.state).toBe("running");
 
-    // Simulate half-landed parent terminal without cascade (repair case)
     parent.transitionState("sealed");
-    orchestrator.clearBind(parent);
-    // child still running under terminal parent = tree orphan
+    host.dropBind(parent);
 
-    orchestrator.reconcile();
+    host.reconcile();
 
     expect(child.state).toBe("cancelled");
     expect(childAborted).toBe(true);
-    expect(orchestrator.binding.has(child)).toBe(false);
+    expect(host.binding.has(child)).toBe(false);
   });
 
   it("T27: forest orphan → cancelled (not rebind)", () => {
     const orphan = new TestExpectation();
-    // orphan is NOT under openWork — simulated forest orphan candidate
     const E = new TestExpectation();
     const forest = new TestForest({
       orchestration: new Orchestration({
-        actors: new Map([["test.tool", def("inprocess")]]),
+        actors: new Map([["test.tool", launch("inprocess")]]),
       }),
       openWork: [E],
     });
-
     let orphanAborted = false;
-    const orchestrator = new Orchestrator({
-      getOrchestration: () => forest.orchestration,
-      loadedModules: new Set(["inprocess"]),
-      modules: modulesFromRecord({
+    const host = new ForestScanHost(
+      forest,
+      {
         inprocess: () => {
           /* leave running */
         },
-      }),
-      getOpenWorkRoots: () => forest.openWork,
-      walkCandidates: () => [E, orphan],
-    });
+      },
+      () => [E, orphan],
+    );
 
-    // In-forest unit stays live
-    orchestrator.activate(E);
-    // Orphan: running with a bind but not reachable from openWork
+    host.activate(E);
     orphan.transitionState("running");
     orphan.bindEpoch = 1;
     const controller = new AbortController();
     controller.signal.addEventListener("abort", () => {
       orphanAborted = true;
     });
-    orchestrator.setBind(orphan, {
+    host.installBind(orphan, {
       handle: {
         get aborted() {
           return controller.signal.aborted;
@@ -469,40 +551,45 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
     expect(orphan.state).toBe("running");
     expect(forest.openWork.includes(orphan)).toBe(false);
 
-    orchestrator.reconcile();
+    host.reconcile();
 
-    expect(orphan.state).toBe("cancelled"); // not awaiting_rebind
+    expect(orphan.state).toBe("cancelled");
     expect(orphan.rebindCount).toBe(0);
     expect(orphanAborted).toBe(true);
-    expect(orchestrator.binding.has(orphan)).toBe(false);
-    // In-forest unit still fine
+    expect(host.binding.has(orphan)).toBe(false);
     expect(E.state).toBe("running");
   });
 
   it("claim orphan via reconcile → awaiting_rebind (lease class) then re-activate", () => {
-    const { orchestrator, E } = makeOrch({
-      start: () => {
+    const E = new TestExpectation({ payload: "in" });
+    const forest = new TestForest({
+      orchestration: new Orchestration({
+        actors: new Map([["test.tool", launch("inprocess")]]),
+      }),
+      openWork: [E],
+    });
+    const host = new RebindHost(forest, {
+      inprocess: () => {
         /* leave running */
       },
     });
-    orchestrator.activate(E);
+
+    host.activate(E);
     expect(E.state).toBe("running");
     const epochBefore = E.bindEpoch;
-    orchestrator.clearBind(E); // claim orphan: running, no local bind
+    host.dropBind(E);
 
-    // Step 2 only path: markAwaitingRebind without full reconcile activate
-    orchestrator.markAwaitingRebind(E, {
+    host.markAwaitingRebind(E, {
       reason: "claim_orphan",
       incrementRebind: false,
     });
     expect(E.state).toBe("awaiting_rebind");
-    expect(E.rebindCount).toBe(0); // lease class — no burn
+    expect(E.rebindCount).toBe(0);
 
-    // Full reconcile would also activate; explicit activate matches A2
-    orchestrator.activate(E);
+    host.activate(E);
     expect(E.state).toBe("running");
     expect(E.rebindCount).toBe(0);
     expect(E.bindEpoch).toBe(epochBefore + 1);
-    expect(orchestrator.binding.has(E)).toBe(true);
+    expect(host.binding.has(E)).toBe(true);
   });
 });

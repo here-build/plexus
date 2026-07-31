@@ -44,7 +44,8 @@
   },
   "dependencies": {
     "@here.build/plexus": "workspace:^",
-    "mobx": "6.15.0"
+    "mobx": "6.15.0",
+    "tslib": "2.8.1"
   },
   "devDependencies": {
     "@here.build/tsconfig": "workspace:^",

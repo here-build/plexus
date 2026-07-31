@@ -55,11 +55,11 @@ export type ResolverHandle = {
 
 /**
  * Module start function. Receives snapshot input + emit; may complete sync
- * before returning (T19). Must honor `input.signal` for paid work.
+ * before returning. Must honor `input.signal` for paid work.
  *
- * First slice: **synchronous** return only (Promise handles are refused).
- * Return a handle if the module owns extra teardown; otherwise the host wraps
- * the AbortController as the handle.
+ * Synchronous return only (Promise handles are refused). Host may wrap async
+ * modules outside PEW. Return a handle if the module owns extra teardown;
+ * otherwise the host wraps the AbortController as the handle.
  */
 export type StartResolverFn = (
   input: ResolverStartInput,

@@ -1,6 +1,8 @@
 /**
  * Process-local plan-change signal (spec §4.1).
- * Not CRDT — claim owner subscribes and runs A3/reconcile after seed or plan edits.
+ * Not CRDT — claim owner may subscribe and run plan-change reconcile after seed
+ * or plan edits. Not exported from the orchestration barrel by default: hosts
+ * that react over `Orchestration.actors` do not need this channel.
  */
 
 export type PlanChangedListener = () => void;
@@ -15,7 +17,7 @@ export function onPlanChanged(listener: PlanChangedListener): () => void {
   };
 }
 
-/** Plan author / seed path: fire process-local A3 signal. No-op if no listeners. */
+/** Plan author / seed path: fire process-local plan-change signal. No-op if no listeners. */
 export function notifyPlanChanged(): void {
   for (const listener of listeners) {
     listener();

@@ -59,7 +59,7 @@ export function markAwaitingRebind(
 
 /**
  * Unexpected resolver death while claim owner is alive (§5.6).
- * Increments rebindCount; leaves E ready for re-activate (A2).
+ * Increments rebindCount; leaves E ready for re-activate via activate/reconcile.
  */
 export function onResolverDeath(
   orch: Orchestrator,
@@ -71,7 +71,7 @@ export function onResolverDeath(
 }
 
 /**
- * Lease dispose / yield (§5.6, T20).
+ * Lease dispose / yield (§5.6).
  *
  * For every local bind: abort handle, then `awaiting_rebind` with **rebindCount
  * unchanged**. Clears binding + activating maps.

@@ -28,13 +28,13 @@ export function collectOwnedSubtree(root: Expectation): Expectation[] {
 
 /**
  * Abort paid work first, then write durable `cancelled`.
- * Tests (T15) assert AbortSignal fires before state becomes cancelled.
+ * Invariant: AbortSignal fires before durable state becomes cancelled.
  */
 export function cancelTree(orch: Orchestrator, root: Expectation, reason?: unknown): void {
   const nodes = collectOwnedSubtree(root);
 
   // ── 2) ABORT PHASE — stop spend before durable settle ──────────────────
-  // Must complete for all nodes BEFORE any durable cancelled write (T15).
+  // Must complete for all nodes BEFORE any durable cancelled write.
   for (const E of nodes) {
     const bind = orch.binding.get(E);
     if (bind && E.state === "running" && bind.handle && !bind.handle.aborted) {

@@ -4,7 +4,7 @@ import { LaunchDefinition } from "./launch-definition.js";
 
 /**
  * Session-scoped plan registry: kind → {@link LaunchDefinition}.
- * Product roots place this as a child (e.g. `SessionRoot.orchestration`).
+ * Product roots place this as a child (e.g. session root's `orchestration` field).
  */
 @syncing("@here.build/plexus-expectation:Orchestration")
 export class Orchestration extends PlexusModel {

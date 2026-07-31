@@ -2,14 +2,14 @@
  * activate(E) — claim-owner activation order (§5.3).
  *
  * Durable `running` + `bumpEpoch` BEFORE startResolver so early sync emits
- * (T19) and epoch fences (T4) are well-defined.
+ * and epoch fences are well-defined.
  */
 
 import type { Expectation } from "../app/expectation.js";
 import { isTerminal } from "../app/lifecycle.js";
 
 import { applyEmit } from "./emit.js";
-import { isRebindExhausted } from "./liveness.js";
+import { isRebindExhausted, onResolverDeath } from "./liveness.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { planResolution } from "./plan-resolution.js";
 import {
@@ -34,13 +34,19 @@ export function bumpEpoch(E: Expectation): number {
  */
 export function activate(orch: Orchestrator, E: Expectation): void {
   if (isTerminal(E.state)) return;
-  // Lease / dual-claim gate (§2.2 / PR-9): observe-only and dual claim-owner
-  // peers must not start resolvers. settleSurface already uses the same gate.
+  // Lease / dual-claim gate (§2.2): observe-only and dual claim-owner peers
+  // must not start resolvers. settleSurface already uses the same gate.
   if (!orch.isClaimOwner()) return;
   if (orch.activating.has(E)) return;
 
   const existing = orch.binding.get(E);
-  if (E.state === "running" && existing && isHealthy(existing)) return;
+  if (E.state === "running" && existing) {
+    if (isHealthy(existing)) return;
+    // Unhealthy bind (aborted handle still mapped): count as resolver death
+    // so rebind budget applies — do not silent-restart without accounting.
+    onResolverDeath(orch, E, "unhealthy_bind");
+    return;
+  }
 
   // §5.7 — unexpected rebind budget exhausted
   if (isRebindExhausted(E, orch.maxRebinds)) {
@@ -76,10 +82,10 @@ export function activate(orch: Orchestrator, E: Expectation): void {
 
     const def = outcome.def;
 
-    // Mid-activate cancel (T23): durable already cancelled → stop
+    // Mid-activate cancel: durable already cancelled → stop
     if (isTerminal(E.state)) return;
 
-    // Durable running + epoch BEFORE any resolver body (law 4 / T19)
+    // Durable running + epoch BEFORE any resolver body (law 4)
     let epoch = 0;
     transactEntity(E, () => {
       if (isTerminal(E.state)) return;
@@ -172,9 +178,9 @@ function startResolver(
 
   const returned = startFn(input, emit);
 
-  // Sync start only for PR-3 (async modules: host may wrap; Promise return is out of scope)
+  // Synchronous start only; hosts may wrap async modules outside PEW.
   if (isThenable(returned)) {
-    throw new Error("startResolver must return synchronously in first slice (no Promise handle)");
+    throw new Error("startResolver must return synchronously (Promise handles are not supported)");
   }
 
   return returned ?? provisional;
@@ -193,7 +199,7 @@ function workIdentity(E: Expectation): { uuid: string; kind: string } {
   try {
     uuid = E.uuid;
   } catch {
-    // Unmaterialized entity (unit tests / pre-attach): localID is process-stable
+    // Unmaterialized entity (pre-attach): localID is process-stable
     uuid = `local:${E.localID}`;
   }
   return { uuid, kind: E.kind };

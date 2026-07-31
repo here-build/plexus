@@ -1,8 +1,8 @@
 /**
  * Abstract durable work unit (§3.1).
  *
- * Product subclasses (e.g. `harness.tool_call`) live in harness-model and declare:
- *   static readonly kind = "harness.tool_call"
+ * Product subclasses declare a static kind, e.g.:
+ *   static readonly kind = "myapp.tool_call"
  * Access kind via the instance getter `E.kind` or the constructor static.
  *
  * Clone law: non-terminal Expectations refuse clone (`PewCloneOpenError`).
@@ -19,7 +19,7 @@ type ExpectationCtor = typeof Expectation & { readonly kind: string };
 export abstract class Expectation extends PlexusModel {
   /**
    * Kind discriminator. Concrete subclasses declare
-   * `static readonly kind = "product.kind_name"` (e.g. `"harness.tool_call"`).
+   * `static readonly kind = "product.kind_name"`.
    * (TS 5.8 cannot combine `abstract` + `static` on fields; enforce via runtime.)
    */
   static readonly kind: string = "";

@@ -217,6 +217,31 @@ describe("PR-4 surface settle / rebind / reconcile", () => {
     expect(result).toEqual({ ok: false, code: "not_running" });
   });
 
+  it("unhealthy bind on re-activate → onResolverDeath (rebindCount++), not silent restart", () => {
+    let starts = 0;
+    const { orchestrator, E } = makeOrch({
+      start: () => {
+        starts += 1;
+      },
+    });
+
+    orchestrator.activate(E);
+    expect(E.state).toBe("running");
+    expect(starts).toBe(1);
+    const handle = orchestrator.binding.get(E)!.handle!;
+    // Abort without clearing bind (pathological: future channel death without cleanup)
+    handle.abort("orphan_abort");
+    expect(handle.aborted).toBe(true);
+    expect(orchestrator.binding.has(E)).toBe(true);
+
+    orchestrator.activate(E);
+    expect(E.state).toBe("awaiting_rebind");
+    expect(E.rebindCount).toBe(1);
+    expect(orchestrator.binding.has(E)).toBe(false);
+    // Did not start a second resolver without accounting
+    expect(starts).toBe(1);
+  });
+
   it("T10: unexpected death → awaiting_rebind → activate ≤ MAX", () => {
     let starts = 0;
     const { orchestrator, E } = makeOrch({

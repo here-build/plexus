@@ -2,7 +2,7 @@
  * Orchestrator — process-local claim-owner host (plain class, not @syncing).
  *
  * Entity keys for `activating` / `binding` — never uuid claim indexes (law 16).
- * Construct explicitly at lease install (PR-6); never in a model constructor.
+ * Construct explicitly at lease install; never in a model constructor.
  */
 
 import type { Expectation } from "../app/expectation.js";
@@ -56,7 +56,7 @@ export type OrchestratorHost = {
   snapshotProductFields?: (E: Expectation) => unknown;
   /** Optional progress patch applier (product fields). */
   applyProgress?: ProgressApplier;
-  /** Awareness `pew.binds` publish — optional / no-op for unit tests. */
+  /** Awareness `pew.binds` publish — optional; default no-op. */
   publishAwarenessBinds?: () => void;
   /**
    * Claim-owner gate for settleSurface (§5.4). Default `true`.
@@ -76,7 +76,7 @@ export type OrchestratorHost = {
    */
   walkCandidates?: () => Iterable<Expectation>;
   /**
-   * Live claim-owner peer bind probe (PR-9). Default: no peer.
+   * Live claim-owner peer bind probe. Default: no peer.
    * @see ReconcileWalk.hasLiveClaimPeerBind
    */
   hasLiveClaimPeerBind?: (E: Expectation) => boolean;
@@ -231,7 +231,7 @@ export class Orchestrator {
 
   /**
    * §5.6 lease yield: abort all binds then awaiting_rebind without burning
-   * rebindCount (T20).
+   * rebindCount.
    */
   disposeLease(reason?: unknown): void {
     disposeLease(this, reason);

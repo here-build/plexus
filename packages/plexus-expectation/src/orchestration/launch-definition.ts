@@ -1,6 +1,6 @@
 import { PlexusModel, syncing } from "@here.build/plexus";
 
-/** First-slice modes; host may register additional string modes later. */
+/** Built-in modes; hosts may register additional string modes. */
 export type LaunchMode = "inprocess" | "surface" | (string & {});
 
 /** How progress patches coalesce on the claim owner. */

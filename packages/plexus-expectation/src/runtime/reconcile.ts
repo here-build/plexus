@@ -18,7 +18,7 @@ import type { Orchestrator } from "./orchestrator.js";
 /** Host surface for forest walks — product owns openWork placement. */
 export type ReconcileWalk = {
   /**
-   * Roots of the open-work forest (e.g. `sessionRoot.openWork`).
+   * Roots of the open-work forest (product-owned placement).
    * Used for reachability + activation sweep.
    */
   getOpenWorkRoots: () => readonly Expectation[];
@@ -29,8 +29,8 @@ export type ReconcileWalk = {
    */
   walkCandidates?: () => Iterable<Expectation>;
   /**
-   * True if a live claim-owner peer still advertises a pew.binds entry for E
-   * (PR-9). Default: always false → claim orphans rebind locally.
+   * True if a live claim-owner peer still advertises a pew.binds entry for E.
+   * Default: always false → claim orphans rebind locally.
    */
   hasLiveClaimPeerBind?: (E: Expectation) => boolean;
 };

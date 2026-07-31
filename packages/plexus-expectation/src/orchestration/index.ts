@@ -14,8 +14,5 @@ export {
   type PlanActorsSource,
   type PlanResolution,
 } from "./plan-resolution.js";
-export {
-  notifyPlanChanged,
-  onPlanChanged,
-  type PlanChangedListener,
-} from "./plan-changed.js";
+// plan-changed.ts stays private: A3 is claim-owner reactions over Orchestration.actors.
+// Re-export only when a product seed path needs the process-local signal.

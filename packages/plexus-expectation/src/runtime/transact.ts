@@ -1,6 +1,6 @@
 /**
  * Run `fn` inside the entity's owning Plexus transaction when materialized.
- * Bare (doc-less) entities run `fn` directly — tests and pre-attach authors.
+ * Bare (doc-less) entities run `fn` directly (pre-materialization).
  */
 
 import { docPlexus, type PlexusModel } from "@here.build/plexus";

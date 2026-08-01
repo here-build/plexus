@@ -2,7 +2,8 @@
  * Durable Expectation lifecycle.
  *
  * Process-local activation maps (`binding` / `activating`) are runtime-only —
- * not part of this durable enum.
+ * not part of this durable enum. Legal transitions live on the XState machine
+ * in `lifecycle-machine.ts` — this module owns the enum + terminal helpers.
  */
 
 export type Lifecycle =
@@ -29,3 +30,10 @@ export function isTerminal(state: Lifecycle): state is TerminalLifecycle {
 export function isOpen(state: Lifecycle): boolean {
   return !isTerminal(state);
 }
+
+export {
+  expectationLifecycleMachine,
+  lifecycleAfter,
+  lifecycleCan,
+} from "./lifecycle-machine.js";
+

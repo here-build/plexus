@@ -3,7 +3,16 @@
  * Claim owners and resolvers do not live here.
  */
 
-export { type Lifecycle, type TerminalLifecycle, TERMINAL_LIFECYCLES, isTerminal } from "./lifecycle.js";
+export {
+  type Lifecycle,
+  type TerminalLifecycle,
+  TERMINAL_LIFECYCLES,
+  isTerminal,
+  isOpen,
+  expectationLifecycleMachine,
+  lifecycleAfter,
+  lifecycleCan,
+} from "./lifecycle.js";
 
 export { PewTerminalWriteError } from "./errors.js";
 

@@ -8,7 +8,7 @@
 import { PlexusModel, syncing } from "@here.build/plexus";
 
 import { PewTerminalWriteError } from "./errors.js";
-import { isTerminal, type Lifecycle } from "./lifecycle.js";
+import { isTerminal, lifecycleCan, type Lifecycle } from "./lifecycle.js";
 
 type ExpectationCtor = typeof Expectation & { readonly kind: string };
 
@@ -46,7 +46,7 @@ export abstract class Expectation extends PlexusModel {
   transitionState(next: Lifecycle): void {
     const from = this.state;
     if (from === next) return;
-    if (isTerminal(from)) {
+    if (isTerminal(from) || !lifecycleCan(from, next)) {
       throw new PewTerminalWriteError(this, from, next);
     }
     this.state = next;

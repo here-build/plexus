@@ -111,11 +111,6 @@ export class PewTestHost extends Orchestrator {
     applyAwarenessUpdate(this.awareness, encodeAwarenessUpdate(peer, clients), "remote");
   }
 
-  /** @deprecated use syncPeerFrom */
-  syncPeerBindsFrom(peer: PlexusAwareness = this.peerAwareness!): void {
-    this.syncPeerFrom(peer);
-  }
-
   getOrchestration(): Orchestration {
     return this.forest.orchestration;
   }

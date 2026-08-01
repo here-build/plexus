@@ -17,10 +17,18 @@
  *
  * Channel clientId derivation:
  *   channel 0: baseClientId                        (schema + heartbeat)
- *   channel N: baseClientId + N   (field value)
+ *   channel N: baseClientId + N * 2^51              (field value)
  *
- * With 51-bit bases, two users differ by ~2^50 in expectation.
- * Stride of 1 is safe for any practical field count (< 256).
+ * Base clientIds must stay in the regular range [0, 2^51) so channel packing
+ * does not collide with liminal/committed/genesis namespaces.
+ *
+ * Multiple local identities per doc:
+ *   new PlexusAwareness(doc)                              // base = doc.clientID
+ *   new PlexusAwareness(doc, { clientId })                 // isolated maps, custom base
+ *   new PlexusAwareness(doc, { clientId, hub: primary })   // share states/meta with hub
+ *
+ * Hub sharing is what makes multi-client-per-doc useful on the wire: secondaries
+ * write into the hub map; network encode of hub.states sees every local base.
  */
 
 import * as decoding from "lib0/decoding";
@@ -28,10 +36,12 @@ import * as encoding from "lib0/encoding";
 import * as f from "lib0/function";
 import * as math from "lib0/math";
 import * as time from "lib0/time";
+import invariant from "tiny-invariant";
 import { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
 
 import { deserialize, serialize } from "./awareness-serde.js";
+import { isRegularClientId, newClientId } from "./genesis-client.js";
 import type { AwarenessShape } from "./proxy-runtime-types.js";
 import { bucketCount, telemetry } from "./telemetry.js";
 
@@ -45,6 +55,29 @@ const parseChannelId = (raw: number): { base: number; channel: number } => ({
   channel: Math.floor(raw / CHANNEL_STRIDE),
 });
 
+/** Options for {@link PlexusAwareness} construction. */
+export type PlexusAwarenessOptions = {
+  /**
+   * Base awareness clientId for this identity. Defaults to `doc.clientID`.
+   * Must be a regular-range id (`[0, 2^51)`). When omitted with `hub`, a fresh
+   * id is minted via {@link newClientId}.
+   */
+  clientId?: number;
+  /**
+   * Share `states` / `meta` with this hub on the same doc. Required for multiple
+   * local bases to appear on one encode/apply map (one Expectation = one client).
+   */
+  hub?: PlexusAwareness;
+};
+
+function resolveOptions(
+  clientIdOrOptions?: number | PlexusAwarenessOptions,
+): PlexusAwarenessOptions {
+  if (clientIdOrOptions === undefined) return {};
+  if (typeof clientIdOrOptions === "number") return { clientId: clientIdOrOptions };
+  return clientIdOrOptions;
+}
+
 export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> extends Awareness {
   /** Schema: ordered field names. Channel 0 state = this array. */
   private readonly _schema: string[] = [];
@@ -52,56 +85,112 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
   /** Field name → 1-based channel index. */
   private readonly _fieldIndex = new Map<string, number>();
 
-  constructor(doc: Y.Doc) {
+  /**
+   * @param doc - Yjs document (wire identity for entity serde; not necessarily clientId source)
+   * @param clientIdOrOptions - optional base clientId, or `{ clientId?, hub? }`
+   */
+  constructor(doc: Y.Doc, clientIdOrOptions?: number | PlexusAwarenessOptions) {
     super(doc);
 
-    // parent Awareness class starts the heartbeat - we need to stop it first
+    // parent Awareness starts its own heartbeat + writes setLocalState({}) for doc.clientID
     clearInterval(this._checkInterval);
 
-    // Initialize channel 0 with empty schema
+    const opts = resolveOptions(clientIdOrOptions);
+
+    if (opts.hub) {
+      invariant(opts.hub.doc === doc, "PlexusAwareness: hub must share the same Y.Doc");
+      // Drop isolated maps from super(); write into the hub wire map.
+      this.states = opts.hub.states;
+      this.meta = opts.hub.meta;
+    } else {
+      // super() left a single-blob {} under doc.clientID — not multi-channel schema.
+      this.states.delete(doc.clientID);
+      this.meta.delete(doc.clientID);
+    }
+
+    const baseId =
+      opts.clientId !== undefined
+        ? opts.clientId
+        : opts.hub
+          ? newClientId()
+          : doc.clientID;
+
+    invariant(
+      isRegularClientId(baseId),
+      `PlexusAwareness: clientId must be regular-range [0, 2^51); got ${baseId}`,
+    );
+    invariant(
+      !opts.hub || baseId !== opts.hub.clientID,
+      "PlexusAwareness: clientId must differ from hub.clientID",
+    );
+
+    this.clientID = baseId;
+
+    // Initialize channel 0 with empty schema for THIS base only
     this._writeChannel(0, [], "local");
 
-    // Heartbeat + stale cleanup
+    // Heartbeat + stale cleanup (this base only for heartbeat; peers GC as usual)
     this._checkInterval = setInterval(
       () => {
         const now = time.getUnixTime();
 
-        // Heartbeat: re-broadcast channel 0 if stale (15s)
         const myMeta = this.meta.get(this.clientID);
         if (myMeta && this.states.has(this.clientID) && outdatedTimeout / 2 <= now - myMeta.lastUpdated) {
           this._writeChannel(0, [...this._schema], "local");
         }
 
-        // Timeout: remove peers whose channel 0 is stale (30s)
         const toRemove: number[] = [];
         for (const [cid, meta] of this.meta.entries()) {
           if (cid === this.clientID) continue;
           const { channel } = parseChannelId(cid);
-          if (channel !== 0) continue; // only check root channels
+          if (channel !== 0) continue;
           if (outdatedTimeout <= now - meta.lastUpdated && this.states.has(cid)) {
             toRemove.push(cid);
           }
         }
         if (toRemove.length > 0) {
-          for (const baseId of toRemove) this._removePeer(baseId, "timeout");
+          for (const base of toRemove) this._removePeer(base, "timeout");
         }
       },
       math.floor(outdatedTimeout / 10),
     );
 
+    // Each instance removes only its base on destroy; doc.destroy tears down all.
     doc.on("destroy", () => this.destroy());
+  }
+
+  /**
+   * Additional local identity on the same doc, sharing the hub wire map.
+   * One Expectation = one client: mint a client per progressive invocation.
+   */
+  static createLocalClient<Shape extends AwarenessShape = AwarenessShape>(
+    hub: PlexusAwareness<Shape>,
+    clientId?: number,
+  ): PlexusAwareness<Shape> {
+    return new PlexusAwareness(hub.doc, {
+      clientId: clientId ?? newClientId(),
+      hub: hub as PlexusAwareness,
+    });
   }
 
   override destroy(): void {
     this.emit("destroy", [this]);
-    // Broadcast removal for all our channels
+    // Remove only this base's channels (shared hub keeps peers + other locals).
     const removed = this._removeLocalChannels();
     if (removed.length > 0) {
       this.emit("change", [{ added: [], updated: [], removed }, "local"]);
       this.emit("update", [{ added: [], updated: [], removed }, "local"]);
     }
     clearInterval(this._checkInterval);
-    super.destroy();
+    // Parent destroy calls setLocalState(null) then clearInterval again.
+    // With multi-channel, setLocalState(null) clears field values for this base only
+    // via our override — safe. Avoid Observable double-destroy issues by not
+    // re-entering if already torn down: parent still clears its interval id (same).
+    try {
+      super.destroy();
+    } catch {
+      // y-protocols Observable may throw if already destroyed when doc fires twice
+    }
   }
   /** Set a field value. Registers the field in the schema on first use.
    *  PlexusModel instances in the value are auto-serialized to reference markers. */

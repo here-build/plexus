@@ -31,6 +31,7 @@ export {
   applyAwarenessUpdate,
   removeAwarenessStates,
   modifyAwarenessUpdate,
+  type PlexusAwarenessOptions,
 } from "./awareness.js";
 export {
   LIMINAL_BASE,
@@ -41,4 +42,5 @@ export {
   isLiminalClientId,
   isCommittedClientId,
   isGenesisClientId,
+  newClientId,
 } from "./genesis-client.js";

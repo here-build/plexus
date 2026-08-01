@@ -87,6 +87,18 @@ So a completion that needs a tool call does not invent a side channel. It
 continues or fails. Live stream text is `E.progress` (or the child’s), not a
 durable field.
 
+### Where result and history live
+
+| Concern | Home |
+|---------|------|
+| Sealed / failed payload | **On the Expectation** (product fields) |
+| In-motion yields | **Awareness client** for that E |
+| Executor reconnect / debug log | **Claim-owner or module-local** — not a global OS residual |
+| Global multi-actor “session journal” | **Optional backup** only; not PEW’s progressive SSoT |
+
+Hosts that still fold a global event tape for streaming are on a **transitional** path.
+New work should settle payloads on `E` and stream via `E.progress`.
+
 ### Actor FSM — “which control states are legal”
 
 Durable lifecycle (XState graph; only legal edges):

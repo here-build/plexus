@@ -12,15 +12,21 @@ export {
   type SettleSurfaceBody,
   type SettleSurfaceErrorCode,
   type SettleSurfaceResult,
+  type CancellationResult,
+  type MaterializeAdjustmentResult,
+  type AdjustmentOpResult,
 } from "./orchestrator.js";
 
 export {
   LaunchDefinitionSnapshot,
   type EmitFn,
+  type ControlAckFn,
   type ProgressPatch,
   type ResolverEmit,
   type ResolverHandle,
   type ResolverStartInput,
+  type ResolverControlAck,
+  type AdjustmentSnapshot,
   type StartResolverFn,
 } from "./resolver.js";
 

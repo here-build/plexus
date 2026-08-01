@@ -212,10 +212,43 @@ APIs.
 
 ---
 
+## Control plane (three flows)
+
+PEW is an **opaque substrate** (same discipline as Plexus): no domain verbs
+(`steer`, `retry`, tool/turn names) in the core API.
+
+| Flow | Role |
+|------|------|
+| **Expectation** | Work continuation with progression (four faces above) |
+| **Cancellation** | System stop — `requestCancellation` **invokes** existing `cancelTree` physics; does **not** replace interrupt/orphan/parent writers (C1) |
+| **ExpectationAdjustmentIntent → ExpectationAdjustment** | Simplex treatment **beacon**: author mints `intentId` for presence/tracking; materialize auto-assigns CRDT `uuid` and stores `intentId` for correlation (C3). **No reply channel** — consumption acks only; PEW never writes the target Expectation from `markConsidered` (C2) |
+
+```ts
+// Cancellation (claim owner)
+orch.requestCancellation(E, { strength: "immediate", reason: "user" });
+// same as cancelTree for immediate; cooperative is typed stub for later
+
+// Adjustment (simplex)
+const intent = {
+  type: "expectationAdjustment" as const,
+  intentId: crypto.randomUUID(), // author-minted — not Plexus uuid
+  targetUuid: E.uuid,
+  reshapeEpoch: 0,
+  body: opaqueActorDomainPayload,
+};
+const { adjustment } = orch.materializeAdjustment(intent, bag);
+orch.deliverAdjustment(E, adjustment);
+// resolver may ackWillConsider / markConsidered / ackDropped via control callback
+```
+
+Design: `docs/working-proposals/2026-08-01-pew-intent-obligations.md`
+
+---
+
 ## Domains
 
 ```text
-app/            Expectation, Lifecycle, machine, errors, intents
+app/            Expectation, Adjustment, control shapes, lifecycle machines
 orchestration/  Orchestration, LaunchDefinition
 runtime/        Orchestrator, resolvers — claim-owner process
 ```

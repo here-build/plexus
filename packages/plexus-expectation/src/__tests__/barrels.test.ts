@@ -56,4 +56,28 @@ describe("PEW domain barrels (T8 T28 T30)", () => {
       expect(appKeys.has(k), `root leaked non-app key: ${k}`).toBe(true);
     }
   });
+
+  it("opacity: app public surface has no domain steer/retry/message-inbox names", () => {
+    const a = exportKeys(app as Record<string, unknown>);
+    const forbidden = [
+      "Message",
+      "Inbox",
+      "steer",
+      "force_steer",
+      "stop_retry",
+      "retry_now",
+      "retry",
+    ];
+    for (const name of forbidden) {
+      expect(a.has(name), `app must not export domain name ${name}`).toBe(false);
+    }
+    // Control-plane names present
+    expect(a.has("ExpectationAdjustment")).toBe(true);
+    expect(a.has("ExpectationAdjustmentIntent") || a.has("ADJUSTMENT_TERMINALS")).toBe(true);
+  });
+
+  it("runtime exports requestCancellation surface on Orchestrator prototype", () => {
+    expect(typeof runtime.Orchestrator.prototype.requestCancellation).toBe("function");
+    expect(typeof runtime.Orchestrator.prototype.materializeAdjustment).toBe("function");
+  });
 });

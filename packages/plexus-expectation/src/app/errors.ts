@@ -1,18 +1,23 @@
-import type { Expectation } from "./expectation.js";
-import type { Lifecycle } from "./lifecycle.js";
+/**
+ * Terminal / illegal transition barrier for durable PEW state writes.
+ */
 
 /**
- * Terminal write barrier: durable state must not leave `sealed` | `failed` | `cancelled`.
- * Use `Expectation.transitionState` — the named writer for lifecycle.
+ * Illegal lifecycle transition (Expectation state or Adjustment consumption).
+ * Use named writers (`transitionState` / `transitionConsumption`).
  */
 export class PewTerminalWriteError extends Error {
   public readonly name = "PewTerminalWriteError";
 
   constructor(
-    public readonly expectation: Expectation,
-    public readonly from: Lifecycle,
-    public readonly to: Lifecycle,
+    public readonly entity: object,
+    public readonly from: string,
+    public readonly to: string,
   ) {
-    super(`PewTerminalWriteError: cannot leave terminal state ${from} → ${to} (kind=${expectation.kind})`);
+    const label =
+      "kind" in entity && typeof (entity as { kind: unknown }).kind === "string"
+        ? (entity as { kind: string }).kind
+        : entity.constructor?.name ?? "entity";
+    super(`PewTerminalWriteError: cannot transition ${from} → ${to} (${label})`);
   }
 }

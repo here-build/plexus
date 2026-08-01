@@ -3,28 +3,9 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { LaunchDefinition, Orchestration, type LaunchMode, type ProgressMode } from "../orchestration/index.js";
+import { LaunchDefinition, type LaunchMode, Orchestration } from "../orchestration/index.js";
+import { type ProgressMode } from "../app/progress-plane.js";
 import { Orchestrator } from "../runtime/index.js";
-
-function def(partial: {
-  launchMode: LaunchMode;
-  acceptsMessages?: boolean;
-  emitsProgress?: boolean;
-  progressMode?: ProgressMode;
-}): LaunchDefinition {
-  return new LaunchDefinition({
-    launchMode: partial.launchMode,
-    acceptsMessages: partial.acceptsMessages ?? false,
-    emitsProgress: partial.emitsProgress ?? false,
-    progressMode: partial.progressMode ?? "none",
-  });
-}
-
-function actors(entries: ReadonlyArray<readonly [string, LaunchDefinition]> = []): {
-  get(kind: string): LaunchDefinition | undefined;
-} {
-  return new Map(entries);
-}
 
 const only =
   (...modes: string[]) =>
@@ -33,13 +14,17 @@ const only =
 
 describe("Orchestrator.resolvePlan", () => {
   it("T1: no plan → missing", () => {
-    const outcome = Orchestrator.resolvePlan("tool_call", { actors: actors() }, only("inprocess"));
+    const outcome = Orchestrator.resolvePlan("tool_call", new Orchestration({ actors: new Map() }), only("inprocess"));
     expect(outcome).toEqual({ status: "missing" });
   });
 
   it("T2: unsupported mode → refused", () => {
-    const launch = def({ launchMode: "inprocess" });
-    const outcome = Orchestrator.resolvePlan("tool_call", { actors: actors([["tool_call", launch]]) }, only("surface"));
+    const launch = new LaunchDefinition({ launchMode: "inprocess" });
+    const outcome = Orchestrator.resolvePlan(
+      "tool_call",
+      new Orchestration({ actors: new Map([["tool_call", launch]]) }),
+      only("surface"),
+    );
     expect(outcome.status).toBe("refused");
     if (outcome.status === "refused") {
       expect(outcome.def).toBe(launch);
@@ -47,7 +32,7 @@ describe("Orchestrator.resolvePlan", () => {
   });
 
   it("bound when mode supported", () => {
-    const launch = def({
+    const launch = new LaunchDefinition({
       launchMode: "surface",
       acceptsMessages: false,
       emitsProgress: false,
@@ -55,7 +40,7 @@ describe("Orchestrator.resolvePlan", () => {
     });
     const outcome = Orchestrator.resolvePlan(
       "harness.approval",
-      { actors: actors([["harness.approval", launch]]) },
+      new Orchestration({ actors: new Map([["harness.approval", launch]]) }),
       only("inprocess", "surface"),
     );
     expect(outcome).toEqual({ status: "bound", def: launch });
@@ -65,14 +50,14 @@ describe("Orchestrator.resolvePlan", () => {
     expect(
       Orchestrator.resolvePlan(
         "other",
-        { actors: actors([["tool_call", def({ launchMode: "inprocess" })]]) },
+        new Orchestration({ actors: new Map([["tool_call", new LaunchDefinition({ launchMode: "inprocess" })]]) }),
         only("inprocess"),
       ),
     ).toEqual({ status: "missing" });
   });
 
   it("accepts real Orchestration", () => {
-    const launch = def({
+    const launch = new LaunchDefinition({
       launchMode: "inprocess",
       emitsProgress: true,
       progressMode: "lww",

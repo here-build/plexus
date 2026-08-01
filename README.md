@@ -12,6 +12,10 @@ CRDT-native identity (no id generators, no coordination).
   proxies (maps/sets/arrays/typed arrays), ownership + cycle prevention,
   entity-scoped undo/redo, awareness, telemetry, CRDT-native UUIDs.
   See `packages/plexus/README.md`.
+- `plexus-expectation` — **PEW**: durable progressive invocations
+  (Expectation = promise ∩ async generator ∩ actor FSM ∩ continuation).
+  Claim, plan registry, abort-before-cancel. See
+  [`packages/plexus-expectation/README.md`](packages/plexus-expectation/README.md).
 - `hono-plexus-do` — the sync server as a Cloudflare Durable Object:
   leader/follower lanes, persistence, presence, spill, archive sync.
 - `plexus-vfs` — a filesystem model over plexus entities (dirs, files,

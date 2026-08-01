@@ -5,8 +5,6 @@ import type { ProgressMode } from "../app/progress-plane.js";
 /** Built-in modes; hosts may register additional string modes. */
 export type LaunchMode = "inprocess" | "surface" | (string & {});
 
-export type { ProgressMode };
-
 /**
  * Durable plan entry: how a kind is launched and what capabilities it exposes.
  * Registry values under `Orchestration.actors`.

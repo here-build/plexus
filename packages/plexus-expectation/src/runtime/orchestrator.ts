@@ -7,14 +7,18 @@
  */
 
 import {
+  type AdjustmentSnapshot,
   LaunchDefinitionSnapshot,
   type ProgressPatch,
+  type ResolverControlAck,
   type ResolverEmit,
   type ResolverHandle,
   type StartResolverFn,
 } from "./resolver.js";
 import { Expectation } from "../app/expectation.js";
-import type { SettleSurfaceDisposition } from "../app/intents.js";
+import { type AdjustmentBag, ExpectationAdjustment } from "../app/expectation-adjustment.js";
+import type { CancellationStrength, ExpectationAdjustmentIntent, SettleSurfaceDisposition } from "../app/control.js";
+import { isAdjustmentTerminal, shouldRedeliverAdjustment, shouldRetractOnRebind } from "../app/adjustment-lifecycle.js";
 import { isTerminal } from "../app/lifecycle.js";
 import type { LaunchDefinition } from "../orchestration/launch-definition.js";
 import type { Orchestration } from "../orchestration/orchestration.js";
@@ -47,6 +51,33 @@ export type SettleSurfaceBody = {
 export type SettleSurfaceErrorCode = "not_claim_owner" | "not_running" | "stale_epoch";
 
 export type SettleSurfaceResult = { readonly ok: true } | { readonly ok: false; readonly code: SettleSurfaceErrorCode };
+
+export type CancellationResult =
+  | { readonly ok: true; readonly state: "applied" }
+  | {
+      readonly ok: false;
+      readonly code: "not_claim_owner" | "target_terminal" | "cooperative_not_implemented";
+    };
+
+export type MaterializeAdjustmentResult =
+  | { readonly ok: true; readonly adjustment: ExpectationAdjustment }
+  | {
+      readonly ok: false;
+      readonly code: "not_claim_owner" | "target_terminal" | "duplicate_intent_id";
+    };
+
+export type AdjustmentOpResult =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly code:
+        | "not_claim_owner"
+        | "not_found"
+        | "stale_epoch"
+        | "withdraw_refused"
+        | "promote_refused"
+        | "target_not_bound";
+    };
 
 const ACTIVATE_STATES: ReadonlySet<string> = new Set(["declared", "missing", "refused", "awaiting_rebind"]);
 
@@ -139,6 +170,14 @@ export abstract class Orchestrator {
   abstract publishAwarenessBinds(): void;
 
   /**
+   * Open adjustment bag (product root). Default null — hosts without adjustments
+   * skip materialize/drain. Tests override via {@link PewTestHost} or subclass.
+   */
+  getAdjustmentBag(): AdjustmentBag | null {
+    return null;
+  }
+
+  /**
    * Default: forward to {@link Expectation.reportProgress} on the Expectation's
    * live awareness client. Respects plan `emitsProgress` + `progressMode`.
    */
@@ -190,7 +229,7 @@ export abstract class Orchestrator {
    */
   static resolvePlan(
     kind: string,
-    orchestration: { readonly actors: { get(kind: string): LaunchDefinition | undefined } },
+    orchestration: Orchestration,
     supportsLaunchMode: (mode: string) => boolean,
   ): PlanResolution {
     const def = orchestration.actors.get(kind);
@@ -203,7 +242,7 @@ export abstract class Orchestrator {
     return { status: "bound", def };
   }
 
-  /** AbortController → ResolverHandle (signal fires on abort). */
+  /** AbortController → ResolverHandle (signal fires on abort; adjustment methods no-op). */
   protected handleFromController(controller: AbortController): ResolverHandle {
     return {
       get aborted() {
@@ -213,6 +252,15 @@ export abstract class Orchestrator {
         if (!controller.signal.aborted) {
           controller.abort(reason);
         }
+      },
+      deliverAdjustment(_snapshot: AdjustmentSnapshot) {
+        /* modules that ignore treatment */
+      },
+      retractAdjustment(_key, _reshapeEpoch) {
+        /* no-op */
+      },
+      reshapeAdjustment(_snapshot) {
+        /* no-op */
       },
     };
   }
@@ -290,6 +338,7 @@ export abstract class Orchestrator {
         // Sync complete may have settled before start returns — only keep bind if still live.
         if (bind !== undefined && bind.epoch === epoch && E.state === "running") {
           this.setBind(E, { handle, epoch });
+          this.drainOpenAdjustments(E);
         }
       } catch {
         this.#failStart(E, controller);
@@ -344,6 +393,9 @@ export abstract class Orchestrator {
         (message: ResolverEmit) => {
           this.applyEmit(E, message);
         },
+        (ack) => {
+          this.applyControlAck(ack);
+        },
       ) ?? provisional
     );
   }
@@ -361,6 +413,7 @@ export abstract class Orchestrator {
 
   /**
    * Abort-before-durable cancel of owned subtree.
+   * System + product paths may call this directly (C1 multi-writer).
    */
   cancelTree(root: Expectation, reason?: unknown): void {
     const nodes = this.#collectOwnedSubtree(root);
@@ -375,11 +428,237 @@ export abstract class Orchestrator {
     root.cancelSubtreeDurable();
 
     for (const node of nodes) {
+      try {
+        this.#refuseAdjustmentsForTarget(node.uuid);
+      } catch {
+        // unmaterialized E — no durable uuid yet
+      }
       node.clearProgress();
       this.clearBind(node);
       this.clearActivating(node);
     }
     this.publishAwarenessBinds();
+  }
+
+  /**
+   * Explicit Cancellation face — invokes the same physics as {@link cancelTree} (C1).
+   * Does not replace interrupt/orphan/parent writers.
+   */
+  requestCancellation(
+    target: Expectation,
+    opts: { strength: CancellationStrength; reason?: unknown },
+  ): CancellationResult {
+    if (!this.isClaimOwner()) {
+      return { ok: false, code: "not_claim_owner" };
+    }
+    if (isTerminal(target.state)) {
+      return { ok: false, code: "target_terminal" };
+    }
+    if (opts.strength === "cooperative") {
+      return { ok: false, code: "cooperative_not_implemented" };
+    }
+    this.cancelTree(target, opts.reason ?? "cancellation");
+    return { ok: true, state: "applied" };
+  }
+
+  // ── ExpectationAdjustment (simplex) ────────────────────────────────────
+
+  /**
+   * Materialize Intent → durable Adjustment (C3: intentId copied; uuid auto).
+   */
+  materializeAdjustment(intent: ExpectationAdjustmentIntent, bag: AdjustmentBag): MaterializeAdjustmentResult {
+    if (!this.isClaimOwner()) {
+      return { ok: false, code: "not_claim_owner" };
+    }
+    for (const existing of bag.adjustments) {
+      if (existing.intentId === intent.intentId && !isAdjustmentTerminal(existing.consumption)) {
+        return { ok: false, code: "duplicate_intent_id" };
+      }
+    }
+    const target = this.#findExpectationByUuid(intent.targetUuid);
+    if (target && isTerminal(target.state)) {
+      return { ok: false, code: "target_terminal" };
+    }
+
+    const adj = new ExpectationAdjustment();
+    ExpectationAdjustment.fillFromIntent(adj, intent);
+    bag.addAdjustment(adj);
+    return { ok: true, adjustment: adj };
+  }
+
+  deliverAdjustment(E: Expectation, adj: ExpectationAdjustment): AdjustmentOpResult {
+    if (!this.isClaimOwner()) return { ok: false, code: "not_claim_owner" };
+    if (adj.targetUuid !== E.uuid) return { ok: false, code: "not_found" };
+    if (isAdjustmentTerminal(adj.consumption) || adj.consumption === "withdrawing") {
+      return { ok: false, code: "withdraw_refused" };
+    }
+    const bind = this.binding.get(E);
+    if (!bind?.handle || E.state !== "running") {
+      return { ok: false, code: "target_not_bound" };
+    }
+    if (adj.consumption === "queued" || adj.consumption === "announced") {
+      adj.transitionConsumption("delivered");
+    }
+    const snapshot = this.#adjustmentSnapshot(adj);
+    bind.handle.deliverAdjustment?.(snapshot);
+    return { ok: true };
+  }
+
+  retractAdjustment(key: { intentId: string } | { adjustmentUuid: string }, reshapeEpoch: number): AdjustmentOpResult {
+    if (!this.isClaimOwner()) return { ok: false, code: "not_claim_owner" };
+    const adj = this.#findAdjustment(key);
+    if (!adj) return { ok: false, code: "not_found" };
+    if (adj.consumption === "considered") {
+      return { ok: false, code: "withdraw_refused" };
+    }
+    if (reshapeEpoch < adj.reshapeEpoch) {
+      return { ok: false, code: "stale_epoch" };
+    }
+    if (!adj.markWithdrawing()) {
+      return { ok: false, code: "withdraw_refused" };
+    }
+    if (adj.consumption === "withdrawing") {
+      const E = this.#findExpectationByUuid(adj.targetUuid);
+      const bind = E ? this.binding.get(E) : undefined;
+      bind?.handle?.retractAdjustment?.(
+        "intentId" in key ? { intentId: key.intentId } : { adjustmentUuid: key.adjustmentUuid },
+        reshapeEpoch,
+      );
+    }
+    return { ok: true };
+  }
+
+  reshapeAdjustment(intent: ExpectationAdjustmentIntent): AdjustmentOpResult {
+    if (!this.isClaimOwner()) return { ok: false, code: "not_claim_owner" };
+    const adj = this.#findAdjustment({ intentId: intent.intentId });
+    if (!adj) return { ok: false, code: "not_found" };
+    if (!adj.applyReshape(intent.body, intent.reshapeEpoch)) {
+      return { ok: false, code: "promote_refused" };
+    }
+    const E = this.#findExpectationByUuid(adj.targetUuid);
+    const bind = E ? this.binding.get(E) : undefined;
+    bind?.handle?.reshapeAdjustment?.(this.#adjustmentSnapshot(adj));
+    return { ok: true };
+  }
+
+  /**
+   * Apply simplex control acks from the resolver. Does not write Expectation (C2).
+   */
+  applyControlAck(ack: ResolverControlAck): AdjustmentOpResult {
+    if (!this.isClaimOwner()) return { ok: false, code: "not_claim_owner" };
+    const adj = this.#findAdjustment({ intentId: ack.intentId });
+    if (!adj) return { ok: false, code: "not_found" };
+    if (ack.reshapeEpoch !== adj.reshapeEpoch) {
+      return { ok: false, code: "stale_epoch" };
+    }
+    switch (ack.type) {
+      case "ackWillConsider":
+        if (adj.consumption === "withdrawing" || isAdjustmentTerminal(adj.consumption)) {
+          return { ok: false, code: "withdraw_refused" };
+        }
+        if (adj.consumption === "delivered") {
+          adj.transitionConsumption("accepted");
+        }
+        return { ok: true };
+      case "markConsidered":
+        if (adj.consumption === "withdrawing" || adj.consumption === "withdrawn") {
+          return { ok: false, code: "withdraw_refused" };
+        }
+        if (adj.consumption === "accepted" || adj.consumption === "delivered") {
+          if (adj.consumption === "delivered") {
+            adj.transitionConsumption("accepted");
+          }
+          adj.transitionConsumption("considered");
+        }
+        return { ok: true };
+      case "ackDropped":
+        // Machine-honest: only withdrawing → withdrawn (retract must markWithdrawing first).
+        if (!adj.markWithdrawn()) {
+          return { ok: false, code: "withdraw_refused" };
+        }
+        return { ok: true };
+      default: {
+        const _e: never = ack;
+        void _e;
+        return { ok: false, code: "not_found" };
+      }
+    }
+  }
+
+  /** Re-deliver or re-retract open adjustments for E after bind (rebind drain). */
+  drainOpenAdjustments(E: Expectation): void {
+    const bag = this.getAdjustmentBag();
+    if (!bag) return;
+    for (const adj of bag.adjustments) {
+      if (adj.targetUuid !== E.uuid) continue;
+      if (shouldRedeliverAdjustment(adj.consumption)) {
+        // Re-deliver from queued/delivered/accepted without forcing re-queued
+        const bind = this.binding.get(E);
+        if (bind?.handle) {
+          if (adj.consumption === "queued") {
+            adj.transitionConsumption("delivered");
+          }
+          bind.handle.deliverAdjustment?.(this.#adjustmentSnapshot(adj));
+        }
+      } else if (shouldRetractOnRebind(adj.consumption)) {
+        const bind = this.binding.get(E);
+        bind?.handle?.retractAdjustment?.({ intentId: adj.intentId }, adj.reshapeEpoch);
+      }
+    }
+  }
+
+  #adjustmentSnapshot(adj: ExpectationAdjustment): AdjustmentSnapshot {
+    return {
+      intentId: adj.intentId,
+      adjustmentUuid: adj.uuid,
+      targetUuid: adj.targetUuid,
+      reshapeEpoch: adj.reshapeEpoch,
+      body: adj.body,
+    };
+  }
+
+  /**
+   * Resolve by intentId or adjustmentUuid.
+   * For intentId: prefer **open** (non-terminal) row so recycled ids after
+   * terminal do not shadow the live beacon (Fable H3).
+   */
+  #findAdjustment(key: { intentId: string } | { adjustmentUuid: string }): ExpectationAdjustment | undefined {
+    const bag = this.getAdjustmentBag();
+    if (!bag) return undefined;
+    if ("adjustmentUuid" in key) {
+      for (const adj of bag.adjustments) {
+        if (adj.uuid === key.adjustmentUuid) return adj;
+      }
+      return undefined;
+    }
+    let terminalHit: ExpectationAdjustment | undefined;
+    for (const adj of bag.adjustments) {
+      if (adj.intentId !== key.intentId) continue;
+      if (!isAdjustmentTerminal(adj.consumption)) return adj;
+      terminalHit ??= adj;
+    }
+    return terminalHit;
+  }
+
+  #findExpectationByUuid(uuid: string): Expectation | undefined {
+    for (const E of walkExpectationForest(this.getOpenWorkRoots())) {
+      if (E.uuid === uuid) return E;
+    }
+    for (const E of this.walkCandidates()) {
+      if (E.uuid === uuid) return E;
+    }
+    return undefined;
+  }
+
+  #refuseAdjustmentsForTarget(targetUuid: string): void {
+    const bag = this.getAdjustmentBag();
+    if (!bag) return;
+    for (const adj of bag.adjustments) {
+      if (adj.targetUuid !== targetUuid) continue;
+      if (!isAdjustmentTerminal(adj.consumption)) {
+        adj.markRefused();
+      }
+    }
   }
 
   #collectOwnedSubtree(root: Expectation): Expectation[] {
@@ -420,6 +699,12 @@ export abstract class Orchestrator {
 
     if (!E.trySettleFromRunning(terminal)) return;
 
+    try {
+      this.#refuseAdjustmentsForTarget(E.uuid);
+    } catch {
+      /* unmaterialized */
+    }
+
     E.clearProgress();
     this.clearBind(E);
     this.publishAwarenessBinds();
@@ -451,6 +736,12 @@ export abstract class Orchestrator {
     if (!E.trySettleFromRunning(terminal, body.epoch)) {
       // Race: cancelled/rebound under us, or epoch moved.
       return { ok: false, code: E.state === "running" ? "stale_epoch" : "not_running" };
+    }
+
+    try {
+      this.#refuseAdjustmentsForTarget(E.uuid);
+    } catch {
+      /* unmaterialized */
     }
 
     if (bind.handle !== null && !bind.handle.aborted) {

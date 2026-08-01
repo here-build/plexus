@@ -1,5 +1,5 @@
 /**
- * PEW app domain — durable work types + author-facing action shapes.
+ * PEW app domain — durable work types + author-facing control shapes.
  * Claim owners and resolvers do not live here.
  */
 
@@ -25,8 +25,34 @@ export {
 } from "./progress-plane.js";
 
 export {
+  type CancellationStrength,
+  type CancellationRequest,
+  type CancellationState,
+  type Cancellation,
   type SettleSurfaceDisposition,
-  type CancelIntent,
+  type SettleSurfaceRequest,
   type SettleSurfaceIntent,
+  type ExpectationAdjustmentIntent,
+  type AdjustmentConsumptionState,
+  type AdjustmentTerminal,
+  type CancelIntent,
   type PewIntent,
-} from "./intents.js";
+  ADJUSTMENT_TERMINALS,
+} from "./control.js";
+
+export {
+  ExpectationAdjustment,
+  type AdjustmentBag,
+} from "./expectation-adjustment.js";
+
+export {
+  isAdjustmentTerminal,
+  isAdjustmentOpen,
+  adjustmentLifecycleMachine,
+  adjustmentAfter,
+  adjustmentCan,
+  canReshapeAdjustment,
+  shouldRedeliverAdjustment,
+  shouldRetractOnRebind,
+  ADJUSTMENT_REDELIVER_STATES,
+} from "./adjustment-lifecycle.js";

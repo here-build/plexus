@@ -14,7 +14,7 @@ import {
 } from "@here.build/plexus";
 import * as Y from "yjs";
 
-import { Expectation } from "../../app/index.js";
+import { Expectation, type AdjustmentBag } from "../../app/index.js";
 import type { Orchestration } from "../../orchestration/index.js";
 import { Orchestrator, type StartResolverFn } from "../../runtime/index.js";
 
@@ -30,6 +30,8 @@ export type PewTestHostOptions = {
   /** Default true. */
   readonly claimOwner?: boolean;
   readonly walkCandidates?: () => Iterable<Expectation>;
+  /** Optional open-adjustment bag (product root). */
+  readonly adjustmentBag?: AdjustmentBag;
   /**
    * Extra awareness used as a peer (second doc). When set, `syncPeerFrom()`
    * copies that peer into the host hub so `hasLiveClaimPeerBind` can see it.
@@ -66,6 +68,7 @@ export class PewTestHost extends Orchestrator {
   private readonly candidates: () => Iterable<Expectation>;
   private readonly peerAwareness: PlexusAwareness | undefined;
   private readonly ownsDoc: boolean;
+  private readonly adjustmentBag: AdjustmentBag | null;
 
   constructor(
     readonly forest: ForestLike,
@@ -78,6 +81,7 @@ export class PewTestHost extends Orchestrator {
     this.claimOwner = options.claimOwner ?? true;
     this.candidates = options.walkCandidates ?? (() => []);
     this.peerAwareness = options.peerAwareness;
+    this.adjustmentBag = options.adjustmentBag ?? null;
     let existingDoc: Y.Doc | null = null;
     try {
       existingDoc = forest.__doc__;
@@ -133,6 +137,10 @@ export class PewTestHost extends Orchestrator {
 
   getOpenWorkRoots(): readonly Expectation[] {
     return this.forest.openWork;
+  }
+
+  override getAdjustmentBag(): AdjustmentBag | null {
+    return this.adjustmentBag;
   }
 
   walkCandidates(): Iterable<Expectation> {

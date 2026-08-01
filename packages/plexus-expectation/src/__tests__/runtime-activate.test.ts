@@ -7,7 +7,11 @@ import { PlexusModel, resetLocalIDs, syncing } from "@here.build/plexus";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Expectation } from "../app/index.js";
-import { InProcessLaunchDefinition, SurfaceLaunchDefinition, Orchestration } from "../orchestration/index.js";
+import {
+  ProgressiveInProcessLaunchDefinition,
+  SurfaceLaunchDefinition,
+  Orchestration,
+} from "../orchestration/index.js";
 import type { ResolverStartInput, StartResolverFn } from "../runtime/index.js";
 import { PewTestHost } from "./_helpers/test-host.js";
 
@@ -24,13 +28,11 @@ class TestForest extends PlexusModel {
   @syncing.child.list accessor openWork: TestExpectation[] = [];
 }
 
-function launch(mode: "inprocess" | "surface" = "inprocess"): InProcessLaunchDefinition | SurfaceLaunchDefinition {
+function launch(
+  mode: "inprocess" | "surface" = "inprocess",
+): ProgressiveInProcessLaunchDefinition | SurfaceLaunchDefinition {
   if (mode === "surface") return new SurfaceLaunchDefinition();
-  // Progress tests need emitsProgress + non-none progressMode (plan gates applyProgress).
-  return new InProcessLaunchDefinition({
-    emitsProgress: true,
-    progressMode: "lww",
-  });
+  return new ProgressiveInProcessLaunchDefinition();
 }
 
 function forestWith(E: TestExpectation, mode: "inprocess" | "surface" = "inprocess"): TestForest {

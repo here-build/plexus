@@ -18,7 +18,6 @@ export {
 } from "./orchestrator.js";
 
 export {
-  type LaunchDefinitionSnapshot,
   type EmitFn,
   type ControlAckFn,
   type ProgressPatch,
@@ -28,4 +27,14 @@ export {
   type ResolverControlAck,
   type AdjustmentSnapshot,
   type StartResolverFn,
+  type LaunchDefinitionSnapshot,
 } from "./resolver.js";
+
+export {
+  type ExpectationExecution,
+  type LaunchContext,
+  type LaunchRuntime,
+  type ExecutionSinks,
+  HostPortLaunchRuntime,
+  executionFromStartResolver,
+} from "./execution.js";

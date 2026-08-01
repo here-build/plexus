@@ -5,9 +5,9 @@
 export {
   LaunchDefinition,
   InProcessLaunchDefinition,
+  ProgressiveInProcessLaunchDefinition,
   SurfaceLaunchDefinition,
   type LaunchDefinitionSnapshot,
-  type LaunchMode,
 } from "./launch-definition.js";
 
 export { Orchestration } from "./orchestration.js";

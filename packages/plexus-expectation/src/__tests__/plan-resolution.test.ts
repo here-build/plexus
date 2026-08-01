@@ -3,27 +3,25 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { InProcessLaunchDefinition, SurfaceLaunchDefinition, Orchestration } from "../orchestration/index.js";
-import { type ProgressMode } from "../app/progress-plane.js";
+import {
+  InProcessLaunchDefinition,
+  SurfaceLaunchDefinition,
+  Orchestration,
+} from "../orchestration/index.js";
 import { Orchestrator } from "../runtime/index.js";
-
-const only =
-  (...modes: string[]) =>
-  (mode: string) =>
-    modes.includes(mode);
 
 describe("Orchestrator.resolvePlan", () => {
   it("T1: no plan → missing", () => {
-    const outcome = Orchestrator.resolvePlan("tool_call", new Orchestration({ actors: new Map() }), only("inprocess"));
+    const outcome = Orchestrator.resolvePlan("tool_call", new Orchestration({ actors: new Map() }), () => true);
     expect(outcome).toEqual({ status: "missing" });
   });
 
-  it("T2: unsupported mode → refused", () => {
+  it("T2: plan present, host cannot run → refused", () => {
     const launch = new InProcessLaunchDefinition();
     const outcome = Orchestrator.resolvePlan(
       "tool_call",
       new Orchestration({ actors: new Map([["tool_call", launch]]) }),
-      only("surface"),
+      () => false,
     );
     expect(outcome.status).toBe("refused");
     if (outcome.status === "refused") {
@@ -31,12 +29,12 @@ describe("Orchestrator.resolvePlan", () => {
     }
   });
 
-  it("bound when mode supported", () => {
+  it("bound when host can run plan", () => {
     const launch = new SurfaceLaunchDefinition();
     const outcome = Orchestrator.resolvePlan(
       "harness.approval",
       new Orchestration({ actors: new Map([["harness.approval", launch]]) }),
-      only("inprocess", "surface"),
+      () => true,
     );
     expect(outcome).toEqual({ status: "bound", def: launch });
   });
@@ -46,24 +44,21 @@ describe("Orchestrator.resolvePlan", () => {
       Orchestrator.resolvePlan(
         "other",
         new Orchestration({ actors: new Map([["tool_call", new InProcessLaunchDefinition()]]) }),
-        only("inprocess"),
+        () => true,
       ),
     ).toEqual({ status: "missing" });
   });
 
   it("accepts real Orchestration", () => {
-    const launch = new InProcessLaunchDefinition({
-      emitsProgress: true,
-      progressMode: "lww",
-    });
+    const launch = new InProcessLaunchDefinition();
     const orchestration = new Orchestration({
       actors: new Map([["tool_call", launch]]),
     });
-    expect(Orchestrator.resolvePlan("tool_call", orchestration, only("inprocess"))).toEqual({
+    expect(Orchestrator.resolvePlan("tool_call", orchestration, () => true)).toEqual({
       status: "bound",
       def: launch,
     });
-    expect(Orchestrator.resolvePlan("missing_kind", orchestration, only("inprocess"))).toEqual({
+    expect(Orchestrator.resolvePlan("missing_kind", orchestration, () => true)).toEqual({
       status: "missing",
     });
   });

@@ -14,7 +14,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import { Expectation } from "../app/index.js";
-import { InProcessLaunchDefinition, SurfaceLaunchDefinition, Orchestration } from "../orchestration/index.js";
+import {
+  InProcessLaunchDefinition,
+  ProgressiveInProcessLaunchDefinition,
+  type LaunchDefinition,
+  Orchestration,
+} from "../orchestration/index.js";
 import type { ProgressMode } from "../app/progress-plane.js";
 import { PewTestHost } from "./_helpers/test-host.js";
 
@@ -30,11 +35,9 @@ class ProgressForest extends PlexusModel {
   @syncing.child.list accessor openWork: ProgressE[] = [];
 }
 
-function plan(mode: ProgressMode = "lww", emits = true): InProcessLaunchDefinition {
-  return new InProcessLaunchDefinition({
-    emitsProgress: emits,
-    progressMode: mode,
-  });
+/** Class triad: progressive vs silent inprocess — not instance flags. */
+function plan(_mode: ProgressMode = "lww", emits = true): LaunchDefinition {
+  return emits ? new ProgressiveInProcessLaunchDefinition() : new InProcessLaunchDefinition();
 }
 
 function withHub(run: (hub: PlexusAwareness) => void): void {

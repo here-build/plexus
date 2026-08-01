@@ -1,45 +1,53 @@
 /**
- * Launch strategies — how a kind of Expectation is run.
+ * Durable launch plans — hermetic config + class capability contract.
  *
- * LaunchDefinition is an **abstract self-contained plan**: durable config for
- * the target worker, without the live invocation function (that stays on the
- * claim-owner host as StartResolverFn). Subclasses declare strategy + fields.
+ * Claim-owner invocation lives on {@link LaunchRuntime} (runtime package), not
+ * on this CRDT entity (Fable H3: plane split). No durable importPath (H4).
  *
- * Drop `launchMode` string generalization — each strategy is its own type.
- * Product packages may add further subclasses (e.g. LocalAcpLaunchDefinition).
+ * Capabilities are **static class attributes**, not @syncing fields.
+ * Instance @syncing fields are worker configuration only.
  */
 import { PlexusModel, syncing } from "@here.build/plexus";
 
 import type { ProgressMode } from "../app/progress-plane.js";
 
+type LaunchDefinitionCtor = typeof LaunchDefinition & {
+  readonly acceptsMessages: boolean;
+  readonly emitsProgress: boolean;
+  readonly progressMode: ProgressMode;
+};
+
 /**
- * Abstract plan entry under `Orchestration.actors`.
- * Shared capability flags; strategy identity is the concrete class.
+ * Abstract durable plan under `Orchestration.actors`.
+ * Subclass for real plans; do not bag free-form launch flags on the base.
  */
 @syncing("@here.build/plexus-expectation:LaunchDefinition")
 export abstract class LaunchDefinition extends PlexusModel {
+  /** Class contract: may receive ExpectationAdjustments / messages. */
+  static readonly acceptsMessages: boolean = false;
+  /** Class contract: body may emit progress. */
+  static readonly emitsProgress: boolean = false;
+  /** Class contract: progress coalesce when emitsProgress. */
+  static readonly progressMode: ProgressMode = "none";
+
+  get acceptsMessages(): boolean {
+    return (this.constructor as LaunchDefinitionCtor).acceptsMessages;
+  }
+
+  get emitsProgress(): boolean {
+    return (this.constructor as LaunchDefinitionCtor).emitsProgress;
+  }
+
+  get progressMode(): ProgressMode {
+    return (this.constructor as LaunchDefinitionCtor).progressMode;
+  }
+
   /**
-   * Host strategy key — what capability the claim owner must provide.
-   * Concrete subclasses return a stable string (`"inprocess"`, `"surface"`, …).
-   * Not stored as a free-form mode enum on the base class.
-   */
-  abstract get strategy(): string;
-
-  /** Reserved: product may deliver ExpectationAdjustments / messages into the live resolver. */
-  @syncing accessor acceptsMessages: boolean = false;
-
-  @syncing accessor emitsProgress: boolean = false;
-
-  /** Progress coalesce policy when `emitsProgress` is true. */
-  @syncing accessor progressMode: ProgressMode = "none";
-
-  /**
-   * Plain snapshot for resolvers (law 5 — no mutable plan entity in the body).
-   * Subclasses may override to attach strategy-specific config.
+   * Plain data for runners / tests (not a Plexus model).
+   * Includes class triad + subclass config.
    */
   toSnapshot(): LaunchDefinitionSnapshot {
     return {
-      strategy: this.strategy,
       acceptsMessages: this.acceptsMessages,
       emitsProgress: this.emitsProgress,
       progressMode: this.progressMode,
@@ -47,46 +55,57 @@ export abstract class LaunchDefinition extends PlexusModel {
     };
   }
 
-  /** Strategy-specific durable fields as plain data (default none). */
+  /** Strategy-specific durable fields as plain data. */
   protected snapshotConfig(): Readonly<Record<string, unknown>> {
     return {};
   }
 }
 
 /**
- * Claim-owner in-process body (StartResolverFn in this process).
- * No extra durable config — the host maps kind → module.
+ * In-process claim-owner body (host ports inject session/tool modules).
+ * Default: no progress surface — use {@link ProgressiveInProcessLaunchDefinition}
+ * when the kind streams.
  */
 @syncing("@here.build/plexus-expectation:InProcessLaunchDefinition")
 export class InProcessLaunchDefinition extends LaunchDefinition {
-  override get strategy(): string {
-    return "inprocess";
+  static override readonly acceptsMessages: boolean = false;
+  static override readonly emitsProgress: boolean = false;
+  static override readonly progressMode: ProgressMode = "none";
+
+  /**
+   * Optional body/eval payload for hermetic in-process plans.
+   * Not capability flags.
+   */
+  @syncing accessor source: string = "";
+
+  protected override snapshotConfig(): Readonly<Record<string, unknown>> {
+    return this.source ? { source: this.source } : {};
   }
 }
 
 /**
- * Human / surface fulfillers (no paid OS process).
- * Host must support surface settle path.
+ * In-process plan that emits LWW progress (e.g. completion streaming).
+ */
+@syncing("@here.build/plexus-expectation:ProgressiveInProcessLaunchDefinition")
+export class ProgressiveInProcessLaunchDefinition extends InProcessLaunchDefinition {
+  static override readonly emitsProgress: boolean = true;
+  static override readonly progressMode: ProgressMode = "lww";
+}
+
+/**
+ * Human / surface fulfillers (settleSurface path).
  */
 @syncing("@here.build/plexus-expectation:SurfaceLaunchDefinition")
 export class SurfaceLaunchDefinition extends LaunchDefinition {
-  override get strategy(): string {
-    return "surface";
-  }
+  static override readonly acceptsMessages: boolean = false;
+  static override readonly emitsProgress: boolean = false;
+  static override readonly progressMode: ProgressMode = "none";
 }
 
-/** Independent copy of plan scalars for resolver start (not a Plexus model). */
+/** Independent copy of plan scalars for runners (law 5). */
 export type LaunchDefinitionSnapshot = {
-  readonly strategy: string;
   readonly acceptsMessages: boolean;
   readonly emitsProgress: boolean;
   readonly progressMode: ProgressMode;
-  /** Strategy-specific fields (e.g. baseUrl for local ACP). */
   readonly config: Readonly<Record<string, unknown>>;
 };
-
-/**
- * @deprecated Use {@link LaunchDefinition.strategy} / concrete subclasses.
- * Kept as alias for transitional host checks (`supportsLaunchMode` → strategy).
- */
-export type LaunchMode = string;

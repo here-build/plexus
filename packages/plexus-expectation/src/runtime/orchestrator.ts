@@ -14,6 +14,8 @@ import type {
   ResolverHandle,
   StartResolverFn,
 } from "./resolver.js";
+import type { ExpectationExecution, LaunchContext, LaunchRuntime } from "./execution.js";
+import { HostPortLaunchRuntime } from "./execution.js";
 import { Expectation } from "../app/expectation.js";
 import { type AdjustmentBag, ExpectationAdjustment } from "../app/expectation-adjustment.js";
 import type { CancellationStrength, ExpectationAdjustmentIntent, SettleSurfaceDisposition } from "../app/control.js";
@@ -23,7 +25,8 @@ import type { LaunchDefinition } from "../orchestration/launch-definition.js";
 import type { Orchestration } from "../orchestration/orchestration.js";
 
 export type BindEntry = {
-  handle: ResolverHandle | null;
+  /** Live execution handle (ExpectationExecution). */
+  handle: ExpectationExecution | null;
   epoch: number;
 };
 
@@ -130,6 +133,8 @@ function isForestOrphan(E: Expectation, reachable: ReadonlySet<Expectation>): bo
 export abstract class Orchestrator {
   readonly activating: Set<Expectation> = new Set();
   readonly binding: Map<Expectation, BindEntry> = new Map();
+  /** Plans currently running bootstrapRunner (H5). */
+  readonly #bootstrapping: Set<LaunchDefinition> = new Set();
   readonly maxRebinds: number;
 
   constructor(opts?: { maxRebinds?: number }) {
@@ -141,27 +146,38 @@ export abstract class Orchestrator {
   abstract getOrchestration(): Orchestration;
 
   /**
-   * Whether this process can host the plan's strategy (static floor — no
-   * hot-load). Plan refuse when false. Strategy = {@link LaunchDefinition.strategy}.
+   * Process-local launcher for this plan (claim-owner only).
+   * Undefined → cannot host (refused) or not yet registered (wait — missing starter).
+   * Dual path: HostPortLaunchRuntime (tools/completion) vs pure runners (LocalAcp).
    */
-  abstract supportsStrategy(strategy: string): boolean;
+  abstract getLaunchRuntime(def: LaunchDefinition): LaunchRuntime | undefined;
 
   /**
-   * @deprecated Prefer {@link supportsStrategy}.
+   * @deprecated Prefer {@link getLaunchRuntime}. Legacy mode floor for tests.
    */
-  supportsLaunchMode(mode: string): boolean {
-    return this.supportsStrategy(mode);
+  supportsStrategy(strategy: string): boolean {
+    return true;
   }
 
-  /** kind preferred, then strategy fallback (e.g. `"inprocess"`). */
-  abstract resolveModule(kind: string, strategy: string): StartResolverFn | undefined;
+  /**
+   * @deprecated Prefer HostPortLaunchRuntime + kind starters inside the runtime.
+   */
+  resolveModule(_kind: string, _strategy: string): StartResolverFn | undefined {
+    return undefined;
+  }
 
   /**
-   * Late-wire a known-kind or mode-level starter. Hosts without extensions
-   * still implement (no-op is explicit). Call {@link reconcile} after register
-   * so waiting open work can activate.
+   * Late-wire a starter. Default no-op; HostPort hosts override.
+   * Call reconcile after register so waiting open work can activate.
    */
-  abstract registerModule(key: string, start: StartResolverFn): void;
+  registerModule(_key: string, _start: StartResolverFn): void {
+    /* optional */
+  }
+
+  /** After async bootstrapRunner completes — host typically reconcile(). */
+  protected onLaunchRuntimeReady(): void {
+    /* host overrides */
+  }
 
   abstract isClaimOwner(): boolean;
   abstract getOpenWorkRoots(): readonly Expectation[];
@@ -227,29 +243,30 @@ export abstract class Orchestrator {
    * for product tests without a full host).
    */
   resolvePlan(kind: string): PlanResolution {
-    return Orchestrator.resolvePlan(kind, this.getOrchestration(), (s) => this.supportsStrategy(s));
+    return Orchestrator.resolvePlan(kind, this.getOrchestration(), (def) => this.getLaunchRuntime(def) != null);
   }
 
   /**
-   * kind + plan actors + strategy support → missing | refused | bound.
+   * kind + plan actors + host runtime presence → missing | refused | bound.
+   * canHost false = refused (no LaunchRuntime for this def class).
    */
   static resolvePlan(
     kind: string,
     orchestration: Orchestration,
-    supportsStrategy: (strategy: string) => boolean,
+    canHost: (def: LaunchDefinition) => boolean,
   ): PlanResolution {
     const def = orchestration.actors.get(kind);
     if (def === undefined) {
       return { status: "missing" };
     }
-    if (!supportsStrategy(def.strategy)) {
+    if (!canHost(def)) {
       return { status: "refused", def };
     }
     return { status: "bound", def };
   }
 
-  /** AbortController → ResolverHandle (signal fires on abort; adjustment methods no-op). */
-  protected handleFromController(controller: AbortController): ResolverHandle {
+  /** AbortController → provisional ExpectationExecution (abort only). */
+  protected executionFromController(controller: AbortController): ExpectationExecution {
     return {
       get aborted() {
         return controller.signal.aborted;
@@ -259,13 +276,19 @@ export abstract class Orchestrator {
           controller.abort(reason);
         }
       },
-      deliverAdjustment(_snapshot: AdjustmentSnapshot) {
-        /* modules that ignore treatment */
+      async emit() {
+        /* provisional — real exec replaces after run */
       },
-      retractAdjustment(_key, _reshapeEpoch) {
+      async control() {
+        /* provisional */
+      },
+      deliverAdjustment() {
+        /* no-op until real exec */
+      },
+      retractAdjustment() {
         /* no-op */
       },
-      reshapeAdjustment(_snapshot) {
+      reshapeAdjustment() {
         /* no-op */
       },
     };
@@ -318,8 +341,27 @@ export abstract class Orchestrator {
       const def = outcome.def;
       if (isTerminal(E.state)) return;
 
-      const startFn = this.resolveModule(E.kind, def.strategy);
-      if (!startFn) return;
+      const runtime = this.getLaunchRuntime(def);
+      if (!runtime) return; // wait for host register (H5 cold path)
+
+      if (!runtime.isReady(def)) {
+        if (!this.#bootstrapping.has(def)) {
+          this.#bootstrapping.add(def);
+          void runtime
+            .bootstrap(def)
+            .catch(() => {
+              /* bootstrap failure: leave not-ready; next reconcile may refuse */
+            })
+            .finally(() => {
+              this.#bootstrapping.delete(def);
+              this.onLaunchRuntimeReady();
+            });
+        }
+        return;
+      }
+
+      // H5: missing starter — wait without beginRunning (no durable failed).
+      if (!runtime.canRun(def, E.kind)) return;
 
       const epoch = E.beginRunning();
       if (E.state !== "running" || epoch === 0) return;
@@ -328,22 +370,42 @@ export abstract class Orchestrator {
       E.attachLivePresence();
 
       const controller = new AbortController();
-      const provisional = this.handleFromController(controller);
+      const provisional = this.executionFromController(controller);
       this.setBind(E, { handle: provisional, epoch });
       this.publishAwarenessBinds();
 
       try {
-        const handle = this.#startResolver(E, {
-          startFn,
+        const ctx: LaunchContext = {
+          kind: E.kind,
           epoch,
-          def,
-          controller,
-          provisional,
+          input: this.snapshotProductFields(E),
+          signal: controller.signal,
+          definition: def.toSnapshot(),
+        };
+        const bodyExec = runtime.run(def, ctx, {
+          applyEmit: (message) => this.applyEmit(E, message),
+          applyControl: (ack) => {
+            this.applyControlAck(ack);
+          },
         });
+        // Chain abort to activate's AbortController so signal aborts paid work (T15/T20).
+        const exec: ExpectationExecution = {
+          get aborted() {
+            return bodyExec.aborted || controller.signal.aborted;
+          },
+          abort(reason?: unknown) {
+            bodyExec.abort(reason);
+            provisional.abort(reason);
+          },
+          emit: (m) => bodyExec.emit(m),
+          control: (a) => bodyExec.control(a),
+          deliverAdjustment: bodyExec.deliverAdjustment?.bind(bodyExec),
+          retractAdjustment: bodyExec.retractAdjustment?.bind(bodyExec),
+          reshapeAdjustment: bodyExec.reshapeAdjustment?.bind(bodyExec),
+        };
         const bind = this.binding.get(E);
-        // Sync complete may have settled before start returns — only keep bind if still live.
         if (bind !== undefined && bind.epoch === epoch && E.state === "running") {
-          this.setBind(E, { handle, epoch });
+          this.setBind(E, { handle: exec, epoch });
           this.drainOpenAdjustments(E);
         }
       } catch {
@@ -364,41 +426,6 @@ export abstract class Orchestrator {
     if (!isTerminal(E.state)) {
       E.transitionState("failed");
     }
-  }
-
-  #startResolver(
-    E: Expectation,
-    {
-      startFn,
-      epoch,
-      def,
-      controller,
-      provisional,
-    }: {
-      startFn: StartResolverFn;
-      epoch: number;
-      def: LaunchDefinition;
-      controller: AbortController;
-      provisional: ResolverHandle;
-    },
-  ): ResolverHandle {
-    return (
-      startFn(
-        {
-          kind: E.kind,
-          epoch,
-          definition: def.toSnapshot(),
-          input: this.snapshotProductFields(E),
-          signal: controller.signal,
-        },
-        (message: ResolverEmit) => {
-          this.applyEmit(E, message);
-        },
-        (ack) => {
-          this.applyControlAck(ack);
-        },
-      ) ?? provisional
-    );
   }
 
   #isHealthy(bind: BindEntry): boolean {

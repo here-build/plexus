@@ -15,8 +15,19 @@ import {
 import * as Y from "yjs";
 
 import { Expectation, type AdjustmentBag } from "../../app/index.js";
-import type { Orchestration } from "../../orchestration/index.js";
-import { Orchestrator, type StartResolverFn } from "../../runtime/index.js";
+import type { LaunchDefinition, Orchestration } from "../../orchestration/index.js";
+import {
+  HostPortLaunchRuntime,
+  Orchestrator,
+  type ExpectationExecution,
+  type LaunchRuntime,
+  type StartResolverFn,
+} from "../../runtime/index.js";
+import {
+  InProcessLaunchDefinition,
+  ProgressiveInProcessLaunchDefinition,
+  SurfaceLaunchDefinition,
+} from "../../orchestration/index.js";
 
 /** Forest shape required by the host (any product TestForest). */
 export type ForestLike = PlexusModel & {
@@ -69,6 +80,7 @@ export class PewTestHost extends Orchestrator {
   private readonly peerAwareness: PlexusAwareness | undefined;
   private readonly ownsDoc: boolean;
   private readonly adjustmentBag: AdjustmentBag | null;
+  private readonly hostPortRuntime: HostPortLaunchRuntime;
 
   constructor(
     readonly forest: ForestLike,
@@ -82,6 +94,17 @@ export class PewTestHost extends Orchestrator {
     this.candidates = options.walkCandidates ?? (() => []);
     this.peerAwareness = options.peerAwareness;
     this.adjustmentBag = options.adjustmentBag ?? null;
+    this.hostPortRuntime = new HostPortLaunchRuntime(
+      (_def, ctx) => this.starters.get(ctx.kind) ?? this.starters.get(this.#strategyKey(_def)),
+      (signal) => ({
+        get aborted() {
+          return signal.aborted;
+        },
+        abort() {
+          /* signal owned by orchestrator controller */
+        },
+      }),
+    );
     let existingDoc: Y.Doc | null = null;
     try {
       existingDoc = forest.__doc__;
@@ -119,16 +142,26 @@ export class PewTestHost extends Orchestrator {
     return this.forest.orchestration;
   }
 
-  supportsStrategy(strategy: string): boolean {
-    return this.modes.has(strategy);
+  #strategyKey(def: LaunchDefinition): string {
+    if (def instanceof SurfaceLaunchDefinition) return "surface";
+    if (def instanceof ProgressiveInProcessLaunchDefinition || def instanceof InProcessLaunchDefinition) {
+      return "inprocess";
+    }
+    return "inprocess";
   }
 
-  resolveModule(kind: string, strategy: string): StartResolverFn | undefined {
-    return this.starters.get(kind) ?? this.starters.get(strategy);
+  getLaunchRuntime(def: LaunchDefinition): LaunchRuntime | undefined {
+    const key = this.#strategyKey(def);
+    if (!this.modes.has(key)) return undefined;
+    return this.hostPortRuntime;
   }
 
   registerModule(key: string, start: StartResolverFn): void {
     this.starters.set(key, start);
+  }
+
+  protected override onLaunchRuntimeReady(): void {
+    this.reconcile();
   }
 
   isClaimOwner(): boolean {
@@ -177,10 +210,7 @@ export class PewTestHost extends Orchestrator {
   }
 
   /** Test seam — install a local bind without activate. */
-  installBind(
-    E: Expectation,
-    entry: { handle: { abort(reason?: unknown): void; readonly aborted: boolean }; epoch: number },
-  ): void {
+  installBind(E: Expectation, entry: { handle: ExpectationExecution; epoch: number }): void {
     this.setBind(E, entry);
   }
 }

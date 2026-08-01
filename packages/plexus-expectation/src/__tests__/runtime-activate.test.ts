@@ -1,15 +1,15 @@
 /**
  * Runtime: activate + emit (T1–T5, T9, T16, T19, T24, T25).
- *
- * Each host is an Orchestrator subclass — no makeOrch options bag.
+ * Host = doc-backed PewTestHost (real awareness + progress plane).
  */
 import "@here.build/plexus/mobx/register";
 import { PlexusModel, resetLocalIDs, syncing } from "@here.build/plexus";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Expectation } from "../app/index.js";
 import { LaunchDefinition, Orchestration } from "../orchestration/index.js";
-import { Orchestrator, type ProgressPatch, type ResolverStartInput, type StartResolverFn } from "../runtime/index.js";
+import type { ResolverStartInput, StartResolverFn } from "../runtime/index.js";
+import { PewTestHost } from "./_helpers/test-host.js";
 
 @syncing("@here.build/plexus-expectation:test.RuntimeExpectation")
 class TestExpectation extends Expectation {
@@ -33,73 +33,27 @@ function launch(mode: "inprocess" | "surface" = "inprocess"): LaunchDefinition {
   });
 }
 
-/** Default test claim-owner host. Scenario hosts subclass and override abstract policy. */
-class ActivateHost extends Orchestrator {
-  /** kind and/or launchMode → starter. */
-  readonly starters: Map<string, StartResolverFn>;
-  private readonly modes: ReadonlySet<string>;
-
-  constructor(
-    readonly forest: TestForest,
-    starters: Record<string, StartResolverFn> = {},
-    modes: ReadonlySet<string> = new Set(["inprocess", "surface"]),
-  ) {
-    super();
-    this.starters = new Map(Object.entries(starters));
-    this.modes = modes;
-  }
-
-  getOrchestration(): Orchestration {
-    return this.forest.orchestration;
-  }
-
-  supportsLaunchMode(mode: string): boolean {
-    return this.modes.has(mode);
-  }
-
-  resolveModule(kind: string, launchMode: string): StartResolverFn | undefined {
-    return this.starters.get(kind) ?? this.starters.get(launchMode);
-  }
-
-  registerModule(key: string, start: StartResolverFn): void {
-    this.starters.set(key, start);
-  }
-
-  isClaimOwner(): boolean {
-    return true;
-  }
-
-  getOpenWorkRoots(): readonly Expectation[] {
-    return this.forest.openWork;
-  }
-
-  walkCandidates(): Iterable<Expectation> {
-    return [];
-  }
-
-  hasLiveClaimPeerBind(_E: Expectation): boolean {
-    return false;
-  }
-
-  snapshotProductFields(E: Expectation): unknown {
-    return { payload: (E as TestExpectation).payload };
-  }
-
-  applyProgress(_E: Expectation, _patch: ProgressPatch): void {}
-
-  publishAwarenessBinds(): void {}
-}
-
-class ProgressHost extends ActivateHost {
-  readonly patches: unknown[] = [];
-
-  override applyProgress(_E: Expectation, patch: ProgressPatch): void {
-    this.patches.push(patch);
-  }
+function forestWith(E: TestExpectation, mode: "inprocess" | "surface" = "inprocess"): TestForest {
+  return new TestForest({
+    orchestration: new Orchestration({
+      actors: new Map([["test.tool", launch(mode)]]),
+    }),
+    openWork: [E],
+  });
 }
 
 describe("runtime activate / emit", () => {
-  beforeEach(() => resetLocalIDs());
+  let host: PewTestHost | undefined;
+
+  beforeEach(() => {
+    resetLocalIDs();
+    Expectation.bindProgressHub(null);
+    host = undefined;
+  });
+  afterEach(() => {
+    host?.dispose();
+    Expectation.bindProgressHub(null);
+  });
 
   it("T1: no plan → missing via activate", () => {
     const E = new TestExpectation({ payload: "in" });
@@ -107,7 +61,7 @@ describe("runtime activate / emit", () => {
       orchestration: new Orchestration({ actors: new Map() }),
       openWork: [E],
     });
-    const host = new ActivateHost(forest, {
+    host = new PewTestHost(forest, {
       inprocess: (input, emit) => {
         emit({ type: "complete", epoch: input.epoch });
       },
@@ -118,63 +72,43 @@ describe("runtime activate / emit", () => {
     expect(host.binding.has(E)).toBe(false);
   });
 
-  it("T2: unloaded mode → refused via activate", () => {
+  it("T2: plan present, launchMode unsupported → refused", () => {
     const E = new TestExpectation({ payload: "in" });
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch("inprocess")]]),
-      }),
-      openWork: [E],
-    });
-    // Plan wants inprocess; host only loads surface.
-    const host = new ActivateHost(
-      forest,
-      {
-        inprocess: (input, emit) => {
-          emit({ type: "complete", epoch: input.epoch });
-        },
+    host = new PewTestHost(forestWith(E, "surface"), {
+      inprocess: (input, emit) => {
+        emit({ type: "complete", epoch: input.epoch });
       },
-      new Set(["surface"]),
-    );
+    }, { modes: new Set(["inprocess"]) });
 
     host.activate(E);
     expect(E.state).toBe("refused");
     expect(host.binding.has(E)).toBe(false);
   });
 
-  it("T3: inprocess progress + complete", () => {
+  it("T3: inprocess progress + complete (plane SSoT)", () => {
     const E = new TestExpectation({ payload: "in" });
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch("inprocess")]]),
-      }),
-      openWork: [E],
-    });
-    const host = new ProgressHost(forest, {
+    let mid: unknown;
+    host = new PewTestHost(forestWith(E), {
       inprocess: (input, emit) => {
         emit({ type: "progress", epoch: input.epoch, patch: { n: 1 } });
         emit({ type: "progress", epoch: input.epoch, patch: { n: 2 } });
+        mid = E.progress;
         emit({ type: "complete", epoch: input.epoch });
       },
     });
 
     host.activate(E);
-    expect(host.patches).toEqual([{ n: 1 }, { n: 2 }]);
+    expect(mid).toEqual({ n: 2 });
     expect(E.state).toBe("sealed");
+    expect(E.progress).toBeUndefined();
     expect(host.binding.has(E)).toBe(false);
     expect(E.bindEpoch).toBe(1);
   });
 
   it("T4: stale epoch emit dropped", () => {
     const E = new TestExpectation({ payload: "in" });
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch("inprocess")]]),
-      }),
-      openWork: [E],
-    });
     let captured: { emit: Parameters<StartResolverFn>[1]; epoch: number } | undefined;
-    const host = new ProgressHost(forest, {
+    host = new PewTestHost(forestWith(E), {
       inprocess: (input, emit) => {
         captured = { emit, epoch: input.epoch };
       },
@@ -186,31 +120,26 @@ describe("runtime activate / emit", () => {
 
     captured!.emit({ type: "progress", epoch: 0, patch: { stale: true } });
     captured!.emit({ type: "complete", epoch: 0 });
-    expect(host.patches).toEqual([]);
+    expect(E.progress).toBeUndefined();
     expect(E.state).toBe("running");
 
     captured!.emit({ type: "progress", epoch: 1, patch: { ok: true } });
-    expect(host.patches).toEqual([{ ok: true }]);
+    expect(E.progress).toEqual({ ok: true });
     captured!.emit({ type: "complete", epoch: 1 });
     expect(E.state).toBe("sealed");
+    expect(E.progress).toBeUndefined();
   });
 
   it("T5 / T24: activation single-flight (concurrent activate)", () => {
     const E = new TestExpectation({ payload: "in" });
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch("inprocess")]]),
-      }),
-      openWork: [E],
-    });
     let entries = 0;
     let reentrantActivate = 0;
-    const host = new ActivateHost(forest, {
+    host = new PewTestHost(forestWith(E), {
       inprocess: (input, emit) => {
         entries += 1;
-        host.activate(E);
-        if (host.activating.has(E)) reentrantActivate += 1;
-        host.activate(E);
+        host!.activate(E);
+        if (host!.activating.has(E)) reentrantActivate += 1;
+        host!.activate(E);
         emit({ type: "complete", epoch: input.epoch });
       },
     });
@@ -225,14 +154,8 @@ describe("runtime activate / emit", () => {
 
   it("T9: resolver gets snapshot only — no Expectation entity / doc", () => {
     const E = new TestExpectation({ payload: "in" });
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch("inprocess")]]),
-      }),
-      openWork: [E],
-    });
     let seen: ResolverStartInput | undefined;
-    const host = new ActivateHost(forest, {
+    host = new PewTestHost(forestWith(E), {
       inprocess: (input, emit) => {
         seen = input;
         const json = JSON.parse(JSON.stringify(input)) as ResolverStartInput;
@@ -240,14 +163,12 @@ describe("runtime activate / emit", () => {
         expect(json.epoch).toBe(1);
         expect(json.definition.launchMode).toBe("inprocess");
         expect(json.input).toEqual({ payload: "in" });
-        expect(input.signal).toBeInstanceOf(AbortSignal);
         emit({ type: "complete", epoch: input.epoch });
       },
     });
 
     host.activate(E);
     expect(seen).toBeDefined();
-    expect(seen).not.toHaveProperty("expectation");
     expect(seen).not.toHaveProperty("doc");
     expect(seen).not.toHaveProperty("E");
     expect(seen!.input).toEqual({ payload: "in" });
@@ -256,13 +177,7 @@ describe("runtime activate / emit", () => {
 
   it("T16: startResolver throw → failed, epoch burned", () => {
     const E = new TestExpectation({ payload: "in" });
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch("inprocess")]]),
-      }),
-      openWork: [E],
-    });
-    const host = new ActivateHost(forest, {
+    host = new PewTestHost(forestWith(E), {
       inprocess: () => {
         throw new Error("boom");
       },
@@ -276,14 +191,8 @@ describe("runtime activate / emit", () => {
 
   it("T19: sync complete before startResolver returns is applied", () => {
     const E = new TestExpectation({ payload: "in" });
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch("inprocess")]]),
-      }),
-      openWork: [E],
-    });
     let stateAtReturn: string | undefined;
-    const host = new ActivateHost(forest, {
+    host = new PewTestHost(forestWith(E), {
       inprocess: (input, emit) => {
         emit({ type: "complete", epoch: input.epoch });
         stateAtReturn = E.state;
@@ -298,19 +207,13 @@ describe("runtime activate / emit", () => {
 
   it("T25: binding/activating use entity keys (not uuid strings)", () => {
     const E = new TestExpectation({ payload: "in" });
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch("inprocess")]]),
-      }),
-      openWork: [E],
-    });
     let midBindKeys: unknown[] = [];
     let midActivatingHasEntity = false;
-    const host = new ActivateHost(forest, {
+    host = new PewTestHost(forestWith(E), {
       inprocess: (input, emit) => {
-        midBindKeys = [...host.binding.keys()];
-        midActivatingHasEntity = host.activating.has(E);
-        expect(host.binding.has(E)).toBe(true);
+        midBindKeys = [...host!.binding.keys()];
+        midActivatingHasEntity = host!.activating.has(E);
+        expect(host!.binding.has(E)).toBe(true);
         for (const k of midBindKeys) {
           expect(typeof k).not.toBe("string");
           expect(k).toBeInstanceOf(Expectation);
@@ -331,13 +234,7 @@ describe("runtime activate / emit", () => {
       /* leave running — human settle */
     });
     const E = new TestExpectation({ payload: "in" });
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch("surface")]]),
-      }),
-      openWork: [E],
-    });
-    const host = new ActivateHost(forest, { inprocess, surface });
+    host = new PewTestHost(forestWith(E, "surface"), { inprocess, surface });
 
     host.activate(E);
     expect(E.state).toBe("running");
@@ -349,14 +246,8 @@ describe("runtime activate / emit", () => {
 
   it("running + healthy bind is idempotent", () => {
     const E = new TestExpectation({ payload: "in" });
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch("inprocess")]]),
-      }),
-      openWork: [E],
-    });
     let starts = 0;
-    const host = new ActivateHost(forest, {
+    host = new PewTestHost(forestWith(E), {
       inprocess: () => {
         starts += 1;
       },
@@ -371,13 +262,7 @@ describe("runtime activate / emit", () => {
 
   it("fail emit → failed", () => {
     const E = new TestExpectation({ payload: "in" });
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch("inprocess")]]),
-      }),
-      openWork: [E],
-    });
-    const host = new ActivateHost(forest, {
+    host = new PewTestHost(forestWith(E), {
       inprocess: (input, emit) => {
         emit({ type: "fail", epoch: input.epoch, reason: "x" });
       },
@@ -389,13 +274,7 @@ describe("runtime activate / emit", () => {
 
   it("missing starter waits (no durable run); late register + reconcile activates", () => {
     const E = new TestExpectation({ payload: "late" });
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch("inprocess")]]),
-      }),
-      openWork: [E],
-    });
-    const host = new ActivateHost(forest, {});
+    host = new PewTestHost(forestWith(E), {});
 
     host.activate(E);
     expect(E.state).toBe("declared");

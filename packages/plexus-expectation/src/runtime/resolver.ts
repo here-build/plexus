@@ -5,7 +5,10 @@
  * and never a mutable Expectation entity.
  */
 
-import type { LaunchMode, ProgressMode } from "../orchestration/launch-definition.js";
+import type { ProgressMode, ProgressPatch } from "../app/progress-plane.js";
+import type { LaunchMode } from "../orchestration/launch-definition.js";
+
+export type { ProgressPatch };
 
 /**
  * Independent copy of plan-entry scalars for resolver start.
@@ -29,9 +32,6 @@ export class LaunchDefinitionSnapshot {
     this.progressMode = init.progressMode;
   }
 }
-
-/** Opaque progress payload — product interprets; PEW core only fences + forwards. */
-export type ProgressPatch = unknown;
 
 export type ResolverEmit =
   | { readonly type: "progress"; readonly epoch: number; readonly patch: ProgressPatch }

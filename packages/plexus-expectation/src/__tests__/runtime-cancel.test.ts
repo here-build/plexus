@@ -1,15 +1,15 @@
 /**
  * Runtime: cancelTree abort-first + races (T6, T15, T23, T26).
- *
- * Each host is an Orchestrator subclass — no makeOrch options bag.
+ * Host = doc-backed PewTestHost.
  */
 import "@here.build/plexus/mobx/register";
 import { PlexusModel, resetLocalIDs, syncing } from "@here.build/plexus";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Expectation } from "../app/index.js";
 import { LaunchDefinition, Orchestration } from "../orchestration/index.js";
-import { Orchestrator, type EmitFn, type StartResolverFn } from "../runtime/index.js";
+import type { EmitFn } from "../runtime/index.js";
+import { PewTestHost } from "./_helpers/test-host.js";
 
 @syncing("@here.build/plexus-expectation:test.CancelExpectation")
 class TestExpectation extends Expectation {
@@ -31,61 +31,27 @@ function launch(): LaunchDefinition {
   });
 }
 
-/** Default cancel-suite claim-owner host. */
-class CancelHost extends Orchestrator {
-  readonly starters: Map<string, StartResolverFn>;
-
-  constructor(
-    readonly forest: TestForest,
-    start: StartResolverFn,
-  ) {
-    super();
-    this.starters = new Map([["inprocess", start]]);
-  }
-
-  getOrchestration(): Orchestration {
-    return this.forest.orchestration;
-  }
-
-  supportsLaunchMode(mode: string): boolean {
-    return mode === "inprocess" || mode === "surface";
-  }
-
-  resolveModule(kind: string, launchMode: string): StartResolverFn | undefined {
-    return this.starters.get(kind) ?? this.starters.get(launchMode);
-  }
-
-  registerModule(key: string, start: StartResolverFn): void {
-    this.starters.set(key, start);
-  }
-
-  isClaimOwner(): boolean {
-    return true;
-  }
-
-  getOpenWorkRoots(): readonly Expectation[] {
-    return this.forest.openWork;
-  }
-
-  walkCandidates(): Iterable<Expectation> {
-    return [];
-  }
-
-  hasLiveClaimPeerBind(_E: Expectation): boolean {
-    return false;
-  }
-
-  snapshotProductFields(_E: Expectation): unknown {
-    return {};
-  }
-
-  applyProgress(_E: Expectation, _patch: unknown): void {}
-
-  publishAwarenessBinds(): void {}
+function forestWith(...units: TestExpectation[]): TestForest {
+  return new TestForest({
+    orchestration: new Orchestration({
+      actors: new Map([["test.tool", launch()]]),
+    }),
+    openWork: units,
+  });
 }
 
 describe("runtime cancelTree", () => {
-  beforeEach(() => resetLocalIDs());
+  let host: PewTestHost | undefined;
+
+  beforeEach(() => {
+    resetLocalIDs();
+    Expectation.bindProgressHub(null);
+    host = undefined;
+  });
+  afterEach(() => {
+    host?.dispose();
+    Expectation.bindProgressHub(null);
+  });
 
   it("T15: cancel running — AbortSignal fires before state becomes cancelled", () => {
     let signal: AbortSignal | undefined;
@@ -93,18 +59,14 @@ describe("runtime cancelTree", () => {
     let stateWhenAborted: string | undefined;
 
     const E = new TestExpectation();
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch()]]),
-      }),
-      openWork: [E],
-    });
-    const host = new CancelHost(forest, (input) => {
-      signal = input.signal;
-      signal.addEventListener("abort", () => {
-        stateWhenAborted = E.state;
-        abortBeforeCancelled = E.state === "running";
-      });
+    host = new PewTestHost(forestWith(E), {
+      inprocess: (input) => {
+        signal = input.signal;
+        signal.addEventListener("abort", () => {
+          stateWhenAborted = E.state;
+          abortBeforeCancelled = E.state === "running";
+        });
+      },
     });
 
     host.activate(E);
@@ -125,15 +87,11 @@ describe("runtime cancelTree", () => {
   it("T6: cancelTree on parent cancels children (abort + durable)", () => {
     const child = new TestExpectation();
     const parent = new TestExpectation({ children: [child] });
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch()]]),
-      }),
-      openWork: [parent],
-    });
     const signals: AbortSignal[] = [];
-    const host = new CancelHost(forest, (input) => {
-      signals.push(input.signal);
+    host = new PewTestHost(forestWith(parent), {
+      inprocess: (input) => {
+        signals.push(input.signal);
+      },
     });
 
     host.activate(parent);
@@ -154,21 +112,17 @@ describe("runtime cancelTree", () => {
   it("T6: parent complete (terminal) cascades cancelTree on open children", () => {
     const child = new TestExpectation();
     const parent = new TestExpectation({ children: [child] });
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch()]]),
-      }),
-      openWork: [parent],
-    });
     let childAborted = false;
     let mode: "child" | "parent" = "child";
-    const host = new CancelHost(forest, (input, emit) => {
-      input.signal.addEventListener("abort", () => {
-        childAborted = true;
-      });
-      if (mode === "parent") {
-        emit({ type: "complete", epoch: input.epoch });
-      }
+    host = new PewTestHost(forestWith(parent), {
+      inprocess: (input, emit) => {
+        input.signal.addEventListener("abort", () => {
+          childAborted = true;
+        });
+        if (mode === "parent") {
+          emit({ type: "complete", epoch: input.epoch });
+        }
+      },
     });
 
     mode = "child";
@@ -185,18 +139,14 @@ describe("runtime cancelTree", () => {
   it("T23: cancel during activating", () => {
     let cancelDuringStart = false;
     const E = new TestExpectation();
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch()]]),
-      }),
-      openWork: [E],
-    });
-    const host = new CancelHost(forest, (input, emit) => {
-      expect(host.activating.has(E)).toBe(true);
-      expect(E.state).toBe("running");
-      host.cancelTree(E, "interrupt");
-      cancelDuringStart = true;
-      emit({ type: "complete", epoch: input.epoch });
+    host = new PewTestHost(forestWith(E), {
+      inprocess: (input, emit) => {
+        expect(host!.activating.has(E)).toBe(true);
+        expect(E.state).toBe("running");
+        host!.cancelTree(E, "interrupt");
+        cancelDuringStart = true;
+        emit({ type: "complete", epoch: input.epoch });
+      },
     });
 
     host.activate(E);
@@ -212,18 +162,14 @@ describe("runtime cancelTree", () => {
     let abortFired = false;
 
     const E = new TestExpectation();
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch()]]),
-      }),
-      openWork: [E],
-    });
-    const host = new CancelHost(forest, (input, e) => {
-      emit = e;
-      signal = input.signal;
-      signal.addEventListener("abort", () => {
-        abortFired = true;
-      });
+    host = new PewTestHost(forestWith(E), {
+      inprocess: (input, e) => {
+        emit = e;
+        signal = input.signal;
+        signal.addEventListener("abort", () => {
+          abortFired = true;
+        });
+      },
     });
 
     host.activate(E);
@@ -240,14 +186,10 @@ describe("runtime cancelTree", () => {
 
   it("cancel of declared (never activated) → cancelled", () => {
     const E = new TestExpectation();
-    const forest = new TestForest({
-      orchestration: new Orchestration({
-        actors: new Map([["test.tool", launch()]]),
-      }),
-      openWork: [E],
-    });
-    const host = new CancelHost(forest, () => {
-      throw new Error("should not start");
+    host = new PewTestHost(forestWith(E), {
+      inprocess: () => {
+        throw new Error("should not start");
+      },
     });
 
     expect(E.state).toBe("declared");

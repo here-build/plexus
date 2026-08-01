@@ -136,8 +136,21 @@ export abstract class Orchestrator {
 
   abstract hasLiveClaimPeerBind(E: Expectation): boolean;
   abstract snapshotProductFields(E: Expectation): unknown;
-  abstract applyProgress(E: Expectation, patch: ProgressPatch): void;
   abstract publishAwarenessBinds(): void;
+
+  /**
+   * Default: forward to {@link Expectation.reportProgress} on the Expectation's
+   * live awareness client. Respects plan `emitsProgress` + `progressMode`.
+   */
+  applyProgress(E: Expectation, patch: ProgressPatch): void {
+    const plan = this.resolvePlan(E.kind);
+    if (plan.status === "bound") {
+      if (!plan.def.emitsProgress || plan.def.progressMode === "none") return;
+      E.reportProgress(patch, plan.def.progressMode);
+      return;
+    }
+    E.reportProgress(patch, "lww");
+  }
 
   // ── Bind map (subclass + product repair) ───────────────────────────────
 
@@ -257,6 +270,9 @@ export abstract class Orchestrator {
       const epoch = E.beginRunning();
       if (E.state !== "running" || epoch === 0) return;
 
+      // Live half: one awareness clientId for this invocation (generator face).
+      E.attachLivePresence();
+
       const controller = new AbortController();
       const provisional = this.handleFromController(controller);
       this.setBind(E, { handle: provisional, epoch });
@@ -287,6 +303,7 @@ export abstract class Orchestrator {
     if (!controller.signal.aborted) {
       controller.abort("start_failed");
     }
+    E.clearProgress();
     this.clearBind(E);
     this.publishAwarenessBinds();
     if (!isTerminal(E.state)) {
@@ -358,6 +375,7 @@ export abstract class Orchestrator {
     root.cancelSubtreeDurable();
 
     for (const node of nodes) {
+      node.clearProgress();
       this.clearBind(node);
       this.clearActivating(node);
     }
@@ -402,6 +420,7 @@ export abstract class Orchestrator {
 
     if (!E.trySettleFromRunning(terminal)) return;
 
+    E.clearProgress();
     this.clearBind(E);
     this.publishAwarenessBinds();
 
@@ -437,6 +456,7 @@ export abstract class Orchestrator {
     if (bind.handle !== null && !bind.handle.aborted) {
       bind.handle.abort(body.disposition);
     }
+    E.clearProgress();
     this.clearBind(E);
     this.publishAwarenessBinds();
 
@@ -461,6 +481,7 @@ export abstract class Orchestrator {
       E.enterAwaitingRebind(opts.incrementRebind);
     }
 
+    E.clearProgress();
     this.clearBind(E);
     this.clearActivating(E);
     this.publishAwarenessBinds();
@@ -484,6 +505,7 @@ export abstract class Orchestrator {
       if (node.state === "running") {
         node.transitionState("awaiting_rebind");
       }
+      node.clearProgress();
     }
 
     for (const [node] of bound) {

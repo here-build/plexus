@@ -19,6 +19,12 @@ export { PewTerminalWriteError } from "./errors.js";
 export { Expectation } from "./expectation.js";
 
 export {
+  PROGRESS_FIELD,
+  type ProgressMode,
+  type ProgressPatch,
+} from "./progress-plane.js";
+
+export {
   type SettleSurfaceDisposition,
   type CancelIntent,
   type SettleSurfaceIntent,

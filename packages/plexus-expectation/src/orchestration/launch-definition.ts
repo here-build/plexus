@@ -1,10 +1,11 @@
 import { PlexusModel, syncing } from "@here.build/plexus";
 
+import type { ProgressMode } from "../app/progress-plane.js";
+
 /** Built-in modes; hosts may register additional string modes. */
 export type LaunchMode = "inprocess" | "surface" | (string & {});
 
-/** How progress patches coalesce on the claim owner. */
-export type ProgressMode = "lww" | "append" | "none";
+export type { ProgressMode };
 
 /**
  * Durable plan entry: how a kind is launched and what capabilities it exposes.

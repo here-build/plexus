@@ -20,8 +20,15 @@ type ExpectationCtor = typeof Expectation & { readonly kind: string };
 
 @syncing("@here.build/plexus-expectation:Expectation")
 export abstract class Expectation extends PlexusModel {
-  /** Process hub awareness (session doc). Readers + claim owners bind this. */
+  /**
+   * Default hub for peer progress reads + attach when no arg.
+   * Multi-session: {@link acquireProgressHub} / {@link releaseProgressHub}
+   * so dispose of one session does not null another (Fable F1).
+   */
   static #hub: PlexusAwareness | null = null;
+
+  /** Refcounts per hub instance. */
+  static #hubRefs = new Map<PlexusAwareness, number>();
 
   /** Local progressive clients — one base clientId per open Expectation. */
   static #live = new WeakMap<Expectation, PlexusAwareness>();
@@ -30,15 +37,37 @@ export abstract class Expectation extends PlexusModel {
   static appendCap = 32;
 
   /**
-   * Bind (or clear) the process awareness hub for all Expectations.
-   * Claim owners and UI peers both bind the same hub; writers use
-   * {@link attachLivePresence} per Expectation.
+   * Bind (or clear) the process awareness hub — single-session / tests.
+   * Daemons with multiple sessions: use acquire/release instead.
    */
   static bindProgressHub(hub: PlexusAwareness | null): void {
+    Expectation.#hubRefs.clear();
+    Expectation.#hub = hub;
+    if (hub) Expectation.#hubRefs.set(hub, 1);
+  }
+
+  /** Refcounted hub acquire (claim-owner install). */
+  static acquireProgressHub(hub: PlexusAwareness): void {
+    const n = (Expectation.#hubRefs.get(hub) ?? 0) + 1;
+    Expectation.#hubRefs.set(hub, n);
     Expectation.#hub = hub;
   }
 
-  /** Currently bound hub (hosts / tests). */
+  /** Refcounted hub release (claim-owner dispose). */
+  static releaseProgressHub(hub: PlexusAwareness): void {
+    const n = (Expectation.#hubRefs.get(hub) ?? 0) - 1;
+    if (n <= 0) {
+      Expectation.#hubRefs.delete(hub);
+      if (Expectation.#hub === hub) {
+        const next = Expectation.#hubRefs.keys().next();
+        Expectation.#hub = next.done ? null : next.value;
+      }
+    } else {
+      Expectation.#hubRefs.set(hub, n);
+    }
+  }
+
+  /** Currently preferred hub (hosts / tests). */
   static progressHub(): PlexusAwareness | null {
     return Expectation.#hub;
   }
@@ -52,11 +81,12 @@ export abstract class Expectation extends PlexusModel {
    * Mint a dedicated awareness client for this Expectation on the hub
    * (1 clientId ↔ 1 Expectation). Sets {@link processorClientId}. No-op if
    * already attached or no hub.
+   * @param hub - session doc awareness; defaults to {@link progressHub}
    */
-  attachLivePresence(): void {
-    const hub = Expectation.#hub;
-    if (!hub || Expectation.#live.has(this)) return;
-    const client = PlexusAwareness.createLocalClient(hub);
+  attachLivePresence(hub?: PlexusAwareness | null): void {
+    const h = hub ?? Expectation.#hub;
+    if (!h || Expectation.#live.has(this)) return;
+    const client = PlexusAwareness.createLocalClient(h);
     Expectation.#live.set(this, client);
     this.processorClientId = client.clientID;
   }

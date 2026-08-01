@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { LaunchDefinition, type LaunchMode, Orchestration } from "../orchestration/index.js";
+import { InProcessLaunchDefinition, SurfaceLaunchDefinition, Orchestration } from "../orchestration/index.js";
 import { type ProgressMode } from "../app/progress-plane.js";
 import { Orchestrator } from "../runtime/index.js";
 
@@ -19,7 +19,7 @@ describe("Orchestrator.resolvePlan", () => {
   });
 
   it("T2: unsupported mode → refused", () => {
-    const launch = new LaunchDefinition({ launchMode: "inprocess" });
+    const launch = new InProcessLaunchDefinition();
     const outcome = Orchestrator.resolvePlan(
       "tool_call",
       new Orchestration({ actors: new Map([["tool_call", launch]]) }),
@@ -32,12 +32,7 @@ describe("Orchestrator.resolvePlan", () => {
   });
 
   it("bound when mode supported", () => {
-    const launch = new LaunchDefinition({
-      launchMode: "surface",
-      acceptsMessages: false,
-      emitsProgress: false,
-      progressMode: "none",
-    });
+    const launch = new SurfaceLaunchDefinition();
     const outcome = Orchestrator.resolvePlan(
       "harness.approval",
       new Orchestration({ actors: new Map([["harness.approval", launch]]) }),
@@ -50,15 +45,14 @@ describe("Orchestrator.resolvePlan", () => {
     expect(
       Orchestrator.resolvePlan(
         "other",
-        new Orchestration({ actors: new Map([["tool_call", new LaunchDefinition({ launchMode: "inprocess" })]]) }),
+        new Orchestration({ actors: new Map([["tool_call", new InProcessLaunchDefinition()]]) }),
         only("inprocess"),
       ),
     ).toEqual({ status: "missing" });
   });
 
   it("accepts real Orchestration", () => {
-    const launch = new LaunchDefinition({
-      launchMode: "inprocess",
+    const launch = new InProcessLaunchDefinition({
       emitsProgress: true,
       progressMode: "lww",
     });

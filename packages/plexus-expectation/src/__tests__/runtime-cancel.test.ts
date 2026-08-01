@@ -7,7 +7,7 @@ import { PlexusModel, resetLocalIDs, syncing } from "@here.build/plexus";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Expectation } from "../app/index.js";
-import { LaunchDefinition, Orchestration } from "../orchestration/index.js";
+import { InProcessLaunchDefinition, SurfaceLaunchDefinition, Orchestration } from "../orchestration/index.js";
 import type { EmitFn } from "../runtime/index.js";
 import { PewTestHost } from "./_helpers/test-host.js";
 
@@ -22,13 +22,8 @@ class TestForest extends PlexusModel {
   @syncing.child.list accessor openWork: TestExpectation[] = [];
 }
 
-function launch(): LaunchDefinition {
-  return new LaunchDefinition({
-    launchMode: "inprocess",
-    acceptsMessages: false,
-    emitsProgress: false,
-    progressMode: "none",
-  });
+function launch(): InProcessLaunchDefinition {
+  return new InProcessLaunchDefinition();
 }
 
 function forestWith(...units: TestExpectation[]): TestForest {

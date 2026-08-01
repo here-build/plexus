@@ -7,7 +7,7 @@ import { PlexusModel, resetLocalIDs, syncing } from "@here.build/plexus";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Expectation } from "../app/index.js";
-import { LaunchDefinition, Orchestration } from "../orchestration/index.js";
+import { InProcessLaunchDefinition, SurfaceLaunchDefinition, Orchestration } from "../orchestration/index.js";
 import type { ResolverStartInput, StartResolverFn } from "../runtime/index.js";
 import { PewTestHost } from "./_helpers/test-host.js";
 
@@ -24,10 +24,10 @@ class TestForest extends PlexusModel {
   @syncing.child.list accessor openWork: TestExpectation[] = [];
 }
 
-function launch(mode: "inprocess" | "surface" = "inprocess"): LaunchDefinition {
-  return new LaunchDefinition({
-    launchMode: mode,
-    acceptsMessages: false,
+function launch(mode: "inprocess" | "surface" = "inprocess"): InProcessLaunchDefinition | SurfaceLaunchDefinition {
+  if (mode === "surface") return new SurfaceLaunchDefinition();
+  // Progress tests need emitsProgress + non-none progressMode (plan gates applyProgress).
+  return new InProcessLaunchDefinition({
     emitsProgress: true,
     progressMode: "lww",
   });
@@ -72,7 +72,7 @@ describe("runtime activate / emit", () => {
     expect(host.binding.has(E)).toBe(false);
   });
 
-  it("T2: plan present, launchMode unsupported → refused", () => {
+  it("T2: plan present, strategy unsupported → refused", () => {
     const E = new TestExpectation({ payload: "in" });
     host = new PewTestHost(forestWith(E, "surface"), {
       inprocess: (input, emit) => {
@@ -161,7 +161,7 @@ describe("runtime activate / emit", () => {
         const json = JSON.parse(JSON.stringify(input)) as ResolverStartInput;
         expect(json.kind).toBe("test.tool");
         expect(json.epoch).toBe(1);
-        expect(json.definition.launchMode).toBe("inprocess");
+        expect(json.definition.strategy).toBe("inprocess");
         expect(json.input).toEqual({ payload: "in" });
         emit({ type: "complete", epoch: input.epoch });
       },

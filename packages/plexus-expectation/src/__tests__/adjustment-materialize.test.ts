@@ -12,7 +12,7 @@ import {
   type AdjustmentBag,
   type ExpectationAdjustmentIntent,
 } from "../app/index.js";
-import { LaunchDefinition, Orchestration } from "../orchestration/index.js";
+import { InProcessLaunchDefinition, SurfaceLaunchDefinition, Orchestration } from "../orchestration/index.js";
 import { PewTestHost } from "./_helpers/test-host.js";
 
 @syncing("@here.build/plexus-expectation:test.AdjExpectation")
@@ -36,13 +36,8 @@ class TestForest extends PlexusModel {
   @syncing.child accessor adjBag: TestAdjBag = new TestAdjBag();
 }
 
-function launch(): LaunchDefinition {
-  return new LaunchDefinition({
-    launchMode: "inprocess",
-    acceptsMessages: false,
-    emitsProgress: false,
-    progressMode: "none",
-  });
+function launch(): InProcessLaunchDefinition {
+  return new InProcessLaunchDefinition();
 }
 
 describe("adjustment materialize", () => {

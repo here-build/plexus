@@ -6,14 +6,13 @@
  * the abstract surface.
  */
 
-import {
-  type AdjustmentSnapshot,
-  LaunchDefinitionSnapshot,
-  type ProgressPatch,
-  type ResolverControlAck,
-  type ResolverEmit,
-  type ResolverHandle,
-  type StartResolverFn,
+import type {
+  AdjustmentSnapshot,
+  ProgressPatch,
+  ResolverControlAck,
+  ResolverEmit,
+  ResolverHandle,
+  StartResolverFn,
 } from "./resolver.js";
 import { Expectation } from "../app/expectation.js";
 import { type AdjustmentBag, ExpectationAdjustment } from "../app/expectation-adjustment.js";
@@ -142,13 +141,20 @@ export abstract class Orchestrator {
   abstract getOrchestration(): Orchestration;
 
   /**
-   * Whether this process hosts the launch mode (static floor — no hot-load of
-   * loader types). Plan refuse when false.
+   * Whether this process can host the plan's strategy (static floor — no
+   * hot-load). Plan refuse when false. Strategy = {@link LaunchDefinition.strategy}.
    */
-  abstract supportsLaunchMode(mode: string): boolean;
+  abstract supportsStrategy(strategy: string): boolean;
 
-  /** kind preferred, then launchMode fallback. */
-  abstract resolveModule(kind: string, launchMode: string): StartResolverFn | undefined;
+  /**
+   * @deprecated Prefer {@link supportsStrategy}.
+   */
+  supportsLaunchMode(mode: string): boolean {
+    return this.supportsStrategy(mode);
+  }
+
+  /** kind preferred, then strategy fallback (e.g. `"inprocess"`). */
+  abstract resolveModule(kind: string, strategy: string): StartResolverFn | undefined;
 
   /**
    * Late-wire a known-kind or mode-level starter. Hosts without extensions
@@ -221,22 +227,22 @@ export abstract class Orchestrator {
    * for product tests without a full host).
    */
   resolvePlan(kind: string): PlanResolution {
-    return Orchestrator.resolvePlan(kind, this.getOrchestration(), (mode) => this.supportsLaunchMode(mode));
+    return Orchestrator.resolvePlan(kind, this.getOrchestration(), (s) => this.supportsStrategy(s));
   }
 
   /**
-   * kind + plan actors + mode support → missing | refused | bound.
+   * kind + plan actors + strategy support → missing | refused | bound.
    */
   static resolvePlan(
     kind: string,
     orchestration: Orchestration,
-    supportsLaunchMode: (mode: string) => boolean,
+    supportsStrategy: (strategy: string) => boolean,
   ): PlanResolution {
     const def = orchestration.actors.get(kind);
     if (def === undefined) {
       return { status: "missing" };
     }
-    if (!supportsLaunchMode(def.launchMode)) {
+    if (!supportsStrategy(def.strategy)) {
       return { status: "refused", def };
     }
     return { status: "bound", def };
@@ -312,7 +318,7 @@ export abstract class Orchestrator {
       const def = outcome.def;
       if (isTerminal(E.state)) return;
 
-      const startFn = this.resolveModule(E.kind, def.launchMode);
+      const startFn = this.resolveModule(E.kind, def.strategy);
       if (!startFn) return;
 
       const epoch = E.beginRunning();
@@ -381,12 +387,7 @@ export abstract class Orchestrator {
         {
           kind: E.kind,
           epoch,
-          definition: new LaunchDefinitionSnapshot({
-            launchMode: def.launchMode,
-            acceptsMessages: def.acceptsMessages,
-            emitsProgress: def.emitsProgress,
-            progressMode: def.progressMode,
-          }),
+          definition: def.toSnapshot(),
           input: this.snapshotProductFields(E),
           signal: controller.signal,
         },

@@ -119,12 +119,12 @@ export class PewTestHost extends Orchestrator {
     return this.forest.orchestration;
   }
 
-  supportsLaunchMode(mode: string): boolean {
-    return this.modes.has(mode);
+  supportsStrategy(strategy: string): boolean {
+    return this.modes.has(strategy);
   }
 
-  resolveModule(kind: string, launchMode: string): StartResolverFn | undefined {
-    return this.starters.get(kind) ?? this.starters.get(launchMode);
+  resolveModule(kind: string, strategy: string): StartResolverFn | undefined {
+    return this.starters.get(kind) ?? this.starters.get(strategy);
   }
 
   registerModule(key: string, start: StartResolverFn): void {

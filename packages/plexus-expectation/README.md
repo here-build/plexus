@@ -191,7 +191,7 @@ This is structured concurrency with a CRDT mailbox: the nursery survives the VM.
 | Piece | Role |
 |-------|------|
 | **Kind** | Product discriminator (`static kind` on subclass) |
-| **LaunchDefinition** | How that kind launches (`inprocess` / `surface` / …) |
+| **LaunchDefinition** | Abstract self-contained strategy (`InProcess` / `Surface` / product subclasses) |
 | **Orchestration** | Kind → plan registry (empty by default; product fills) |
 | **Claim owner** | Exactly one process may resolve a running Expectation |
 | **Resolver** | Body that progresses and settles under the claim |

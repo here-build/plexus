@@ -8,7 +8,7 @@ import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Expectation } from "../app/index.js";
-import { LaunchDefinition, Orchestration } from "../orchestration/index.js";
+import { InProcessLaunchDefinition, SurfaceLaunchDefinition, Orchestration } from "../orchestration/index.js";
 import { DEFAULT_MAX_REBINDS } from "../runtime/orchestrator.js";
 import { PewTestHost } from "./_helpers/test-host.js";
 
@@ -25,19 +25,14 @@ class TestForest extends PlexusModel {
   @syncing.child.list accessor openWork: TestExpectation[] = [];
 }
 
-function launch(mode: "inprocess" | "surface" = "inprocess"): LaunchDefinition {
-  return new LaunchDefinition({
-    launchMode: mode,
-    acceptsMessages: false,
-    emitsProgress: false,
-    progressMode: "none",
-  });
+function launch(mode: "inprocess" | "surface" = "inprocess"): InProcessLaunchDefinition | SurfaceLaunchDefinition {
+  return mode === "surface" ? new SurfaceLaunchDefinition() : new InProcessLaunchDefinition();
 }
 
 function forestWith(
   units: TestExpectation | TestExpectation[],
   mode: "inprocess" | "surface" = "inprocess",
-  actors?: Map<string, LaunchDefinition>,
+  actors?: Map<string, InProcessLaunchDefinition | SurfaceLaunchDefinition>,
 ): TestForest {
   const openWork = Array.isArray(units) ? units : [units];
   return new TestForest({

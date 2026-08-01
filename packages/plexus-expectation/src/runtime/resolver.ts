@@ -5,33 +5,10 @@
  * and never a mutable Expectation entity.
  */
 
-import type { ProgressMode, ProgressPatch } from "../app/progress-plane.js";
-import type { LaunchMode } from "../orchestration/launch-definition.js";
+import type { ProgressPatch } from "../app/progress-plane.js";
+import type { LaunchDefinitionSnapshot } from "../orchestration/launch-definition.js";
 
-export type { ProgressPatch };
-
-/**
- * Independent copy of plan-entry scalars for resolver start.
- * Not a Plexus model — plain data so resolvers cannot touch the session doc.
- */
-export class LaunchDefinitionSnapshot {
-  readonly launchMode: LaunchMode;
-  readonly acceptsMessages: boolean;
-  readonly emitsProgress: boolean;
-  readonly progressMode: ProgressMode;
-
-  constructor(init: {
-    launchMode: LaunchMode;
-    acceptsMessages: boolean;
-    emitsProgress: boolean;
-    progressMode: ProgressMode;
-  }) {
-    this.launchMode = init.launchMode;
-    this.acceptsMessages = init.acceptsMessages;
-    this.emitsProgress = init.emitsProgress;
-    this.progressMode = init.progressMode;
-  }
-}
+export type { ProgressPatch, LaunchDefinitionSnapshot };
 
 export type ResolverEmit =
   | { readonly type: "progress"; readonly epoch: number; readonly patch: ProgressPatch }

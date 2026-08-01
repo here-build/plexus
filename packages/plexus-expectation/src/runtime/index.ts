@@ -18,7 +18,7 @@ export {
 } from "./orchestrator.js";
 
 export {
-  LaunchDefinitionSnapshot,
+  type LaunchDefinitionSnapshot,
   type EmitFn,
   type ControlAckFn,
   type ProgressPatch,
@@ -29,4 +29,3 @@ export {
   type AdjustmentSnapshot,
   type StartResolverFn,
 } from "./resolver.js";
-

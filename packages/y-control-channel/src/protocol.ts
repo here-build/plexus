@@ -11,7 +11,7 @@
  * `open` is the one message that carries a MessagePort in the transfer list
  * (the peer-side end of a fresh MessageChannel allocated by the sender).
  *
- * See `docs/package-specific/y-control-channel/y-messageport-control-channel.md` for the
+ * See the "Worked example" section of `plexus/packages/y-control-channel/README.md` (design doc retired; see git history) for the
  * design rationale (cohort research 2026-05-14).
  */
 

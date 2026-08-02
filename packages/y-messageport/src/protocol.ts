@@ -37,7 +37,7 @@
  * routing primitive at the room/doc API layer, not the wire — and per-doc
  * ports give a free middleman-ignorance property (proxies forward ports
  * without ever decoding bytes). See
- * `docs/package-specific/y-control-channel/y-messageport-control-channel.md`.
+ * the "Worked example" section of `plexus/packages/y-control-channel/README.md` (design doc retired; see git history).
  *
  * Reserved type numbers (do NOT consume in this package):
  *   5  — historical reservation for a hub-layer broadcast primitive (cohort

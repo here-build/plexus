@@ -49,6 +49,7 @@ If you'd rather build collaboration with classes than with `Y.Map.set("key", val
 - [Tree Walking](#tree-walking)
 - [Cross-Document Dependencies](#cross-document-dependencies)
 - [Telemetry](#telemetry)
+- [Internals](#internals)
 - [Error Types](#error-types)
 - [API Reference](#api-reference)
 - [License](#license)
@@ -167,6 +168,12 @@ const page = new Page({ name: "homepage" });
 project1.pages.push(page);    // page.parent === project1
 project2.pages.push(page);    // page.parent === project2, project1.pages is empty
 ```
+
+**Child or plain reference?** A model-valued field is either owning (`.child` — one parent only,
+detaching the parent takes the subtree with it, cycles forbidden) or a plain reference
+(`@syncing` — a pointer to something owned elsewhere; lifecycle-neutral, cycles fine).
+Use `.child` when deleting the parent should delete the value; use a plain reference for
+back-pointers, definition reuse, and anything that would otherwise create an ownership cycle.
 
 ### The Doc-Boundary Law
 
@@ -738,6 +745,25 @@ Entity pointers remain stable after linking — dependencies are potentially upg
 Plexus instruments its hot paths through a no-op-by-default facade — zero overhead until an
 adapter is installed. `setTelemetryAdapter(...)` routes counters, gauges, histograms, and spans
 into your observability stack. Setup guide: [docs/telemetry.md](./docs/telemetry.md).
+
+## Internals
+
+Every Plexus instance manages two Y.Docs: a **shadow doc** (working copy — all entities bind and
+write here) and a **main doc** (committed store — what syncs to peers). Transaction-origin symbols
+route updates between them (see the `Plexus.ts` header):
+
+| Origin | Direction | Undo | Purpose |
+|---|---|---|---|
+| `SHADOW_TO_MAIN` | shadow → main | tracked | normal entity writes |
+| `LIMINAL_ORIGIN` | shadow only | liminal UM | gesture writes (not forwarded) |
+| `COMMIT_DELTA_ORIGIN` | main → shadow | tracked | committed liminality |
+| `FROM_SHADOW` / `FROM_MAIN` | — | ignored | echo-prevention markers |
+
+Orientation map: `Plexus.ts` (routing, liminality, undo), `PlexusModel.ts` (materialization,
+ownership), `decorators.ts` (`@syncing` field wiring), `awareness.ts` / `awareness-serde.ts`
+(multi-channel presence), `genesis-client.ts` (clientId namespaces, deterministic scaffold),
+`plexus-registry.ts` (doc↔plexus registries), `tracking.ts` (MobX bridge), `deref.ts`
+(UUID → entity O(1) resolution).
 
 ## Error Types
 

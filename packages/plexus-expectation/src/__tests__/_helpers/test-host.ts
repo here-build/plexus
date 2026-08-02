@@ -1,167 +1,171 @@
-/**
- * Shared PEW runtime test host — production substrates only.
- *
- * - Forest on a real `Y.Doc` via `Plexus.bootstrap` (no sync server).
- * - Progress hub = `PlexusAwareness` on that doc; activate mints one client per E.
- * - Peer claim = remote peer still alive at `E.processorClientId`.
- */
-import {
-  applyAwarenessUpdate,
-  encodeAwarenessUpdate,
-  Plexus,
-  PlexusAwareness,
-  type PlexusModel,
-} from "@here.build/plexus";
+import { Plexus, PlexusAwareness, PlexusModel, syncing } from "@here.build/plexus";
 import * as Y from "yjs";
 
-import { Expectation, type AdjustmentBag } from "../../app/index.js";
-import type { LaunchDefinition, Orchestration } from "../../orchestration/index.js";
 import {
-  HostPortLaunchRuntime,
+  ExpectationActor,
+  ExpectationLoader,
   Orchestrator,
-  type ExpectationExecution,
-  type LaunchRuntime,
-  type StartResolverFn,
-} from "../../runtime/index.js";
-import {
-  InProcessLaunchDefinition,
-  ProgressiveInProcessLaunchDefinition,
-  SurfaceLaunchDefinition,
-} from "../../orchestration/index.js";
+  type KernelPresenceStatus,
+  type LaunchContext,
+} from "../../executor/index.js";
+import { Expectation, Orchestration, type IntentRecord, type LaunchDefinition } from "../../shared/index.js";
+import { InProcessLaunchDefinition } from "../../shared/models/index.js";
 
-/** Forest shape required by the host (any product TestForest). */
-export type ForestLike = PlexusModel & {
-  readonly orchestration: Orchestration;
-  readonly openWork: readonly Expectation[];
-};
+/** Minimal triad + host for kernel tests. One forest model, scripted actors, a settable loader. */
 
-export type PewTestHostOptions = {
-  readonly modes?: ReadonlySet<string>;
-  readonly maxRebinds?: number;
-  /** Default true. */
-  readonly claimOwner?: boolean;
-  readonly walkCandidates?: () => Iterable<Expectation>;
-  /** Optional open-adjustment bag (product root). */
-  readonly adjustmentBag?: AdjustmentBag;
-  /**
-   * Extra awareness used as a peer (second doc). When set, `syncPeerFrom()`
-   * copies that peer into the host hub so `hasLiveClaimPeerBind` can see it.
-   */
-  readonly peerAwareness?: PlexusAwareness;
-};
+export type TestResult = { value?: string };
+export type TestReport = { note?: string } | Record<string, unknown>;
 
-/**
- * Bootstrap a forest root onto an ephemeral doc (plexus-native test shape).
- */
-export function bootstrapForest<F extends PlexusModel>(
-  forest: F,
-  doc: Y.Doc = new Y.Doc(),
-): { forest: F; doc: Y.Doc; dispose: () => void } {
-  Plexus.bootstrap(forest, undefined, doc);
-  return {
-    forest,
-    doc,
-    dispose: () => {
-      doc.destroy();
-    },
-  };
+@syncing("test:PewExpectation")
+export class TestExpectation extends Expectation<TestResult, TestReport> {
+  static override readonly kind: string = "test.unit";
+
+  @syncing accessor payload: string = "";
+  @syncing accessor resultValue: string = "";
+
+  override snapshotInput(): unknown {
+    return { payload: this.payload };
+  }
+
+  override applySettlement(result: TestResult): void {
+    this.resultValue = result.value ?? "";
+  }
 }
 
-/**
- * Claim-owner host over a doc-backed forest + awareness hub.
- */
+@syncing("test:ThrowingExpectation")
+export class ThrowingExpectation extends TestExpectation {
+  static override readonly kind: string = "test.throwing";
+
+  override applySettlement(result: TestResult): void {
+    this.resultValue = result.value ?? "";
+    throw new Error("apply boom");
+  }
+}
+
+@syncing("test:SurfaceExpectation")
+export class SurfaceExpectation extends Expectation<never, never> {
+  static override readonly kind: string = "test.surface";
+}
+
+@syncing("test:PewMessagesDefinition")
+export class TestMessagesDefinition extends InProcessLaunchDefinition {
+  static override readonly acceptsMessages: boolean = true;
+}
+
+@syncing("test:PewForest")
+export class PewForest extends PlexusModel {
+  @syncing.child accessor orchestration: Orchestration = new Orchestration();
+  @syncing.child.list accessor openWork: Expectation[] = [];
+}
+
+export type ActorScript = (actor: ScriptedActor, ctx: LaunchContext) => void | Promise<void>;
+
+export class ScriptedActor extends ExpectationActor<unknown, TestResult, TestReport> {
+  constructor(private readonly script: ActorScript | undefined) {
+    super();
+  }
+
+  protected run(ctx: LaunchContext): void | Promise<void> {
+    return this.script?.(this, ctx);
+  }
+
+  doReport(frame: TestReport): void {
+    this.report(frame);
+  }
+
+  doComplete(result: TestResult): void {
+    this.complete(result);
+  }
+
+  doFail(reason: unknown): void {
+    this.fail(reason);
+  }
+
+  doOutcome(intentId: string, outcome: "considered" | "dropped"): void {
+    this.outcome(intentId, outcome);
+  }
+}
+
+export class TestLoader extends ExpectationLoader {
+  loadCalls = 0;
+  spawnCalls = 0;
+  failLoad: unknown = null;
+  script: ActorScript | undefined;
+  lastActor: ScriptedActor | null = null;
+  onSpawn: ((ctx: LaunchContext) => void) | null = null;
+
+  constructor(script?: ActorScript) {
+    super();
+    this.script = script;
+  }
+
+  async load(): Promise<void> {
+    this.loadCalls += 1;
+    if (this.failLoad !== null) throw this.failLoad;
+  }
+
+  protected createActor(ctx: LaunchContext): ExpectationActor<unknown, unknown, unknown> {
+    this.spawnCalls += 1;
+    this.onSpawn?.(ctx);
+    const actor = new ScriptedActor(this.script);
+    this.lastActor = actor;
+    return actor as ExpectationActor<unknown, unknown, unknown>;
+  }
+}
+
+export class ThrowingSpawnLoader extends TestLoader {
+  protected override createActor(): ExpectationActor<unknown, unknown, unknown> {
+    this.spawnCalls += 1;
+    throw new Error("spawn boom");
+  }
+}
+
+export type PewTestHostOptions = {
+  readonly claimOwner?: boolean;
+  readonly hub?: boolean;
+};
+
 export class PewTestHost extends Orchestrator {
   readonly doc: Y.Doc;
-  readonly awareness: PlexusAwareness;
-  readonly starters: Map<string, StartResolverFn>;
-  readonly modes: ReadonlySet<string>;
+  readonly forest: PewForest;
+  readonly awareness: PlexusAwareness | null;
+  readonly loaders = new Map<unknown, ExpectationLoader>();
   claimOwner: boolean;
-  private readonly candidates: () => Iterable<Expectation>;
-  private readonly peerAwareness: PlexusAwareness | undefined;
-  private readonly ownsDoc: boolean;
-  private readonly adjustmentBag: AdjustmentBag | null;
-  private readonly hostPortRuntime: HostPortLaunchRuntime;
+  peerBinds = new Set<string>();
+  authorIntents: IntentRecord[] = [];
+  published: KernelPresenceStatus[] = [];
+  candidates: Expectation[] = [];
 
-  constructor(
-    readonly forest: ForestLike,
-    starters: Record<string, StartResolverFn> = {},
-    options: PewTestHostOptions & { doc?: Y.Doc; ownsDoc?: boolean } = {},
-  ) {
-    super({ maxRebinds: options.maxRebinds });
-    this.starters = new Map(Object.entries(starters));
-    this.modes = options.modes ?? new Set(["inprocess", "surface"]);
+  constructor(options: PewTestHostOptions = {}) {
+    super();
+    this.doc = new Y.Doc();
+    this.forest = new PewForest();
+    Plexus.bootstrap(this.forest, undefined, this.doc);
+    this.awareness = (options.hub ?? true) ? new PlexusAwareness(this.doc) : null;
     this.claimOwner = options.claimOwner ?? true;
-    this.candidates = options.walkCandidates ?? (() => []);
-    this.peerAwareness = options.peerAwareness;
-    this.adjustmentBag = options.adjustmentBag ?? null;
-    this.hostPortRuntime = new HostPortLaunchRuntime(
-      (_def, ctx) => this.starters.get(ctx.kind) ?? this.starters.get(this.#strategyKey(_def)),
-      (signal) => ({
-        get aborted() {
-          return signal.aborted;
-        },
-        abort() {
-          /* signal owned by orchestrator controller */
-        },
-      }),
-    );
-    let existingDoc: Y.Doc | null = null;
-    try {
-      existingDoc = forest.__doc__;
-    } catch {
-      existingDoc = null;
-    }
-    this.doc = options.doc ?? existingDoc ?? new Y.Doc();
-    this.ownsDoc = options.ownsDoc ?? (options.doc === undefined && existingDoc === null);
-    if (existingDoc === null) {
-      Plexus.bootstrap(forest, undefined, this.doc);
-    }
-    this.awareness = new PlexusAwareness(this.doc);
-    Expectation.bindProgressHub(this.awareness);
   }
 
-  /** Tear down hub bind and owned doc. */
   dispose(): void {
-    Expectation.bindProgressHub(null);
-    if (this.ownsDoc) {
-      this.doc.destroy();
-    }
+    this.doc.destroy();
   }
 
-  /**
-   * After a peer process publishes on `peerAwareness`, pull into this host hub.
-   */
-  syncPeerFrom(peer: PlexusAwareness = this.peerAwareness!): void {
-    if (!peer) throw new Error("syncPeerFrom: no peer awareness");
-    const clients = [...peer.states.keys()];
-    if (clients.length === 0) return;
-    applyAwarenessUpdate(this.awareness, encodeAwarenessUpdate(peer, clients), "remote");
+  /** Register plan + loader for a kind in one call. */
+  plan(kind: string, def: LaunchDefinition, loader: ExpectationLoader | null): void {
+    this.forest.orchestration.plans.set(kind, def);
+    if (loader) this.loaders.set(def.constructor, loader);
+  }
+
+  mint<E extends Expectation>(entity: E): E {
+    this.forest.openWork.push(entity);
+    return entity;
   }
 
   getOrchestration(): Orchestration {
     return this.forest.orchestration;
   }
 
-  #strategyKey(def: LaunchDefinition): string {
-    if (def instanceof SurfaceLaunchDefinition) return "surface";
-    if (def instanceof ProgressiveInProcessLaunchDefinition || def instanceof InProcessLaunchDefinition) {
-      return "inprocess";
-    }
-    return "inprocess";
-  }
-
-  getLaunchRuntime(def: LaunchDefinition): LaunchRuntime | undefined {
-    const key = this.#strategyKey(def);
-    if (!this.modes.has(key)) return undefined;
-    return this.hostPortRuntime;
-  }
-
-  registerModule(key: string, start: StartResolverFn): void {
-    this.starters.set(key, start);
-  }
-
-  protected override onLaunchRuntimeReady(): void {
-    this.reconcile();
+  getLoader(def: LaunchDefinition): ExpectationLoader | undefined {
+    return this.loaders.get(def.constructor);
   }
 
   isClaimOwner(): boolean {
@@ -172,45 +176,53 @@ export class PewTestHost extends Orchestrator {
     return this.forest.openWork;
   }
 
-  override getAdjustmentBag(): AdjustmentBag | null {
-    return this.adjustmentBag;
-  }
-
   walkCandidates(): Iterable<Expectation> {
-    return this.candidates();
+    return this.candidates;
   }
 
-  /**
-   * Peer claim: durable pointer + remote presence still alive.
-   * Local live client for E is *our* claim, not a peer bind.
-   */
   hasLiveClaimPeerBind(E: Expectation): boolean {
-    if (Expectation.hasLocalLivePresence(E)) return false;
-    const cid = E.processorClientId;
-    if (cid === 0) return false;
-    return this.awareness.getPeer(cid) != null;
+    return this.peerBinds.has(E.uuid);
   }
 
-  snapshotProductFields(E: Expectation): unknown {
-    const rec = E as Expectation & { payload?: unknown };
-    return rec.payload !== undefined ? { payload: rec.payload } : {};
+  getPresenceHub(): PlexusAwareness | null {
+    return this.awareness;
   }
 
-  /**
-   * Claim advertisement is {@link Expectation.processorClientId} + live clients.
-   * Kept for orchestrator hooks; no separate binds list.
-   */
-  publishAwarenessBinds(): void {
-    // intentional no-op — processorClientId + createLocalClient are the ad
+  publishKernelPresence(status: KernelPresenceStatus): void {
+    this.published.push(status);
   }
 
-  /** Test seam — protected bind map. */
-  dropBind(E: Expectation): void {
-    this.releaseLocalBind(E);
+  override getAuthorIntents(): readonly IntentRecord[] {
+    return this.authorIntents;
   }
 
-  /** Test seam — install a local bind without activate. */
-  installBind(E: Expectation, entry: { handle: ExpectationExecution; epoch: number }): void {
-    this.setBind(E, entry);
+  lastPublished(): KernelPresenceStatus | undefined {
+    return this.published.at(-1);
   }
 }
+
+/** Default wiring: one test kind, messages-accepting definition, scripted loader. */
+export function makeHost(
+  script?: ActorScript,
+  options: PewTestHostOptions & { kind?: string } = {},
+): { host: PewTestHost; loader: TestLoader; dispose: () => void } {
+  const host = new PewTestHost(options);
+  const loader = new TestLoader(script);
+  host.plan(options.kind ?? TestExpectation.kind, new TestMessagesDefinition(), loader);
+  return { host, loader, dispose: () => host.dispose() };
+}
+
+/** Activate through the load handshake: first reconcile kicks load, flush, second activates. */
+export async function activateThroughLoad(host: PewTestHost): Promise<void> {
+  host.reconcile();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+export async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+export { SurfaceLaunchDefinition } from "../../shared/models/index.js";

@@ -1,63 +1,101 @@
 import { describe, expect, it } from "vitest";
 
+import { PewTestHost, TestExpectation } from "./_helpers/test-host.js";
 import {
-  isOpen,
+  expectationLifecycleMachine,
+  isActivatable,
   isTerminal,
   lifecycleCan,
+  lifecycleEventAfter,
+  PewTerminalWriteError,
   TERMINAL_LIFECYCLES,
   type Lifecycle,
-} from "../app/lifecycle.js";
+} from "../shared/index.js";
 
-const ALL: readonly Lifecycle[] = [
-  "declared",
-  "missing",
-  "refused",
-  "running",
-  "awaiting_rebind",
-  "sealed",
-  "failed",
-  "cancelled",
-];
+describe("lifecycle machine", () => {
+  it("derives terminals from the machine's final states", () => {
+    expect(new Set(TERMINAL_LIFECYCLES)).toEqual(new Set(["sealed", "failed", "cancelled"]));
+    expect(isTerminal("running")).toBe(false);
+    expect(isTerminal("sealed")).toBe(true);
+  });
 
-describe("lifecycle helpers", () => {
-  it("isTerminal covers sealed | failed | cancelled only", () => {
-    expect([...TERMINAL_LIFECYCLES].toSorted()).toEqual(["cancelled", "failed", "sealed"]);
-    for (const state of ALL) {
-      const terminal = state === "sealed" || state === "failed" || state === "cancelled";
-      expect(isTerminal(state)).toBe(terminal);
-      expect(isOpen(state)).toBe(!terminal);
+  it("activatable = open and not running, derived — not an event fired into the machine", () => {
+    const states = Object.keys(expectationLifecycleMachine.states) as Lifecycle[];
+    const activatable = states.filter((s) => isActivatable(s));
+    expect(new Set(activatable)).toEqual(new Set(["declared", "missing", "refused"]));
+    for (const state of states) {
+      expect(
+        expectationLifecycleMachine.resolveState({ value: state, context: {} }).can({ type: "ACTIVATE" as never }),
+      ).toBe(false);
     }
   });
 
-  it("isOpen is the complement of isTerminal", () => {
-    for (const state of ALL) {
-      expect(isOpen(state)).toBe(!isTerminal(state));
-    }
+  it("permits the documented edges and only those", () => {
+    expect(lifecycleEventAfter("declared", "BEGIN_RUNNING")).toBe("running");
+    expect(lifecycleEventAfter("declared", "PLAN_MISSING")).toBe("missing");
+    expect(lifecycleEventAfter("missing", "BEGIN_RUNNING")).toBe("running");
+    expect(lifecycleEventAfter("refused", "BEGIN_RUNNING")).toBe("running");
+    expect(lifecycleEventAfter("running", "SEAL")).toBe("sealed");
+    expect(lifecycleEventAfter("declared", "SEAL")).toBeNull();
+    expect(lifecycleEventAfter("sealed", "CANCEL")).toBeNull();
+    expect(lifecycleCan("running", "cancelled")).toBe(true);
+    expect(lifecycleCan("missing", "sealed")).toBe(false);
   });
 });
 
-describe("lifecycle XState graph", () => {
-  it("allows the honest orchestrator paths", () => {
-    expect(lifecycleCan("declared", "running")).toBe(true);
-    expect(lifecycleCan("declared", "missing")).toBe(true);
-    expect(lifecycleCan("declared", "refused")).toBe(true);
-    expect(lifecycleCan("running", "awaiting_rebind")).toBe(true);
-    expect(lifecycleCan("running", "sealed")).toBe(true);
-    expect(lifecycleCan("awaiting_rebind", "running")).toBe(true);
-    expect(lifecycleCan("awaiting_rebind", "failed")).toBe(true);
+describe("entity lifecycle writes", () => {
+  it("throws PewTerminalWriteError on illegal transitions, no-ops on same state", () => {
+    const host = new PewTestHost();
+    const E = host.mint(new TestExpectation());
+    E.transitionState("declared");
+    expect(E.state).toBe("declared");
+    expect(() => E.transitionState("sealed")).toThrow(PewTerminalWriteError);
+    host.dispose();
   });
 
-  it("refuses short-circuit declare→sealed and all exits from terminals", () => {
-    expect(lifecycleCan("declared", "sealed")).toBe(false);
-    expect(lifecycleCan("declared", "awaiting_rebind")).toBe(false);
-    expect(lifecycleCan("sealed", "running")).toBe(false);
-    expect(lifecycleCan("failed", "cancelled")).toBe(false);
-    expect(lifecycleCan("cancelled", "declared")).toBe(false);
+  it("applyTerminal is first-writer-wins: a second terminal is a no-op, never a throw", () => {
+    const host = new PewTestHost();
+    const E = host.mint(new TestExpectation());
+    E.transitionState("running");
+    expect(E.applyTerminal("sealed", "settled", "", "null", { value: "a" })).toBe(true);
+    expect(E.applyTerminal("cancelled", "cancel", "late", "null")).toBe(false);
+    expect(E.state).toBe("sealed");
+    expect(E.endCause).toBe("settled");
+    expect(E.resultValue).toBe("a");
+    host.dispose();
   });
 
-  it("same-state is always legal (idempotent dual-write)", () => {
-    for (const state of ALL) {
-      expect(lifecycleCan(state, state)).toBe(true);
-    }
+  it("author cancel works only during the authorship phase", () => {
+    const host = new PewTestHost();
+    const E = host.mint(new TestExpectation());
+    const child = new TestExpectation();
+    E.children.push(child);
+    expect(E.authorCancel("changed my mind")).toBe(true);
+    expect(E.state).toBe("cancelled");
+    expect(E.endCause).toBe("cancel");
+    expect(E.endDetail).toBe("changed my mind");
+    expect(child.state).toBe("cancelled");
+
+    const F = host.mint(new TestExpectation());
+    F.transitionState("running");
+    expect(F.authorCancel()).toBe(false);
+    expect(F.state).toBe("running");
+    host.dispose();
+  });
+
+  it("clone copies the declaration and resets execution-derived fields", () => {
+    const host = new PewTestHost();
+    const E = host.mint(new TestExpectation());
+    E.payload = "declared-data";
+    E.transitionState("running");
+    E.applyTerminal("failed", "crash", "boom", '{"note":"last"}');
+    const retry = E.clone();
+    expect(retry.payload).toBe("declared-data");
+    expect(retry.state).toBe("declared");
+    expect(retry.endCause).toBe("");
+    expect(retry.endDetail).toBe("");
+    expect(retry.lastReportJson).toBe("null");
+    expect(retry.processorClientId).toBe(0);
+    host.dispose();
   });
 });

@@ -2,7 +2,7 @@
   "name": "@here.build/plexus-expectation",
   "version": "0.0.0",
   "private": true,
-  "description": "PEW — Plexus Expectation Workflow: durable open work with exclusive claim, plan resolution, and abort-before-cancel. Domains: app / orchestration / runtime.",
+  "description": "PEW — durable Expectations (shared) + claim-owner executor.",
   "license": "FSL-1.1-MIT",
   "author": "here.build",
   "type": "module",
@@ -13,20 +13,10 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./app": {
-      "types": "./dist/app/index.d.ts",
-      "import": "./dist/app/index.js",
-      "default": "./dist/app/index.js"
-    },
-    "./orchestration": {
-      "types": "./dist/orchestration/index.d.ts",
-      "import": "./dist/orchestration/index.js",
-      "default": "./dist/orchestration/index.js"
-    },
-    "./runtime": {
-      "types": "./dist/runtime/index.d.ts",
-      "import": "./dist/runtime/index.js",
-      "default": "./dist/runtime/index.js"
+    "./executor": {
+      "types": "./dist/executor/index.d.ts",
+      "import": "./dist/executor/index.js",
+      "default": "./dist/executor/index.js"
     }
   },
   "main": "./dist/index.js",

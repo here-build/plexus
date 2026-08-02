@@ -7,6 +7,7 @@ import type {
   CancellationResult,
   KernelPresenceStatus,
   LaunchContext,
+  LoaderCapability,
   LoaderHealth,
   LogPort,
   MailboxEntry,
@@ -55,6 +56,7 @@ export abstract class Orchestrator {
   readonly activating: Set<Expectation> = new Set();
 
   readonly #loaderHealth = new Map<string, LoaderHealth>();
+  readonly #capabilities = new Map<string, LoaderCapability>();
   readonly #mailboxes = new Map<Expectation, MailboxEntry[]>();
   readonly #acks = new Map<string, { state: IntentAckState; target: Expectation | null }>();
 
@@ -197,9 +199,35 @@ export abstract class Orchestrator {
       this.#loaderHealth.set(kind, "loaded");
       this.#publish();
       this.reconcile();
+      await this.#probe(kind, loader);
     } catch (error) {
       this.#loaderHealth.set(kind, `failed:${String(error)}`);
       this.#publish();
+    }
+  }
+
+  async #probe(kind: string, loader: ExpectationLoader): Promise<void> {
+    if (loader.probeCapability === undefined) return;
+    try {
+      this.#capabilities.set(kind, await loader.probeCapability());
+    } catch (error) {
+      this.#capabilities.set(kind, { status: "unavailable", door: String(error) });
+    }
+    this.#publish();
+  }
+
+  /**
+   * Host hook: re-probe capability for one plan (or every loaded plan) — after
+   * re-auth, a model switch, or on the host's cadence. Advisory data only;
+   * never touches activation.
+   */
+  async refreshCapability(kind?: string): Promise<void> {
+    const kinds = kind === undefined ? [...this.#loaderHealth.keys()] : [kind];
+    for (const k of kinds) {
+      if (this.#loaderHealth.get(k) !== "loaded") continue;
+      const def = this.getOrchestration().plans.get(k);
+      const loader = def === undefined ? undefined : this.getLoader(def);
+      if (loader) await this.#probe(k, loader);
     }
   }
 
@@ -209,6 +237,7 @@ export abstract class Orchestrator {
       const health = this.#loaderHealth.get(kind);
       if (health !== undefined && health.startsWith("failed:")) {
         this.#loaderHealth.delete(kind);
+        this.#capabilities.delete(kind);
       }
     }
     this.reconcile();
@@ -471,6 +500,7 @@ export abstract class Orchestrator {
     return {
       binds: [...this.table.keys()].map((E) => ({ uuid: E.uuid })),
       loaders: Object.fromEntries(this.#loaderHealth),
+      capabilities: Object.fromEntries(this.#capabilities),
       acks: [...this.#acks].map(([intentId, ack]) => ({ intentId, state: ack.state })),
     };
   }

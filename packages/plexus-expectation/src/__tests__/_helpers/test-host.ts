@@ -87,6 +87,7 @@ export class ScriptedActor extends ExpectationActor<unknown, TestResult, TestRep
 }
 
 export class TestLoader extends ExpectationLoader {
+  override probeCapability?: () => Promise<import("../../executor/index.js").LoaderCapability>;
   loadCalls = 0;
   spawnCalls = 0;
   failLoad: unknown = null;

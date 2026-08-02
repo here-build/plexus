@@ -453,10 +453,19 @@ abstract class ExpectationLoader {
   `failed:<reason>`. A failed `load()` leaves the Expectation in its open state, visible against
   the failure record; the kernel re-attempts on plan change or explicit host re-bootstrap, never
   in a hot loop.
-- **Capability is the loader's own presence.** A loader that wants eager loading or wants to
-  advertise capability (a local model server listing its models) publishes its own presence
-  record; the kernel observes it like everything else. Lazy loading on first spawn is the
-  default.
+- **Capability: loader-sourced, kernel-published, ADVISORY.** A loader may implement
+  `probeCapability(): Promise<LoaderCapability>` — availability status (`ready` / `blocked` with
+  an errors-as-doors `door` / `unavailable`) plus the current argument inventory (`args`: models
+  list, tool names — the triad's own shape). The kernel probes after a successful `load()` and on
+  the host's explicit `refreshCapability()`, and publishes the record in its own presence
+  alongside loader health — the loader is the source, the kernel is the pen. **The kernel never
+  interprets it**: no activation gating on `status`, no validating declarations against `args` —
+  enforcement stays at `load()` (sticky failed health) and the actor's fail path (door in
+  `endDetail`). Capability exists so surfaces can warn BEFORE an execution is spent; it must
+  never become a second admission system — inventory is ephemeral and would race admission
+  anyway. Inventory is published whole (a thousand OpenRouter models is fine); selection stays
+  durable declaration on the LaunchDefinition. A self-managed loader may still publish its own
+  presence record instead. Lazy loading on first spawn is the default.
 - Loader association is by LaunchDefinition class (`instanceof`), registered on the claim-owner
   host. Two definitions of the same class share a loader; bootstrap state lives on the loader.
 
@@ -572,6 +581,7 @@ Load-bearing invariants and the test that breaks when they break (unit unless no
 | No-epoch reshape | in-place body edit visible in mailbox; outcome folds by intentId regardless of revision |
 | Dual-claim freeze | fabricated claim-owner peer presence freezes activation both ways (existing pattern) |
 | Loader health | failing `load()` appears in kernel presence, work stays open, no hot loop; `missing`/`refused` move onward when definition/loader registered |
+| Capability | probe published after load and on refresh; probe throw → `unavailable` with the error as door; probe-less loader publishes no record; kernel never gates activation on `status` |
 
 ---
 

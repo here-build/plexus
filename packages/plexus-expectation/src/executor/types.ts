@@ -89,6 +89,21 @@ export type CancellationResult = OpResult<CancellationErrorCode>;
 export type SettleSurfaceErrorCode = "not_claim_owner" | "not_running" | "not_surface";
 export type SettleSurfaceResult = OpResult<SettleSurfaceErrorCode>;
 
+/**
+ * Advisory availability + argument inventory for one plan, sourced by its
+ * loader (design.md §9). ADVISORY: the kernel publishes it and never
+ * interprets it — no activation gating, no argument validation. Inventory is
+ * published whole; no core size budgeting.
+ */
+export type LoaderCapability<TArgs = unknown> = {
+  readonly status: "ready" | "blocked" | "unavailable";
+  /** errors-as-doors: what a human or agent DOES about non-ready. */
+  readonly door?: string;
+  /** Argument inventory — the space of valid declarations right now. */
+  readonly args?: TArgs;
+  readonly probedAt?: number;
+};
+
 /** Per-plan loader health, advertised in the kernel's presence (design.md §9). */
 export type LoaderHealth = "loading" | "loaded" | `failed:${string}`;
 
@@ -96,5 +111,6 @@ export type LoaderHealth = "loading" | "loaded" | `failed:${string}`;
 export type KernelPresenceStatus = {
   readonly binds: readonly { readonly uuid: string }[];
   readonly loaders: Readonly<Record<string, LoaderHealth>>;
+  readonly capabilities: Readonly<Record<string, LoaderCapability>>;
   readonly acks: readonly { readonly intentId: string; readonly state: string }[];
 };

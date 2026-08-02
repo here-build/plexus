@@ -128,6 +128,54 @@ describe("activation", () => {
     expect(host.lastPublished()?.binds).toEqual([]);
   });
 
+  it("capability: probed after load, refreshed on demand, probe throw → unavailable with door", async () => {
+    const { host, loader, dispose } = makeHost();
+    cleanup.push(dispose);
+    let probes = 0;
+    loader.probeCapability = async () => {
+      probes += 1;
+      if (probes === 2) throw new Error("auth expired");
+      return { status: "ready", args: { models: ["a", "b"] } };
+    };
+    host.mint(new TestExpectation());
+    await activateThroughLoad(host);
+    await flushMicrotasks();
+    expect(host.lastPublished()?.capabilities[TestExpectation.kind]).toEqual({
+      status: "ready",
+      args: { models: ["a", "b"] },
+    });
+
+    await host.refreshCapability(TestExpectation.kind);
+    expect(host.lastPublished()?.capabilities[TestExpectation.kind]).toEqual({
+      status: "unavailable",
+      door: "Error: auth expired",
+    });
+
+    await host.refreshCapability();
+    expect(host.lastPublished()?.capabilities[TestExpectation.kind]?.status).toBe("ready");
+    expect(probes).toBe(3);
+  });
+
+  it("capability is advisory: blocked status never gates activation", async () => {
+    const { host, loader, dispose } = makeHost();
+    cleanup.push(dispose);
+    loader.probeCapability = async () => ({ status: "blocked", door: "re-auth at https://example" });
+    const E = host.mint(new TestExpectation());
+    await activateThroughLoad(host);
+    await flushMicrotasks();
+    expect(host.lastPublished()?.capabilities[TestExpectation.kind]?.status).toBe("blocked");
+    expect(E.state).toBe("running"); // spawned regardless — enforcement is the actor's fail path
+  });
+
+  it("probe-less loaders publish no capability record", async () => {
+    const { host, dispose } = makeHost();
+    cleanup.push(dispose);
+    host.mint(new TestExpectation());
+    await activateThroughLoad(host);
+    await flushMicrotasks();
+    expect(host.lastPublished()?.capabilities).toEqual({});
+  });
+
   it("running entities are not re-activated (one execution)", async () => {
     const { host, loader, dispose } = makeHost();
     cleanup.push(dispose);

@@ -1,5 +1,5 @@
 import type { ExpectationActor } from "./expectation-actor.js";
-import type { ActorHandle, LaunchContext } from "./types.js";
+import type { ActorHandle, LaunchContext, LoaderCapability } from "./types.js";
 
 /**
  * Hermetic spawning abstraction for one LaunchDefinition class. In-process,
@@ -14,8 +14,15 @@ import type { ActorHandle, LaunchContext } from "./types.js";
  * and settlement kernel-side and must self-terminate its runner when the
  * kernel's presence disappears.
  */
-export abstract class ExpectationLoader<TInput = unknown> {
+export abstract class ExpectationLoader<TInput = unknown, TCapabilityArgs = unknown> {
   abstract load(): Promise<void>;
+
+  /**
+   * Optional availability + argument-inventory probe (design.md §9). Sourced
+   * here because the loader holds the connection; published by the kernel;
+   * never interpreted by it.
+   */
+  probeCapability?(): Promise<LoaderCapability<TCapabilityArgs>>;
 
   protected abstract createActor(ctx: LaunchContext<TInput>): ExpectationActor<TInput, unknown, unknown>;
 

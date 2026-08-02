@@ -9,6 +9,7 @@ export {
   type IntentOutcome,
   type KernelPresenceStatus,
   type LaunchContext,
+  type LoaderCapability,
   type LoaderHealth,
   type LogPort,
   type MailboxEntry,

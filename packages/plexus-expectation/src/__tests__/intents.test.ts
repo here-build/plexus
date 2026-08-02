@@ -90,6 +90,19 @@ describe("steering intents", () => {
     expect(ackOf(host, "i1")).toBe("refused:messages_not_accepted");
   });
 
+  it("a refusal is re-evaluated once the target binds (no sticky refuse across the load handshake)", async () => {
+    const { host, dispose } = makeHost();
+    cleanup.push(dispose);
+    const E = host.mint(new TestExpectation());
+    host.authorIntents = [{ intentId: "early-bird", targetUuid: E.uuid, body: "steer" }];
+    host.admitIntents(); // target declared, not bound yet
+    expect(ackOf(host, "early-bird")).toBe("refused:target_unbound");
+
+    await activateThroughLoad(host); // reconcile admits again after bind
+    expect(E.state).toBe("running");
+    expect(ackOf(host, "early-bird")).toBe("admitted");
+  });
+
   it("retract = record removed from the author's presence; ack and mailbox entry drop", async () => {
     let mailbox: MailboxView | null = null;
     const { host, dispose } = makeHost((_actor, ctx) => {

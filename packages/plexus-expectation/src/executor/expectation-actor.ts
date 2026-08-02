@@ -19,9 +19,10 @@ import type { ActorHandle, ActorPresenceClient, IntentOutcome, LaunchContext, Se
  */
 export abstract class ExpectationActor<TInput = unknown, TResult = unknown, TReport = unknown> {
   #client: ActorPresenceClient | null = null;
-  #lastReport: TReport | null = null;
+  #lastReportJson: string | null = null;
   #settlement: Settlement<TResult> | null = null;
   #crashed = false;
+  #aborted = false;
   #resolveSettled!: (settlement: Settlement<TResult>) => void;
   #rejectSettled!: (reason: unknown) => void;
   readonly #settled: Promise<Settlement<TResult>>;
@@ -43,6 +44,13 @@ export abstract class ExpectationActor<TInput = unknown, TResult = unknown, TRep
     // A crash surfaces through the kernel's crash fold; an unobserved rejection
     // must not take down the host process.
     this.#settled.catch(() => {});
+    ctx.signal.addEventListener(
+      "abort",
+      () => {
+        this.#aborted = true;
+      },
+      { once: true },
+    );
     if (this.mintsPresence) {
       this.#client = ctx.presence.mintClient();
     }
@@ -64,14 +72,17 @@ export abstract class ExpectationActor<TInput = unknown, TResult = unknown, TRep
   }
 
   protected report(frame: TReport): void {
-    if (this.#settlement !== null || this.#crashed) return;
+    if (this.#settlement !== null || this.#crashed || this.#aborted) return;
+    let json: string;
     try {
-      JSON.stringify(frame ?? null);
+      json = JSON.stringify(frame ?? null) ?? "null";
     } catch (error) {
       this.#crash(error);
       return;
     }
-    this.#lastReport = frame;
+    // The SERIALIZED frame is the buffer (LAST REPORT LAW) — later mutation of
+    // the live object cannot change what the terminal folds.
+    this.#lastReportJson = json;
     this.#client?.setReport(frame);
   }
 
@@ -104,13 +115,12 @@ export abstract class ExpectationActor<TInput = unknown, TResult = unknown, TRep
     this.#rejectSettled(reason);
   }
 
-  /** Kernel-facing surface; the only contact between kernel and execution. */
   handle(): ActorHandle {
     return {
       settled: this.#settled as Promise<Settlement<unknown>>,
       clientId: this.clientId,
       settlement: () => this.#settlement,
-      lastReport: () => this.#lastReport,
+      lastReport: () => (this.#lastReportJson === null ? null : (JSON.parse(this.#lastReportJson) as unknown)),
       onControlOutcome: (sink) => {
         this.#outcomeSinks.push(sink);
         while (this.#pendingOutcomes.length > 0) {

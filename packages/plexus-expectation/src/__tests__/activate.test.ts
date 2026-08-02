@@ -112,6 +112,22 @@ describe("activation", () => {
     expect(E.resultValue).toBe("quick");
   });
 
+  it("synchronous kernel re-entry during spawn cannot bind a handle to a terminal entity", async () => {
+    const { host, loader, dispose } = makeHost();
+    cleanup.push(dispose);
+    const E = host.mint(new TestExpectation());
+    loader.onSpawn = () => {
+      // A loader closing over the host folds mid-spawn (re-entrant, same stack).
+      host.requestCancellation(E, { strength: "immediate", reason: "re-entrant" });
+    };
+    await activateThroughLoad(host);
+    await flushMicrotasks();
+    expect(E.state).toBe("cancelled");
+    expect(E.endCause).toBe("cancel");
+    expect(host.table.has(E)).toBe(false);
+    expect(host.lastPublished()?.binds).toEqual([]);
+  });
+
   it("running entities are not re-activated (one execution)", async () => {
     const { host, loader, dispose } = makeHost();
     cleanup.push(dispose);

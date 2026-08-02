@@ -36,6 +36,7 @@ export const expectationLifecycleMachine = createMachine({
     },
     refused: {
       on: {
+        PLAN_MISSING: "missing",
         BEGIN_RUNNING: "running",
         CANCEL: "cancelled",
       },

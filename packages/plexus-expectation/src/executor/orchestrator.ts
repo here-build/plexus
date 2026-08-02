@@ -78,7 +78,7 @@ export abstract class Orchestrator {
 
   abstract hasLiveClaimPeerBind(E: Expectation): boolean;
 
-  /** Session hub for actor presence clients; null = no presence plane (tests). */
+  /** Session hub for actor presence clients; null = no presence plane. */
   abstract getPresenceHub(): PlexusAwareness | null;
 
   /** Publish the kernel's own presence record (binds, loader health, intent acks). */
@@ -157,11 +157,24 @@ export abstract class Orchestrator {
         return;
       }
 
+      // spawn may synchronously re-enter the kernel (a loader closing over the
+      // host can fold/cancel). If the entity went terminal underneath, do not
+      // bind a live handle to a dead entity — end the fresh actor instead.
+      if (isTerminal(E.state)) {
+        controller.abort("activation_superseded");
+        presence.destroy();
+        return;
+      }
+
       E.processorClientId = handle.clientId;
       this.table.set(E, { handle, controller, releasePresence: presence.destroy });
       handle.onControlOutcome((o) => this.#applyIntentOutcome(o.intentId, o.outcome));
       handle.settled
-        .then(() => this.fold(E, "sealed", "settled"))
+        .then((s) =>
+          s.outcome === "complete"
+            ? this.fold(E, "sealed", "settled")
+            : this.fold(E, "failed", "settled", String(s.reason)),
+        )
         .catch((error: unknown) => this.fold(E, "failed", "crash", String(error)));
     } finally {
       this.activating.delete(E);
@@ -185,8 +198,6 @@ export abstract class Orchestrator {
       this.#publish();
       this.reconcile();
     } catch (error) {
-      // Open work stays open, visible against this record; re-attempt is on
-      // plan change or explicit rebootstrap — never a hot loop (design.md §9).
       this.#loaderHealth.set(kind, `failed:${String(error)}`);
       this.#publish();
     }
@@ -254,7 +265,7 @@ export abstract class Orchestrator {
     const s = settlements.get(node);
     if (s !== undefined) {
       if (s.outcome === "complete") {
-        node.applyTerminal("sealed", "settled", "", frame, s.result);
+        node.applyTerminal("sealed", "settled", "", frame, { result: s.result });
       } else {
         node.applyTerminal("failed", "settled", String(s.reason), frame);
       }
@@ -327,12 +338,17 @@ export abstract class Orchestrator {
     for (const intent of intents) {
       const existing = this.#acks.get(intent.intentId);
       if (existing !== undefined) {
-        if (existing.target !== null && existing.target.uuid !== intent.targetUuid) {
-          // Same intentId aimed at a different target: a second, distinct request.
+        // Refusals are re-evaluated while the intent stays authored — a target
+        // that was mid-load ("unbound") may be bound by the next sweep.
+        if (existing.state.startsWith("refused:")) {
+          this.#acks.delete(intent.intentId);
+        } else {
+          const retargetedDuplicate = existing.target !== null && existing.target.uuid !== intent.targetUuid;
+          if (!retargetedDuplicate) {
+            this.#reshapeMailboxEntry(existing.target, intent);
+          }
           continue;
         }
-        this.#reshapeMailboxEntry(existing.target, intent);
-        continue;
       }
 
       const target = this.#findByUuid(intent.targetUuid);
@@ -467,6 +483,7 @@ export abstract class Orchestrator {
     let minted: { destroy(): void } | null = null;
     const port: PresencePort = {
       mintClient: () => {
+        minted?.destroy(); // at most one client per spawn — a re-mint replaces, never leaks
         const hub = this.getPresenceHub();
         if (!hub) {
           const inert = { clientID: 0, setReport: () => {}, destroy: () => {} };

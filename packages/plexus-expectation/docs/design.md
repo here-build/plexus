@@ -126,7 +126,7 @@ One entity, four views (not four types):
 ```text
 declared ──► missing | refused | running | cancelled
 missing  ──► running | refused | cancelled
-refused  ──► running | cancelled
+refused  ──► missing | running | cancelled
 running  ──► sealed | failed | cancelled
 sealed | failed | cancelled  = final
 ```
@@ -394,7 +394,7 @@ Protocol (each arrow is a presence write in the writer's OWN record, or a proces
 author presence:  intents: [{ intentId, targetUuid, body }]
                        │  (kernel observes)
 kernel admission: target open + locally bound + definition.acceptsMessages
-                  + intentId not already live      → admitted | refused:<code>
+                  (intentId collisions: first writer wins)   → admitted | refused:<code>
 kernel presence:  acks: [{ intentId, state: admitted | refused:<code> | considered | dropped }]
                        │  (mailbox view updates)
 actor:            observes mailbox at its own pace → emits considered | dropped
@@ -410,7 +410,9 @@ kernel:           folds outcome into its ack record
   and **no revision correlation**: outcomes correlate by `intentId` only — an author needing to
   know which revision was honored retracts and mints a new `intentId`. Versioning machinery on a
   channel that promises nothing buys nothing.
-- Intents targeting a terminal or unbound Expectation are refused at admission. Admitted intents
+- Intents targeting a terminal or unbound Expectation are refused at admission — and refusals
+  are RE-EVALUATED on later sweeps while the intent stays authored: a target that was mid-load
+  ("unbound") admits once it binds. Only `considered`/`dropped` are final acks. Admitted intents
   that outlive their execution vanish with the kernel's ack record at reap — an author observing
   a terminal target and a reaped ack learns "the execution ended; no promise was broken, because
   none was made." An actor's outcome emitted after reap folds into nothing, by the same clause.
@@ -566,7 +568,7 @@ Load-bearing invariants and the test that breaks when they break (unit unless no
 | LAST REPORT on every path | one test per end-trigger row asserting `lastReportJson` matches the final good frame; serialize-failure keeps prior frame and takes crash fold |
 | `applySettlement` throw | terminal + `endDetail` committed, fields partial, no zombie `running`; partial-apply marker pair readable |
 | Author cancel | `declared` entity cancelled by author without any kernel; kernel's first write ends the ability (post-`running` author cancel refused) |
-| Intent admission | refused on: terminal target, unbound target, duplicate live intentId, `acceptsMessages: false` |
+| Intent admission | refused on: terminal target, unbound target, `acceptsMessages: false`; refusal re-admits after bind; intentId collision = first writer wins |
 | No-epoch reshape | in-place body edit visible in mailbox; outcome folds by intentId regardless of revision |
 | Dual-claim freeze | fabricated claim-owner peer presence freezes activation both ways (existing pattern) |
 | Loader health | failing `load()` appears in kernel presence, work stays open, no hot loop; `missing`/`refused` move onward when definition/loader registered |

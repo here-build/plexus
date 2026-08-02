@@ -25,7 +25,11 @@ export type MailboxEntry = {
   readonly body: unknown;
 };
 
-/** Read-only observable list; the kernel adds and removes entries, the actor only reads. */
+/**
+ * Read-only observable list; the kernel adds and removes entries, the actor
+ * only reads — and iterates a COPY (`[...entries]`): the kernel splices in the
+ * same synchronous turn when an outcome lands.
+ */
 export type MailboxView = {
   readonly entries: readonly MailboxEntry[];
 };

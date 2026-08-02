@@ -33,7 +33,7 @@ export type IntentRecord = {
   readonly body: unknown;
 };
 
-export type IntentRefusalCode = "target_terminal" | "target_unbound" | "duplicate_intent_id" | "messages_not_accepted";
+export type IntentRefusalCode = "target_terminal" | "target_unbound" | "messages_not_accepted";
 
 export type IntentAckState = "admitted" | "considered" | "dropped" | `refused:${IntentRefusalCode}`;
 

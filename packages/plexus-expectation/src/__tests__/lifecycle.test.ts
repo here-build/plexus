@@ -35,6 +35,7 @@ describe("lifecycle machine", () => {
     expect(lifecycleEventAfter("declared", "PLAN_MISSING")).toBe("missing");
     expect(lifecycleEventAfter("missing", "BEGIN_RUNNING")).toBe("running");
     expect(lifecycleEventAfter("refused", "BEGIN_RUNNING")).toBe("running");
+    expect(lifecycleEventAfter("refused", "PLAN_MISSING")).toBe("missing"); // definition unregistered
     expect(lifecycleEventAfter("running", "SEAL")).toBe("sealed");
     expect(lifecycleEventAfter("declared", "SEAL")).toBeNull();
     expect(lifecycleEventAfter("sealed", "CANCEL")).toBeNull();
@@ -57,11 +58,39 @@ describe("entity lifecycle writes", () => {
     const host = new PewTestHost();
     const E = host.mint(new TestExpectation());
     E.transitionState("running");
-    expect(E.applyTerminal("sealed", "settled", "", "null", { value: "a" })).toBe(true);
+    expect(E.applyTerminal("sealed", "settled", "", "null", { result: { value: "a" } })).toBe(true);
     expect(E.applyTerminal("cancelled", "cancel", "late", "null")).toBe(false);
     expect(E.state).toBe("sealed");
     expect(E.endCause).toBe("settled");
     expect(E.resultValue).toBe("a");
+    host.dispose();
+  });
+
+  it("applySettlement runs for void-shaped results (settlement is a wrapper, not a bare value)", () => {
+    const host = new PewTestHost();
+    let applied = 0;
+    class VoidExpectation extends TestExpectation {
+      static override readonly kind = "test.void";
+      override applySettlement(): void {
+        applied += 1;
+      }
+    }
+    const E = host.mint(new VoidExpectation());
+    E.transitionState("running");
+    expect(E.applyTerminal("sealed", "settled", "", "null", { result: undefined as never })).toBe(true);
+    expect(applied).toBe(1);
+    host.dispose();
+  });
+
+  it("author cancel refuses once any descendant left the authorship phase", () => {
+    const host = new PewTestHost();
+    const E = host.mint(new TestExpectation());
+    const child = new TestExpectation();
+    E.children.push(child);
+    child.transitionState("running"); // kernel write on the child
+    expect(E.authorCancel()).toBe(false);
+    expect(E.state).toBe("declared");
+    expect(child.state).toBe("running");
     host.dispose();
   });
 

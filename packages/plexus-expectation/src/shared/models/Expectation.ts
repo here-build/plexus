@@ -120,17 +120,22 @@ export abstract class Expectation<TResult = unknown, TReport = unknown> extends 
    * The one durable terminal the kernel does not write: while the authorship
    * phase lasts (`declared`, no kernel write yet), the author may cancel its
    * own work — no kernel may exist yet to ask, and the alternative leaves
-   * ownerless work immortal (design.md §10).
+   * ownerless work immortal (design.md §10). The whole subtree must still be
+   * in the authorship phase: once any descendant has a kernel write, ending
+   * the tree is the kernel's fold, never the author's pen.
    */
   @syncing.action
   authorCancel(reason?: string): boolean {
-    if (this.state !== "declared") return false;
-    this.state = "cancelled";
-    this.endCause = "cancel";
-    if (reason !== undefined) this.endDetail = reason;
-    for (const child of this.children.toReversed()) {
-      child.authorCancel(reason);
-    }
+    if (!subtreeAllDeclared(this)) return false;
+    const cancel = (node: Expectation): void => {
+      for (const child of node.children.toReversed()) {
+        cancel(child);
+      }
+      node.state = "cancelled";
+      node.endCause = "cancel";
+      if (reason !== undefined) node.endDetail = reason;
+    };
+    cancel(this);
     return true;
   }
 
@@ -138,6 +143,8 @@ export abstract class Expectation<TResult = unknown, TReport = unknown> extends 
    * Kernel terminal write — ONE transaction: state + endCause + endDetail +
    * lastReportJson (+ product fields via applySettlement on seal). Returns
    * false on an already-terminal entity (fold races are no-ops, not errors).
+   * `settlement` is a wrapper, not a bare result, so a `complete(undefined)`
+   * from a void-resulted triad still runs applySettlement.
    */
   @syncing.action
   applyTerminal(
@@ -145,16 +152,16 @@ export abstract class Expectation<TResult = unknown, TReport = unknown> extends 
     cause: EndCause,
     detail: string,
     lastReportJson: string,
-    result?: TResult,
+    settlement?: { readonly result: TResult },
   ): boolean {
     if (isTerminal(this.state)) return false;
     this.transitionState(terminal);
     this.endCause = cause;
     this.endDetail = detail;
     this.lastReportJson = lastReportJson;
-    if (terminal === "sealed" && result !== undefined) {
+    if (terminal === "sealed" && settlement !== undefined) {
       try {
-        this.applySettlement(result);
+        this.applySettlement(settlement.result);
       } catch (error) {
         this.endDetail = `apply_error: ${String(error)}`;
       }
@@ -173,4 +180,9 @@ export abstract class Expectation<TResult = unknown, TReport = unknown> extends 
       processorClientId: 0,
     } as Partial<Omit<T, keyof PlexusModel>>) as T;
   }
+}
+
+function subtreeAllDeclared(root: Expectation): boolean {
+  if (root.state !== "declared") return false;
+  return root.children.every((child) => subtreeAllDeclared(child));
 }

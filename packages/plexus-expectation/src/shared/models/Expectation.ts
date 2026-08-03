@@ -9,21 +9,10 @@ import { isTerminal, type TerminalLifecycle } from "../lifecycle.js";
 type ExpectationCtor = typeof Expectation & { readonly kind: string };
 
 /**
- * Durable face of one unit of open work. Promise / generator / FSM /
- * continuation — one entity, four views (design.md §4).
- *
- * ONE RECORD, ONE WRITER (design.md §2). The authorship phase — minting the
- * entity, its declaration fields, and `declared`, in ONE transaction — belongs
- * to the host; the kernel's first durable write ends it, and from then on
- * every durable write on this entity is the kernel's. The lifecycle actions
- * below are the kernel's pens (plus `authorCancel`, the one author-held
- * terminal); actors never hold any of them. Enforcement is the executor import
- * split plus the FSM guards — Plexus itself accepts any write.
- *
- * Progress does NOT live here. The actor owns its awareness record; this class
- * carries only the discovery pointer (`processorClientId`) and the terminal
- * fold of the final frame (`lastReportJson`). Hub state on the model class is
- * a rejected shape (design.md §16, kernel-relayed progress).
+ * Durable open-work unit. ONE RECORD, ONE WRITER after the kernel's first
+ * durable write: host authors declaration, kernel owns envelope thereafter.
+ * Progress is not here — only `processorClientId` (discovery) and terminal
+ * `lastReportJson`. Prefer `PEW.reportOf` for live frames.
  */
 @syncing("@here.build/plexus-expectation:Expectation")
 export abstract class Expectation<TResult = unknown, TReport = unknown> extends PlexusModel {
@@ -38,26 +27,23 @@ export abstract class Expectation<TResult = unknown, TReport = unknown> extends 
   @syncing
   accessor state: Lifecycle = "declared";
 
-  /** Empty while open; set once, in the terminal transaction. */
   @syncing
   accessor endCause: EndCause | "" = "";
 
   /**
-   * Diagnostic for the terminal: fail reason, cancel reason, crash error,
-   * `applySettlement` error. `sealed` + non-empty endDetail is the
-   * partial-apply marker — degraded success, never silently full success.
+   * Fail/cancel/crash/applySettlement diagnostic. `sealed` + non-empty =
+   * partial-apply (envelope sealed, product incomplete).
    */
   @syncing
   accessor endDetail: string = "";
 
-  /** Final buffered frame, folded at terminal. `"null"` = never reported. */
+  /** Terminal frame; `"null"` = never reported. */
   @syncing
   accessor lastReportJson: string = "null";
 
   /**
-   * Discovery pointer to the actor's awareness client on the session hub.
-   * 0 = no presence (inert surface actors) — observers must treat 0 as none,
-   * never resolve it.
+   * Actor awareness client on the session hub. 0 = unassigned (PEW never mints
+   * 0 — plexus-internal reservation).
    */
   @syncing
   accessor processorClientId: number = 0;
@@ -65,15 +51,13 @@ export abstract class Expectation<TResult = unknown, TReport = unknown> extends 
   @syncing.child.list
   accessor children: Expectation[] = [];
 
-  /** TInput snapshot at spawn — the execution's authoritative view of the declaration. */
   snapshotInput(): unknown {
     return {};
   }
 
   /**
-   * Seal-path product-field writes; runs inside the kernel's terminal
-   * transaction — entity-typed logic, kernel-held pen. Throwing does not roll
-   * back the terminal (design.md §7).
+   * Seal-path product writes inside the terminal transaction. Throw does not
+   * roll back the terminal — partial-apply marker lands in endDetail.
    */
   applySettlement(_result: TResult): void {}
 
@@ -85,15 +69,11 @@ export abstract class Expectation<TResult = unknown, TReport = unknown> extends 
     }
   }
 
-  /**
-   * Observer read of the live actor frame via the discovery pointer.
-   * `undefined` = no live record (not attached, or peer gone); prefer
-   * `lastReport` once terminal.
-   */
+  /** Non-tracking hub walk; prefer PEW.reportOf for MobX paint. */
   liveReport(hub: PlexusAwareness): TReport | null | undefined {
     const cid = this.processorClientId;
     if (cid === 0) return undefined;
-    const peer = hub.getPeer(cid);
+    const peer = hub.getPeer(cid) ?? (hub.clientID === cid ? hub.getLocalState() : null);
     if (!peer) return undefined;
     return (peer as { report?: TReport | null }).report;
   }
@@ -117,12 +97,9 @@ export abstract class Expectation<TResult = unknown, TReport = unknown> extends 
   }
 
   /**
-   * The one durable terminal the kernel does not write: while the authorship
-   * phase lasts (`declared`, no kernel write yet), the author may cancel its
-   * own work — no kernel may exist yet to ask, and the alternative leaves
-   * ownerless work immortal (design.md §10). The whole subtree must still be
-   * in the authorship phase: once any descendant has a kernel write, ending
-   * the tree is the kernel's fold, never the author's pen.
+   * Author-held terminal while still fully `declared` (no kernel may exist
+   * yet). Whole subtree must still be in authorship phase; else the kernel's
+   * fold owns the tree.
    */
   @syncing.action
   authorCancel(reason?: string): boolean {
@@ -140,11 +117,8 @@ export abstract class Expectation<TResult = unknown, TReport = unknown> extends 
   }
 
   /**
-   * Kernel terminal write — ONE transaction: state + endCause + endDetail +
-   * lastReportJson (+ product fields via applySettlement on seal). Returns
-   * false on an already-terminal entity (fold races are no-ops, not errors).
-   * `settlement` is a wrapper, not a bare result, so a `complete(undefined)`
-   * from a void-resulted triad still runs applySettlement.
+   * Kernel terminal write in one action. Already-terminal → false (fold races
+   * are no-ops). Settlement wrapper so `complete(undefined)` still applies.
    */
   @syncing.action
   applyTerminal(
@@ -169,7 +143,7 @@ export abstract class Expectation<TResult = unknown, TReport = unknown> extends 
     return true;
   }
 
-  /** Clone copies the declaration; execution-derived fields reset — retry is a new Expectation. */
+  /** Declaration only; execution fields reset — retry is a new entity. */
   override clone<T extends PlexusModel>(this: T, newProps: Partial<Omit<T, keyof PlexusModel>> = {}): T {
     return super.clone({
       ...newProps,

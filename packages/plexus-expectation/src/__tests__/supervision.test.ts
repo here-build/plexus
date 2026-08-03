@@ -89,9 +89,9 @@ describe("lease dispose", () => {
     cleanup.push(dispose);
     host.mint(new TestExpectation());
     await activateThroughLoad(host);
-    expect(host.lastPublished()?.binds).toHaveLength(1);
+    expect(host.lastPublished().binds).toHaveLength(1);
     host.disposeLease();
-    expect(host.lastPublished()?.binds).toHaveLength(0);
+    expect(host.lastPublished().binds).toHaveLength(0);
   });
 });
 

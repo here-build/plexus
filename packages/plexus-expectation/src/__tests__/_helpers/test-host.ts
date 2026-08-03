@@ -1,5 +1,5 @@
-import { Plexus, PlexusAwareness, PlexusModel, syncing } from "@here.build/plexus";
-import * as Y from "yjs";
+import { Plexus, type PlexusAwareness, PlexusModel, syncing } from "@here.build/plexus";
+import type * as Y from "yjs";
 
 import {
   ExpectationActor,
@@ -8,7 +8,13 @@ import {
   type KernelPresenceStatus,
   type LaunchContext,
 } from "../../executor/index.js";
-import { Expectation, Orchestration, type IntentRecord, type LaunchDefinition } from "../../shared/index.js";
+import {
+  Expectation,
+  Orchestration,
+  PEW,
+  type IntentRecord,
+  type LaunchDefinition,
+} from "../../shared/index.js";
 import { InProcessLaunchDefinition } from "../../shared/models/index.js";
 
 /** Minimal triad + host for kernel tests. One forest model, scripted actors, a settable loader. */
@@ -123,34 +129,38 @@ export class ThrowingSpawnLoader extends TestLoader {
 
 export type PewTestHostOptions = {
   readonly claimOwner?: boolean;
+  /** false → no PEW wire (inert clientId 0). */
   readonly hub?: boolean;
 };
 
+/** Claim-owner test host. Uses `plexus.awareness` — never a second hub on the same doc. */
 export class PewTestHost extends Orchestrator {
   readonly doc: Y.Doc;
   readonly forest: PewForest;
+  readonly plexus: Plexus;
   readonly awareness: PlexusAwareness | null;
   readonly loaders = new Map<unknown, ExpectationLoader>();
   claimOwner: boolean;
   peerBinds = new Set<string>();
+  /** Injected intents (bypasses PEW hub scan). */
   authorIntents: IntentRecord[] = [];
-  published: KernelPresenceStatus[] = [];
   candidates: Expectation[] = [];
+  readonly #hubEnabled: boolean;
 
   constructor(options: PewTestHostOptions = {}) {
     super();
-    this.doc = new Y.Doc();
     this.forest = new PewForest();
-    Plexus.bootstrap(this.forest, undefined, this.doc);
-    this.awareness = (options.hub ?? true) ? new PlexusAwareness(this.doc) : null;
+    this.plexus = Plexus.bootstrap(this.forest);
+    this.doc = this.plexus.doc;
+    this.#hubEnabled = options.hub ?? true;
+    this.awareness = this.#hubEnabled ? this.plexus.awareness : null;
     this.claimOwner = options.claimOwner ?? true;
   }
 
   dispose(): void {
-    this.doc.destroy();
+    this.plexus.destroy();
   }
 
-  /** Register plan + loader for a kind in one call. */
   plan(kind: string, def: LaunchDefinition, loader: ExpectationLoader | null): void {
     this.forest.orchestration.plans.set(kind, def);
     if (loader) this.loaders.set(def.constructor, loader);
@@ -185,24 +195,23 @@ export class PewTestHost extends Orchestrator {
     return this.peerBinds.has(E.uuid);
   }
 
-  getPresenceHub(): PlexusAwareness | null {
-    return this.awareness;
+  getSessionPlexus(): Plexus | null {
+    return this.#hubEnabled ? this.plexus : null;
   }
 
-  publishKernelPresence(status: KernelPresenceStatus): void {
-    this.published.push(status);
+  protected override createPew(): PEW | null {
+    return this.#hubEnabled ? new PEW({ kernel: this.plexus }) : null;
   }
 
   override getAuthorIntents(): readonly IntentRecord[] {
     return this.authorIntents;
   }
 
-  lastPublished(): KernelPresenceStatus | undefined {
-    return this.published.at(-1);
+  lastPublished(): KernelPresenceStatus {
+    return this.snapshotPresence();
   }
 }
 
-/** Default wiring: one test kind, messages-accepting definition, scripted loader. */
 export function makeHost(
   script?: ActorScript,
   options: PewTestHostOptions & { kind?: string } = {},
@@ -213,7 +222,6 @@ export function makeHost(
   return { host, loader, dispose: () => host.dispose() };
 }
 
-/** Activate through the load handshake: first reconcile kicks load, flush, second activates. */
 export async function activateThroughLoad(host: PewTestHost): Promise<void> {
   host.reconcile();
   await Promise.resolve();

@@ -224,7 +224,7 @@ type LaunchContext<TInput> = {
 
 type ActorHandle = {
   readonly settled: Promise<Settlement<unknown>>;
-  readonly clientId: number;              // awareness client on the session hub; 0 = no presence
+  readonly clientId: number;              // session-hub presence id; never 0 when minted; 0 = unassigned
   settlement(): Settlement<unknown> | null; // sync buffer, set at emit — folds consult it first
   lastReport(): unknown | null;             // kernel-side frame buffer — §6
   onControlOutcome(sink: (o: IntentOutcome) => void): void;
@@ -243,9 +243,9 @@ The actor base class owns the whole updates pipeline:
 
 - It mints its own awareness client at spawn through `ctx.presence`. The client always lives on
   the **session hub** (cross-process runners relay through their adapter onto the session hub),
-  so `clientId` is hub-unique and the durable discovery pointer is unambiguous. `clientId = 0`
-  is the "no presence" sentinel (inert surface actors) — observers must treat 0 as *none*, never
-  resolve it.
+  so `clientId` is hub-unique and the durable discovery pointer is unambiguous. PEW never mints
+  `clientId === 0` (plexus-internal reservation). Unassigned `processorClientId` (durable default
+  0) means no presence client — inert surface actors leave it unassigned.
 - Reports are serialized at publish. A report that fails to serialize is an actor error: the
   actor takes the crash fold, and the buffer keeps the last **good** frame. **Latest frame wins —
   that is the whole policy.** The core has no report modes: an actor that wants history appends
@@ -383,22 +383,23 @@ There is no rebind generation and no `awaiting_rebind`. Retry is a new Expectati
 
 Steering is declarative and **ephemeral by design**: intents affect only a live execution. The
 guarantee is not presence lifetime — an author's presence outlives any claim owner — but the
-admission rule: an intent targets an Expectation **uuid**, admission requires that uuid to be
-**locally bound right now**, and one-execution guarantees a uuid never runs again. A stale
-"retry now" surviving in an author's presence is refused against a terminal or unbound target;
-there is no execution it could ever reach except the one it was written for.
+admission rule: an intent targets an Expectation **model** (entity identity, never a uuid
+string), admission requires that entity to be **locally bound right now**, and one-execution
+guarantees that entity's uuid never runs again. A stale "retry now" surviving in an author's
+presence is refused against a terminal or unbound target; there is no execution it could ever
+reach except the one it was written for.
 
 Protocol (each arrow is a presence write in the writer's OWN record, or a process-local flow):
 
 ```text
-author presence:  intents: [{ intentId, targetUuid, body }]
+author presence:  intents: [{ intentId, target /* Expectation model */, body }]
                        │  (kernel observes)
 kernel admission: target open + locally bound + definition.acceptsMessages
                   (intentId collisions: first writer wins)   → admitted | refused:<code>
-kernel presence:  acks: [{ intentId, state: admitted | refused:<code> | considered | dropped }]
+claim presence:   acks: [{ intentId, state: admitted | refused:<code> | considered | dropped }]
                        │  (mailbox view updates)
 actor:            observes mailbox at its own pace → emits considered | dropped
-kernel:           folds outcome into its ack record
+kernel:           folds outcome into its claim-record ack
 ```
 
 - **Acknowledged, no promises.** Admission means "the kernel accepted the request and routed it";
@@ -448,24 +449,23 @@ abstract class ExpectationLoader {
 - The kernel never injects itself into a loader or an actor. No host callback bundles, no
   orchestrator binding. The loader gets a context; the kernel gets a handle; the handle's
   surfaces are the only contact.
-- **Loader health lives in the kernel's presence.** The kernel advertises, per registered plan:
-  loaded (with the loader's own presence `clientId` when it has one), loading, or
-  `failed:<reason>`. A failed `load()` leaves the Expectation in its open state, visible against
-  the failure record; the kernel re-attempts on plan change or explicit host re-bootstrap, never
-  in a hot loop.
-- **Capability: loader-sourced, kernel-published, ADVISORY.** A loader may implement
+- **Loader health lives on the orchestration-doc presence (global catalog face, §17).** The
+  claim-owner process advertises, per registered plan: loaded, loading, or `failed:<reason>`. A
+  failed `load()` leaves the Expectation in its open state, visible against the failure record;
+  the kernel re-attempts on plan change or explicit host re-bootstrap, never in a hot loop.
+- **Capability: loader-sourced, catalog-published, ADVISORY.** A loader may implement
   `probeCapability(): Promise<LoaderCapability>` — availability status (`ready` / `blocked` with
   an errors-as-doors `door` / `unavailable`) plus the current argument inventory (`args`: models
   list, tool names — the triad's own shape). The kernel probes after a successful `load()` and on
-  the host's explicit `refreshCapability()`, and publishes the record in its own presence
-  alongside loader health — the loader is the source, the kernel is the pen. **The kernel never
-  interprets it**: no activation gating on `status`, no validating declarations against `args` —
-  enforcement stays at `load()` (sticky failed health) and the actor's fail path (door in
-  `endDetail`). Capability exists so surfaces can warn BEFORE an execution is spent; it must
-  never become a second admission system — inventory is ephemeral and would race admission
-  anyway. Inventory is published whole (a thousand OpenRouter models is fine); selection stays
-  durable declaration on the LaunchDefinition. A self-managed loader may still publish its own
-  presence record instead. Lazy loading on first spawn is the default.
+  the host's explicit `refreshCapability()`, and publishes the record on the **orchestration**
+  presence alongside loader health — the loader is the source, the catalog pen is PEW. **The
+  kernel never interprets it**: no activation gating on `status`, no validating declarations
+  against `args` — enforcement stays at `load()` (sticky failed health) and the actor's fail
+  path (door in `endDetail`). Capability exists so surfaces can warn BEFORE an execution is
+  spent; it must never become a second admission system — inventory is ephemeral and would race
+  admission anyway. Inventory is published whole (a thousand OpenRouter models is fine);
+  selection stays durable declaration on the LaunchDefinition. A self-managed loader may still
+  publish its own presence record instead. Lazy loading on first spawn is the default.
 - Loader association is by LaunchDefinition class (`instanceof`), registered on the claim-owner
   host. Two definitions of the same class share a loader; bootstrap state lives on the loader.
 
@@ -513,14 +513,20 @@ supervision bargain.
   yield: one fold pass over held work (settlement preference first — finished work folds sealed,
   the rest `cancelled`/`supervision`), where "held" = every entity with a live local handle or
   activation in flight.
-- The kernel advertises its binds, loader health, and claim-ownership in its own presence record.
-  Presence-based dual-claim detection is **advisory** — a tripwire for lease bugs, not the mutual
-  exclusion itself: two live claim-owner peers freeze activation on both sides and surface a host
-  error until one yields. During such a window, durable writes from both peers land as CRDT LWW —
-  PEW bounds the damage (freeze) but cannot arbitrate it; the lease layer must.
+- The claim owner **self-registers** a presence record on the **session** hub under an
+  **arbitrary client id** (not the hub base; never `0` — §17). That record carries binds, intent
+  acks, and the claim marker. Loader health / capability inventory live on the **orchestration**
+  hub instead (global catalog). Presence-based dual-claim detection is **advisory** — a tripwire
+  for lease bugs, not the mutual exclusion itself: two live claim-marked peers freeze activation
+  on both sides and surface a host error until one yields. During such a window, durable writes
+  from both peers land as CRDT LWW — PEW bounds the damage (freeze) but cannot arbitrate it; the
+  lease layer must. Observers **rediscover** the claim owner by scanning the hub (MobX-reactive);
+  planned reload is **overlapping** (mint+publish before destroy); crash-restart **evicts** stale
+  claim peers on install under lease.
 - **Liveness windows are host policy.** Presence timeouts (claim-orphan detection, runner
-  self-termination grace) are host-tuned constants; PEW states their consequences, not their
-  values.
+  self-termination grace when the claim record disappears) are host-tuned constants; PEW states
+  their consequences, not their values.
+
 - **Accepted-loss ledger** (each entry: the alternative is a second durable writer, which costs
   more than the loss):
   - A network partition can orphan-fail work whose actor is alive on the far side; its late
@@ -577,11 +583,26 @@ Load-bearing invariants and the test that breaks when they break (unit unless no
 | LAST REPORT on every path | one test per end-trigger row asserting `lastReportJson` matches the final good frame; serialize-failure keeps prior frame and takes crash fold |
 | `applySettlement` throw | terminal + `endDetail` committed, fields partial, no zombie `running`; partial-apply marker pair readable |
 | Author cancel | `declared` entity cancelled by author without any kernel; kernel's first write ends the ability (post-`running` author cancel refused) |
-| Intent admission | refused on: terminal target, unbound target, `acceptsMessages: false`; refusal re-admits after bind; intentId collision = first writer wins |
+| Intent admission | refused on: terminal target, unbound target, `acceptsMessages: false`; refusal re-admits after bind; intentId collision = first writer wins; target is Expectation model identity |
 | No-epoch reshape | in-place body edit visible in mailbox; outcome folds by intentId regardless of revision |
-| Dual-claim freeze | fabricated claim-owner peer presence freezes activation both ways (existing pattern) |
-| Loader health | failing `load()` appears in kernel presence, work stays open, no hot loop; `missing`/`refused` move onward when definition/loader registered |
+| Dual-claim freeze | two claim-marked presence records on one session hub freezes activation both ways |
+| Loader health | failing `load()` appears in orchestration catalog, work stays open, no hot loop; `missing`/`refused` move onward when definition/loader registered |
 | Capability | probe published after load and on refresh; probe throw → `unavailable` with the error as door; probe-less loader publishes no record; kernel never gates activation on `status` |
+| Claim rediscovery | claim client destroyed → getters null; new claim client under new id → scan finds it; no sticky clientId cache |
+| Overlapping reload | during claim-client rotation, at least one claim record is live at every instant; runners do not self-terminate |
+| Crash-restart install | on install under lease, stale claim-marked peers are evicted before own publish; no self-freeze on dead predecessor |
+| Dual-claim scan includes self | single kernel → `hasDualClaim` false; two kernels (incl. self in each scan) → true |
+| reportOf MobX | autorun on `reportOf(E)` re-fires on that peer only; peer isolation |
+| reportOf pre-spawn / reap | autorun while unassigned re-fires when pointer becomes a legal client id; after reap returns `undefined` |
+| mint never 0 | every `mintActorClient` / claim client has `clientId !== 0` |
+| Catalog MobX | autorun on `plans` re-fires on catalog publish, not on actor report noise |
+| Catalog merge | kernel health + loader self-capability disagree → stated merge rule holds |
+| isBound same-doc | bind list membership by Expectation uuid after tolerant resolve; no uuid strings on the wire |
+| isBound unsynced bind | marker present but entity not yet in local doc → treated as unbound, no throw; re-evaluates on later hub/doc change |
+| Actor-client reap | after fold reap, hub `getPeer(clientId)` is null / report gone |
+| Session hub auto-lifecycle | first use subscribes; hub/doc destroy drops listeners; no attach API |
+| plan unknown kind | `plan("unknown")` returns `undefined` |
+| readIntents | author intents visible to kernel via PEW; retract drops them |
 
 ---
 
@@ -622,6 +643,401 @@ machinery it forces:
 - **String-kind process dispatch.** Kind-keyed starter maps push `unknown` through every seam and
   reduce the triad to a stringly-typed registry; class-keyed association keeps every seam typed
   and lets the definition class carry its loader.
+- **`PewPlexus extends Plexus` / PEW-owned multi-doc registry.** Composition (`new PEW(plexus)`)
+  plus existing family reverse-resolve covers the topology; a parallel registry is dual books.
+- **Session Expectation entity refs on the orchestration hub.** Cross-doc awareness serde throws;
+  catalog is kind-keyed JSON; execution binds stay on the session hub that owns those entities.
+- **Claim owner = hub base clientId.** Breaks ambient reload under a new id; discovery must scan.
+- **Imperative presence `onChange`.** MobX is the subscription (same grain as mailbox).
+- **Sequential destroy-then-mint claim reload.** Creates an observer-visible claim gap that
+  forces runner self-termination; overlapping mint→publish→destroy is required (§17.5).
+- **Throwing deref on the discovery/admission path.** Awareness can outrace doc sync; unresolvable
+  markers are "not yet here," never a crash mid-getter (§17.3).
+
+---
+
+## 17. Presence API (`PEW`)
+
+The awareness plane already holds everything observers need. What was missing is a **typed,
+MobX-reactive lens** and a frozen wire split that matches the **two-doc topology**. This section
+is the contract for that lens.
+
+**Review status:** dual eng-review (LongCat + Fable, 2026-08-03) verdict **fix-then-go**. This
+revision absorbs those findings. Reviews live under `docs/reviews/`.
+
+### 17.1 Two-doc topology
+
+| Doc | Durable contents | Presence face |
+|-----|------------------|---------------|
+| **Orchestration (kernel)** | `Orchestration.plans` / LaunchDefinition home | **Global catalog** — loader health + capability inventory (kind-keyed; no session entity refs) |
+| **Session** | Expectation trees, openWork | **Execution** — claim record (binds, acks), actor `report`s, author intents |
+
+Loaders are available **globally**. Execution only matters **to a specific session**. Putting
+session `Expectation`s onto the orchestration hub as entity markers is forbidden — awareness
+serde is same-doc by law (`entity.__doc__` must match the hub's doc). Catalog payloads are plain
+JSON / plan kinds. Session binds are Expectation **entity markers on the session hub that owns
+them** (same-doc only).
+
+**Observer reach.** Browser / UI peers typically hold only the **session** hub (e.g. SyncDO).
+They construct PEW with `kernel: null` (session-only) and get execution reads; catalog is empty
+/`unadvertised` unless the host relays orchestration awareness to that peer or the peer also
+holds the orchestration doc. Catalog paint for pure-session observers is a **host relay** concern
+(name it in `InstallOpts` / SyncDO protocol), not a PEW second book.
+
+### 17.2 Construction — composition, not inheritance
+
+```ts
+// claim owner / process that holds orchestration
+const pew = new PEW({ kernel: kernelPlexus });
+
+// session-only observer (studio tab, shell peer) — no orchestration doc
+const pew = new PEW();
+```
+
+- **Not** `class PewPlexus extends Plexus`.
+- **Not** a PEW-owned `Map<guid, Plexus>` multi-doc registry.
+- **No** `attachSession` / `detachSession` registration API. Sessions are discovered
+  automatically when a call needs them.
+- `kernel` is **optional**. Catalog getters without it return empty / `plan() → undefined`.
+  Session methods take an explicit `session: Plexus` or derive from `E.__doc__`.
+- Session reverse-resolve rides existing family APIs:
+  - `entity.__doc__` — synced-model document pointer;
+  - `docPlexus.get(doc)` — process WeakMap doc → Plexus (same path `parentsOf` uses);
+  - `plexus.awareness` — that document's hub.
+
+```text
+Expectation E
+  → E.__doc__
+  → docPlexus.get(doc)     // session Plexus
+  → .awareness             // session hub
+  → claim scan / report peer
+```
+
+PEW may import family internals (`docPlexus`, `__doc__`) as a plexus-family consumer — not a new
+public app API.
+
+**Session hub subscription — automatic.** First read/write that resolves a session hub
+(`reportOf(E)`, `claim(session)`, `publishClaim(session)`, …) lazily subscribes that hub's
+`change` for MobX atoms. Unsubscribe is automatic on hub/`doc` destroy (and when the process
+is rebuilt — DO eviction wipes PEW). Hosts never register or detach sessions explicitly.
+
+### 17.3 Wire schema (frozen)
+
+**Orchestration hub — global catalog**
+
+| Field | Content |
+|-------|---------|
+| `role` | `"catalog"` |
+| `loaders` | `Record<planKind, LoaderHealth>` |
+| `capabilities` | `Record<planKind, LoaderCapability>` |
+
+No `binds`. No Expectation entity refs.
+
+**Session hub — claim record (orchestrator self-registration)**
+
+| Field | Content |
+|-------|---------|
+| `role` | `"kernel"` (claim marker) — **required** for discovery |
+| `binds` | entity markers for same-doc `Expectation`s |
+| `acks` | `{ intentId, state }[]` |
+
+Published under an **arbitrary** regular-range client id (`PlexusAwareness.createLocalClient`),
+**not** the hub base `clientID`. See §17.5.
+
+**Session hub — actor**
+
+| Field | Content |
+|-------|---------|
+| `report` | LWW `TReport` (JSON-serializable) |
+
+One local client per spawn; durable discovery pointer is `Expectation.processorClientId`.
+**Client id `0` is banned** for PEW-minted presence clients — plexus reserves / uses `0`
+internally (not a PEW-invented "none" semantic layered on a legal id). `newClientId` /
+`createLocalClient` used by PEW must never return `0` (remint if needed). Durable field
+default `processorClientId = 0` means **unassigned** only because `0` is not a legal PEW
+presence client id; inert surface actors leave it unassigned and do not mint a client.
+Observers: unassigned / non-minted ⇒ no report; never treat a real minted id as missing.
+
+**Session hub — author**
+
+| Field | Content |
+|-------|---------|
+| `intents` | `{ intentId, target /* Expectation marker */, body }[]` |
+
+`intentId` remains a string. **`target` is an Expectation entity marker** (model key on the
+session doc), never a uuid string field. Retract = remove; reshape = edit body in place (§8).
+
+**Optional loader self-record** (escape hatch, §9):
+
+```ts
+{ role: "loader"; kind: string; capability?: LoaderCapability }
+```
+
+#### Tolerant resolution (load-bearing)
+
+Awareness and doc sync are **separate lanes** with no cross-lane ordering. A claim frame can
+arrive before the doc update that materializes a bind/target. Therefore:
+
+1. **Role / claim scans** use **raw** peer state (`getRawPeer` / schema fields) so discovery
+   never deserializes entity markers.
+2. **Entity markers** (binds, intent targets) resolve on demand via a **null-on-missing** path
+   (try/catch around deref, or a plexus `tryDeref`). Unresolvable marker ⇒ treat as *not bound
+   here yet* / `refused:target_unbound` — **never throw mid-getter or mid-admission**.
+3. Unresolvable cases are **re-evaluated** on later hub or doc changes (same re-admission law as
+   §8 unbound→bound).
+
+`isBound(E)` membership: after tolerant resolve, compare by **Expectation uuid** (stable across
+proxy identity), not object identity. Reliable for observers on the **same session doc** as the
+claim record. Cross-session dashboards do not use `isBound`; they use durable tree state +
+`processorClientId` / `lastReport`.
+
+### 17.4 Types and public surface
+
+```ts
+type LoaderCapability<TArgs = unknown> = {
+  status: "ready" | "blocked" | "unavailable";
+  door?: string;
+  args?: TArgs;
+  probedAt?: number;
+};
+
+type LoaderHealth = "loading" | "loaded" | `failed:${string}`;
+
+type PlanAvailability = {
+  kind: string;
+  /** Kernel-catalog health is authoritative when present. */
+  health: LoaderHealth | "unadvertised";
+  /** Loader self-record capability wins when present; else catalog-probed. */
+  capability?: LoaderCapability;
+  source: "catalog" | "loader" | "both";
+};
+
+/** Deserialized claim view after a scan (tolerant binds). */
+type PewClaimRecord = {
+  readonly clientId: number;
+  /** Successfully resolved binds; unresolvable markers omitted (not thrown). */
+  readonly binds: readonly Expectation[];
+  readonly acks: readonly IntentAck[];
+};
+
+type ActorPresenceClient = {
+  readonly clientID: number;
+  setReport(frame: unknown): void;
+  destroy(): void;
+};
+
+class PEW {
+  constructor(opts?: { kernel?: Plexus | null });
+
+  // ── global catalog (orchestration hub; no-op empty without kernel) ──
+  get plans(): ReadonlyMap<string, PlanAvailability>;
+  plan(kind: string): PlanAvailability | undefined; // undefined = unknown kind
+  publishCatalog(status: {
+    loaders: Readonly<Record<string, LoaderHealth>>;
+    capabilities: Readonly<Record<string, LoaderCapability>>;
+  }): void;
+
+  // ── session execution (hub resolved automatically from session / E.__doc__) ──
+  reportOf<TReport>(E: Expectation<unknown, TReport>): TReport | undefined;
+  isBound(E: Expectation): boolean;
+  /** Sole claim after scan; null if zero or dual. */
+  claim(session: Plexus): PewClaimRecord | null;
+  /** >1 claim-marked bases including self. */
+  hasDualClaim(session: Plexus): boolean;
+  ack(intentId: string, session: Plexus): IntentAckState | undefined;
+  /** All author intents on the session hub (excludes own claim + author clients). */
+  readIntents(session: Plexus): readonly IntentRecord[];
+
+  publishClaim(session: Plexus, status: {
+    binds: readonly Expectation[];
+    acks: readonly IntentAck[];
+  }): void;
+  /** Install / reinstall claim client; see §17.5 install eviction. */
+  installClaim(session: Plexus): void;
+  retireClaim(session: Plexus): void;
+
+  /**
+   * Mints one actor client (clientId never 0). Caller must destroy via
+   * returned client.destroy() on reap (kernel #reap / releasePresence path).
+   */
+  mintActorClient(session: Plexus): ActorPresenceClient;
+
+  publishIntents(session: Plexus, intents: readonly IntentRecord[]): void;
+}
+```
+
+- **Aggregates as getters** (`plans`); parameterized reads as methods.
+- **Work identity = Expectation models** on the wire (entity markers); intent ids stay strings.
+- **`source: "none"` is not used** — unknown kinds return `undefined` from `plan()`.
+
+#### Catalog merge algorithm
+
+Scan orchestration hub for `role: "catalog"` (at most one expected; if several, first found +
+host dual-catalog error is out of scope — treat as last-writer LWW on fields) and all
+`role: "loader"` records:
+
+| Field | Rule |
+|-------|------|
+| `health` | Catalog pen is authoritative. Loader self-records do **not** override health. Absent catalog entry → `"unadvertised"`. |
+| `capability` | Loader self-record for that `kind` wins if present; else catalog `capabilities[kind]`. |
+| `source` | `"catalog"` / `"loader"` / `"both"` according to which sides contributed a non-empty piece. |
+
+Multiple self-loaders for the same `kind`: last-scanned wins (ephemeral; host should not run two).
+
+### 17.5 Claim discovery — arbitrary client id, reload, crash
+
+#### Wire clients PEW owns
+
+PEW owns **at most one wire client per `(hub, role)`** for roles it publishes:
+
+| Role | Hub | Client |
+|------|-----|--------|
+| catalog | orchestration | one local client (or hub base if host prefers — still scan by `role`) |
+| claim (`kernel`) | session | one `createLocalClient` per session hub in use |
+| author | session | one client when `publishIntents` is used (distinct from claim, even in-process) |
+
+Repeated `publishClaim` / `publishCatalog` / `publishIntents` **replace fields** on the existing
+client — never mint a new client per publish. `retireClaim` / dispose destroy the client (stop
+heartbeat). Undestroyed clients after lease yield are a host bug (self-inflicted stale claim).
+
+#### Install under lease (crash-restart)
+
+On **install** while holding the session writer lease, **before** publishing own claim:
+
+1. Scan session hub for all `role: "kernel"` records (raw).
+2. **Evict** them via `removeAwarenessStates` (they are dead predecessors or lease bugs; if a
+   live rival republishes, dual-claim re-arms correctly).
+3. Mint claim client, publish `role` + binds + acks.
+
+This prevents up-to-timeout self-freeze on a reborn lease-holder seeing its own corpse
+(`outdatedTimeout` is substrate-default; host may tune if plexus exposes it — PEW states the
+evict-on-install rule so it does not depend on timeout).
+
+#### Overlapping reload (ambient runtime update)
+
+**Invariant:** at every instant during a planned reload, **≥1 claim record is live** on the hub.
+
+```text
+reload:
+  newClient = createLocalClient(hub)
+  publish role + binds + acks on newClient
+  destroy oldClient          // only after new is visible
+```
+
+Sequential destroy-then-mint is **forbidden** — it creates a claim gap that fires runner
+self-termination (§6 / §12). Runners still self-terminate on **sustained** claim absence
+(host-tuned grace); overlapping reload must finish inside that grace.
+
+#### Discovery is scan, never assume
+
+```text
+candidates = all bases on hub (local secondaries + peers + self base if claim-shaped)
+  where raw role === "kernel"
+hasDualClaim ⇔ candidates.length > 1   // scan INCLUDES self
+claim() = sole candidate deserialized (tolerant), else null
+```
+
+- Never hardcode hub.clientID as the orchestrator.
+- No sticky clientId cache without invalidation on hub `change`.
+- **`ack(intentId)`** under dual-claim: undefined / refuse to pick — dual freeze means no
+  authoritative claim; do not silently first-scan.
+
+#### Trust model
+
+All presence writers on a session hub are **trusted claim-authority peers** (same boundary as
+§8 steering rights = doc access). `role: "kernel"` is a claim of intent, arbitrated by the
+**writer lease**; hosts must not feed untrusted peers' presence into PEW / the kernel. Dual-claim
+freeze is an advisory tripwire for lease bugs, not multi-tenant isolation.
+
+### 17.6 Reactivity (MobX)
+
+mobx is a hard dependency. Hub `change` bumps version boxes / peer atoms; **coarse
+projections** (`plans`, claim list, author intents) are **`computed`** (memoized until the
+version bumps). **Fine** invalidation for `reportOf` stays per-peer atoms. Writers never
+touch atoms — they write the hub; change fires; versions bump under `runInAction`.
+
+| Read | Tracks |
+|------|--------|
+| `reportOf(E)` when `processorClientId` is a legal PEW client id | fine peer atom for that clientId |
+| `reportOf(E)` when unassigned (`processorClientId` is 0 / never minted) | coarse **hub membership** atom on E's session hub (any base added/removed) so pre-spawn subscriptions re-fire when an actor appears; after re-read, if still unassigned return `undefined` |
+| durable `E.processorClientId` | PEW requires pointer transitions (spawn write / reap clear) to be MobX-visible — via Plexus MobX integration or a PEW-owned reaction on the entity; **not optional** |
+| `plans` / `plan` | coarse **catalog** atom on orchestration hub |
+| `claim` / `isBound` / `ack` / `hasDualClaim` / `readIntents` | single coarse **claim** atom per session hub (lazily bound on first use of that hub); all claim helpers re-derive from one scan |
+
+- Frames are opaque LWW replaces — never deep-observe inside `TReport`.
+- Peer isolation: another actor's report must not re-fire a reaction that only read `reportOf(thisE)`.
+- Catalog isolation: actor report noise must not re-fire `plans`.
+- **No `onChange` API.** Use `reaction` / `autorun`.
+
+Paint:
+
+```ts
+observer(function Row({ E, pew }: { E: Expectation; pew: PEW }) {
+  const frame = pew.reportOf(E);
+  const ready = pew.plan(E.kind)?.capability?.status === "ready";
+});
+```
+
+### 17.7 Orchestrator integration
+
+```text
+const pew = new PEW({ kernel: kernelPlexus });
+pew.installClaim(session);           // first use of session hub is automatic; this mints claim
+
+// load / probe → global catalog
+pew.publishCatalog({ loaders, capabilities });
+
+// activate E
+const client = pew.mintActorClient(session);  // clientId ≠ 0
+// on reap: client.destroy(); processorClientId cleared to unassigned (0)
+pew.publishClaim(session, { binds: [...table.keys()], acks });
+
+// admission
+for (const intent of pew.readIntents(session)) { … tolerant target … }
+
+// dispose lease
+pew.retireClaim(session);
+// no detachSession — hub destroy / process teardown cleans subscriptions
+```
+
+`publishKernelPresence` (single bundled record) is **retired**. Hosts split into
+`publishCatalog` + `publishClaim`. Process-local claim table remains the input to
+`publishClaim`; the wire is PEW's job.
+
+### 17.8 Import split and migration ledger
+
+| Symbol | Barrel |
+|--------|--------|
+| `PEW`, `PewClaimRecord`, `PlanAvailability`, `LoaderCapability`, `LoaderHealth`, `PresencePort`, `ActorPresenceClient`, `IntentRecord` | `@here.build/plexus-expectation` (**shared**) |
+| `Orchestrator`, `ExpectationActor`, `ExpectationLoader`, settlement / activation | `/executor` only |
+
+**Breaking alignment (doc wins; implement in same land as PEW):**
+
+| Today (code) | Contract |
+|--------------|----------|
+| `IntentRecord.targetUuid: string` | `IntentRecord.target: Expectation` (entity marker on session) |
+| `KernelPresenceStatus.binds: { uuid }[]` | split away; claim `binds: Expectation[]` markers; type retired |
+| `snapshotPresence()` one record (loaders+binds+acks) | `publishCatalog` + `publishClaim` |
+| `publishKernelPresence` abstract host hook | PEW wire; host no longer serializes |
+| `#findByUuid` admission | identity / tolerant resolve on `intent.target` |
+| `Expectation.liveReport(hub)` | prefer `pew.reportOf(E)`; hub walk may remain as non-tracking helper one cycle |
+| harness peer-channel uuid binds | awareness claim scan / `pew.isBound` |
+
+### 17.9 Laws
+
+1. ONE RECORD, ONE WRITER — PEW writers only set fields on the identity they mint or own.
+2. No kernel hop on the report path — actor → session hub → `reportOf`.
+3. Capability remains advisory forever.
+4. PEW never mints presence `clientId === 0` (plexus-internal reservation). Unassigned durable
+   pointer is 0 only because 0 is not a legal PEW client id — not a PEW-layer semantic inventing
+   "none" over a valid id.
+5. Not a second progress mode; not a durable progress mirror.
+6. Same-doc entity markers only; catalog never carries session Expectations.
+7. Claim ownership is rediscovered by scan (including self); reload is overlapping; install
+   under lease evicts stale claim peers.
+8. Discovery and admission never throw on unsynced markers — unbound / re-evaluate.
+9. At most one PEW wire client per `(hub, role)`; publish replaces fields; retire destroys.
+10. Session hubs are discovered on use — no host attach/detach registration API.
 
 ---
 
@@ -632,9 +1048,17 @@ machinery it forces:
 - CRDT-persisted progress, XState snapshots, durable intent state, or durable intent logs.
 - Cooperative cancel (typed stub until designed) — including abort-time report flushing (§6).
 - Surface-work timeouts/escalation (host policy).
+- Imperative presence `onChange` (MobX is the subscription).
+- PEW subclass of Plexus or PEW-owned multi-doc registry.
+- Session entity refs on the orchestration awareness hub.
+- Cross-session `isBound` dashboards (use durable tree + lastReport).
+- Treating presence `role: "kernel"` as multi-tenant auth (lease is mutual exclusion; presence is advisory among trusted peers).
 
 ## Related
 
 - Package intro: [`../README.md`](../README.md)
 - Plexus ownership: `@here.build/plexus`
 - Product framing: `harness/docs/architecture/agentic-os.md`
+- DO host topology (two-doc): `inhuman/docs/working-proposals/2026-08-03-pew-do-integration.md`
+- Eng-reviews: [`reviews/2026-08-03-pew-presence-api-longcat.md`](./reviews/2026-08-03-pew-presence-api-longcat.md),
+  [`reviews/2026-08-03-pew-presence-api-fable.md`](./reviews/2026-08-03-pew-presence-api-fable.md)

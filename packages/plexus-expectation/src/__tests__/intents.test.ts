@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 function ackOf(host: PewTestHost, intentId: string): string | undefined {
-  return host.lastPublished()?.acks.find((a) => a.intentId === intentId)?.state;
+  return host.lastPublished().acks.find((a) => a.intentId === intentId)?.state;
 }
 
 describe("steering intents", () => {
@@ -31,7 +31,7 @@ describe("steering intents", () => {
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
 
-    host.authorIntents = [{ intentId: "i1", targetUuid: E.uuid, body: { verb: "retry now" } }];
+    host.authorIntents = [{ intentId: "i1", target: E, body: { verb: "retry now" } }];
     host.admitIntents();
     expect(ackOf(host, "i1")).toBe("admitted");
     expect(mailbox!.entries).toEqual([{ intentId: "i1", body: { verb: "retry now" } }]);
@@ -45,7 +45,7 @@ describe("steering intents", () => {
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
-    host.authorIntents = [{ intentId: "i1", targetUuid: E.uuid, body: 1 }];
+    host.authorIntents = [{ intentId: "i1", target: E, body: 1 }];
     host.admitIntents();
 
     loader.lastActor!.doOutcome("i1", "considered");
@@ -65,10 +65,12 @@ describe("steering intents", () => {
     await flushMicrotasks(); // bound is now terminal
     expect(bound.state).toBe("sealed");
 
+    // Ghost target: unminted entity (never home'd into the forest).
+    const ghost = new TestExpectation();
     host.authorIntents = [
-      { intentId: "ghost", targetUuid: "no-such-uuid", body: null },
-      { intentId: "late", targetUuid: bound.uuid, body: null },
-      { intentId: "early", targetUuid: unbound.uuid, body: null },
+      { intentId: "ghost", target: ghost, body: null },
+      { intentId: "late", target: bound, body: null },
+      { intentId: "early", target: unbound, body: null },
     ];
     host.admitIntents();
     expect(ackOf(host, "ghost")).toBe("refused:target_unbound");
@@ -85,7 +87,7 @@ describe("steering intents", () => {
     await activateThroughLoad(host);
     expect(E.state).toBe("running");
 
-    host.authorIntents = [{ intentId: "i1", targetUuid: E.uuid, body: null }];
+    host.authorIntents = [{ intentId: "i1", target: E, body: null }];
     host.admitIntents();
     expect(ackOf(host, "i1")).toBe("refused:messages_not_accepted");
   });
@@ -94,7 +96,7 @@ describe("steering intents", () => {
     const { host, dispose } = makeHost();
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
-    host.authorIntents = [{ intentId: "early-bird", targetUuid: E.uuid, body: "steer" }];
+    host.authorIntents = [{ intentId: "early-bird", target: E, body: "steer" }];
     host.admitIntents(); // target declared, not bound yet
     expect(ackOf(host, "early-bird")).toBe("refused:target_unbound");
 
@@ -111,7 +113,7 @@ describe("steering intents", () => {
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
-    host.authorIntents = [{ intentId: "i1", targetUuid: E.uuid, body: 1 }];
+    host.authorIntents = [{ intentId: "i1", target: E, body: 1 }];
     host.admitIntents();
     expect(mailbox!.entries).toHaveLength(1);
 
@@ -129,9 +131,9 @@ describe("steering intents", () => {
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
-    host.authorIntents = [{ intentId: "i1", targetUuid: E.uuid, body: "v1" }];
+    host.authorIntents = [{ intentId: "i1", target: E, body: "v1" }];
     host.admitIntents();
-    host.authorIntents = [{ intentId: "i1", targetUuid: E.uuid, body: "v2" }];
+    host.authorIntents = [{ intentId: "i1", target: E, body: "v2" }];
     host.admitIntents();
     expect(mailbox!.entries).toEqual([{ intentId: "i1", body: "v2" }]);
     expect(ackOf(host, "i1")).toBe("admitted");
@@ -145,7 +147,7 @@ describe("steering intents", () => {
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
-    host.authorIntents = [{ intentId: "i1", targetUuid: E.uuid, body: 1 }];
+    host.authorIntents = [{ intentId: "i1", target: E, body: 1 }];
     host.admitIntents();
     const actor = loader.lastActor!;
 

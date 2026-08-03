@@ -1,12 +1,9 @@
 import { createMachine, getNextSnapshot } from "xstate";
 
 /**
- * Expectation lifecycle — pure transition law.
- *
- * The machine contains NO commands: "activatable" is a kernel predicate derived
- * FROM the graph (see `lifecycle.ts`), never an event fired INTO it. Scheduling
- * verbs as machine events with host-provided actions wires the kernel into the
- * entity grammar and turns the FSM into an RPC router.
+ * Pure transition law only — no commands. "Activatable" is a kernel predicate
+ * derived from the graph; putting schedule verbs in the machine makes it an RPC
+ * router.
  */
 export const LIFECYCLE_EVENTS = ["PLAN_MISSING", "PLAN_REFUSED", "BEGIN_RUNNING", "SEAL", "FAIL", "CANCEL"] as const;
 

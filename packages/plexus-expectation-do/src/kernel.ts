@@ -1,4 +1,7 @@
-import { Plexus, type PlexusAwareness } from "@here.build/plexus";
+import { Plexus } from "@here.build/plexus";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyPlexus = Plexus<any>;
 import {
   Expectation,
   isTerminal,
@@ -12,7 +15,6 @@ import {
   Orchestrator,
   walkExpectationForest,
   type ExpectationLoader,
-  type KernelPresenceStatus,
   type LogPort,
 } from "@here.build/plexus-expectation/executor";
 import invariant from "tiny-invariant";
@@ -211,29 +213,16 @@ class DoOrchestrator extends Orchestrator {
     return false;
   }
 
-  getPresenceHub(): PlexusAwareness | null {
-    // Orchestrator's presence minting (`#mintPresencePort`) is a PRIVATE
-    // method hard-wired to `PlexusAwareness.createLocalClient` — it cannot be
-    // swapped for `opts.presence` (a `PresenceHubPort`, structurally the same
-    // WRAPPED-client shape `#mintPresencePort` produces, but not a
-    // `PlexusAwareness` instance) without editing `Orchestrator` itself, out
-    // of scope for this package. This hub therefore stays null, and which
-    // actors get real presence is decided per LOADER: `InProcessLoader`
-    // overrides `ctx.presence` with a port backed by `opts.presence` (the §8
-    // matrix addition asserts on those clientIds), while `DurableObjectLoader`
-    // and plain `ExpectationLoader` spawns still flow through the base class's
-    // null-hub path and get `clientId = 0` (inert) — the named follow-up in
-    // proposal §13: P3 DO actors ship without live progress until the relay
-    // grows the same presence override.
+  getSessionPlexus(): AnyPlexus | null {
+    // Stage 1: InstallOpts has no session Plexus handle — only the root entity
+    // and a PresenceHubPort for InProcessLoader override. PEW claim/actor mint
+    // on Orchestrator stays process-local (createPew default null) until the
+    // host ports a real session Plexus (named follow-up: PEW §17 on DO).
     return null;
   }
 
-  publishKernelPresence(_status: KernelPresenceStatus): void {
-    // No kernel-presence sink is modeled in Stage 1's InstallOpts (the
-    // proposal's "kernel advertises binds/loader health/acks in its own
-    // presence" is layered on the same presence-hub wiring `getPresenceHub`
-    // documents as not-yet-connected). No-op until that port exists.
-  }
+  // createPew default null — InProcessLoader still injects opts.presence for
+  // in-process actor reports (loader-level, not Orchestrator PEW).
 
   override getLogPort(): LogPort | undefined {
     return this.opts.log;

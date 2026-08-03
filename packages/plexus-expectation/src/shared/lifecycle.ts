@@ -18,11 +18,7 @@ export function isOpen(state: Lifecycle): boolean {
   return !isTerminal(state);
 }
 
-/**
- * Kernel activation predicate, derived from the graph: open and not yet
- * running. `running` is excluded because one-execution forbids a re-spawn;
- * a running-but-unbound entity is claim-orphan territory, not activation's.
- */
+/** Open and not running — one-execution forbids re-spawn of a running uuid. */
 export function isActivatable(state: Lifecycle): boolean {
   return isOpen(state) && state !== "running";
 }

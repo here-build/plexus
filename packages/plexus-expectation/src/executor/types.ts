@@ -1,14 +1,27 @@
 import type { LaunchDefinition, LaunchDefinitionSnapshot } from "../shared/models/LaunchDefinition.js";
+import type {
+  ActorPresenceClient,
+  KernelPresenceStatus,
+  LoaderCapability,
+  LoaderHealth,
+  PresencePort,
+} from "../shared/presence.js";
 
 /**
- * Process-plane contracts between kernel, loader, and actor (design.md §5).
+ * Process-plane contracts (kernel ↔ loader ↔ actor).
  *
- * SIMPLEX LAW: the kernel never calls into an actor — the AbortSignal in
- * `LaunchContext` is the only kernel-initiated signal, and steering reaches
- * the actor as observable mailbox DATA it reads at its own pace. Everything
- * the actor sends (settlement, control outcomes, presence updates) is
- * fire-and-forget; no channel carries a response to another channel.
+ * SIMPLEX: the kernel never calls into an actor — only AbortSignal is
+ * kernel-initiated. Settlement, control outcomes, and presence writes are
+ * fire-and-forget. Steering is mailbox data the actor reads at its own pace.
  */
+
+export type {
+  ActorPresenceClient,
+  KernelPresenceStatus,
+  LoaderCapability,
+  LoaderHealth,
+  PresencePort,
+};
 
 export type Settlement<TResult> =
   | { readonly outcome: "complete"; readonly result: TResult }
@@ -21,31 +34,19 @@ export type IntentOutcome = {
 
 export type MailboxEntry = {
   readonly intentId: string;
-  /** Current revision — in-place author edits replace it; no revision correlation exists. */
+  /** Current body; in-place reshape replaces it — no revision id. */
   readonly body: unknown;
 };
 
 /**
- * Read-only observable list; the kernel adds and removes entries, the actor
- * only reads — and iterates a COPY (`[...entries]`): the kernel splices in the
- * same synchronous turn when an outcome lands.
+ * Kernel-owned list, actor-read-only. Iterate a copy: the kernel splices in
+ * the same turn an outcome lands.
  */
 export type MailboxView = {
   readonly entries: readonly MailboxEntry[];
 };
 
-/** Mints at most one awareness client per spawn, on the session hub. */
-export type PresencePort = {
-  mintClient(): ActorPresenceClient;
-};
-
-export type ActorPresenceClient = {
-  readonly clientID: number;
-  setReport(frame: unknown): void;
-  destroy(): void;
-};
-
-/** Opaque append sink for actor/loader audit trails; the core never reads it back. */
+/** Host audit sink; core never reads it back. */
 export type LogPort = {
   append(line: string): void;
 };
@@ -60,18 +61,16 @@ export type LaunchContext<TInput = unknown> = {
 };
 
 /**
- * The kernel's whole view of a live execution. Generically typed on purpose:
- * the kernel is generic over triads — typing re-establishes entity-side
- * (`applySettlement`) and actor-side (`ExpectationActor` generics). A
- * generically-typed kernel is not a missing feature (design.md §3).
+ * Kernel view of a live execution. Generics re-establish at entity
+ * (`applySettlement`) and actor sides — the kernel boundary stays `unknown`.
  */
 export type ActorHandle = {
   readonly settled: Promise<Settlement<unknown>>;
-  /** Awareness client on the session hub; 0 = no presence — treat as none, never resolve. */
+  /** 0 = unassigned (PEW never mints 0; plexus-internal). */
   readonly clientId: number;
-  /** Sync settlement buffer, set at emit — folds consult it first (SETTLEMENT PREFERENCE, design.md §7). */
+  /** Sync buffer at emit — folds consult this before the settlement promise. */
   settlement(): Settlement<unknown> | null;
-  /** Kernel-side buffer of the last successfully-serialized frame (LAST REPORT LAW, design.md §6). */
+  /** Last good serialized frame for the terminal fold. */
   lastReport(): unknown | null;
   onControlOutcome(sink: (outcome: IntentOutcome) => void): void;
 };
@@ -88,29 +87,3 @@ export type CancellationResult = OpResult<CancellationErrorCode>;
 
 export type SettleSurfaceErrorCode = "not_claim_owner" | "not_running" | "not_surface";
 export type SettleSurfaceResult = OpResult<SettleSurfaceErrorCode>;
-
-/**
- * Advisory availability + argument inventory for one plan, sourced by its
- * loader (design.md §9). ADVISORY: the kernel publishes it and never
- * interprets it — no activation gating, no argument validation. Inventory is
- * published whole; no core size budgeting.
- */
-export type LoaderCapability<TArgs = unknown> = {
-  readonly status: "ready" | "blocked" | "unavailable";
-  /** errors-as-doors: what a human or agent DOES about non-ready. */
-  readonly door?: string;
-  /** Argument inventory — the space of valid declarations right now. */
-  readonly args?: TArgs;
-  readonly probedAt?: number;
-};
-
-/** Per-plan loader health, advertised in the kernel's presence (design.md §9). */
-export type LoaderHealth = "loading" | "loaded" | `failed:${string}`;
-
-/** Snapshot the kernel publishes into its own presence record. */
-export type KernelPresenceStatus = {
-  readonly binds: readonly { readonly uuid: string }[];
-  readonly loaders: Readonly<Record<string, LoaderHealth>>;
-  readonly capabilities: Readonly<Record<string, LoaderCapability>>;
-  readonly acks: readonly { readonly intentId: string; readonly state: string }[];
-};

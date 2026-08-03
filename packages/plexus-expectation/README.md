@@ -13,10 +13,15 @@ Full architecture (planes, triads, channels, end paths): **[`docs/design.md`](./
 
 | Import | Who | Contents |
 |--------|-----|----------|
-| `@here.build/plexus-expectation` | Any process holding the doc | `Expectation`, `LaunchDefinition`, `Orchestration`, lifecycle machine, intent types |
+| `@here.build/plexus-expectation` | Any process holding the doc | `Expectation`, `LaunchDefinition`, `Orchestration`, lifecycle machine, intent types, **`PEW`** presence lens (design.md §17) |
 | `@here.build/plexus-expectation/executor` | Claim owner only | kernel (`Orchestrator`), `ExpectationLoader`, `ExpectationActor`, activate / settle / cancel |
 
 Observers must not import `/executor`.
+
+**Presence:** `new PEW({ kernel? })` — optional orchestration hub for global loader catalog;
+session hubs discovered automatically via `entity.__doc__` / session args (no attach API).
+Claim rediscovery under arbitrary client id (never 0); overlapping reload. MobX-reactive
+reads; model keys, not uuids. Full contract: design.md §17.
 
 ---
 

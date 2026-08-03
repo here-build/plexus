@@ -1,21 +1,13 @@
 import type { ActorHandle, ActorPresenceClient, IntentOutcome, LaunchContext, Settlement } from "./types.js";
 
 /**
- * Process-local base for one execution. The actor owns its whole output
- * surface and writes nothing durable, ever (design.md §2):
+ * One execution. Writes nothing durable.
  *
- * - Updates: its own awareness client, minted at start through
- *   `ctx.presence`. Serialized at publish — a frame that fails to serialize is
- *   an actor error (crash fold) and the buffer keeps the last GOOD frame.
- *   Latest frame wins; history is the actor's own `TReport` shape.
- * - Settlement: `complete`/`fail`, buffered SYNCHRONOUSLY at emit before the
- *   promise resolves — this is what makes SETTLEMENT PREFERENCE (design.md §7)
- *   able to see a finished actor on the same tick as a cancel.
- * - Control outcomes: per-intent `considered`/`dropped`, fire-and-forget.
- *
- * Internal state is any shape the subclass wants — a state machine, a buffer,
- * an array. No lifecycle mirror exists here: the durable FSM is the kernel's
- * envelope, not the actor's concern (rejected shape, design.md §16).
+ * Settlement is buffered synchronously at emit so SETTLEMENT PREFERENCE can
+ * see a finished actor on the same tick as cancel. Report buffer is the last
+ * JSON that serialized successfully — live object mutation after report()
+ * cannot change the terminal fold. No lifecycle mirror: the durable FSM is
+ * the kernel's.
  */
 export abstract class ExpectationActor<TInput = unknown, TResult = unknown, TReport = unknown> {
   #client: ActorPresenceClient | null = null;
@@ -29,7 +21,7 @@ export abstract class ExpectationActor<TInput = unknown, TResult = unknown, TRep
   readonly #outcomeSinks: ((outcome: IntentOutcome) => void)[] = [];
   readonly #pendingOutcomes: IntentOutcome[] = [];
 
-  /** Inert actors (surface fulfillments) override to false — no presence client, clientId 0. */
+  /** Surface fulfillments: no presence client. */
   protected readonly mintsPresence: boolean = true;
 
   constructor() {
@@ -39,10 +31,9 @@ export abstract class ExpectationActor<TInput = unknown, TResult = unknown, TRep
     });
   }
 
-  /** Loader-invoked, synchronous (EXECUTION MODEL, design.md §7). */
+  /** Synchronous — runs inside the activation critical section. */
   start(ctx: LaunchContext<TInput>): void {
-    // A crash surfaces through the kernel's crash fold; an unobserved rejection
-    // must not take down the host process.
+    // Unobserved rejection must not take down the host; crash fold is the path.
     this.#settled.catch(() => {});
     ctx.signal.addEventListener(
       "abort",
@@ -64,7 +55,6 @@ export abstract class ExpectationActor<TInput = unknown, TResult = unknown, TRep
     }
   }
 
-  /** The execution. Settle via `complete`/`fail`; a throw or rejection is the crash fold. */
   protected abstract run(ctx: LaunchContext<TInput>): void | Promise<void>;
 
   get clientId(): number {
@@ -80,8 +70,6 @@ export abstract class ExpectationActor<TInput = unknown, TResult = unknown, TRep
       this.#crash(error);
       return;
     }
-    // The SERIALIZED frame is the buffer (LAST REPORT LAW) — later mutation of
-    // the live object cannot change what the terminal folds.
     this.#lastReportJson = json;
     this.#client?.setReport(frame);
   }

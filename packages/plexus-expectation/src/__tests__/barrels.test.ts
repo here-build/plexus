@@ -11,14 +11,16 @@ describe("barrels", () => {
     expect(shared.isTerminal).toBeDefined();
     expect(shared.isActivatable).toBeDefined();
     expect(shared.PewTerminalWriteError).toBeDefined();
+    expect(shared.PEW).toBeDefined();
     expect((shared as Record<string, unknown>).Orchestrator).toBeUndefined();
     expect((shared as Record<string, unknown>).ExpectationActor).toBeUndefined();
   });
 
-  it("executor barrel: kernel, loader, actor base", () => {
+  it("executor barrel: kernel, loader, actor base + PEW re-export", () => {
     expect(executor.Orchestrator).toBeDefined();
     expect(executor.ExpectationLoader).toBeDefined();
     expect(executor.ExpectationActor).toBeDefined();
     expect(executor.walkExpectationForest).toBeDefined();
+    expect(executor.PEW).toBeDefined();
   });
 });

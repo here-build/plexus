@@ -21,3 +21,11 @@ export {
   type SettleSurfaceResult,
   type Settlement,
 } from "./types.js";
+export {
+  PEW,
+  type CatalogPresenceStatus,
+  type ClaimPresenceStatus,
+  type PewClaimRecord,
+  type PlanAvailability,
+  type PEWOptions,
+} from "../shared/presence.js";

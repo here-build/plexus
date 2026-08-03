@@ -31,3 +31,17 @@ export {
   type IntentAckState,
   type IntentAck,
 } from "./control.js";
+
+export {
+  PEW,
+  type ActorPresenceClient,
+  type CatalogPresenceStatus,
+  type ClaimPresenceStatus,
+  type KernelPresenceStatus,
+  type LoaderCapability,
+  type LoaderHealth,
+  type PEWOptions,
+  type PewClaimRecord,
+  type PlanAvailability,
+  type PresencePort,
+} from "./presence.js";

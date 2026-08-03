@@ -1,5 +1,8 @@
-import { PlexusAwareness } from "@here.build/plexus";
+import type { Plexus } from "@here.build/plexus";
 import { observable } from "mobx";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyPlexus = Plexus<any>;
 
 import type { ExpectationLoader } from "./expectation-loader.js";
 import type {
@@ -28,28 +31,16 @@ import { Expectation } from "../shared/models/Expectation.js";
 import { LaunchDefinition } from "../shared/models/LaunchDefinition.js";
 import type { Orchestration } from "../shared/models/Orchestration.js";
 import { SurfaceLaunchDefinition } from "../shared/models/SurfaceLaunchDefinition.js";
+import { PEW } from "../shared/presence.js";
 
 /**
- * PEW kernel — the claim owner's process face over one session doc.
+ * Claim-owner process face. ONE RECORD, ONE WRITER after authorship ends.
  *
- * EXECUTION MODEL (design.md §7). The kernel is a single-threaded event loop,
- * and two critical sections are SYNCHRONOUS BY CONTRACT — no `await`, no yield
- * to the microtask queue inside them:
- *
- *   1. activation: plan resolution → `running` write → spawn →
- *      `processorClientId` write → table.set;
- *   2. the fold: terminal check → subtree snapshot → durable writes → reap.
- *
- * This is what makes "first writer wins" true and TOCTOU interleavings
- * (fold-vs-fold, fold-vs-activation) unrepresentable in one process, rather
- * than defended by locks. An `await` introduced inside either section is a
- * correctness regression even if every test stays green. Cross-process
- * concurrency is governed by the writer lease (design.md §12) — presence-based
- * dual-claim detection is an advisory tripwire, not the mutual exclusion.
- *
- * ONE RECORD, ONE WRITER: every durable write on an Expectation after the
- * authorship phase happens HERE (or in entity actions this class invokes).
- * Actors report; the kernel folds. There is no other durable pen.
+ * Two critical sections are synchronous by contract (no await):
+ *   1. activation: resolve → running → spawn → processorClientId → table
+ *   2. fold: terminal check → snapshot → durable writes → reap
+ * That is what makes first-writer-wins true without locks. Lease is mutual
+ * exclusion; dual-claim presence is advisory. Optional PEW via createPew.
  */
 export abstract class Orchestrator {
   readonly table: Map<Expectation, TableEntry> = new Map();
@@ -60,55 +51,61 @@ export abstract class Orchestrator {
   readonly #mailboxes = new Map<Expectation, MailboxEntry[]>();
   readonly #acks = new Map<string, { state: IntentAckState; target: Expectation | null }>();
 
-  // ── host surface ───────────────────────────────────────────────────────────
+  #pew: PEW | null | undefined = undefined;
+  #claimInstalled = false;
+
 
   abstract getOrchestration(): Orchestration;
 
-  /** Loader association is by LaunchDefinition class — `instanceof`, never string kind. */
+  /** Association by LaunchDefinition class, not string kind. */
   abstract getLoader(def: LaunchDefinition): ExpectationLoader | undefined;
 
   abstract isClaimOwner(): boolean;
 
-  /**
-   * The host's declared work roots. Root registration must be transactional
-   * with entity homing (design.md §11) — an entity unreachable from here is
-   * forest-orphan territory.
-   */
+  /** Work roots — must be transactional with entity homing or reconcile forest-orphans live work. */
   abstract getOpenWorkRoots(): readonly Expectation[];
 
   abstract walkCandidates(): Iterable<Expectation>;
 
   abstract hasLiveClaimPeerBind(E: Expectation): boolean;
 
-  /** Session hub for actor presence clients; null = no presence plane. */
-  abstract getPresenceHub(): PlexusAwareness | null;
+  /** Null = process-local only (no presence wire). */
+  abstract getSessionPlexus(): AnyPlexus | null;
 
-  /** Publish the kernel's own presence record (binds, loader health, intent acks). */
-  abstract publishKernelPresence(status: KernelPresenceStatus): void;
+  get pew(): PEW | null {
+    if (this.#pew !== undefined) return this.#pew;
+    this.#pew = this.createPew();
+    return this.#pew;
+  }
 
-  /** Live steering intents observed from peers' presence records (excluding self). */
+  protected createPew(): PEW | null {
+    return null;
+  }
+
   getAuthorIntents(): readonly IntentRecord[] {
+    const pew = this.pew;
+    const session = this.getSessionPlexus();
+    if (pew && session) return pew.readIntents(session);
     return [];
   }
 
-  /** Host-provided audit sink handed to actors via LaunchContext; core never reads it. */
+  protected onPresenceSnapshot(_status: KernelPresenceStatus): void {}
+
   getLogPort(): LogPort | undefined {
     return undefined;
   }
 
-  // ── plan resolution ────────────────────────────────────────────────────────
 
-  /** Guards (design.md §4): `missing` = no definition for kind; `refused` = definition, no loader here. */
   resolvePlan(kind: string): PlanResolution {
     const def = this.getOrchestration().plans.get(kind);
     if (def === undefined) return { status: "missing" };
     return this.getLoader(def) === undefined ? { status: "refused", def } : { status: "bound", def };
   }
 
-  // ── activation ─────────────────────────────────────────────────────────────
 
   activate(E: Expectation): void {
     if (!this.isClaimOwner()) return;
+    if (this.#isDualClaimFrozen()) return;
     if (isTerminal(E.state)) return;
     if (E.state === "running") return;
     if (this.activating.has(E)) return;
@@ -133,10 +130,10 @@ export abstract class Orchestrator {
       return;
     }
 
-    // ── synchronous critical section — no await below this line ──
+    // no await below — activation critical section
     this.activating.add(E);
     try {
-      E.transitionState("running"); // RUNNING-FIRST (design.md §7)
+      E.transitionState("running"); // before spawn: legal edge + no double-execution on crash
 
       const controller = new AbortController();
       const presence = this.#mintPresencePort();
@@ -159,9 +156,7 @@ export abstract class Orchestrator {
         return;
       }
 
-      // spawn may synchronously re-enter the kernel (a loader closing over the
-      // host can fold/cancel). If the entity went terminal underneath, do not
-      // bind a live handle to a dead entity — end the fresh actor instead.
+      // re-entrant fold during spawn: don't bind a handle to a dead entity
       if (isTerminal(E.state)) {
         controller.abort("activation_superseded");
         presence.destroy();
@@ -186,7 +181,7 @@ export abstract class Orchestrator {
 
   #ensureLoaded(kind: string, loader: ExpectationLoader): void {
     const health = this.#loaderHealth.get(kind);
-    // A failed load is sticky until rebootstrap — re-firing per sweep is the hot loop §9 forbids.
+    // sticky until rebootstrap — no hot loop
     if (health === "loading" || health?.startsWith("failed:")) return;
     this.#loaderHealth.set(kind, "loading");
     this.#publish();
@@ -216,11 +211,6 @@ export abstract class Orchestrator {
     this.#publish();
   }
 
-  /**
-   * Host hook: re-probe capability for one plan (or every loaded plan) — after
-   * re-auth, a model switch, or on the host's cadence. Advisory data only;
-   * never touches activation.
-   */
   async refreshCapability(kind?: string): Promise<void> {
     const kinds = kind === undefined ? [...this.#loaderHealth.keys()] : [kind];
     for (const k of kinds) {
@@ -231,7 +221,6 @@ export abstract class Orchestrator {
     }
   }
 
-  /** Host hook after a plan/loader registration change: retry failed loads once, then reconcile. */
   rebootstrap(): void {
     for (const kind of this.#loaderHealth.keys()) {
       const health = this.#loaderHealth.get(kind);
@@ -243,13 +232,10 @@ export abstract class Orchestrator {
     this.reconcile();
   }
 
-  // ── the fold ───────────────────────────────────────────────────────────────
 
   /**
-   * The single end function — tree-scoped, first-writer-wins (design.md §7).
-   * Snapshots settlements and frames BEFORE aborting (abort-reaction frames
-   * and settlements are cooperative-cancel territory, deliberately unread),
-   * then descendants leaves-first, root last.
+   * Tree-scoped, first-writer-wins. Snapshot settlement/frames before abort —
+   * abort-reaction traffic is cooperative-cancel territory, unread. Leaves first, root last.
    */
   fold(root: Expectation, terminal: TerminalLifecycle, cause: EndCause, detail?: string): void {
     if (isTerminal(root.state)) return;
@@ -280,7 +266,6 @@ export abstract class Orchestrator {
     this.#publish();
   }
 
-  /** SETTLEMENT PREFERENCE: an actor that finished beats whatever trigger arrived the same tick. */
   #settleOrEnd(
     node: Expectation,
     terminal: TerminalLifecycle,
@@ -323,7 +308,6 @@ export abstract class Orchestrator {
     this.activating.delete(node);
   }
 
-  // ── control plane ──────────────────────────────────────────────────────────
 
   requestCancellation(
     target: Expectation,
@@ -347,13 +331,7 @@ export abstract class Orchestrator {
     return { ok: true };
   }
 
-  // ── steering intents ───────────────────────────────────────────────────────
 
-  /**
-   * Fold observed author intents into admission state. Called from reconcile;
-   * hosts also call reconcile on presence change. Retract = record gone from
-   * the author's presence; reshape = body change in place.
-   */
   admitIntents(): void {
     const intents = this.getAuthorIntents();
     const liveIds = new Set(intents.map((i) => i.intentId));
@@ -367,12 +345,11 @@ export abstract class Orchestrator {
     for (const intent of intents) {
       const existing = this.#acks.get(intent.intentId);
       if (existing !== undefined) {
-        // Refusals are re-evaluated while the intent stays authored — a target
-        // that was mid-load ("unbound") may be bound by the next sweep.
+        // refused is not final while the intent stays authored (mid-load → bind)
         if (existing.state.startsWith("refused:")) {
           this.#acks.delete(intent.intentId);
         } else {
-          const retargetedDuplicate = existing.target !== null && existing.target.uuid !== intent.targetUuid;
+          const retargetedDuplicate = existing.target !== null && existing.target !== intent.target;
           if (!retargetedDuplicate) {
             this.#reshapeMailboxEntry(existing.target, intent);
           }
@@ -380,11 +357,7 @@ export abstract class Orchestrator {
         }
       }
 
-      const target = this.#findByUuid(intent.targetUuid);
-      if (target === undefined) {
-        this.#acks.set(intent.intentId, { state: "refused:target_unbound", target: null });
-        continue;
-      }
+      const target = intent.target;
       if (isTerminal(target.state)) {
         this.#acks.set(intent.intentId, { state: "refused:target_terminal", target: null });
         continue;
@@ -440,10 +413,10 @@ export abstract class Orchestrator {
     }
   }
 
-  // ── supervision ────────────────────────────────────────────────────────────
 
   reconcile(): void {
     if (!this.isClaimOwner()) return;
+    if (this.#isDualClaimFrozen()) return;
 
     const reachable = collectReachable(this.getOpenWorkRoots());
 
@@ -479,10 +452,7 @@ export abstract class Orchestrator {
     this.admitIntents();
   }
 
-  /**
-   * Yield claim ownership: one fold pass over held work. SETTLEMENT PREFERENCE
-   * does the drain — finished work folds sealed, the rest cancelled.
-   */
+  /** Finished work seals (settlement preference); the rest cancels. */
   disposeLease(reason: string = "lease_yield"): void {
     for (const node of [...this.table.keys(), ...this.activating]) {
       if (isTerminal(node.state)) {
@@ -492,13 +462,18 @@ export abstract class Orchestrator {
       }
     }
     this.#publish();
+    const pew = this.pew;
+    const session = this.getSessionPlexus();
+    if (pew && session) {
+      pew.retireClaim(session);
+    }
+    this.#claimInstalled = false;
   }
 
-  // ── presence ───────────────────────────────────────────────────────────────
 
   snapshotPresence(): KernelPresenceStatus {
     return {
-      binds: [...this.table.keys()].map((E) => ({ uuid: E.uuid })),
+      binds: [...this.table.keys()],
       loaders: Object.fromEntries(this.#loaderHealth),
       capabilities: Object.fromEntries(this.#capabilities),
       acks: [...this.#acks].map(([intentId, ack]) => ({ intentId, state: ack.state })),
@@ -506,41 +481,58 @@ export abstract class Orchestrator {
   }
 
   #publish(): void {
-    this.publishKernelPresence(this.snapshotPresence());
+    const snap = this.snapshotPresence();
+    this.onPresenceSnapshot(snap);
+
+    const pew = this.pew;
+    if (!pew) return;
+
+    pew.publishCatalog({
+      loaders: snap.loaders,
+      capabilities: snap.capabilities,
+    });
+
+    const session = this.getSessionPlexus();
+    if (!session) return;
+
+    this.#ensureClaimInstalled(session, pew);
+    pew.publishClaim(session, {
+      binds: snap.binds,
+      acks: snap.acks,
+    });
+  }
+
+  #ensureClaimInstalled(session: AnyPlexus, pew: PEW): void {
+    if (this.#claimInstalled) return;
+    pew.installClaim(session);
+    this.#claimInstalled = true;
+  }
+
+  #isDualClaimFrozen(): boolean {
+    const pew = this.pew;
+    const session = this.getSessionPlexus();
+    if (!pew || !session) return false;
+    return pew.hasDualClaim(session);
   }
 
   #mintPresencePort(): { port: PresencePort; destroy: () => void } {
     let minted: { destroy(): void } | null = null;
     const port: PresencePort = {
       mintClient: () => {
-        minted?.destroy(); // at most one client per spawn — a re-mint replaces, never leaks
-        const hub = this.getPresenceHub();
-        if (!hub) {
-          const inert = { clientID: 0, setReport: () => {}, destroy: () => {} };
-          minted = inert;
-          return inert;
+        minted?.destroy();
+        const pew = this.pew;
+        const session = this.getSessionPlexus();
+        if (pew && session) {
+          const client = pew.mintActorClient(session);
+          minted = client;
+          return client;
         }
-        const client = PlexusAwareness.createLocalClient(hub);
-        const wrapped = {
-          clientID: client.clientID,
-          setReport: (frame: unknown) => client.setField("report", frame as Parameters<typeof client.setField>[1]),
-          destroy: () => client.destroy(),
-        };
-        minted = wrapped;
-        return wrapped;
+        const inert = { clientID: 0, setReport: () => {}, destroy: () => {} };
+        minted = inert;
+        return inert;
       },
     };
     return { port, destroy: () => minted?.destroy() };
-  }
-
-  #findByUuid(uuid: string): Expectation | undefined {
-    for (const node of collectReachable(this.getOpenWorkRoots())) {
-      if (node.uuid === uuid) return node;
-    }
-    for (const node of this.walkCandidates()) {
-      if (node.uuid === uuid) return node;
-    }
-    return undefined;
   }
 }
 
@@ -569,7 +561,6 @@ function collectReachable(roots: readonly Expectation[]): Set<Expectation> {
   return new Set(walkExpectationForest(roots));
 }
 
-/** Parent-first subtree order; the fold reverses the tail for leaves-first endings. */
 function collectSubtree(root: Expectation): Expectation[] {
   const out: Expectation[] = [];
   const walk = (node: Expectation): void => {

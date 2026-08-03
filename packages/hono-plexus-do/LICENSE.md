@@ -109,12 +109,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## Upstream Licenses
-
-**arrival** is a fork of [LIPS.js](https://github.com/jcubic/lips) (MIT
-licensed by Jakub T. Jankiewicz). LIPS.js source files retain their original
-MIT license and copyright notices.
-
 ## Questions
 
 For licensing questions, exemptions, or clarifications: team@here.build

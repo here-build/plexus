@@ -27,6 +27,9 @@ export * from "./plexus-registry.js";
 export * from "./walk.js";
 export {
   PlexusAwareness,
+  AWARENESS_CHANNEL_STRIDE,
+  awarenessChannelId,
+  parseAwarenessChannelId,
   encodeAwarenessUpdate,
   applyAwarenessUpdate,
   removeAwarenessStates,

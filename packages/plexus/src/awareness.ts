@@ -45,15 +45,26 @@ import { isRegularClientId, newClientId } from "./genesis-client.js";
 import type { AwarenessShape } from "./proxy-runtime-types.js";
 import { bucketCount, telemetry } from "./telemetry.js";
 
-const CHANNEL_STRIDE = 2 ** 51;
+/**
+ * Multi-channel packing stride.
+ *
+ * One user occupies many keys in the awareness states map: channel 0 is the
+ * schema (field-name list + heartbeat); channel N holds field N's value.
+ * Keys are `base + channel * AWARENESS_CHANNEL_STRIDE` so field updates do not
+ * collide with other bases' channel-0 heartbeats (y-protocols wire is flat).
+ */
+export const AWARENESS_CHANNEL_STRIDE = 2 ** 51;
 export const outdatedTimeout = 30_000;
 
-const channelId = (base: number, channel: number): number => base + channel * CHANNEL_STRIDE;
+export const awarenessChannelId = (base: number, channel: number): number => base + channel * AWARENESS_CHANNEL_STRIDE;
 
-const parseChannelId = (raw: number): { base: number; channel: number } => ({
-  base: raw % CHANNEL_STRIDE,
-  channel: Math.floor(raw / CHANNEL_STRIDE),
+export const parseAwarenessChannelId = (raw: number): { base: number; channel: number } => ({
+  base: raw % AWARENESS_CHANNEL_STRIDE,
+  channel: Math.floor(raw / AWARENESS_CHANNEL_STRIDE),
 });
+
+const channelId = awarenessChannelId;
+const parseChannelId = parseAwarenessChannelId;
 
 /** Options for {@link PlexusAwareness} construction. */
 export type PlexusAwarenessOptions = {
@@ -70,20 +81,29 @@ export type PlexusAwarenessOptions = {
   hub?: PlexusAwareness;
 };
 
-function resolveOptions(
-  clientIdOrOptions?: number | PlexusAwarenessOptions,
-): PlexusAwarenessOptions {
+function resolveOptions(clientIdOrOptions?: number | PlexusAwarenessOptions): PlexusAwarenessOptions {
   if (clientIdOrOptions === undefined) return {};
   if (typeof clientIdOrOptions === "number") return { clientId: clientIdOrOptions };
   return clientIdOrOptions;
 }
 
 export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> extends Awareness {
-  /** Schema: ordered field names. Channel 0 state = this array. */
+  static readonly CHANNEL_STRIDE = AWARENESS_CHANNEL_STRIDE;
+  static readonly channelId = awarenessChannelId;
+  static readonly parseChannelId = parseAwarenessChannelId;
+
+  /** Ordered field names — also the channel-0 wire payload for this base. */
   private readonly _schema: string[] = [];
 
   /** Field name → 1-based channel index. */
   private readonly _fieldIndex = new Map<string, number>();
+
+  /**
+   * When this instance is a secondary (`createLocalClient`), writes land in the shared
+   * hub map but `emit` would only fire on the secondary — wire listeners on the hub would
+   * miss claim/actor/author frames. Re-emit `update` on the hub.
+   */
+  private readonly _hub: PlexusAwareness | null = null;
 
   /**
    * @param doc - Yjs document (wire identity for entity serde; not necessarily clientId source)
@@ -102,27 +122,17 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
       // Drop isolated maps from super(); write into the hub wire map.
       this.states = opts.hub.states;
       this.meta = opts.hub.meta;
+      this._hub = opts.hub as PlexusAwareness;
     } else {
       // super() left a single-blob {} under doc.clientID — not multi-channel schema.
       this.states.delete(doc.clientID);
       this.meta.delete(doc.clientID);
     }
 
-    const baseId =
-      opts.clientId !== undefined
-        ? opts.clientId
-        : opts.hub
-          ? newClientId()
-          : doc.clientID;
+    const baseId = opts.clientId === undefined ? (opts.hub ? newClientId() : doc.clientID) : opts.clientId;
 
-    invariant(
-      isRegularClientId(baseId),
-      `PlexusAwareness: clientId must be regular-range [0, 2^51); got ${baseId}`,
-    );
-    invariant(
-      !opts.hub || baseId !== opts.hub.clientID,
-      "PlexusAwareness: clientId must differ from hub.clientID",
-    );
+    invariant(isRegularClientId(baseId), `PlexusAwareness: clientId must be regular-range [0, 2^51); got ${baseId}`);
+    invariant(baseId !== opts.hub?.clientID, "PlexusAwareness: clientId must differ from hub.clientID");
 
     this.clientID = baseId;
 
@@ -178,8 +188,11 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
     // Remove only this base's channels (shared hub keeps peers + other locals).
     const removed = this._removeLocalChannels();
     if (removed.length > 0) {
-      this.emit("change", [{ added: [], updated: [], removed }, "local"]);
-      this.emit("update", [{ added: [], updated: [], removed }, "local"]);
+      const payload = { added: [] as number[], updated: [] as number[], removed };
+      this.emit("change", [payload, "local"]);
+      this.emit("update", [payload, "local"]);
+      // Secondaries must surface removals on the hub for plane wire listeners.
+      this._hub?.emit("update", [payload, "local"]);
     }
     clearInterval(this._checkInterval);
     // Parent destroy calls setLocalState(null) then clearInterval again.
@@ -300,25 +313,10 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
 
   /** Get all peer base clientIds (excludes self). */
   getPeerIds(): number[] {
-    const peers: number[] = [];
-    for (const cid of this.states.keys()) {
-      const { base, channel } = parseChannelId(cid);
-      if (channel === 0 && base !== this.clientID) {
-        peers.push(base);
-      }
-    }
-    return peers;
-  }
-
-  /** Iterate all peers as [baseClientId, mergedState] pairs. Entity references are auto-deserialized. */
-  *peers(): Generator<[number, Partial<Shape>]> {
-    for (const cid of this.states.keys()) {
-      const { base, channel } = parseChannelId(cid);
-      if (channel === 0 && base !== this.clientID) {
-        const state = this.getPeer(base);
-        if (state) yield [base, state];
-      }
-    }
+    return [...this.states.keys()]
+      .map(parseChannelId)
+      .filter(({ base, channel }) => channel === 0 && base !== this.clientID)
+      .map(({ base }) => base);
   }
 
   /** Write to a specific channel (local). */
@@ -359,7 +357,11 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
       this.emit("change", [{ added, updated: filteredUpdated, removed }, origin]);
     }
     if (added.length > 0 || updated.length > 0 || removed.length > 0) {
-      this.emit("update", [{ added, updated, removed }, origin]);
+      const updatePayload = { added, updated, removed };
+      this.emit("update", [updatePayload, origin]);
+      // Multi-client: secondaries share hub.states but would only emit here — forward
+      // update so a single hub listener (plane wire) sees every local base.
+      this._hub?.emit("update", [updatePayload, origin]);
     }
   }
 

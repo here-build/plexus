@@ -583,10 +583,22 @@ export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
     const typeMap = getTypeMap(doc, this.__type__);
 
     if (internals.yjsModel?.doc) {
-      invariant(
-        doc === internals.yjsModel.doc,
-        `Plexus<${this.__type__}#${internals.uuid ?? "<virtual>"}>: cannot cross-reference between docs`,
-      );
+      const home = internals.yjsModel.doc;
+      if (doc !== home) {
+        // Family reference — write half of the awareness coherence law
+        // (docs/awareness-coherence.md). Prime and its authoring shadow register
+        // the same Plexus in docPlexus; the entity being homed in the family's
+        // authoring doc IS the vouch. Steady-state structs mirror to prime in
+        // the same tick; liminal session structs are deliberately held back and
+        // travel to peers via the preview transport instead — so membership in
+        // the referencing doc's typeMap must NOT be required here, and element
+        // identity can never hold across two docs' object graphs.
+        invariant(
+          docPlexus.get(doc) === docPlexus.get(home),
+          `Plexus<${this.__type__}#${internals.uuid ?? "<virtual>"}>: cannot cross-reference between docs`,
+        );
+        return this.#reference;
+      }
       if (typeMap.has(this.uuid)) {
         // you never know what kinds of interesting states you can get in with CRDT
         invariant(

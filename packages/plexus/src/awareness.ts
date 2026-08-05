@@ -40,7 +40,7 @@ import invariant from "tiny-invariant";
 import { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
 
-import { deserialize, serialize } from "./awareness-serde.js";
+import { deserialize, hasUnsatisfiableRefs, REF_JSON_ESCAPE, serialize } from "./awareness-serde.js";
 import { isRegularClientId, newClientId } from "./genesis-client.js";
 import type { AwarenessShape } from "./proxy-runtime-types.js";
 import { bucketCount, telemetry } from "./telemetry.js";
@@ -184,6 +184,7 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
   }
 
   override destroy(): void {
+    disposeCoherenceGate(this);
     this.emit("destroy", [this]);
     // Remove only this base's channels (shared hub keeps peers + other locals).
     const removed = this._removeLocalChannels();
@@ -367,6 +368,7 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
 
   /** Remove all channels for a remote peer. */
   private _removePeer(baseClientId: number, origin: any): void {
+    dropParkedForBase(this, baseClientId);
     const schema = this.states.get(baseClientId) as string[] | undefined;
     const removed: number[] = [];
 
@@ -450,9 +452,149 @@ export const encodeAwarenessUpdate = (
   return bytes;
 };
 
+// ── Coherence gate (read half of docs/awareness-coherence.md) ───
+//
+// A frame whose entity refs the local doc cannot resolve yet is parked, not
+// applied: observers keep the peer's last coherent frame until the doc catches
+// up, then the frame applies through the normal change path. Local writes are
+// never gated — serialize's referenceSymbol is the write half of the promise.
+
+type ParkedFrame = { clock: number; state: any; origin: any };
+
+type CoherenceGate = {
+  /** Newest incoherent frame per channel clientId (awareness is LWW). */
+  frames: Map<number, ParkedFrame>;
+  /** Doc "update" listener while anything is parked; detached when drained. */
+  listener: (() => void) | null;
+};
+
+const coherenceGates = new WeakMap<PlexusAwareness, CoherenceGate>();
+
+function parkFrame(awareness: PlexusAwareness, clientID: number, clock: number, state: unknown, origin: any): void {
+  let gate = coherenceGates.get(awareness);
+  if (!gate) {
+    gate = { frames: new Map(), listener: null };
+    coherenceGates.set(awareness, gate);
+  }
+  const prev = gate.frames.get(clientID);
+  if (prev && prev.clock >= clock) return;
+  gate.frames.set(clientID, { clock, state, origin });
+  if (telemetry.enabled) telemetry.counter("plexus.awareness.coherence_parked");
+  if (gate.listener === null) {
+    gate.listener = () => releaseParkedFrames(awareness);
+    awareness.doc.on("update", gate.listener);
+  }
+}
+
+/** Drop parked frames superseded by an applied (or stale-skipped) entry. */
+function dropParkedUpTo(awareness: PlexusAwareness, clientID: number, clock: number): void {
+  const gate = coherenceGates.get(awareness);
+  if (!gate) return;
+  const parked = gate.frames.get(clientID);
+  if (parked && parked.clock <= clock) {
+    gate.frames.delete(clientID);
+    detachIfDrained(awareness, gate);
+  }
+}
+
+function dropParkedForBase(awareness: PlexusAwareness, base: number): void {
+  const gate = coherenceGates.get(awareness);
+  if (!gate) return;
+  for (const cid of [...gate.frames.keys()]) {
+    if (parseChannelId(cid).base === base) gate.frames.delete(cid);
+  }
+  detachIfDrained(awareness, gate);
+}
+
+function releaseParkedFrames(awareness: PlexusAwareness): void {
+  const gate = coherenceGates.get(awareness);
+  if (!gate || gate.frames.size === 0) return;
+  for (const [clientID, frame] of [...gate.frames]) {
+    if (hasUnsatisfiableRefs(frame.state, awareness.doc)) continue;
+    gate.frames.delete(clientID);
+    const buckets = emptyBuckets();
+    applyDecodedEntry(awareness, clientID, frame.clock, frame.state, buckets, time.getUnixTime());
+    emitBuckets(awareness, buckets, frame.origin);
+    if (telemetry.enabled) telemetry.counter("plexus.awareness.coherence_released");
+  }
+  detachIfDrained(awareness, gate);
+}
+
+function detachIfDrained(awareness: PlexusAwareness, gate: CoherenceGate): void {
+  if (gate.frames.size === 0 && gate.listener !== null) {
+    awareness.doc.off("update", gate.listener);
+    gate.listener = null;
+  }
+}
+
+function disposeCoherenceGate(awareness: PlexusAwareness): void {
+  const gate = coherenceGates.get(awareness);
+  if (!gate) return;
+  gate.frames.clear();
+  detachIfDrained(awareness, gate);
+  coherenceGates.delete(awareness);
+}
+
+type ApplyBuckets = { added: number[]; updated: number[]; filteredUpdated: number[]; removed: number[] };
+
+const emptyBuckets = (): ApplyBuckets => ({ added: [], updated: [], filteredUpdated: [], removed: [] });
+
+function emitBuckets(awareness: PlexusAwareness, b: ApplyBuckets, origin: any): void {
+  if (b.added.length > 0 || b.filteredUpdated.length > 0 || b.removed.length > 0) {
+    awareness.emit("change", [{ added: b.added, updated: b.filteredUpdated, removed: b.removed }, origin]);
+  }
+  if (b.added.length > 0 || b.updated.length > 0 || b.removed.length > 0) {
+    awareness.emit("update", [{ added: b.added, updated: b.updated, removed: b.removed }, origin]);
+  }
+}
+
+/** One decoded wire entry against states/meta — clock ordering + self-protection. */
+function applyDecodedEntry(
+  awareness: PlexusAwareness,
+  clientID: number,
+  clock: number,
+  state: any,
+  buckets: ApplyBuckets,
+  timestamp: number,
+): void {
+  const clientMeta = awareness.meta.get(clientID);
+  const prevState = awareness.states.get(clientID);
+  const currClock = clientMeta === undefined ? 0 : clientMeta.clock;
+
+  if (currClock < clock || (currClock === clock && state === null && awareness.states.has(clientID))) {
+    if (state === null) {
+      // Self-protection: refuse removal of any of our own channels
+      const { base } = parseChannelId(clientID);
+      if (base === awareness.clientID && awareness.states.has(clientID)) {
+        clock++;
+      } else {
+        awareness.states.delete(clientID);
+      }
+    } else {
+      awareness.states.set(clientID, state);
+    }
+
+    awareness.meta.set(clientID, { clock, lastUpdated: timestamp });
+
+    if (clientMeta === undefined && state !== null) {
+      buckets.added.push(clientID);
+    } else if (clientMeta !== undefined && state === null) {
+      buckets.removed.push(clientID);
+    } else if (state !== null) {
+      if (!f.equalityDeep(state, prevState)) {
+        buckets.filteredUpdated.push(clientID);
+      }
+      buckets.updated.push(clientID);
+    }
+  }
+}
+
 /**
  * Apply a remote awareness update. Accepts entries with newer clocks.
  * Null state = client removed. Self-protection: refuses removal of own clientId.
+ *
+ * Coherence gate: entries whose entity refs the local doc cannot resolve yet
+ * are parked and applied when the doc catches up (docs/awareness-coherence.md).
  */
 export const applyAwarenessUpdate = (awareness: PlexusAwareness, update: Uint8Array, origin: any): void => {
   if (telemetry.enabled) {
@@ -460,55 +602,25 @@ export const applyAwarenessUpdate = (awareness: PlexusAwareness, update: Uint8Ar
   }
   const decoder = decoding.createDecoder(update);
   const timestamp = time.getUnixTime();
-  const added: number[] = [];
-  const updated: number[] = [];
-  const filteredUpdated: number[] = [];
-  const removed: number[] = [];
+  const buckets = emptyBuckets();
   const len = decoding.readVarUint(decoder);
 
   for (let i = 0; i < len; i++) {
     const clientID = decoding.readVarUint(decoder);
-    let clock = decoding.readVarUint(decoder);
-    const state = JSON.parse(decoding.readVarString(decoder));
+    const clock = decoding.readVarUint(decoder);
+    const raw = decoding.readVarString(decoder);
+    const state = JSON.parse(raw);
 
-    const clientMeta = awareness.meta.get(clientID);
-    const prevState = awareness.states.get(clientID);
-    const currClock = clientMeta === undefined ? 0 : clientMeta.clock;
-
-    if (currClock < clock || (currClock === clock && state === null && awareness.states.has(clientID))) {
-      if (state === null) {
-        // Self-protection: refuse removal of any of our own channels
-        const { base } = parseChannelId(clientID);
-        if (base === awareness.clientID && awareness.states.has(clientID)) {
-          clock++;
-        } else {
-          awareness.states.delete(clientID);
-        }
-      } else {
-        awareness.states.set(clientID, state);
-      }
-
-      awareness.meta.set(clientID, { clock, lastUpdated: timestamp });
-
-      if (clientMeta === undefined && state !== null) {
-        added.push(clientID);
-      } else if (clientMeta !== undefined && state === null) {
-        removed.push(clientID);
-      } else if (state !== null) {
-        if (!f.equalityDeep(state, prevState)) {
-          filteredUpdated.push(clientID);
-        }
-        updated.push(clientID);
-      }
+    if (state !== null && raw.includes(REF_JSON_ESCAPE) && hasUnsatisfiableRefs(state, awareness.doc)) {
+      parkFrame(awareness, clientID, clock, state, origin);
+      continue;
     }
+
+    applyDecodedEntry(awareness, clientID, clock, state, buckets, timestamp);
+    dropParkedUpTo(awareness, clientID, clock);
   }
 
-  if (added.length > 0 || filteredUpdated.length > 0 || removed.length > 0) {
-    awareness.emit("change", [{ added, updated: filteredUpdated, removed }, origin]);
-  }
-  if (added.length > 0 || updated.length > 0 || removed.length > 0) {
-    awareness.emit("update", [{ added, updated, removed }, origin]);
-  }
+  emitBuckets(awareness, buckets, origin);
 };
 
 /**
@@ -518,6 +630,8 @@ export const applyAwarenessUpdate = (awareness: PlexusAwareness, update: Uint8Ar
 export const removeAwarenessStates = (awareness: PlexusAwareness, clients: number[], origin: any): void => {
   const removed: number[] = [];
   for (const clientID of clients) {
+    // Explicit removal supersedes any frame still waiting on the coherence gate.
+    dropParkedForBase(awareness, parseChannelId(clientID).base);
     if (awareness.states.has(clientID)) {
       awareness.states.delete(clientID);
       if (parseChannelId(clientID).base === awareness.clientID) {

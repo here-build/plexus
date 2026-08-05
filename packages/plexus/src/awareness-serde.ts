@@ -14,8 +14,9 @@
 
 import type * as Y from "yjs";
 
-import { deref } from "./deref.js";
-import { PlexusModel } from "./PlexusModel.js";
+import { deref, isRefSatisfiable, tryDerefLiminal } from "./deref.js";
+import { docAuthoring } from "./plexus-registry.js";
+import { getInternals, PlexusModel } from "./PlexusModel.js";
 import { type ReferenceTuple, referenceSymbol } from "./proxy-runtime-types.js";
 
 /** The marker key for entity references in serialized awareness state. */
@@ -32,8 +33,18 @@ const isRef = (val: unknown): val is { "\0": ReferenceTuple } =>
  */
 export function serialize(value: unknown, doc?: Y.Doc): unknown {
   if (value instanceof PlexusModel) {
-    const ref = doc ? value[referenceSymbol](doc) : [value.uuid];
-    return { [REF]: ref };
+    if (doc) {
+      // Write half of the coherence law: an unhomed entity has no
+      // representation — awareness never materializes; tree adoption does.
+      const internals = getInternals(value);
+      if (!internals.isDependency && !internals.yjsModel?.doc) {
+        throw new Error(
+          `Plexus<${value.__type__}>: cannot reference an unhomed entity in awareness — add it to the synced tree first`,
+        );
+      }
+      return { [REF]: value[referenceSymbol](doc) };
+    }
+    return { [REF]: [value.uuid] };
   }
   if (Array.isArray(value)) {
     let changed = false;
@@ -56,6 +67,47 @@ export function serialize(value: unknown, doc?: Y.Doc): unknown {
   return value;
 }
 
+/**
+ * The marker key as it appears inside a JSON-encoded wire string. JSON always
+ * escapes control characters, so scanning the raw string for this escape is a
+ * complete fast path for "does this frame carry entity references".
+ */
+export const REF_JSON_ESCAPE = "\\u0000";
+
+/**
+ * Deep-scan a parsed wire value for reference markers the local doc cannot
+ * resolve yet — the read-half gate of the awareness coherence law
+ * (docs/awareness-coherence.md). Total: malformed markers count as
+ * unsatisfiable, so garbage frames park instead of crashing the apply path.
+ */
+export function hasUnsatisfiableRefs(value: unknown, doc: Y.Doc): boolean {
+  // Satisfiability is judged on the AUTHORING plane: the shadow holds
+  // everything prime holds (same-tick mirror) plus live session content.
+  return hasUnsatisfiableRefsIn(value, docAuthoring.get(doc) ?? doc);
+}
+
+function hasUnsatisfiableRefsIn(value: unknown, doc: Y.Doc): boolean {
+  if (value === null || typeof value !== "object") return false;
+  if (isRef(value)) return !isRefSatisfiable(doc, value[REF]);
+  if (Array.isArray(value)) return value.some((v) => hasUnsatisfiableRefsIn(v, doc));
+  return Object.values(value).some((v) => hasUnsatisfiableRefsIn(v, doc));
+}
+
+/** Every reference tuple in a parsed wire value (revert-warning scans). */
+export function collectRefTuples(value: unknown, out: ReferenceTuple[] = []): ReferenceTuple[] {
+  if (value === null || typeof value !== "object") return out;
+  if (isRef(value)) {
+    out.push(value[REF]);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value) collectRefTuples(v, out);
+    return out;
+  }
+  for (const v of Object.values(value)) collectRefTuples(v, out);
+  return out;
+}
+
 /** Cache: source object → deserialized proxy. */
 const proxyCache = new WeakMap<object, unknown>();
 
@@ -65,12 +117,28 @@ const proxyCache = new WeakMap<object, unknown>();
  * Plain primitives pass through. Proxies are cached per source object.
  */
 export function deserialize(value: unknown, doc: Y.Doc): unknown {
+  // Read half of the coherence law: resolve on the AUTHORING plane, so reads
+  // hand back the family's live tree instance (one identity per family), and
+  // liminal session content is reachable at all. Docs outside a Plexus family
+  // resolve against themselves.
+  return deserializeIn(value, docAuthoring.get(doc) ?? doc);
+}
+
+function deserializeIn(value: unknown, doc: Y.Doc): unknown {
   // Primitives: pass through
   if (value === null || typeof value !== "object") return value;
 
   // Entity reference marker: resolve immediately
   if (isRef(value)) {
-    return deref(doc, value[REF]);
+    const tuple = value[REF];
+    const uuid = tuple[0];
+    // Liminal-kind refs can legally die (session revert) — live-or-null,
+    // never a throw and never a stale cached instance. All other kinds are
+    // strict: post-gate they resolve, or it is a bug.
+    if (typeof uuid === "string" && uuid.startsWith("l") && tuple[1] === undefined) {
+      return tryDerefLiminal(doc, tuple);
+    }
+    return deref(doc, tuple);
   }
 
   // Check proxy cache (stable identity for same source)
@@ -101,7 +169,7 @@ function lazyArray(source: unknown[], doc: Y.Doc): readonly unknown[] {
       if (typeof prop === "string") {
         const idx = Number(prop);
         if (Number.isInteger(idx) && idx >= 0 && idx < target.length) {
-          return deserialize(target[idx], doc);
+          return deserializeIn(target[idx], doc);
         }
       }
 
@@ -112,7 +180,7 @@ function lazyArray(source: unknown[], doc: Y.Doc): readonly unknown[] {
       // Bind the method to a deserialized view.
       if (typeof val === "function" && typeof prop === "string" && arrayIterMethods.has(prop)) {
         return (...args: any[]) => {
-          const resolved = target.map((v) => deserialize(v, doc));
+          const resolved = target.map((v) => deserializeIn(v, doc));
           return (resolved as any)[prop](...args);
         };
       }
@@ -148,7 +216,7 @@ function lazyObject(source: Record<string, unknown>, doc: Y.Doc): Record<string,
   return new Proxy(source, {
     get(target, prop, receiver) {
       if (typeof prop === "string" && prop in target) {
-        return deserialize(target[prop], doc);
+        return deserializeIn(target[prop], doc);
       }
       return Reflect.get(target, prop, receiver);
     },
@@ -162,7 +230,7 @@ function lazyObject(source: Record<string, unknown>, doc: Y.Doc): Record<string,
     getOwnPropertyDescriptor(target, prop) {
       const desc = Reflect.getOwnPropertyDescriptor(target, prop);
       if (desc && typeof prop === "string" && prop in target) {
-        return { ...desc, value: deserialize(target[prop], doc) };
+        return { ...desc, value: deserializeIn(target[prop], doc) };
       }
       return desc;
     },

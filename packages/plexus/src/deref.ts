@@ -10,7 +10,7 @@ import { entityClasses } from "./globals.js";
 import { docPlexus } from "./plexus-registry.js";
 import { type ConcretePlexusConstructor, getInternals, PlexusModel } from "./PlexusModel.js";
 import { PlexusWrapper } from "./PlexusWrapper.js";
-import type { AllowedYJSValue, AllowedYValue, PlexusUUID, YPlexusNode } from "./proxy-runtime-types.js";
+import type { AllowedYJSValue, AllowedYValue, PlexusUUID, ReferenceTuple, YPlexusNode } from "./proxy-runtime-types.js";
 import { isTupleReference } from "./utils/utils.js";
 
 /** Resolve the struct at (clientId, clock), or null if that client/clock isn't present. */
@@ -19,6 +19,64 @@ function resolveItem(doc: Y.Doc, clientId: number, clock: number): Y.Item | null
   // and "clock out of range" without getItem throwing.
   if (clock >= Y.getState(doc.store, clientId)) return null;
   return Y.getItem(doc.store, Y.createID(clientId, clock));
+}
+
+/**
+ * Read-half probe of the awareness coherence law (docs/awareness-coherence.md):
+ * can this reference tuple resolve against the local store right now?
+ *
+ * Cheap and total — no materialization, no cache writes, never throws (a
+ * malformed tuple is simply unsatisfiable). Dependency references pass: the
+ * dependency-doc registry owns their lifecycle and failure semantics. `deref`
+ * itself stays strict; a post-gate deref failure is a bug, not a state.
+ */
+export function isRefSatisfiable(doc: Y.Doc, pointer: unknown): boolean {
+  if (!isTupleReference(pointer)) return false;
+  if (pointer[1] !== undefined) return true;
+  const entityId = pointer[0];
+  // Liminal-kind refs never park: a reverted session's entity is gone FOREVER —
+  // there is no future doc state to wait for. The read half resolves them
+  // live-or-null instead (tryDerefLiminal).
+  if (typeof entityId === "string" && entityId.startsWith("l")) return true;
+  const known = documentEntityCaches.get(doc).get(entityId)?.deref();
+  if (known) return true;
+  try {
+    const { clientId, clock } = decode(entityId as PlexusUUID);
+    const item = isLiminalClientId(clientId)
+      ? (resolveItem(doc, clientId + LIMINAL_BASE, clock) ?? resolveItem(doc, clientId, clock))
+      : resolveItem(doc, clientId, clock);
+    return item != null && item.content instanceof Y.ContentType && item.content.type instanceof Y.XmlElement;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Awareness read of a liminal-kind reference: the live instance, or null when
+ * the session that minted it is over and its structs are dead. Probes the
+ * committed ("bound") twin first, then the liminal address — the same
+ * precedence strict deref uses — but with a liveness check, because a
+ * reverted session's Items are delete-marked while their model instances may
+ * still sit in the entity cache. Only the awareness lane calls this: durable
+ * deref stays strict.
+ */
+export function tryDerefLiminal(doc: Y.Doc, pointer: ReferenceTuple): PlexusModel | null {
+  try {
+    const { clientId, clock } = decode(pointer[0] as PlexusUUID);
+    const live = (base: number): boolean => {
+      const item = resolveItem(doc, base, clock);
+      return (
+        item != null &&
+        !item.deleted &&
+        item.content instanceof Y.ContentType &&
+        item.content.type instanceof Y.XmlElement
+      );
+    };
+    if (!live(clientId + LIMINAL_BASE) && !live(clientId)) return null;
+    return deref(doc, pointer);
+  } catch {
+    return null;
+  }
 }
 
 export function deref<T extends AllowedYJSValue>(

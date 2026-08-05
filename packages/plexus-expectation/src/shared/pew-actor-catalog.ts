@@ -107,7 +107,10 @@ export class PEWActorCatalog {
     }
     this.#claimClient?.destroy();
     this.#claimClient = null;
-    this.#ensureClaimClient();
+    // §17.5 install step 3: the role marker publishes NOW — a minted-but-silent
+    // pen would leave a claim gap until the first publishClaim, firing runner
+    // self-termination on observers that just saw the eviction.
+    this.#ensureClaimClient().setField("role", "kernel");
   }
 
   /** Mint+publish new claim before destroying old — no observer-visible gap. */

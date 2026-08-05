@@ -20,8 +20,6 @@ export type TestSteer = { readonly note: string };
 
 @syncing("test:PewExpectation")
 export class TestExpectation extends Expectation<TestResult, TestReport, TestSteer> {
-  static override readonly kind: string = "test.unit";
-
   @syncing accessor payload: string = "";
   @syncing accessor resultValue: string = "";
 
@@ -36,7 +34,6 @@ export class TestExpectation extends Expectation<TestResult, TestReport, TestSte
 
 @syncing("test:ThrowingExpectation")
 export class ThrowingExpectation extends TestExpectation {
-  static override readonly kind: string = "test.throwing";
 
   override applySettlement(result: TestResult): void {
     this.resultValue = result.value ?? "";
@@ -46,7 +43,6 @@ export class ThrowingExpectation extends TestExpectation {
 
 @syncing("test:SurfaceExpectation")
 export class SurfaceExpectation extends Expectation<never, never> {
-  static override readonly kind: string = "test.surface";
 }
 
 @syncing("test:PewMessagesDefinition")

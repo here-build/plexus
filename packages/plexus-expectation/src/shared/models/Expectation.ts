@@ -6,8 +6,6 @@ import { PewTerminalWriteError } from "../errors.js";
 import { lifecycleCan, lifecycleEventAfter, type LifecycleEventName, type Lifecycle } from "../lifecycle-machine.js";
 import { isTerminal, type TerminalLifecycle } from "../lifecycle.js";
 
-type ExpectationCtor = typeof Expectation & { readonly kind: string };
-
 /**
  * Durable open-work unit. ONE RECORD, ONE WRITER after the kernel's first
  * durable write: host authors declaration, kernel owns envelope thereafter.
@@ -24,7 +22,16 @@ type ExpectationCtor = typeof Expectation & { readonly kind: string };
  */
 @syncing("@here.build/plexus-expectation:Expectation")
 export abstract class Expectation<TResult = unknown, TReport = unknown, TIntent = never> extends PlexusModel {
-  static readonly kind: string = "";
+  /**
+   * The kind IS the plexus registry tag (`@syncing("...")` → `modelName`),
+   * derived — never declared. One naming scheme: the durable plans key, wire
+   * advertisements, and process dispatch all key on the class's own identity.
+   */
+  static get kind(): string {
+    const name = (this as unknown as { modelName?: string }).modelName;
+    invariant(name, `${this.name} must be @syncing-decorated to have a kind`);
+    return name;
+  }
 
   /**
    * Phantom steering contract — never assigned, never serialized. Function-
@@ -35,9 +42,7 @@ export abstract class Expectation<TResult = unknown, TReport = unknown, TIntent 
   declare readonly __intent__?: (intent: TIntent) => void;
 
   get kind(): string {
-    const k = (this.constructor as ExpectationCtor).kind;
-    invariant(k, `${this.constructor.name} must declare static readonly kind`);
-    return k;
+    return (this.constructor as typeof Expectation).kind;
   }
 
   @syncing

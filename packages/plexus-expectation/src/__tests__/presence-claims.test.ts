@@ -127,16 +127,16 @@ describe("two-doc topology (§17.1)", () => {
 
     // Split-brain PEW: kernel doc ≠ session doc (DO topology).
     const pew = new PEW({ kernel: kernelPlexus });
-    pew.loaders.publish({ loaders: { "test.unit": "loaded" }, capabilities: {} });
+    pew.loaders.publish({ loaders: { [TestExpectation.kind]: "loaded" }, capabilities: {} });
     pew.actors(host.plexus).publishClaim({ binds: [] });
 
     // Catalog readable via the kernel hub; absent from the session hub's claim face.
-    expect(pew.loaders.plan("test.unit")?.health).toBe("loaded");
+    expect(pew.loaders.plan(TestExpectation.kind)?.health).toBe("loaded");
     expect(pew.actors(host.plexus).claims.length).toBeGreaterThan(0);
 
     // A session-only observer (kernel: null) sees execution but no catalog.
     const observer = new PEW();
-    expect(observer.loaders.plan("test.unit")).toBeUndefined();
+    expect(observer.loaders.plan(TestExpectation.kind)).toBeUndefined();
     expect(observer.actors(host.plexus).claims.length).toBeGreaterThan(0);
   });
 });

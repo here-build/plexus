@@ -27,7 +27,6 @@ type DemoIntent = { readonly kind: "steer"; readonly gain: number };
 
 @syncing("test:TriadDemoExpectation")
 class DemoExpectation extends Expectation<DemoResult, DemoReport, DemoIntent> {
-  static override readonly kind: string = "test.triad.demo";
 
   override snapshotInput(): DemoInput {
     return { seed: "s" };
@@ -38,7 +37,6 @@ class DemoExpectation extends Expectation<DemoResult, DemoReport, DemoIntent> {
 
 @syncing("test:TriadPlainExpectation")
 class PlainExpectation extends Expectation<void, { readonly done: boolean }> {
-  static override readonly kind: string = "test.triad.plain";
 }
 
 @syncing("test:TriadDemoDefinition")

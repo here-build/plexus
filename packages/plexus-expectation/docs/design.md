@@ -76,13 +76,13 @@ are envelope transitions — a handful per Expectation lifetime, none latency-se
 ## 3. The triad
 
 Extension unit: one Expectation subclass, its LaunchDefinition subclass, its actor class — bound
-**by class, not by string**. The string `kind` survives only where a CRDT map needs a serializable
-key (the `Orchestration.plans` registry and wire advertisements); no process-side dispatch keys
-on it.
+**by class, not by string**. The `kind` string IS the class's plexus registry tag
+(`@syncing("...")` → `modelName`), **derived, never declared** — one naming scheme for the
+durable `Orchestration.plans` key, wire advertisements, and any process-side reads. There is no
+second hand-maintained name to drift.
 
 ```ts
 class ToolCallExpectation extends Expectation<ToolResult, ToolReport> {
-  static readonly kind = "harness.tool_call";
   @syncing accessor name = "";       // declaration field — authored at mint
   @syncing accessor argsJson = "{}"; // declaration field — authored at mint
 

@@ -426,6 +426,21 @@ kernel:           folds outcome into its claim-record ack
   session's presence can author intents. Finer-grained authorization is a host-layer concern
   (host filters which peers' presence it feeds the kernel) — rationale for this cut belongs in
   the admission code's preamble.
+- **The author face is `pew.request(target, intent)`** — named for what should happen, not how
+  internals work. Entity-routed: the target carries its hub (`E.__doc__` → family → awareness),
+  so there is no session parameter and a cross-session mistake is unrepresentable. Typed by the
+  target's contract (`IntentOf<E>`; `TIntent = never` → unsteerable at compile time). PEW owns
+  the author bookkeeping: `request` mints the `intentId` (author-pen clientID + local seq),
+  appends to a process-local authored set, and projects it onto the author pen; records prune on
+  the next submission once acked terminally (`considered`/`dropped`) or once the target seals —
+  **the prune is the retract** the kernel's ack-ledger cleanup keys on. Presence dying with the
+  process gives crash-retraction for free.
+- **`pew.requestCancellation(target, additionalData?)`** rides the same wire with the envelope
+  verb `kind: "cancel"`. The kernel handles it at admission — it never reaches the actor's
+  mailbox, and it bypasses `acceptsMessages` and the running/bound gate: any open target is
+  cancellable, declared work included. `strength` defaults to immediate (`cooperative` acks
+  `dropped` until implemented); `reason` lands in `endDetail`. Ack on success is `considered`.
+  One execution per intentId; a refused cancellation re-evaluates like any refusal.
 
 Example intents (product vocabulary, opaque to PEW): "retry now" (server stuck — steer the live
 actor to retry internally; the execution never ended, so one-execution holds), "break early to
@@ -863,6 +878,7 @@ class PEW {
     retireClaim(): void;
     /** Mints one actor client (clientId never 0); caller destroys on reap. */
     mintActorClient(): ActorPresenceClient;
+    /** Internal projection primitive — authors use pew.request instead. */
     publishIntents(intents: readonly IntentRecord[]): void;
   };
 
@@ -873,6 +889,15 @@ class PEW {
     /** Author intents targeting this Expectation. */
     readonly intents: readonly IntentRecord[];
   };
+
+  /**
+   * Author face — entity-routed (hub from target.__doc__), typed by the
+   * target's contract. Returns the intentId; the ack ladder is readable via
+   * the hub's claim record. See §8.
+   */
+  request<E extends AnyExpectation>(target: E, intent: IntentOf<E>): string;
+  /** Envelope verb: kernel-handled cancellation request — see §8. */
+  requestCancellation(target: AnyExpectation, additionalData?: CancellationRequestData): string;
 }
 ```
 

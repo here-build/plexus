@@ -37,8 +37,8 @@ describe("activation", () => {
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
     expect(E.processorClientId).not.toBe(0);
-    expect(host.lastPublished().binds).toEqual([E]);
-    expect(host.pew!.isBound(E)).toBe(true);
+    expect(host.lastClaim().binds).toEqual([E]);
+    expect(host.pew!.of(E).isBound).toBe(true);
   });
 
   it("missing: no definition for kind; moves onward when the plan appears", async () => {
@@ -74,7 +74,7 @@ describe("activation", () => {
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
     expect(E.state).toBe("declared");
-    expect(host.lastPublished().loaders[TestExpectation.kind]).toBe("failed:Error: weights missing");
+    expect(host.lastCatalog().loaders[TestExpectation.kind]).toBe("failed:Error: weights missing");
 
     host.reconcile();
     host.reconcile();
@@ -126,8 +126,8 @@ describe("activation", () => {
     expect(E.state).toBe("cancelled");
     expect(E.endCause).toBe("cancel");
     expect(host.table.has(E)).toBe(false);
-    expect(host.lastPublished().binds).toEqual([]);
-    expect(host.pew!.isBound(E)).toBe(false);
+    expect(host.lastClaim().binds).toEqual([]);
+    expect(host.pew!.of(E).isBound).toBe(false);
   });
 
   it("capability: probed after load, refreshed on demand, probe throw → unavailable with door", async () => {
@@ -142,19 +142,19 @@ describe("activation", () => {
     host.mint(new TestExpectation());
     await activateThroughLoad(host);
     await flushMicrotasks();
-    expect(host.lastPublished().capabilities[TestExpectation.kind]).toEqual({
+    expect(host.lastCatalog().capabilities[TestExpectation.kind]).toEqual({
       status: "ready",
       args: { models: ["a", "b"] },
     });
 
     await host.refreshCapability(TestExpectation.kind);
-    expect(host.lastPublished().capabilities[TestExpectation.kind]).toEqual({
+    expect(host.lastCatalog().capabilities[TestExpectation.kind]).toEqual({
       status: "unavailable",
       door: "Error: auth expired",
     });
 
     await host.refreshCapability();
-    expect(host.lastPublished().capabilities[TestExpectation.kind]?.status).toBe("ready");
+    expect(host.lastCatalog().capabilities[TestExpectation.kind]?.status).toBe("ready");
     expect(probes).toBe(3);
   });
 
@@ -165,7 +165,7 @@ describe("activation", () => {
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
     await flushMicrotasks();
-    expect(host.lastPublished().capabilities[TestExpectation.kind]?.status).toBe("blocked");
+    expect(host.lastCatalog().capabilities[TestExpectation.kind]?.status).toBe("blocked");
     expect(E.state).toBe("running"); // spawned regardless — enforcement is the actor's fail path
   });
 
@@ -175,7 +175,7 @@ describe("activation", () => {
     host.mint(new TestExpectation());
     await activateThroughLoad(host);
     await flushMicrotasks();
-    expect(host.lastPublished().capabilities).toEqual({});
+    expect(host.lastCatalog().capabilities).toEqual({});
   });
 
   it("running entities are not re-activated (one execution)", async () => {

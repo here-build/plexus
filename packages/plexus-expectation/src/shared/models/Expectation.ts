@@ -12,7 +12,7 @@ type ExpectationCtor = typeof Expectation & { readonly kind: string };
  * Durable open-work unit. ONE RECORD, ONE WRITER after the kernel's first
  * durable write: host authors declaration, kernel owns envelope thereafter.
  * Progress is not here — only `processorClientId` (discovery) and terminal
- * `lastReportJson`. Prefer `PEW.reportOf` for live frames.
+ * `lastReportJson`. Prefer `pew.of(E).report` for live frames.
  */
 @syncing("@here.build/plexus-expectation:Expectation")
 export abstract class Expectation<TResult = unknown, TReport = unknown> extends PlexusModel {
@@ -69,7 +69,7 @@ export abstract class Expectation<TResult = unknown, TReport = unknown> extends 
     }
   }
 
-  /** Non-tracking hub walk; prefer PEW.reportOf for MobX paint. */
+  /** Non-tracking hub walk; prefer `pew.of(E).report` for MobX paint. */
   liveReport(hub: PlexusAwareness): TReport | null | undefined {
     const cid = this.processorClientId;
     if (cid === 0) return undefined;

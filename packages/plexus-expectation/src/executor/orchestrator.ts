@@ -8,7 +8,8 @@ import type { ExpectationLoader } from "./expectation-loader.js";
 import type {
   ActorHandle,
   CancellationResult,
-  KernelPresenceStatus,
+  CatalogPresenceStatus,
+  ClaimPresenceStatus,
   LaunchContext,
   LoaderCapability,
   LoaderHealth,
@@ -48,6 +49,8 @@ export abstract class Orchestrator {
 
   readonly #loaderHealth = new Map<string, LoaderHealth>();
   readonly #capabilities = new Map<string, LoaderCapability>();
+  /** In-flight load() promises — waiters (warm / rebootstrap) join these. */
+  readonly #loadPromises = new Map<string, Promise<void>>();
   readonly #mailboxes = new Map<Expectation, MailboxEntry[]>();
   readonly #acks = new Map<string, { state: IntentAckState; target: Expectation | null }>();
 
@@ -85,11 +88,15 @@ export abstract class Orchestrator {
   getAuthorIntents(): readonly IntentRecord[] {
     const pew = this.pew;
     const session = this.getSessionPlexus();
-    if (pew && session) return pew.readIntents(session);
+    if (pew && session) return pew.actors(session).intents;
     return [];
   }
 
-  protected onPresenceSnapshot(_status: KernelPresenceStatus): void {}
+  /** Host side-effect after claim face is assembled (binds + acks). PEW wire is separate. */
+  protected onClaimPresence(_status: ClaimPresenceStatus): void {}
+
+  /** Host side-effect after catalog face is assembled (loaders + capabilities). PEW wire is separate. */
+  protected onCatalogPresence(_status: CatalogPresenceStatus): void {}
 
   getLogPort(): LogPort | undefined {
     return undefined;
@@ -126,6 +133,8 @@ export abstract class Orchestrator {
 
     const kind = E.kind;
     if (this.#loaderHealth.get(kind) !== "loaded") {
+      // Sticky failed health: work stays open (declared) until rebootstrap +
+      // warm with a fixed plan — no hot loop, no silent env fallback.
       this.#ensureLoaded(kind, loader);
       return;
     }
@@ -185,20 +194,36 @@ export abstract class Orchestrator {
     if (health === "loading" || health?.startsWith("failed:")) return;
     this.#loaderHealth.set(kind, "loading");
     this.#publish();
-    void this.#runLoad(kind, loader);
+    const pending = this.#runLoad(kind, loader).finally(() => {
+      if (this.#loadPromises.get(kind) === pending) this.#loadPromises.delete(kind);
+    });
+    this.#loadPromises.set(kind, pending);
+    void pending;
   }
 
   async #runLoad(kind: string, loader: ExpectationLoader): Promise<void> {
     try {
       await loader.load();
+      // Plan may have been replaced mid-load — do not mark a stale loader ready.
+      const def = this.getOrchestration().plans.get(kind);
+      if (def === undefined || this.getLoader(def) !== loader) return;
       this.#loaderHealth.set(kind, "loaded");
       this.#publish();
       this.reconcile();
       await this.#probe(kind, loader);
     } catch (error) {
+      const def = this.getOrchestration().plans.get(kind);
+      if (def === undefined || this.getLoader(def) !== loader) return;
       this.#loaderHealth.set(kind, `failed:${String(error)}`);
       this.#publish();
     }
+  }
+
+  /** Await all in-flight plan loads (post-warm / rebootstrap). */
+  async waitForLoaders(): Promise<void> {
+    const pending = [...this.#loadPromises.values()];
+    if (pending.length === 0) return;
+    await Promise.all(pending);
   }
 
   async #probe(kind: string, loader: ExpectationLoader): Promise<void> {
@@ -221,15 +246,33 @@ export abstract class Orchestrator {
     }
   }
 
+  /**
+   * Drop loader health + capability inventory so the next warm/activate
+   * re-runs `load()` against the current plan defs.
+   *
+   * Clears **all** kinds (not only sticky failed): plan replacement (e.g.
+   * LocalAcp → new LocalAcp with different baseUrl/credential) must not leave
+   * health=`loaded` for a previous def while `getLoader` returns a fresh
+   * un-loaded instance ("load() first" spawn crash).
+   */
   rebootstrap(): void {
-    for (const kind of this.#loaderHealth.keys()) {
-      const health = this.#loaderHealth.get(kind);
-      if (health !== undefined && health.startsWith("failed:")) {
-        this.#loaderHealth.delete(kind);
-        this.#capabilities.delete(kind);
-      }
-    }
+    this.#loaderHealth.clear();
+    this.#capabilities.clear();
+    // In-flight loads will no-op their health write (stale-loader guard).
+    this.#loadPromises.clear();
     this.reconcile();
+  }
+
+  /**
+   * Host: warm every plan's loader so `probeCapability` can publish inventory
+   * before the first activate (e.g. `/model` picker). Idempotent; sticky
+   * failed health still requires {@link rebootstrap}.
+   */
+  warmPlans(): void {
+    for (const [kind, def] of this.getOrchestration().plans) {
+      const loader = this.getLoader(def);
+      if (loader) this.#ensureLoaded(kind, loader);
+    }
   }
 
 
@@ -465,46 +508,49 @@ export abstract class Orchestrator {
     const pew = this.pew;
     const session = this.getSessionPlexus();
     if (pew && session) {
-      pew.retireClaim(session);
+      pew.actors(session).retireClaim();
     }
     this.#claimInstalled = false;
   }
 
 
-  snapshotPresence(): KernelPresenceStatus {
+  /** Process-local claim face — what `publishClaim` would write. */
+  claimPresence(): ClaimPresenceStatus {
     return {
       binds: [...this.table.keys()],
-      loaders: Object.fromEntries(this.#loaderHealth),
-      capabilities: Object.fromEntries(this.#capabilities),
       acks: [...this.#acks].map(([intentId, ack]) => ({ intentId, state: ack.state })),
     };
   }
 
+  /** Process-local catalog face — what loaders.publish would write. */
+  catalogPresence(): CatalogPresenceStatus {
+    return {
+      loaders: Object.fromEntries(this.#loaderHealth),
+      capabilities: Object.fromEntries(this.#capabilities),
+    };
+  }
+
   #publish(): void {
-    const snap = this.snapshotPresence();
-    this.onPresenceSnapshot(snap);
+    const claim = this.claimPresence();
+    const catalog = this.catalogPresence();
+    this.onClaimPresence(claim);
+    this.onCatalogPresence(catalog);
 
     const pew = this.pew;
     if (!pew) return;
 
-    pew.publishCatalog({
-      loaders: snap.loaders,
-      capabilities: snap.capabilities,
-    });
+    pew.loaders.publish(catalog);
 
     const session = this.getSessionPlexus();
     if (!session) return;
 
     this.#ensureClaimInstalled(session, pew);
-    pew.publishClaim(session, {
-      binds: snap.binds,
-      acks: snap.acks,
-    });
+    pew.actors(session).publishClaim(claim);
   }
 
   #ensureClaimInstalled(session: AnyPlexus, pew: PEW): void {
     if (this.#claimInstalled) return;
-    pew.installClaim(session);
+    pew.actors(session).installClaim();
     this.#claimInstalled = true;
   }
 
@@ -512,7 +558,7 @@ export abstract class Orchestrator {
     const pew = this.pew;
     const session = this.getSessionPlexus();
     if (!pew || !session) return false;
-    return pew.hasDualClaim(session);
+    return pew.actors(session).hasDualClaim;
   }
 
   #mintPresencePort(): { port: PresencePort; destroy: () => void } {
@@ -523,7 +569,7 @@ export abstract class Orchestrator {
         const pew = this.pew;
         const session = this.getSessionPlexus();
         if (pew && session) {
-          const client = pew.mintActorClient(session);
+          const client = pew.actors(session).mintActorClient();
           minted = client;
           return client;
         }

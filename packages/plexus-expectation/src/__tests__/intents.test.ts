@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 function ackOf(host: PewTestHost, intentId: string): string | undefined {
-  return host.lastPublished().acks.find((a) => a.intentId === intentId)?.state;
+  return host.lastClaim().acks.find((a) => a.intentId === intentId)?.state;
 }
 
 describe("steering intents", () => {

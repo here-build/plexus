@@ -5,16 +5,11 @@ import {
   ExpectationActor,
   ExpectationLoader,
   Orchestrator,
-  type KernelPresenceStatus,
+  type CatalogPresenceStatus,
+  type ClaimPresenceStatus,
   type LaunchContext,
 } from "../../executor/index.js";
-import {
-  Expectation,
-  Orchestration,
-  PEW,
-  type IntentRecord,
-  type LaunchDefinition,
-} from "../../shared/index.js";
+import { Expectation, Orchestration, PEW, type IntentRecord, type LaunchDefinition } from "../../shared/index.js";
 import { InProcessLaunchDefinition } from "../../shared/models/index.js";
 
 /** Minimal triad + host for kernel tests. One forest model, scripted actors, a settable loader. */
@@ -137,7 +132,8 @@ export type PewTestHostOptions = {
 export class PewTestHost extends Orchestrator {
   readonly doc: Y.Doc;
   readonly forest: PewForest;
-  readonly plexus: Plexus;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly plexus: Plexus<any>;
   readonly awareness: PlexusAwareness | null;
   readonly loaders = new Map<unknown, ExpectationLoader>();
   claimOwner: boolean;
@@ -195,7 +191,8 @@ export class PewTestHost extends Orchestrator {
     return this.peerBinds.has(E.uuid);
   }
 
-  getSessionPlexus(): Plexus | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getSessionPlexus(): Plexus<any> | null {
     return this.#hubEnabled ? this.plexus : null;
   }
 
@@ -204,11 +201,17 @@ export class PewTestHost extends Orchestrator {
   }
 
   override getAuthorIntents(): readonly IntentRecord[] {
-    return this.authorIntents;
+    // Injected intents bypass the wire for kernel-mechanics tests; when none
+    // are injected, the real PEW hub scan runs (wire round-trip tests).
+    return this.authorIntents.length > 0 ? this.authorIntents : super.getAuthorIntents();
   }
 
-  lastPublished(): KernelPresenceStatus {
-    return this.snapshotPresence();
+  lastClaim(): ClaimPresenceStatus {
+    return this.claimPresence();
+  }
+
+  lastCatalog(): CatalogPresenceStatus {
+    return this.catalogPresence();
   }
 }
 

@@ -32,16 +32,19 @@ export {
   type IntentAck,
 } from "./control.js";
 
+export { ExpectationState } from "./expectation-state.js";
+export { PEWLoaderCatalog } from "./pew-loader-catalog.js";
+export { PEWActorCatalog } from "./pew-actor-catalog.js";
+
 export {
   PEW,
   type ActorPresenceClient,
   type CatalogPresenceStatus,
   type ClaimPresenceStatus,
-  type KernelPresenceStatus,
   type LoaderCapability,
   type LoaderHealth,
-  type PEWOptions,
   type PewClaimRecord,
+  type PewOpts,
   type PlanAvailability,
   type PresencePort,
 } from "./presence.js";

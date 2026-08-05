@@ -1,7 +1,8 @@
 import type { LaunchDefinition, LaunchDefinitionSnapshot } from "../shared/models/LaunchDefinition.js";
 import type {
   ActorPresenceClient,
-  KernelPresenceStatus,
+  CatalogPresenceStatus,
+  ClaimPresenceStatus,
   LoaderCapability,
   LoaderHealth,
   PresencePort,
@@ -17,7 +18,8 @@ import type {
 
 export type {
   ActorPresenceClient,
-  KernelPresenceStatus,
+  CatalogPresenceStatus,
+  ClaimPresenceStatus,
   LoaderCapability,
   LoaderHealth,
   PresencePort,

@@ -1016,9 +1016,9 @@ pew.retireClaim(session);
 | Today (code) | Contract |
 |--------------|----------|
 | `IntentRecord.targetUuid: string` | `IntentRecord.target: Expectation` (entity marker on session) |
-| `KernelPresenceStatus.binds: { uuid }[]` | split away; claim `binds: Expectation[]` markers; type retired |
-| `snapshotPresence()` one record (loaders+binds+acks) | `publishCatalog` + `publishClaim` |
-| `publishKernelPresence` abstract host hook | PEW wire; host no longer serializes |
+| `KernelPresenceStatus` (binds+loaders+acks) | **retired** — `ClaimPresenceStatus` + `CatalogPresenceStatus` |
+| `snapshotPresence()` one record | `claimPresence()` + `catalogPresence()`; PEW `publishClaim` + loaders.publish |
+| `onPresenceSnapshot` / `publishKernelPresence` | `onClaimPresence` / `onCatalogPresence` host hooks; PEW owns wire |
 | `#findByUuid` admission | identity / tolerant resolve on `intent.target` |
 | `Expectation.liveReport(hub)` | prefer `pew.reportOf(E)`; hub walk may remain as non-tracking helper one cycle |
 | harness peer-channel uuid binds | awareness claim scan / `pew.isBound` |

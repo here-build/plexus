@@ -7,7 +7,6 @@ export {
   type CancellationErrorCode,
   type CancellationResult,
   type IntentOutcome,
-  type KernelPresenceStatus,
   type LaunchContext,
   type LoaderCapability,
   type LoaderHealth,
@@ -27,5 +26,4 @@ export {
   type ClaimPresenceStatus,
   type PewClaimRecord,
   type PlanAvailability,
-  type PEWOptions,
 } from "../shared/presence.js";

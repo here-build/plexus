@@ -10,6 +10,7 @@ import { PlexusAwareness, removeAwarenessStates } from "@here.build/plexus";
 import { computed } from "mobx";
 
 import type { IntentAckState, IntentRecord } from "./control.js";
+import { isTerminal } from "./lifecycle.js";
 import type { Expectation } from "./models/Expectation.js";
 import {
   mintLocalNonZero,
@@ -22,6 +23,9 @@ import {
 export class PEWActorCatalog {
   #claimClient: PlexusAwareness | null = null;
   #authorClient: PlexusAwareness | null = null;
+  /** Author-side truth for `pew.request*` — presence is its projection. */
+  #authored: IntentRecord[] = [];
+  #requestSeq = 0;
 
   constructor(
     readonly pew: PEW,
@@ -72,7 +76,12 @@ export class PEWActorCatalog {
       const list = reactive.clients.get(id).field("intents");
       if (!Array.isArray(list) || list.length === 0) continue;
       for (const intent of list as IntentRecord[]) {
-        out.push({ intentId: intent.intentId, target: intent.target, body: intent.body });
+        out.push({
+          intentId: intent.intentId,
+          target: intent.target,
+          body: intent.body,
+          ...(intent.kind === "cancel" ? { kind: "cancel" as const } : {}),
+        });
       }
     }
     return out;
@@ -143,6 +152,27 @@ export class PEWActorCatalog {
   publishIntents(intents: readonly IntentRecord[]): void {
     const client = this.#ensureAuthorClient();
     client.setField("intents", intents as never);
+  }
+
+  /**
+   * `pew.request*` entry: prune settled records, mint an id unique across
+   * authors (pen clientID + local seq), append, republish. The prune IS the
+   * retract — a record leaves presence once acked terminally
+   * (considered/dropped) or once its target seals, and the kernel's
+   * ack-ledger cleanup keys on that disappearance (§8).
+   */
+  submitRequest(target: Expectation, body: unknown, kind?: "cancel"): string {
+    const client = this.#ensureAuthorClient();
+    this.#authored = this.#authored.filter((record) => {
+      if (isTerminal(record.target.state)) return false;
+      const state = this.ack(record.intentId);
+      return state !== "considered" && state !== "dropped";
+    });
+    this.#requestSeq += 1;
+    const intentId = `i${client.clientID}-${this.#requestSeq}`;
+    this.#authored.push({ intentId, target, body, ...(kind === "cancel" ? { kind } : {}) });
+    client.setField("intents", this.#authored as never);
+    return intentId;
   }
 
   #ensureClaimClient(): PlexusAwareness {

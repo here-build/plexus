@@ -29,6 +29,7 @@ export {
 } from "./models/index.js";
 
 export {
+  type CancellationRequestData,
   type EndCause,
   type CancellationStrength,
   type SettleSurfaceDisposition,

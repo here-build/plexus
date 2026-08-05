@@ -91,6 +91,20 @@ void [inputCarried, reportCarried, resultCarried, intentCarried, plainUnsteerabl
 void kernelCompatible;
 void DemoLoader;
 
+// The author face is typed by the target's contract. Compile-only — never runs.
+declare const pewForTyping: import("../shared/index.js").PEW;
+declare const demoForTyping: DemoExpectation;
+declare const plainForTyping: PlainExpectation;
+export function _requestTypingProbe(): void {
+  pewForTyping.request(demoForTyping, { kind: "steer", gain: 2 });
+  // @ts-expect-error the body must match IntentOf<DemoExpectation>
+  pewForTyping.request(demoForTyping, { kind: "steer", gain: "loud" });
+  // @ts-expect-error an expectation that declares no intents is unsteerable
+  pewForTyping.request(plainForTyping, { anything: true });
+  // Cancellation is an envelope verb — universal, not TIntent-gated.
+  pewForTyping.requestCancellation(plainForTyping, { reason: "done with it" });
+}
+
 describe("triad typing", () => {
   it("the phantom intent declaration leaves no runtime residue", () => {
     const E = new DemoExpectation();

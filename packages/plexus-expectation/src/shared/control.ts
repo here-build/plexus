@@ -18,6 +18,19 @@ export type IntentRecord = {
   /** Model key on the session doc — never a uuid string. */
   readonly target: import("./models/Expectation.js").Expectation;
   readonly body: unknown;
+  /**
+   * Envelope verb. Absent/`"steer"` = product steering → target's mailbox.
+   * `"cancel"` = kernel-handled cancellation request — bypasses
+   * acceptsMessages and the running/bound gate (any open target).
+   */
+  readonly kind?: "steer" | "cancel";
+};
+
+/** `pew.requestCancellation` payload — carried verbatim as the intent body. */
+export type CancellationRequestData = {
+  readonly strength?: CancellationStrength;
+  readonly reason?: string;
+  readonly [key: string]: unknown;
 };
 
 export type IntentRefusalCode = "target_terminal" | "target_unbound" | "messages_not_accepted";

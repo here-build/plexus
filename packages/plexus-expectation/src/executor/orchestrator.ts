@@ -375,6 +375,11 @@ export abstract class Orchestrator {
     }
 
     for (const intent of intents) {
+      if (intent.kind === "cancel") {
+        this.#admitCancellation(intent);
+        continue;
+      }
+
       const existing = this.#acks.get(intent.intentId);
       if (existing !== undefined) {
         // refused is not final while the intent stays authored (mid-load → bind)
@@ -408,6 +413,33 @@ export abstract class Orchestrator {
       this.#ensureMailbox(target).push({ intentId: intent.intentId, body: intent.body });
     }
     this.#publish();
+  }
+
+  /**
+   * Envelope verb — kernel-handled at admission, never the actor's mailbox.
+   * Bypasses acceptsMessages and the running/bound gate: any open target is
+   * cancellable (declared work folds too). One execution per intentId.
+   */
+  #admitCancellation(intent: IntentRecord): void {
+    const existing = this.#acks.get(intent.intentId);
+    if (existing !== undefined) {
+      if (!existing.state.startsWith("refused:")) return;
+      this.#acks.delete(intent.intentId);
+    }
+    const target = intent.target;
+    if (isTerminal(target.state)) {
+      this.#acks.set(intent.intentId, { state: "refused:target_terminal", target: null });
+      return;
+    }
+    const body = (intent.body && typeof intent.body === "object" ? intent.body : {}) as {
+      strength?: unknown;
+      reason?: unknown;
+    };
+    const result = this.requestCancellation(target, {
+      strength: body.strength === "cooperative" ? "cooperative" : "immediate",
+      reason: typeof body.reason === "string" ? body.reason : undefined,
+    });
+    this.#acks.set(intent.intentId, result.ok ? { state: "considered", target } : { state: "dropped", target: null });
   }
 
   #applyIntentOutcome(intentId: string, outcome: "considered" | "dropped"): void {

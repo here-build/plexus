@@ -14,9 +14,9 @@ import "@here.build/plexus-mobx-awareness/register";
 import { DefaultedWeakMap } from "@here.build/collections";
 import { type AwarenessSerializable, type AwarenessShape, Plexus, PlexusAwareness } from "@here.build/plexus";
 
-import type { IntentAck, IntentRecord } from "./control.js";
+import type { CancellationRequestData, IntentAck, IntentRecord } from "./control.js";
 import { ExpectationState } from "./expectation-state.js";
-import type { Expectation } from "./models/Expectation.js";
+import type { AnyExpectation, Expectation, IntentOf } from "./models/Expectation.js";
 import { PEWActorCatalog } from "./pew-actor-catalog.js";
 import { PEWLoaderCatalog } from "./pew-loader-catalog.js";
 
@@ -97,6 +97,36 @@ export class PEW<P extends Plexus<any, PewHubShape> = Plexus<any, PewHubShape>> 
   /** Per-expectation presence lens (report / isBound / intents-for-me). */
   of(E: Expectation): ExpectationState {
     return this.expectationStates.get(E);
+  }
+
+  /**
+   * Ask the claim owner to steer this work. Entity-routed: the target carries
+   * its hub, so there is no session to name and no cross-session mistake to
+   * make. Typed by the target's contract — an expectation that declares no
+   * intents (`TIntent = never`) cannot be requested at compile time. Returns
+   * the intentId; the ack ladder (`admitted → considered/dropped/refused:*`)
+   * is readable via the hub's claim record.
+   */
+  request<E extends AnyExpectation>(target: E, intent: IntentOf<E>): string {
+    return this.#submit(target, intent, undefined);
+  }
+
+  /**
+   * Ask the claim owner to cancel this work. An envelope verb — universal
+   * (not TIntent-gated), handled by the kernel at admission, never the
+   * actor's mailbox. `additionalData` rides as the body (`strength`
+   * defaults to immediate; `reason` lands in `endDetail`).
+   */
+  requestCancellation(target: AnyExpectation, additionalData?: CancellationRequestData): string {
+    return this.#submit(target, additionalData ?? {}, "cancel");
+  }
+
+  #submit(target: AnyExpectation, body: unknown, kind: "cancel" | undefined): string {
+    const hub = this.of(target as Expectation).sessionHub;
+    if (!hub) {
+      throw new Error("PEW.request: target has no session hub — home the entity in a synced doc first");
+    }
+    return this.actorsForHub(hub).submitRequest(target as Expectation, body, kind);
   }
 
   /** Session-hub claim + intent lens. */

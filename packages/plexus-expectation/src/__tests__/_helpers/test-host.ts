@@ -16,9 +16,10 @@ import { InProcessLaunchDefinition } from "../../shared/models/index.js";
 
 export type TestResult = { value?: string };
 export type TestReport = { note?: string } | Record<string, unknown>;
+export type TestSteer = { readonly note: string };
 
 @syncing("test:PewExpectation")
-export class TestExpectation extends Expectation<TestResult, TestReport> {
+export class TestExpectation extends Expectation<TestResult, TestReport, TestSteer> {
   static override readonly kind: string = "test.unit";
 
   @syncing accessor payload: string = "";

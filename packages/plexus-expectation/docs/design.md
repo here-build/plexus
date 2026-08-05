@@ -1,7 +1,9 @@
 # PEW design
 
 **Package:** `@here.build/plexus-expectation`
-**Status:** contract — the implementation is being aligned to this document; where code and doc disagree, the doc wins.
+**Status:** contract, aligned 2026-08-05 — the kernel core (§1–§12) and the presence layer
+(§17) both match the implementation. The awareness substrate guarantees §17 leans on live in
+plexus (`plexus/docs/awareness-coherence.md`, `plexus/docs/liminal-grounding.md`).
 **Audience:** implementers of claim-owner hosts and product Expectation triads.
 
 This is the only design document for PEW.
@@ -485,7 +487,16 @@ abstract class ExpectationLoader {
 
 ## 11. Reconcile
 
-The claim owner periodically (and on model/presence reactions):
+The claim owner reconciles on THREE triggers, and all three are load-bearing — a host that
+wires only some of them starves the corresponding inputs (a durable-only host never admits
+awareness-borne intents; a reactive-only host never repairs after its own missed events):
+
+1. **Durable reactions** — openWork / tree / plan-registry changes.
+2. **Session-hub awareness changes** — intents authored/retracted, claim records appearing;
+   applying inbound awareness bytes without scheduling a sweep is the canonical host bug.
+3. **A floor cadence** — periodic (DO alarm, interval) so missed events self-heal.
+
+Each sweep:
 
 1. Tree orphans (open child under terminal parent) → fold (`cancelled`, `supervision`).
 2. Forest orphans (open, unreachable from the host's declared work roots) → fold.
@@ -594,7 +605,7 @@ Load-bearing invariants and the test that breaks when they break (unit unless no
 | Catalog MobX | autorun on `plans` re-fires on catalog publish, not on actor report noise |
 | Catalog merge | kernel health + loader self-capability disagree → stated merge rule holds |
 | isBound same-doc | bind list membership by Expectation uuid after tolerant resolve; no uuid strings on the wire |
-| isBound unsynced bind | marker present but entity not yet in local doc → treated as unbound, no throw; re-evaluates on later hub/doc change |
+| isBound unsynced bind | a claim frame referencing unsynced entities is not visible until the doc catches up (substrate coherence gate); becomes visible — and `isBound` true — on catch-up |
 | Actor-client reap | after fold reap, hub `getPeer(clientId)` is null / report gone |
 | Session hub auto-lifecycle | first use subscribes; hub/doc destroy drops listeners; no attach API |
 | plan unknown kind | `plan("unknown")` returns `undefined` |
@@ -647,8 +658,10 @@ machinery it forces:
 - **Imperative presence `onChange`.** MobX is the subscription (same grain as mailbox).
 - **Sequential destroy-then-mint claim reload.** Creates an observer-visible claim gap that
   forces runner self-termination; overlapping mint→publish→destroy is required (§17.5).
-- **Throwing deref on the discovery/admission path.** Awareness can outrace doc sync; unresolvable
-  markers are "not yet here," never a crash mid-getter (§17.3).
+- **Reader-side tolerance for unresolvable refs** (try/catch scans, null-on-missing deref in
+  PEW). Awareness can outrace doc sync, but the remedy is the substrate's coherence gate — the
+  incoherent frame is unobservable, readers stay strict, and a failed deref is always a bug
+  (§17.3). Coping code in every consumer was the rejected shape.
 
 ---
 
@@ -669,10 +682,10 @@ revision absorbs those findings. Reviews live under `docs/reviews/`.
 | **Session** | Expectation trees, openWork | **Execution** — claim record (binds, acks), actor `report`s, author intents |
 
 Loaders are available **globally**. Execution only matters **to a specific session**. Putting
-session `Expectation`s onto the orchestration hub as entity markers is forbidden — awareness
-serde is same-doc by law (`entity.__doc__` must match the hub's doc). Catalog payloads are plain
-JSON / plan kinds. Session binds are Expectation **entity markers on the session hub that owns
-them** (same-doc only).
+session `Expectation`s onto the orchestration hub is forbidden — the substrate's serialization
+membrane refuses cross-family references (write half of the coherence law). Catalog payloads are
+plain JSON / plan kinds. Session binds are Expectation **models on the session hub that owns
+them** — serialized and resolved by the substrate, one live instance per family.
 
 **Observer reach.** Browser / UI peers typically hold only the **session** hub (e.g. SyncDO).
 They construct PEW with `kernel: null` (session-only) and get execution reads; catalog is empty
@@ -712,10 +725,9 @@ Expectation E
 PEW may import family internals (`docPlexus`, `__doc__`) as a plexus-family consumer — not a new
 public app API.
 
-**Session hub subscription — automatic.** First read/write that resolves a session hub
-(`reportOf(E)`, `claim(session)`, `publishClaim(session)`, …) lazily subscribes that hub's
-`change` for MobX atoms. Unsubscribe is automatic on hub/`doc` destroy (and when the process
-is rebuilt — DO eviction wipes PEW). Hosts never register or detach sessions explicitly.
+**Session hub subscription — none to manage.** Observation rides the substrate's ambient
+`awareness.reactive` lens (one per hub, disposed with it); PEW carries no subscription or
+teardown machinery of its own. Hosts never register or detach sessions.
 
 ### 17.3 Wire schema (frozen)
 
@@ -734,7 +746,7 @@ No `binds`. No Expectation entity refs.
 | Field | Content |
 |-------|---------|
 | `role` | `"kernel"` (claim marker) — **required** for discovery |
-| `binds` | entity markers for same-doc `Expectation`s |
+| `binds` | `Expectation` models (substrate-serialized), same family as the hub |
 | `acks` | `{ intentId, state }[]` |
 
 Published under an **arbitrary** regular-range client id (`PlexusAwareness.createLocalClient`),
@@ -760,8 +772,9 @@ Observers: unassigned / non-minted ⇒ no report; never treat a real minted id a
 |-------|---------|
 | `intents` | `{ intentId, target /* Expectation marker */, body }[]` |
 
-`intentId` remains a string. **`target` is an Expectation entity marker** (model key on the
-session doc), never a uuid string field. Retract = remove; reshape = edit body in place (§8).
+`intentId` remains a string. **`target` is an Expectation model** — never a uuid string field;
+the membrane serializes it out and every reader resolves the same live family instance, which is
+what lets admission key on instance identity. Retract = remove; reshape = edit body in place (§8).
 
 **Optional loader self-record** (escape hatch, §9):
 
@@ -769,23 +782,20 @@ session doc), never a uuid string field. Retract = remove; reshape = edit body i
 { role: "loader"; kind: string; capability?: LoaderCapability }
 ```
 
-#### Tolerant resolution (load-bearing)
+#### Coherence (substrate law, not reader discipline)
 
-Awareness and doc sync are **separate lanes** with no cross-lane ordering. A claim frame can
-arrive before the doc update that materializes a bind/target. Therefore:
+Awareness and doc sync are separate lanes with no cross-lane ordering — and the SUBSTRATE
+resolves that, not PEW: an inbound frame whose entity refs the local doc cannot resolve yet is
+parked by the awareness coherence gate and released when the doc catches up (last coherent frame
+wins; `plexus/docs/awareness-coherence.md`). A frame PEW can read therefore always resolves;
+reads hand back the live family instance; deref is strict, and a failed deref anywhere is a bug.
+PEW carries **no** tolerance machinery — no try/catch scans, no null-on-missing paths, no
+re-evaluation bookkeeping. The one raw read that remains is install-time claim eviction
+(`getRawPeer` for `role`), which must not resolve refs it is about to evict.
 
-1. **Role / claim scans** use **raw** peer state (`getRawPeer` / schema fields) so discovery
-   never deserializes entity markers.
-2. **Entity markers** (binds, intent targets) resolve on demand via a **null-on-missing** path
-   (try/catch around deref, or a plexus `tryDeref`). Unresolvable marker ⇒ treat as *not bound
-   here yet* / `refused:target_unbound` — **never throw mid-getter or mid-admission**.
-3. Unresolvable cases are **re-evaluated** on later hub or doc changes (same re-admission law as
-   §8 unbound→bound).
-
-`isBound(E)` membership: after tolerant resolve, compare by **Expectation uuid** (stable across
-proxy identity), not object identity. Reliable for observers on the **same session doc** as the
-claim record. Cross-session dashboards do not use `isBound`; they use durable tree state +
-`processorClientId` / `lastReport`.
+`isBound(E)` membership compares by **Expectation uuid**; reliable for observers on the same
+session doc as the claim record. Cross-session dashboards do not use `isBound`; they use durable
+tree state + `processorClientId` / `lastReport`.
 
 ### 17.4 Types and public surface
 
@@ -808,10 +818,9 @@ type PlanAvailability = {
   source: "catalog" | "loader" | "both";
 };
 
-/** Deserialized claim view after a scan (tolerant binds). */
+/** Claim view after a scan — binds are live family instances (substrate serde). */
 type PewClaimRecord = {
   readonly clientId: number;
-  /** Successfully resolved binds; unresolvable markers omitted (not thrown). */
   readonly binds: readonly Expectation[];
   readonly acks: readonly IntentAck[];
 };
@@ -825,45 +834,48 @@ type ActorPresenceClient = {
 class PEW {
   constructor(opts?: { kernel?: Plexus | null });
 
-  // ── global catalog (orchestration hub; no-op empty without kernel) ──
-  get plans(): ReadonlyMap<string, PlanAvailability>;
-  plan(kind: string): PlanAvailability | undefined; // undefined = unknown kind
-  publishCatalog(status: {
-    loaders: Readonly<Record<string, LoaderHealth>>;
-    capabilities: Readonly<Record<string, LoaderCapability>>;
-  }): void;
+  /** Global catalog face (orchestration hub; empty without kernel). */
+  readonly loaders: {
+    readonly plans: ReadonlyMap<string, PlanAvailability>;
+    plan(kind: string): PlanAvailability | undefined; // undefined = unknown kind
+    publish(status: CatalogPresenceStatus): void;
+  };
 
-  // ── session execution (hub resolved automatically from session / E.__doc__) ──
-  reportOf<TReport>(E: Expectation<unknown, TReport>): TReport | undefined;
-  isBound(E: Expectation): boolean;
-  /** Sole claim after scan; null if zero or dual. */
-  claim(session: Plexus): PewClaimRecord | null;
-  /** >1 claim-marked bases including self. */
-  hasDualClaim(session: Plexus): boolean;
-  ack(intentId: string, session: Plexus): IntentAckState | undefined;
-  /** All author intents on the session hub (excludes own claim + author clients). */
-  readIntents(session: Plexus): readonly IntentRecord[];
+  /** Session execution face — one catalog per session hub. */
+  actors(session: Plexus): {
+    readonly claims: readonly PewClaimRecord[];
+    /** Sole claim after scan; null if zero or dual. */
+    readonly claim: PewClaimRecord | null;
+    /** >1 claim-marked bases including self. */
+    readonly hasDualClaim: boolean;
+    /** Author intents on the hub — excludes this catalog's own claim + author pens. */
+    readonly intents: readonly IntentRecord[];
+    ack(intentId: string): IntentAckState | undefined;
+    publishClaim(status: ClaimPresenceStatus): void;
+    /** Install under lease — evicts stale claim peers first (§17.5). */
+    installClaim(): void;
+    /** Overlapping rotation: mint+publish new before destroying old (§17.5). */
+    reloadClaim(status: ClaimPresenceStatus): void;
+    retireClaim(): void;
+    /** Mints one actor client (clientId never 0); caller destroys on reap. */
+    mintActorClient(): ActorPresenceClient;
+    publishIntents(intents: readonly IntentRecord[]): void;
+  };
 
-  publishClaim(session: Plexus, status: {
-    binds: readonly Expectation[];
-    acks: readonly IntentAck[];
-  }): void;
-  /** Install / reinstall claim client; see §17.5 install eviction. */
-  installClaim(session: Plexus): void;
-  retireClaim(session: Plexus): void;
-
-  /**
-   * Mints one actor client (clientId never 0). Caller must destroy via
-   * returned client.destroy() on reap (kernel #reap / releasePresence path).
-   */
-  mintActorClient(session: Plexus): ActorPresenceClient;
-
-  publishIntents(session: Plexus, intents: readonly IntentRecord[]): void;
+  /** Per-Expectation face — hub resolved from E.__doc__. */
+  of(E: Expectation): {
+    readonly report: unknown | undefined;
+    readonly isBound: boolean;
+    /** Author intents targeting this Expectation. */
+    readonly intents: readonly IntentRecord[];
+  };
 }
 ```
 
-- **Aggregates as getters** (`plans`); parameterized reads as methods.
-- **Work identity = Expectation models** on the wire (entity markers); intent ids stay strings.
+- **Facets group by hub identity**: `loaders` (orchestration hub), `actors(session)` (a session
+  hub), `of(E)` (the hub E's doc resolves to). Aggregates are getters; each facet instance is
+  cached per hub / per entity.
+- **Work identity = Expectation models** on the wire; intent ids stay strings.
 - **`source: "none"` is not used** — unknown kinds return `undefined` from `plan()`.
 
 #### Catalog merge algorithm
@@ -947,22 +959,19 @@ freeze is an advisory tripwire for lease bugs, not multi-tenant isolation.
 
 ### 17.6 Reactivity (MobX)
 
-mobx is a hard dependency. Hub `change` bumps version boxes / peer atoms; **coarse
-projections** (`plans`, claim list, author intents) are **`computed`** (memoized until the
-version bumps). **Fine** invalidation for `reportOf` stays per-peer atoms. Writers never
-touch atoms — they write the hub; change fires; versions bump under `runInAction`.
+mobx is a hard dependency, but the atom design is the **substrate's**
+(`plexus-mobx-awareness`): per-field atoms per base, a membership atom, peer isolation — one
+ambient lens per hub. PEW's whole reactivity story is three `@computed` scans over that lens
+(`claims`, `intents`, `plans`) plus the per-entity computeds on `of(E)`. Writers never touch
+atoms — they write the hub; the lens invalidates.
 
-| Read | Tracks |
-|------|--------|
-| `reportOf(E)` when `processorClientId` is a legal PEW client id | fine peer atom for that clientId |
-| `reportOf(E)` when unassigned (`processorClientId` is 0 / never minted) | coarse **hub membership** atom on E's session hub (any base added/removed) so pre-spawn subscriptions re-fire when an actor appears; after re-read, if still unassigned return `undefined` |
-| durable `E.processorClientId` | PEW requires pointer transitions (spawn write / reap clear) to be MobX-visible — via Plexus MobX integration or a PEW-owned reaction on the entity; **not optional** |
-| `plans` / `plan` | coarse **catalog** atom on orchestration hub |
-| `claim` / `isBound` / `ack` / `hasDualClaim` / `readIntents` | single coarse **claim** atom per session hub (lazily bound on first use of that hub); all claim helpers re-derive from one scan |
-
+- `of(E).report` tracks the actor base's `report` field atom; while `processorClientId` is
+  unassigned it tracks hub membership, so pre-spawn autoruns re-fire when the actor appears.
+  Durable pointer transitions are MobX-visible via the Plexus MobX integration the lens
+  registers.
 - Frames are opaque LWW replaces — never deep-observe inside `TReport`.
-- Peer isolation: another actor's report must not re-fire a reaction that only read `reportOf(thisE)`.
-- Catalog isolation: actor report noise must not re-fire `plans`.
+- Peer isolation and catalog isolation (actor report noise must not re-fire `plans`) come from
+  the lens's per-field atoms, not from PEW code.
 - **No `onChange` API.** Use `reaction` / `autorun`.
 
 Paint:
@@ -1007,17 +1016,17 @@ pew.retireClaim(session);
 | `PEW`, `PewClaimRecord`, `PlanAvailability`, `LoaderCapability`, `LoaderHealth`, `PresencePort`, `ActorPresenceClient`, `IntentRecord` | `@here.build/plexus-expectation` (**shared**) |
 | `Orchestrator`, `ExpectationActor`, `ExpectationLoader`, settlement / activation | `/executor` only |
 
-**Breaking alignment (doc wins; implement in same land as PEW):**
+**Alignment ledger (2026-08-05):**
 
-| Today (code) | Contract |
-|--------------|----------|
-| `IntentRecord.targetUuid: string` | `IntentRecord.target: Expectation` (entity marker on session) |
-| `KernelPresenceStatus` (binds+loaders+acks) | **retired** — `ClaimPresenceStatus` + `CatalogPresenceStatus` |
-| `snapshotPresence()` one record | `claimPresence()` + `catalogPresence()`; PEW `publishClaim` + loaders.publish |
-| `onPresenceSnapshot` / `publishKernelPresence` | `onClaimPresence` / `onCatalogPresence` host hooks; PEW owns wire |
-| `#findByUuid` admission | identity / tolerant resolve on `intent.target` |
-| `Expectation.liveReport(hub)` | prefer `pew.reportOf(E)`; hub walk may remain as non-tracking helper one cycle |
-| harness peer-channel uuid binds | awareness claim scan / `pew.isBound` |
+| Item | Status |
+|------|--------|
+| `IntentRecord.target: Expectation` (model, substrate-serialized) | **done** — wire round-trip tested |
+| `KernelPresenceStatus` retired → `ClaimPresenceStatus` + `CatalogPresenceStatus` | **done** |
+| `claimPresence()` + `catalogPresence()`; PEW publishes the wire | **done** |
+| `onClaimPresence` / `onCatalogPresence` host hooks | **done** |
+| Admission by model identity on `intent.target` | **done** |
+| `Expectation.liveReport(hub)` legacy hub walk | **pending removal** — grace cycle over; use `pew.of(E).report` |
+| harness peer-channel uuid binds / `peer.pew` JSON mirror | **pending** — replace with claim scan / `pew.of(E).isBound`; the JSON channel is dual books and its model-typed `intents` field is unpopulatable |
 
 ### 17.9 Laws
 
@@ -1031,7 +1040,8 @@ pew.retireClaim(session);
 6. Same-doc entity markers only; catalog never carries session Expectations.
 7. Claim ownership is rediscovered by scan (including self); reload is overlapping; install
    under lease evicts stale claim peers.
-8. Discovery and admission never throw on unsynced markers — unbound / re-evaluate.
+8. Coherence is the substrate's: frames referencing unsynced entities are unobservable until
+   the doc catches up; PEW readers are strict and carry no tolerance machinery.
 9. At most one PEW wire client per `(hub, role)`; publish replaces fields; retire destroys.
 10. Session hubs are discovered on use — no host attach/detach registration API.
 

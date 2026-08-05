@@ -39,7 +39,7 @@ One durable entity is at once:
 ```text
 declared → missing | refused | running | cancelled
 missing  → running | refused | cancelled
-refused  → running | cancelled
+refused  → missing | running | cancelled
 running  → sealed | failed | cancelled
 terminals are final
 ```

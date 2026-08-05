@@ -1,4 +1,4 @@
-import { type PlexusAwareness, PlexusModel, syncing } from "@here.build/plexus";
+import { PlexusModel, syncing } from "@here.build/plexus";
 import invariant from "tiny-invariant";
 
 import { type EndCause } from "../control.js";
@@ -67,15 +67,6 @@ export abstract class Expectation<TResult = unknown, TReport = unknown> extends 
     } catch {
       return null;
     }
-  }
-
-  /** Non-tracking hub walk; prefer `pew.of(E).report` for MobX paint. */
-  liveReport(hub: PlexusAwareness): TReport | null | undefined {
-    const cid = this.processorClientId;
-    if (cid === 0) return undefined;
-    const peer = hub.getPeer(cid) ?? (hub.clientID === cid ? hub.getLocalState() : null);
-    if (!peer) return undefined;
-    return (peer as { report?: TReport | null }).report;
   }
 
   @syncing.action

@@ -1025,7 +1025,7 @@ pew.retireClaim(session);
 | `claimPresence()` + `catalogPresence()`; PEW publishes the wire | **done** |
 | `onClaimPresence` / `onCatalogPresence` host hooks | **done** |
 | Admission by model identity on `intent.target` | **done** |
-| `Expectation.liveReport(hub)` legacy hub walk | **pending removal** — grace cycle over; use `pew.of(E).report` |
+| `Expectation.liveReport(hub)` legacy hub walk | **done** — removed; `pew.of(E).report` is the read |
 | harness peer-channel uuid binds / `peer.pew` JSON mirror | **pending** — replace with claim scan / `pew.of(E).isBound`; the JSON channel is dual books and its model-typed `intents` field is unpopulatable |
 
 ### 17.9 Laws

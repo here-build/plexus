@@ -16,12 +16,12 @@ describe("the updates plane", () => {
     await activateThroughLoad(host);
 
     loader.lastActor!.doReport({ note: "one" });
-    expect(E.liveReport(host.awareness!)).toEqual({ note: "one" });
+    expect(host.pew!.of(E).report).toEqual({ note: "one" });
     loader.lastActor!.doReport({ note: "two" });
-    expect(E.liveReport(host.awareness!)).toEqual({ note: "two" });
+    expect(host.pew!.of(E).report).toEqual({ note: "two" });
   });
 
-  it("liveReport is undefined once the pointer clears; lastReport carries the terminal frame", async () => {
+  it("the live read is undefined once the pointer clears; lastReport carries the terminal frame", async () => {
     const { host, loader, dispose } = makeHost();
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
@@ -30,7 +30,7 @@ describe("the updates plane", () => {
     loader.lastActor!.doComplete({ value: "ok" });
     await flushMicrotasks();
     expect(E.processorClientId).toBe(0);
-    expect(E.liveReport(host.awareness!)).toBeUndefined();
+    expect(host.pew!.of(E).report).toBeUndefined();
     expect(E.lastReport).toEqual({ note: "final" });
   });
 

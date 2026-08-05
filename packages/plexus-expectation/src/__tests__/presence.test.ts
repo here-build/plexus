@@ -176,8 +176,6 @@ describe("PEW §17 presence", () => {
 
     loader.lastActor!.doReport({ note: "live" });
     expect(host.pew!.of(E).report).toEqual({ note: "live" });
-    // Legacy hub walk still agrees when awareness is the session hub.
-    expect(E.liveReport(host.awareness!)).toEqual({ note: "live" });
 
     loader.lastActor!.doComplete({ value: "ok" });
     await flushMicrotasks();

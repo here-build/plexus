@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
-import { isLiminalClientId, LIMINAL_BASE } from "../../genesis-client.js";
+import { isLiminalClientId, isRegularClientId } from "../../genesis-client.js";
 import { enableMobXIntegration } from "../../mobx/index.js";
 import { Plexus } from "../../Plexus.js";
 import { PlexusModel } from "../../PlexusModel.js";
@@ -21,14 +21,12 @@ beforeAll(() => {
  * type-map via the deterministic genesis machinery. Those genesis writes go through
  * `genesisApplyUpdate`, which MUST keep the transaction `local`: `applyUpdate` forces
  * `local=false`, and at cleanup a `local:false` transaction that advanced the doc's OWN
- * clientID makes Yjs "reroll" it (`Transaction.js:357`) — throwing `shadow.clientID`
- * OUT of the liminal partition and breaking the load-bearing invariant
- *
- *     shadow.clientID === doc.clientID + LIMINAL_BASE        (Plexus.ts:306)
- *
- * on which `extractCommittedDelta`'s `committed = limId + LIMINAL_BASE` arithmetic and
- * `enterLiminality`'s `clientID++` both depend. (CRDT convergence still held under the
- * reroll, so it was SILENT latent corruption — it bit the next liminal op.)
+ * clientID makes Yjs "reroll" it (`Transaction.js:357`) — silently replacing
+ * `shadow.clientID` with a random uint32 outside the 51-bit partition and breaking the
+ * register discipline (register-discipline.test.ts): the shadow RESTS at its own
+ * regular-register id, and only enterLiminality moves it into the liminal register
+ * along the strictly-increasing session sequence. (CRDT convergence still held under
+ * the reroll, so it was SILENT latent corruption — it bit the next liminal op.)
  *
  * These assert the INVARIANT (the measurable state), NOT the console warning (which
  * vitest suppresses). They guard the fix in `genesisApplyUpdate` (keep genesis local)
@@ -74,30 +72,30 @@ describe("shadow-clientID partition survives virtual-genesis materialization", (
     const { doc, plexus } = initTestPlexus(freshContainer());
     const shadow = shadowDoc(plexus);
 
-    expect(isLiminalClientId(shadow.clientID)).to.equal(true);
-    expect(shadow.clientID).to.equal(doc.clientID + LIMINAL_BASE);
+    expect(isRegularClientId(shadow.clientID)).to.equal(true);
+    expect(shadow.clientID).to.not.equal(doc.clientID);
   });
 
-  it("a single child.map set must not reroll the shadow out of the liminal partition", () => {
-    const { doc, plexus, root } = initTestPlexus(freshContainer());
+  it("a single child.map set must not reroll the shadow out of its resting id", () => {
+    const { plexus, root } = initTestPlexus(freshContainer());
     const shadow = shadowDoc(plexus);
     const before = shadow.clientID;
 
     root.items.set("k1", new RedItem({ name: "a" })); // triggers genesis materialization
 
     expect(shadow.clientID, "shadow clientID must be unchanged by materialization").to.equal(before);
-    expect(isLiminalClientId(shadow.clientID), "shadow must stay in the liminal partition").to.equal(true);
-    expect(shadow.clientID).to.equal(doc.clientID + LIMINAL_BASE);
+    expect(isRegularClientId(shadow.clientID), "shadow must rest in the regular register").to.equal(true);
   });
 
   it("the invariant survives many materializations", () => {
-    const { doc, plexus, root } = initTestPlexus(freshContainer());
+    const { plexus, root } = initTestPlexus(freshContainer());
     const shadow = shadowDoc(plexus);
+    const before = shadow.clientID;
 
     for (let i = 0; i < 10; i++) root.items.set(`k${i}`, new RedItem({ name: `n${i}` }));
 
-    expect(isLiminalClientId(shadow.clientID)).to.equal(true);
-    expect(shadow.clientID).to.equal(doc.clientID + LIMINAL_BASE);
+    expect(shadow.clientID).to.equal(before);
+    expect(isRegularClientId(shadow.clientID)).to.equal(true);
   });
 
   it("a liminal session opened AFTER a materialization runs in the liminal partition", () => {
@@ -120,13 +118,14 @@ describe("the .virtual path (materializeVirtualChild) — path is the argument, 
   // shadow, which is what isolated the defect to the child.map container path. Both
   // now route their genesis writes through the fixed `genesisApplyUpdate`.
   it("the .virtual path does NOT reroll the shadow", () => {
-    const { doc, plexus, root } = initTestPlexus(new RedVHost({}));
+    const { plexus, root } = initTestPlexus(new RedVHost({}));
     const shadow = shadowDoc(plexus);
+    const before = shadow.clientID;
 
     root.slots.get("a"); // auto-materialize the hermetic subtree at path "a"
 
-    expect(isLiminalClientId(shadow.clientID)).to.equal(true);
-    expect(shadow.clientID).to.equal(doc.clientID + LIMINAL_BASE);
+    expect(shadow.clientID).to.equal(before);
+    expect(isRegularClientId(shadow.clientID)).to.equal(true);
   });
 
   it("the subtree at a path is deterministic and converges across peers", () => {
@@ -145,15 +144,18 @@ describe("the .virtual path (materializeVirtualChild) — path is the argument, 
 });
 
 describe("commitLiminality bundles genesis as external + rewrites the liminal log", () => {
-  it("commitLiminality after a liminal materialization keeps the shadow in the liminal partition", () => {
+  it("commitLiminality after a liminal materialization restores the resting regular id", () => {
     const { plexus, root } = initTestPlexus(freshContainer());
     const shadow = shadowDoc(plexus);
+    const resting = shadow.clientID;
 
     plexus.enterLiminality();
+    expect(isLiminalClientId(shadow.clientID)).to.equal(true);
     root.items.set("k", new RedItem({ name: "a" })); // liminal genesis materialization
     plexus.commitLiminality();
 
-    expect(isLiminalClientId(shadow.clientID)).to.equal(true);
+    expect(shadow.clientID).to.equal(resting);
+    expect(isRegularClientId(shadow.clientID)).to.equal(true);
   });
 
   it("a liminal child.map materialization survives commit to a fresh peer", () => {

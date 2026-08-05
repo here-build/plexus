@@ -29,12 +29,14 @@ import * as Y from "yjs";
 import { UndoManager } from "yjs";
 
 import { PlexusAwareness } from "./awareness.js";
+import { collectRefTuples } from "./awareness-serde.js";
+import { decode } from "./crdt-uuid.js";
 import { createBlobFromDoc, decodeBlob, type DecodedBlob } from "./dependency-blob.js";
 import { deref } from "./deref.js";
 import { documentEntityCaches } from "./entity-cache.js";
 import { declareDeterministicMap, isGenesisClientId, LIMINAL_BASE, newClientId } from "./genesis-client.js";
 import { entityClasses } from "./globals.js";
-import { docLiminality, docPlexus, docTransactionOrigin } from "./plexus-registry.js";
+import { docAuthoring, docLiminality, docPlexus, docTransactionOrigin } from "./plexus-registry.js";
 import { getInternals, type PlexusConstructor, PlexusModel } from "./PlexusModel.js";
 import { PlexusWrapper } from "./PlexusWrapper.js";
 import { deserializeKey } from "./proxies/key-serialization.js";
@@ -300,6 +302,10 @@ export class Plexus<
   /** Liminal scaffolding UM — null when {@link undoMode} is `"stub"`. */
   private readonly __liminalUndoManager__: UndoManager | null;
   private __liminalHeight__ = 0;
+  /** Shadow's resting regular-register id — restored at every session boundary. */
+  private __shadowRegularId__ = 0;
+  /** Strictly-increasing liminal session id (paper invariant 1) — advanced on enter, never reused. */
+  private __liminalSeq__ = 0;
 
   // noinspection JSUnusedLocalSymbols
   protected constructor(
@@ -313,10 +319,20 @@ export class Plexus<
 
     const shadow = this.__liminalDocument__;
 
-    // Overwrite doc clientId with 51-bit random. All derived clientIds flow from this:
-    // liminal = X + LIMINAL_BASE, committed = limId + 2^51, genesis = independent hash.
+    // Overwrite doc clientId with 51-bit random — prime's identity on the sync
+    // wire and the awareness hub. Struct authorship happens on the shadow under
+    // SEPARATE ids: the planes must never share a clientId, because Yjs rerolls
+    // a doc whose own id is advanced by a non-local transaction (documented in
+    // research/yjs-liminality/two-doc.test.ts, REJECTED APPROACHES).
     doc.clientID = newClientId();
-    shadow.clientID = doc.clientID + LIMINAL_BASE;
+    // Register discipline (liminal-state paper §A.3-A.5): the shadow RESTS at
+    // its own regular-range id, so steady-state entities mint p/b uuids. Only
+    // enterLiminality moves it into the liminal register, along the strictly
+    // increasing per-peer sequence X + LIMINAL_BASE + n; commit/revert restore
+    // the resting id. Committed structs land at limId + 2^51 (bound track).
+    this.__shadowRegularId__ = newClientId();
+    shadow.clientID = this.__shadowRegularId__;
+    this.__liminalSeq__ = doc.clientID + LIMINAL_BASE;
 
     // Initial sync: main → shadow (full state)
     Y.applyUpdate(shadow, Y.encodeStateAsUpdate(doc));
@@ -362,6 +378,8 @@ export class Plexus<
 
     docPlexus.set(shadow, this);
     docTransactionOrigin.set(shadow, SHADOW_TO_MAIN);
+    docAuthoring.set(doc, shadow);
+    docAuthoring.set(shadow, shadow);
 
     this.yTypes = getModelTypesMap(doc);
     this.yDependencies = getDependenciesMap(doc);
@@ -505,9 +523,9 @@ export class Plexus<
     // Stack listeners only when a main UndoManager exists (full mode).
     if (this.__undoManager__) {
       // Strip genesis Items from UndoManager StackItems.
-      // Genesis clientIds live in the 0x1F namespace (>= GENESIS_BASE = 31 × 2^40).
-      // Liminal clientIds (0x01 namespace, [2^32, 2^33)) are NOT stripped — committed
-      // liminal changes are user decisions that must survive undo/redo.
+      // Genesis clientIds live in the top namespace ([3×2^51, 2^53), see
+      // genesis-client.ts). Liminal clientIds ([2^51, 2^52)) are NOT stripped —
+      // committed liminal changes are user decisions that must survive undo/redo.
       this.__undoManager__.on("stack-item-added", (event) => {
         const clients = event.stackItem.insertions.clients;
         for (const clientId of clients.keys()) {
@@ -783,7 +801,10 @@ export class Plexus<
       throw new Error("Plexus.enterLiminality is unsupported when undoMode=stub");
     }
     if (this.isLiminal) return;
-    this.__liminalDocument__.clientID++;
+    // Switch into the liminal register (paper A.4 Enter) — session ids are
+    // strictly increasing per peer and never reused.
+    this.__liminalSeq__ += 1;
+    this.__liminalDocument__.clientID = this.__liminalSeq__;
     this.__liminalHeight__++;
     docLiminality.set(this.doc, this.__liminalDocument__);
     docTransactionOrigin.set(this.__liminalDocument__, LIMINAL_ORIGIN);
@@ -839,9 +860,11 @@ export class Plexus<
     }
     this.__liminalUndoManager__!.stopCapturing();
 
-    // Fresh clientId — main never saw the liminal clocks, so continuing with the same ID
-    // would create a clock gap and silently drop subsequent normal writes.
-    this.__liminalDocument__.clientID++;
+    // Restore the resting regular id (register discipline). Gap-free: main has
+    // seen every clock of the resting id — steady-state writes forward same-tick.
+    // The session id is never returned to (its clocks were undone above); the
+    // next session advances __liminalSeq__ instead.
+    this.__liminalDocument__.clientID = this.__shadowRegularId__;
 
     docTransactionOrigin.set(this.__liminalDocument__, SHADOW_TO_MAIN);
     this._stopBroadcastLoop();
@@ -864,9 +887,30 @@ export class Plexus<
     }
     if (!this.isLiminal) return;
 
+    const limId = this.__liminalDocument__.clientID;
     const limUm = this.__liminalUndoManager__!;
     while (limUm.canUndo()) limUm.undo();
-    this.__liminalDocument__.clientID++;
+    // Restore the resting regular id — see commitLiminality for the gap argument.
+    this.__liminalDocument__.clientID = this.__shadowRegularId__;
+
+    // Awareness refs to this session's entities are now dead forever — those
+    // fields read null (docs/awareness-coherence.md, liminal revert case).
+    // Loud by design: the author outlived their preview.
+    let orphanedRefs = 0;
+    for (const state of this.awareness.getStates().values()) {
+      for (const tuple of collectRefTuples(state)) {
+        try {
+          if (tuple[1] === undefined && decode(tuple[0] as PlexusUUID).clientId === limId) orphanedRefs++;
+        } catch {
+          // malformed tuple — not this session's problem
+        }
+      }
+    }
+    if (orphanedRefs > 0) {
+      console.warn(
+        `[plexus] revertLiminality: ${orphanedRefs} awareness reference(s) point to entities of the reverted liminal session — those fields now read null`,
+      );
+    }
 
     docTransactionOrigin.set(this.__liminalDocument__, SHADOW_TO_MAIN);
     this._stopBroadcastLoop();

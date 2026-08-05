@@ -96,19 +96,23 @@ class ToolCallActor extends ExpectationActor<ToolCallInput, ToolResult, ToolRepo
 }
 ```
 
-Type parameters:
+Type parameters — the Expectation subclass is the triad's **single type carrier**; loader, actor,
+and definition are implementations OF its contract (`ExpectationLoader<E>` / `ExpectationActor<E>`
+/ `LaunchDefinition<E>`), with the shapes extracted structurally via `InputOf` / `ResultOf` /
+`ReportOf` / `IntentOf`:
 
 | Param | Home | Contract |
 |-------|------|----------|
 | `TResult` | settlement → `applySettlement` | product outcome shape; each triad's own (dict, array, tuple — no shared shape imposed) |
 | `TReport` | awareness updates + `lastReportJson` | **must be JSON-serializable** — serialized at publish, so violations fail loudly at the first report, not at the terminal fold |
-| `TInput` | `LaunchContext.input` | snapshot of declaration fields at spawn, produced by the Expectation subclass |
+| input | `snapshotInput` → `LaunchContext.input` | snapshot of declaration fields at spawn; typed by the subclass's own `snapshotInput` override (no separate parameter) |
+| `TIntent` | mailbox entries (`MailboxView<IntentOf<E>>`) | the steering intents this kind handles; default `never` — an expectation that declares none is unsteerable at compile time. Types only: wire bodies stay untrusted and the actor still answers `dropped` for shapes it can't parse |
 
 The kernel owns **when** durable writes happen; the subclass owns **what** they mean.
 `applySettlement` runs inside the kernel's terminal transaction — entity-typed logic, kernel-held
 pen. The kernel itself is generic over triads: `ActorHandle` surfaces are `unknown`-typed at the
 kernel boundary and typing re-establishes entity-side (`applySettlement`) and actor-side
-(`ExpectationActor` generics) — a generically-typed kernel is not a missing feature.
+(`ExpectationActor<E>`) — a generically-typed kernel is not a missing feature.
 
 ---
 

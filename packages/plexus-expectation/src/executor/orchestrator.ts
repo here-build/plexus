@@ -82,7 +82,7 @@ export abstract class Orchestrator {
     return [];
   }
 
-  /** Host side-effect after claim face is assembled (binds + acks). PEW wire is separate. */
+  /** Host side-effect after claim face is assembled (binds). PEW wire is separate. */
   protected onClaimPresence(_status: ClaimPresenceStatus): void {}
 
   /** Host side-effect after catalog face is assembled (loaders + capabilities). PEW wire is separate. */

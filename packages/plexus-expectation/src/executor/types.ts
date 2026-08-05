@@ -6,8 +6,8 @@ import type { PresencePort } from "../shared/presence.js";
  * Process-plane contracts (kernel ↔ loader ↔ actor).
  *
  * SIMPLEX: the kernel never calls into an actor — only AbortSignal is
- * kernel-initiated. Settlement, control outcomes, and presence writes are
- * fire-and-forget. Steering is mailbox data the actor reads at its own pace.
+ * kernel-initiated. Settlement and presence writes are fire-and-forget.
+ * Steering is mailbox data the actor reads at its own pace.
  */
 
 export type Settlement<TResult> =

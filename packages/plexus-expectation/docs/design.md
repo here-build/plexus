@@ -600,7 +600,7 @@ Load-bearing invariants and the test that breaks when they break (unit unless no
 | `applySettlement` throw | terminal + `endDetail` committed, fields partial, no zombie `running`; partial-apply marker pair readable |
 | Author cancel | `declared` entity cancelled by author without any kernel; kernel's first write ends the ability (post-`running` author cancel refused) |
 | Intent mirror | never mirrored: terminal target, unbound target, `acceptsMessages: false`; front-run lands after bind (full re-derivation per sweep); target is Expectation model identity |
-| No-epoch reshape | in-place body edit visible in mailbox; outcome folds by intentId regardless of revision |
+| No-epoch reshape | in-place body edit visible in mailbox; upsert by intentId — no second entry per revision |
 | Dual-claim freeze | two claim-marked presence records on one session hub freezes activation both ways |
 | Loader health | failing `load()` appears in orchestration catalog, work stays open, no hot loop; `missing`/`refused` move onward when definition/loader registered |
 | Capability | probe published after load and on refresh; probe throw → `unavailable` with the error as door; probe-less loader publishes no record; kernel never gates activation on `status` |
@@ -608,8 +608,8 @@ Load-bearing invariants and the test that breaks when they break (unit unless no
 | Overlapping reload | during claim-client rotation, at least one claim record is live at every instant; runners do not self-terminate |
 | Crash-restart install | on install under lease, stale claim-marked peers are evicted before own publish; no self-freeze on dead predecessor |
 | Dual-claim scan includes self | single kernel → `hasDualClaim` false; two kernels (incl. self in each scan) → true |
-| reportOf MobX | autorun on `reportOf(E)` re-fires on that peer only; peer isolation |
-| reportOf pre-spawn / reap | autorun while unassigned re-fires when pointer becomes a legal client id; after reap returns `undefined` |
+| report MobX | autorun on `of(E).report` re-fires on that peer only; peer isolation |
+| report pre-spawn / reap | autorun while unassigned re-fires when pointer becomes a legal client id; after reap returns `undefined` |
 | mint never 0 | every `mintActorClient` / claim client has `clientId !== 0` |
 | Catalog MobX | autorun on `plans` re-fires on catalog publish, not on actor report noise |
 | Catalog merge | kernel health + loader self-capability disagree → stated merge rule holds |
@@ -618,7 +618,7 @@ Load-bearing invariants and the test that breaks when they break (unit unless no
 | Actor-client reap | after fold reap, hub `getPeer(clientId)` is null / report gone |
 | Session hub auto-lifecycle | first use subscribes; hub/doc destroy drops listeners; no attach API |
 | plan unknown kind | `plan("unknown")` returns `undefined` |
-| readIntents | author intents visible to kernel via PEW; retract drops them |
+| intents scan | author intents visible to kernel via `actors(session).intents`; retract drops them |
 
 ---
 
@@ -879,8 +879,8 @@ class PEW {
 
   /**
    * Author face — entity-routed (hub from target.__doc__), typed by the
-   * target's contract. Returns the intentId; outcomes are observable through
-   * the hub's claim record. See §8.
+   * target's contract. Returns the intentId. No acks — the durable plane
+   * is the acknowledgment. See §8.
    */
   request<E extends AnyExpectation>(target: E, intent: IntentOf<E>): string;
   /** Envelope verb: kernel-handled cancellation request — see §8. */
@@ -920,7 +920,7 @@ PEW owns **at most one wire client per `(hub, role)`** for roles it publishes:
 | claim (`kernel`) | session | one `createLocalClient` per session hub in use |
 | author | session | one client when `publishIntents` is used (distinct from claim, even in-process) |
 
-Repeated `publishClaim` / `publishCatalog` / `publishIntents` **replace fields** on the existing
+Repeated `publishClaim` / `loaders.publish` / `publishIntents` **replace fields** on the existing
 client — never mint a new client per publish. `retireClaim` / dispose destroy the client (stop
 heartbeat). Undestroyed clients after lease yield are a host bug (self-inflicted stale claim).
 
@@ -963,8 +963,8 @@ claim() = sole candidate deserialized (tolerant), else null
 
 - Never hardcode hub.clientID as the orchestrator.
 - No sticky clientId cache without invalidation on hub `change`.
-- **`ack(intentId)`** under dual-claim: undefined / refuse to pick — dual freeze means no
-  authoritative claim; do not silently first-scan.
+- **Intent admission** under dual-claim: frozen — dual freeze means no authoritative claim;
+  do not silently first-scan.
 
 #### Trust model
 
@@ -994,8 +994,8 @@ Paint:
 
 ```ts
 observer(function Row({ E, pew }: { E: Expectation; pew: PEW }) {
-  const frame = pew.reportOf(E);
-  const ready = pew.plan(E.kind)?.capability?.status === "ready";
+  const frame = pew.of(E).report;
+  const ready = pew.loaders.plan(E.kind)?.capability?.status === "ready";
 });
 ```
 
@@ -1003,27 +1003,27 @@ observer(function Row({ E, pew }: { E: Expectation; pew: PEW }) {
 
 ```text
 const pew = new PEW({ kernel: kernelPlexus });
-pew.installClaim(session);           // first use of session hub is automatic; this mints claim
+pew.actors(session).installClaim();  // mints claim under lease; evicts stale claim peers
 
 // load / probe → global catalog
-pew.publishCatalog({ loaders, capabilities });
+pew.loaders.publish({ loaders, capabilities });
 
 // activate E
-const client = pew.mintActorClient(session);  // clientId ≠ 0
+const client = pew.actors(session).mintActorClient();  // clientId ≠ 0
 // on reap: client.destroy(); processorClientId cleared to unassigned (0)
-pew.publishClaim(session, { binds: [...table.keys()] });
+pew.actors(session).publishClaim({ binds: [...table.keys()] });
 
 // admission
-for (const intent of pew.readIntents(session)) { … mirror into inboxes … }
+for (const intent of pew.actors(session).intents) { … mirror into inboxes … }
 
 // dispose lease
-pew.retireClaim(session);
+pew.actors(session).retireClaim();
 // no detachSession — hub destroy / process teardown cleans subscriptions
 ```
 
 `publishKernelPresence` (single bundled record) is **retired**. Hosts split into
-`publishCatalog` + `publishClaim`. Process-local claim table remains the input to
-`publishClaim`; the wire is PEW's job.
+`pew.loaders.publish()` + `pew.actors(session).publishClaim()`. Process-local claim table
+remains the input to `publishClaim`; the wire is PEW's job.
 
 ### 17.8 Import split and migration ledger
 
@@ -1047,7 +1047,7 @@ pew.retireClaim(session);
 ### 17.9 Laws
 
 1. ONE RECORD, ONE WRITER — PEW writers only set fields on the identity they mint or own.
-2. No kernel hop on the report path — actor → session hub → `reportOf`.
+2. No kernel hop on the report path — actor → session hub → `of(E).report`.
 3. Capability remains advisory forever.
 4. PEW never mints presence `clientId === 0` (plexus-internal reservation). Unassigned durable
    pointer is 0 only because 0 is not a legal PEW client id — not a PEW-layer semantic inventing

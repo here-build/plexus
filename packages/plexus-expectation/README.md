@@ -61,18 +61,20 @@ process    kernel table · loaders · actor handles     claim owner's memory
 ```
 
 The kernel never calls into an actor — the AbortSignal is the only kernel-initiated signal.
-Actors emit settlement and control outcomes; updates stream straight to awareness with no kernel
-hop.
+Actors emit reports and settlement; updates stream straight to awareness with no kernel hop.
 
 ---
 
 ## Steering
 
-Declarative and ephemeral: the author writes an intent into their own presence; the kernel admits
-it against a live bound execution and mirrors an ack in its presence; the actor observes its
-mailbox and reports `considered` | `dropped`. No epochs, no durable rows — retract is removing
-the record, reshape is editing it. Admission against a terminal or unbound target is refused;
+Declarative and ephemeral: the author calls `pew.request(target, intent)` — the intent lands in
+their own presence; the kernel's only responsibility is mirroring standing intents into the bound
+actor's inbox each sweep. What the actor does with its inbox is its own decision — there are no
+acks; the durable plane is the acknowledgment. No epochs, no durable rows — retract is removing
+the record, reshape is editing it; a terminal or unbound target is simply never mirrored, and
 one-execution guarantees a stale intent can never reach a future execution.
+`pew.requestCancellation(target)` is the universal envelope verb — kernel-handled, never the
+actor's inbox, and reaches declared (unlaunched) work too.
 
 ---
 
@@ -80,11 +82,11 @@ one-execution guarantees a stale intent can never reach a future execution.
 
 Ship a triad: an `Expectation` subclass (declaration fields + `applySettlement`), a
 `LaunchDefinition` subclass (durable config), and an actor class. Association is by class;
-the string `kind` exists only as the registry key.
+`kind` IS the `@syncing` registry tag — derived, never declared.
 
 ```ts
+@syncing("myapp:tool_call")
 class ToolCallExpectation extends Expectation<ToolResult, ToolReport> {
-  static readonly kind = "myapp.tool_call";
   @syncing accessor name = "";
   @syncing accessor argsJson = "{}";
 

@@ -101,8 +101,8 @@ export class PEW<P extends Plexus<any, PewHubShape> = Plexus<any, PewHubShape>> 
    * its hub, so there is no session to name and no cross-session mistake to
    * make. Typed by the target's contract — an expectation that declares no
    * intents (`TIntent = never`) cannot be requested at compile time. Returns
-   * the intentId; the ack ladder (`admitted → considered/dropped/refused:*`)
-   * is readable via the hub's claim record.
+   * the intentId. No acks: the kernel mirrors the standing intent into the
+   * bound actor's inbox; what the actor does with it is its own decision.
    */
   request<E extends AnyExpectation>(target: E, intent: IntentOf<E>): string {
     return this.#submit(target, intent, undefined);

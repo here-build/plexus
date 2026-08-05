@@ -144,7 +144,7 @@ describe("PEW §17 presence", () => {
     expect(host.pew!.of(E).isBound).toBe(false);
   });
 
-  it("claim/isBound/ack share one computed claim snapshot (memoized)", async () => {
+  it("claim/isBound/hasDualClaim share one computed claim snapshot (memoized)", async () => {
     const { host, dispose } = makeHost();
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());

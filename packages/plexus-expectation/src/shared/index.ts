@@ -19,6 +19,7 @@ export {
   LaunchDefinition,
   InProcessLaunchDefinition,
   SurfaceLaunchDefinition,
+  type AnyExpectation,
   type ExpectationOf,
   type InputOf,
   type IntentOf,

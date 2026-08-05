@@ -19,7 +19,12 @@ export {
   LaunchDefinition,
   InProcessLaunchDefinition,
   SurfaceLaunchDefinition,
+  type ExpectationOf,
+  type InputOf,
+  type IntentOf,
   type LaunchDefinitionSnapshot,
+  type ReportOf,
+  type ResultOf,
 } from "./models/index.js";
 
 export {

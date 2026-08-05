@@ -1,9 +1,6 @@
 import type { Plexus } from "@here.build/plexus";
 import { observable } from "mobx";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyPlexus = Plexus<any>;
-
 import type { ExpectationLoader } from "./expectation-loader.js";
 import type {
   ActorHandle,
@@ -33,6 +30,8 @@ import type { Orchestration } from "../shared/models/Orchestration.js";
 import { SurfaceLaunchDefinition } from "../shared/models/SurfaceLaunchDefinition.js";
 import { PEW } from "../shared/presence.js";
 
+type AnyPlexus = Plexus<any>;
+
 /**
  * Claim-owner process face. ONE RECORD, ONE WRITER after authorship ends.
  *
@@ -55,7 +54,6 @@ export abstract class Orchestrator {
 
   #pew: PEW | null | undefined = undefined;
   #claimInstalled = false;
-
 
   abstract getOrchestration(): Orchestration;
 
@@ -97,13 +95,11 @@ export abstract class Orchestrator {
   /** Host side-effect after catalog face is assembled (loaders + capabilities). PEW wire is separate. */
   protected onCatalogPresence(_status: CatalogPresenceStatus): void {}
 
-
   resolvePlan(kind: string): PlanResolution {
     const def = this.getOrchestration().plans.get(kind);
     if (def === undefined) return { status: "missing" };
     return this.getLoader(def) === undefined ? { status: "refused", def } : { status: "bound", def };
   }
-
 
   activate(E: Expectation): void {
     if (!this.isClaimOwner()) return;
@@ -142,12 +138,14 @@ export abstract class Orchestrator {
       const controller = new AbortController();
       const presence = this.#mintPresencePort();
       const mailbox = this.#ensureMailbox(E);
+      // Kernel is type-agnostic: generics re-establish at the loader/actor
+      // edge, so the mailbox crosses as the base contract's `never` intents.
       const ctx: LaunchContext = {
         input: E.snapshotInput(),
         definition: def.toSnapshot(),
         signal: controller.signal,
         presence: presence.port,
-        mailbox: { entries: mailbox },
+        mailbox: { entries: mailbox } as unknown as LaunchContext["mailbox"],
       };
 
       let handle: ActorHandle;
@@ -269,7 +267,6 @@ export abstract class Orchestrator {
     }
   }
 
-
   /**
    * Tree-scoped, first-writer-wins. Snapshot settlement/frames before abort —
    * abort-reaction traffic is cooperative-cancel territory, unread. Leaves first, root last.
@@ -345,7 +342,6 @@ export abstract class Orchestrator {
     this.activating.delete(node);
   }
 
-
   requestCancellation(
     target: Expectation,
     opts: { strength: CancellationStrength; reason?: string },
@@ -367,7 +363,6 @@ export abstract class Orchestrator {
     this.fold(E, disposition === "abandon" ? "cancelled" : "sealed", "surface", disposition);
     return { ok: true };
   }
-
 
   admitIntents(): void {
     const intents = this.getAuthorIntents();
@@ -450,7 +445,6 @@ export abstract class Orchestrator {
     }
   }
 
-
   reconcile(): void {
     if (!this.isClaimOwner()) return;
     if (this.#isDualClaimFrozen()) return;
@@ -506,7 +500,6 @@ export abstract class Orchestrator {
     }
     this.#claimInstalled = false;
   }
-
 
   /** Process-local claim face — what `publishClaim` would write. */
   claimPresence(): ClaimPresenceStatus {

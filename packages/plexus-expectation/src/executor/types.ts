@@ -1,12 +1,6 @@
+import type { Expectation, InputOf, IntentOf } from "../shared/models/Expectation.js";
 import type { LaunchDefinition, LaunchDefinitionSnapshot } from "../shared/models/LaunchDefinition.js";
-import type {
-  ActorPresenceClient,
-  CatalogPresenceStatus,
-  ClaimPresenceStatus,
-  LoaderCapability,
-  LoaderHealth,
-  PresencePort,
-} from "../shared/presence.js";
+import type { PresencePort } from "../shared/presence.js";
 
 /**
  * Process-plane contracts (kernel ↔ loader ↔ actor).
@@ -15,15 +9,6 @@ import type {
  * kernel-initiated. Settlement, control outcomes, and presence writes are
  * fire-and-forget. Steering is mailbox data the actor reads at its own pace.
  */
-
-export type {
-  ActorPresenceClient,
-  CatalogPresenceStatus,
-  ClaimPresenceStatus,
-  LoaderCapability,
-  LoaderHealth,
-  PresencePort,
-};
 
 export type Settlement<TResult> =
   | { readonly outcome: "complete"; readonly result: TResult }
@@ -34,26 +19,26 @@ export type IntentOutcome = {
   readonly outcome: "considered" | "dropped";
 };
 
-export type MailboxEntry = {
+export type MailboxEntry<TIntent = unknown> = {
   readonly intentId: string;
   /** Current body; in-place reshape replaces it — no revision id. */
-  readonly body: unknown;
+  readonly body: TIntent;
 };
 
 /**
  * Kernel-owned list, actor-read-only. Iterate a copy: the kernel splices in
  * the same turn an outcome lands.
  */
-export type MailboxView = {
-  readonly entries: readonly MailboxEntry[];
+export type MailboxView<TIntent = unknown> = {
+  readonly entries: readonly MailboxEntry<TIntent>[];
 };
 
-export type LaunchContext<TInput = unknown> = {
-  readonly input: TInput;
+export type LaunchContext<E extends Expectation<any, any, never> = Expectation> = {
+  readonly input: InputOf<E>;
   readonly definition: LaunchDefinitionSnapshot;
   readonly signal: AbortSignal;
   readonly presence: PresencePort;
-  readonly mailbox: MailboxView;
+  readonly mailbox: MailboxView<IntentOf<E>>;
 };
 
 /**
@@ -83,3 +68,12 @@ export type CancellationResult = OpResult<CancellationErrorCode>;
 
 export type SettleSurfaceErrorCode = "not_claim_owner" | "not_running" | "not_surface";
 export type SettleSurfaceResult = OpResult<SettleSurfaceErrorCode>;
+
+export {
+  type ActorPresenceClient,
+  type ClaimPresenceStatus,
+  type CatalogPresenceStatus,
+  type LoaderHealth,
+  type LoaderCapability,
+  type PresencePort,
+} from "../shared/presence.js";

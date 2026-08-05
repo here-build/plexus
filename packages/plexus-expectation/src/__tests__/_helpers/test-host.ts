@@ -61,7 +61,7 @@ export class PewForest extends PlexusModel {
 
 export type ActorScript = (actor: ScriptedActor, ctx: LaunchContext) => void | Promise<void>;
 
-export class ScriptedActor extends ExpectationActor<unknown, TestResult, TestReport> {
+export class ScriptedActor extends ExpectationActor<TestExpectation> {
   constructor(private readonly script: ActorScript | undefined) {
     super();
   }
@@ -87,7 +87,7 @@ export class ScriptedActor extends ExpectationActor<unknown, TestResult, TestRep
   }
 }
 
-export class TestLoader extends ExpectationLoader {
+export class TestLoader extends ExpectationLoader<TestExpectation> {
   override probeCapability?: () => Promise<import("../../executor/index.js").LoaderCapability>;
   loadCalls = 0;
   spawnCalls = 0;
@@ -106,17 +106,17 @@ export class TestLoader extends ExpectationLoader {
     if (this.failLoad !== null) throw this.failLoad;
   }
 
-  protected createActor(ctx: LaunchContext): ExpectationActor<unknown, unknown, unknown> {
+  protected createActor(ctx: LaunchContext): ExpectationActor<TestExpectation> {
     this.spawnCalls += 1;
     this.onSpawn?.(ctx);
     const actor = new ScriptedActor(this.script);
     this.lastActor = actor;
-    return actor as ExpectationActor<unknown, unknown, unknown>;
+    return actor;
   }
 }
 
 export class ThrowingSpawnLoader extends TestLoader {
-  protected override createActor(): ExpectationActor<unknown, unknown, unknown> {
+  protected override createActor(): ExpectationActor<TestExpectation> {
     this.spawnCalls += 1;
     throw new Error("spawn boom");
   }
@@ -132,7 +132,7 @@ export type PewTestHostOptions = {
 export class PewTestHost extends Orchestrator {
   readonly doc: Y.Doc;
   readonly forest: PewForest;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   readonly plexus: Plexus<any>;
   readonly awareness: PlexusAwareness | null;
   readonly loaders = new Map<unknown, ExpectationLoader>();
@@ -191,7 +191,6 @@ export class PewTestHost extends Orchestrator {
     return this.peerBinds.has(E.uuid);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getSessionPlexus(): Plexus<any> | null {
     return this.#hubEnabled ? this.plexus : null;
   }

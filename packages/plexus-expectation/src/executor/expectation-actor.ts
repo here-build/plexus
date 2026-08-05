@@ -1,7 +1,10 @@
 import type { ActorHandle, ActorPresenceClient, IntentOutcome, LaunchContext, Settlement } from "./types.js";
+import type { Expectation, ReportOf, ResultOf } from "../shared/models/Expectation.js";
 
 /**
- * One execution. Writes nothing durable.
+ * One execution, bound to the expectation contract it fulfills: report frames
+ * are `ReportOf<E>`, settlement is `ResultOf<E>`, the mailbox is `IntentOf<E>`.
+ * Writes nothing durable.
  *
  * Settlement is buffered synchronously at emit so SETTLEMENT PREFERENCE can
  * see a finished actor on the same tick as cancel. Report buffer is the last
@@ -9,15 +12,16 @@ import type { ActorHandle, ActorPresenceClient, IntentOutcome, LaunchContext, Se
  * cannot change the terminal fold. No lifecycle mirror: the durable FSM is
  * the kernel's.
  */
-export abstract class ExpectationActor<TInput = unknown, TResult = unknown, TReport = unknown> {
+
+export abstract class ExpectationActor<E extends Expectation<any, any, never> = Expectation> {
   #client: ActorPresenceClient | null = null;
   #lastReportJson: string | null = null;
-  #settlement: Settlement<TResult> | null = null;
+  #settlement: Settlement<ResultOf<E>> | null = null;
   #crashed = false;
   #aborted = false;
-  #resolveSettled!: (settlement: Settlement<TResult>) => void;
+  #resolveSettled!: (settlement: Settlement<ResultOf<E>>) => void;
   #rejectSettled!: (reason: unknown) => void;
-  readonly #settled: Promise<Settlement<TResult>>;
+  readonly #settled: Promise<Settlement<ResultOf<E>>>;
   readonly #outcomeSinks: ((outcome: IntentOutcome) => void)[] = [];
   readonly #pendingOutcomes: IntentOutcome[] = [];
 
@@ -25,14 +29,14 @@ export abstract class ExpectationActor<TInput = unknown, TResult = unknown, TRep
   protected readonly mintsPresence: boolean = true;
 
   constructor() {
-    this.#settled = new Promise<Settlement<TResult>>((resolve, reject) => {
+    this.#settled = new Promise<Settlement<ResultOf<E>>>((resolve, reject) => {
       this.#resolveSettled = resolve;
       this.#rejectSettled = reject;
     });
   }
 
   /** Synchronous — runs inside the activation critical section. */
-  start(ctx: LaunchContext<TInput>): void {
+  start(ctx: LaunchContext<E>): void {
     // Unobserved rejection must not take down the host; crash fold is the path.
     this.#settled.catch(() => {});
     ctx.signal.addEventListener(
@@ -55,13 +59,13 @@ export abstract class ExpectationActor<TInput = unknown, TResult = unknown, TRep
     }
   }
 
-  protected abstract run(ctx: LaunchContext<TInput>): void | Promise<void>;
+  protected abstract run(ctx: LaunchContext<E>): void | Promise<void>;
 
   get clientId(): number {
     return this.#client?.clientID ?? 0;
   }
 
-  protected report(frame: TReport): void {
+  protected report(frame: ReportOf<E>): void {
     if (this.#settlement !== null || this.#crashed || this.#aborted) return;
     let json: string;
     try {
@@ -74,7 +78,7 @@ export abstract class ExpectationActor<TInput = unknown, TResult = unknown, TRep
     this.#client?.setReport(frame);
   }
 
-  protected complete(result: TResult): void {
+  protected complete(result: ResultOf<E>): void {
     this.#settle({ outcome: "complete", result });
   }
 
@@ -91,7 +95,7 @@ export abstract class ExpectationActor<TInput = unknown, TResult = unknown, TRep
     for (const sink of this.#outcomeSinks) sink(message);
   }
 
-  #settle(settlement: Settlement<TResult>): void {
+  #settle(settlement: Settlement<ResultOf<E>>): void {
     if (this.#settlement !== null || this.#crashed) return;
     this.#settlement = settlement;
     this.#resolveSettled(settlement);

@@ -13,10 +13,26 @@ type ExpectationCtor = typeof Expectation & { readonly kind: string };
  * durable write: host authors declaration, kernel owns envelope thereafter.
  * Progress is not here — only `processorClientId` (discovery) and terminal
  * `lastReportJson`. Prefer `pew.of(E).report` for live frames.
+ *
+ * The subclass is the single type carrier for its triad: input
+ * (`snapshotInput` return), result (`applySettlement` argument), report
+ * (`lastReport`), and the steering intents it can handle (`TIntent`).
+ * Loader and actor are implementations OF this contract —
+ * `ExpectationLoader<E>` / `ExpectationActor<E>` — extracted via the
+ * `InputOf` / `ResultOf` / `ReportOf` / `IntentOf` helpers. Types only:
+ * nothing here validates at runtime, and the kernel stays `unknown`-typed.
  */
 @syncing("@here.build/plexus-expectation:Expectation")
-export abstract class Expectation<TResult = unknown, TReport = unknown> extends PlexusModel {
+export abstract class Expectation<TResult = unknown, TReport = unknown, TIntent = never> extends PlexusModel {
   static readonly kind: string = "";
+
+  /**
+   * Phantom steering contract — never assigned, never serialized. Function-
+   * typed so `TIntent` sits contravariantly: subclasses declaring intents
+   * remain assignable to kernel surfaces typed plain `Expectation`
+   * (whose default is `never`).
+   */
+  declare readonly __intent__?: (intent: TIntent) => void;
 
   get kind(): string {
     const k = (this.constructor as ExpectationCtor).kind;
@@ -151,3 +167,17 @@ function subtreeAllDeclared(root: Expectation): boolean {
   if (root.state !== "declared") return false;
   return root.children.every((child) => subtreeAllDeclared(child));
 }
+
+/**
+ * The constraint that admits every triad instantiation. The intent slot must
+ * be `never`, not `any`: the phantom is contravariant, so `(T) => void` is
+ * assignable to `(never) => void` for all T, while `any` there admits nothing.
+ */
+export type AnyExpectation = Expectation<any, any, never>;
+
+/** Structural extraction — reads the subclass's own overrides, so a narrowed
+ * `snapshotInput` return types the triad even without re-declaring generics. */
+export type InputOf<E extends AnyExpectation> = ReturnType<E["snapshotInput"]>;
+export type ResultOf<E extends AnyExpectation> = Parameters<E["applySettlement"]>[0];
+export type ReportOf<E extends AnyExpectation> = Exclude<E["lastReport"], null>;
+export type IntentOf<E extends AnyExpectation> = Parameters<NonNullable<E["__intent__"]>>[0];

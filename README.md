@@ -27,6 +27,9 @@ CRDT-native identity (no id generators, no coordination).
   composes with: per-resource `MessageChannel` allocation and small
   control messages. Yjs-agnostic.
 
+Presence paint (`plexus-presence-ui`) lives in the experimental shadow tree
+until it graduates: `experimental/plexus/packages/plexus-presence-ui`.
+
 More members arrive as they mature (the rich-text cluster —
 Peritext-over-Yjs — is staged in the parent monorepo's experimental tier).
 

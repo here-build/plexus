@@ -6,6 +6,7 @@ import {
   type LaunchContext,
   type PresencePort,
 } from "@here.build/plexus-expectation/executor";
+import type { AnyExpectation, Expectation } from "@here.build/plexus-expectation";
 import invariant from "tiny-invariant";
 
 import type { DeclarePort, PresenceHubPort } from "./ports.js";
@@ -59,11 +60,11 @@ export type DoHostBinding = {
 };
 
 /** `LaunchContext` plus this package's host-surface addition — never a core PEW type (see class preamble). */
-export type DoLaunchContext<TInput = unknown> = LaunchContext<TInput> & {
+export type DoLaunchContext<E extends AnyExpectation = Expectation> = LaunchContext<E> & {
   readonly declare: DeclarePort;
 };
 
-export abstract class InProcessLoader<TInput = unknown> extends ExpectationLoader<TInput> {
+export abstract class InProcessLoader<E extends AnyExpectation = Expectation> extends ExpectationLoader<E> {
   #binding: DoHostBinding | null = null;
 
   /** `installKernel`-internal wiring — not for host code to call directly. */
@@ -74,14 +75,14 @@ export abstract class InProcessLoader<TInput = unknown> extends ExpectationLoade
   // Unreachable: `spawn` is overridden wholesale below (mirrors
   // `DurableObjectLoader`'s documented pattern) — the base `ExpectationLoader.spawn`
   // (the only caller of `createActor`) is never invoked on this class.
-  protected createActor(): ExpectationActor<TInput, unknown, unknown> {
+  protected createActor(): ExpectationActor<E> {
     throw new Error("InProcessLoader.createActor is unreachable — spawn() is overridden wholesale (see createDoActor)");
   }
 
   /** Subclasses implement this instead of `createActor` — receives the declare/presence-augmented context. */
-  protected abstract createDoActor(ctx: DoLaunchContext<TInput>): ExpectationActor<TInput, unknown, unknown>;
+  protected abstract createDoActor(ctx: DoLaunchContext<E>): ExpectationActor<E>;
 
-  override spawn(ctx: LaunchContext<TInput>): ActorHandle {
+  override spawn(ctx: LaunchContext<E>): ActorHandle {
     const binding = this.#binding;
     invariant(
       binding,
@@ -122,7 +123,7 @@ export abstract class InProcessLoader<TInput = unknown> extends ExpectationLoade
     };
     ctx.signal.addEventListener("abort", () => mintedClient?.destroy(), { once: true });
 
-    const richCtx: DoLaunchContext<TInput> = { ...ctx, declare, presence };
+    const richCtx: DoLaunchContext<E> = { ...ctx, declare, presence };
     const actor = this.createDoActor(richCtx);
     actor.start(richCtx);
     return actor.handle();

@@ -11,12 +11,7 @@ import {
   type Lifecycle,
   type TerminalLifecycle,
 } from "@here.build/plexus-expectation";
-import {
-  Orchestrator,
-  walkExpectationForest,
-  type ExpectationLoader,
-  type LogPort,
-} from "@here.build/plexus-expectation/executor";
+import { Orchestrator, walkExpectationForest, type ExpectationLoader } from "@here.build/plexus-expectation/executor";
 import invariant from "tiny-invariant";
 
 import { deriveActorDoName, DurableObjectLoader } from "./actor-do-loader.js";
@@ -223,10 +218,6 @@ class DoOrchestrator extends Orchestrator {
 
   // createPew default null — InProcessLoader still injects opts.presence for
   // in-process actor reports (loader-level, not Orchestrator PEW).
-
-  override getLogPort(): LogPort | undefined {
-    return this.opts.log;
-  }
 
   // ── envelope-write mirror (proposal §3 gate) ────────────────────────────
 

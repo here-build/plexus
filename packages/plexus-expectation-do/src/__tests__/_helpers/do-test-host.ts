@@ -93,7 +93,7 @@ export class DeclaringDoExpectation extends Expectation<DoTestResult, DoTestRepo
 
 export type DeclaringDoActorScript = (actor: DeclaringDoActor, ctx: DoLaunchContext) => void | Promise<void>;
 
-export class DeclaringDoActor extends ExpectationActor<unknown, DoTestResult, DoTestReport> {
+export class DeclaringDoActor extends ExpectationActor<DeclaringDoExpectation> {
   constructor(private readonly script: DeclaringDoActorScript | undefined) {
     super();
   }
@@ -119,7 +119,7 @@ export class DeclaringDoActor extends ExpectationActor<unknown, DoTestResult, Do
 }
 
 /** One loader instance serves every `DeclaringDoExpectation`, dispatching by `payload` (mirrors `DispatchingDoLoader`). */
-export class DeclaringDoLoader extends InProcessLoader<unknown> {
+export class DeclaringDoLoader extends InProcessLoader<DeclaringDoExpectation> {
   loadCalls = 0;
   spawnCalls = 0;
   readonly scripts = new Map<string, DeclaringDoActorScript>();
@@ -128,17 +128,17 @@ export class DeclaringDoLoader extends InProcessLoader<unknown> {
     this.loadCalls += 1;
   }
 
-  protected createDoActor(ctx: DoLaunchContext): ExpectationActor<unknown, unknown, unknown> {
+  protected createDoActor(ctx: DoLaunchContext<DeclaringDoExpectation>): ExpectationActor<DeclaringDoExpectation> {
     this.spawnCalls += 1;
     const input = ctx.input as { readonly payload?: string };
     const script = input.payload ? this.scripts.get(input.payload) : undefined;
-    return new DeclaringDoActor(script) as ExpectationActor<unknown, unknown, unknown>;
+    return new DeclaringDoActor(script);
   }
 }
 
 export type DoActorScript = (actor: ScriptedDoActor, ctx: LaunchContext) => void | Promise<void>;
 
-export class ScriptedDoActor extends ExpectationActor<unknown, DoTestResult, DoTestReport> {
+export class ScriptedDoActor extends ExpectationActor<DoTestExpectation> {
   constructor(private readonly script: DoActorScript | undefined) {
     super();
   }
@@ -167,7 +167,7 @@ export class ScriptedDoActor extends ExpectationActor<unknown, DoTestResult, DoT
  * field — so declaring entity B before entity A has spawned can never change
  * which script A's actor runs.
  */
-export class DispatchingDoLoader extends ExpectationLoader {
+export class DispatchingDoLoader extends ExpectationLoader<DoTestExpectation> {
   loadCalls = 0;
   spawnCalls = 0;
   readonly scripts = new Map<string, DoActorScript>();
@@ -176,11 +176,11 @@ export class DispatchingDoLoader extends ExpectationLoader {
     this.loadCalls += 1;
   }
 
-  protected createActor(ctx: LaunchContext): ExpectationActor<unknown, unknown, unknown> {
+  protected createActor(ctx: LaunchContext): ExpectationActor<DoTestExpectation> {
     this.spawnCalls += 1;
     const input = ctx.input as { readonly payload?: string };
     const script = input.payload ? this.scripts.get(input.payload) : undefined;
-    return new ScriptedDoActor(script) as ExpectationActor<unknown, unknown, unknown>;
+    return new ScriptedDoActor(script);
   }
 }
 

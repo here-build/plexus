@@ -116,7 +116,6 @@ export interface InstallOpts {
    * See {@link ChildFactoryRegistry}'s doc comment for why this registry exists.
    */
   readonly childFactories?: ChildFactoryRegistry;
-  readonly log?: { append(line: string): void };
 }
 
 export interface KernelHandle {

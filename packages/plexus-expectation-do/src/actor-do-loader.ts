@@ -211,7 +211,7 @@ export class DurableObjectLoader extends ExpectationLoader {
   // No bootstrap work: the namespace binding is injected at construction: idempotent no-op.
   async load(): Promise<void> {}
 
-  protected createActor(): ExpectationActor<unknown, unknown, unknown> {
+  protected createActor(): ExpectationActor {
     // Unreachable — `spawn` is overridden wholesale (see class preamble).
     // `ExpectationLoader.spawn` (the base implementation) is the only caller
     // of `createActor`, and this class never calls `super.spawn(...)`.

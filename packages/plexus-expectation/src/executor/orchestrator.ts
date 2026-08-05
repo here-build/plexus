@@ -16,13 +16,7 @@ import type {
   SettleSurfaceResult,
   Settlement,
 } from "./types.js";
-import type {
-  CancellationStrength,
-  EndCause,
-  IntentAckState,
-  IntentRecord,
-  SettleSurfaceDisposition,
-} from "../shared/control.js";
+import type { CancellationStrength, EndCause, IntentRecord, SettleSurfaceDisposition } from "../shared/control.js";
 import { isActivatable, isTerminal, type TerminalLifecycle } from "../shared/lifecycle.js";
 import { Expectation } from "../shared/models/Expectation.js";
 import { LaunchDefinition } from "../shared/models/LaunchDefinition.js";
@@ -50,7 +44,6 @@ export abstract class Orchestrator {
   /** In-flight load() promises — waiters (warm / rebootstrap) join these. */
   readonly #loadPromises = new Map<string, Promise<void>>();
   readonly #mailboxes = new Map<Expectation, MailboxEntry[]>();
-  readonly #acks = new Map<string, { state: IntentAckState; target: Expectation | null }>();
 
   #pew: PEW | null | undefined = undefined;
   #claimInstalled = false;
@@ -166,7 +159,6 @@ export abstract class Orchestrator {
 
       E.processorClientId = handle.clientId;
       this.table.set(E, { handle, controller, releasePresence: presence.destroy });
-      handle.onControlOutcome((o) => this.#applyIntentOutcome(o.intentId, o.outcome));
       handle.settled
         .then((s) =>
           s.outcome === "complete"
@@ -333,11 +325,9 @@ export abstract class Orchestrator {
     }
     const mailbox = this.#mailboxes.get(node);
     if (mailbox) {
-      for (const item of mailbox) this.#acks.delete(item.intentId);
+      // Splice clean so a captured MailboxView reads empty, then drop the box.
+      mailbox.splice(0);
       this.#mailboxes.delete(node);
-    }
-    for (const [intentId, ack] of this.#acks) {
-      if (ack.target === node) this.#acks.delete(intentId);
     }
     this.activating.delete(node);
   }
@@ -364,15 +354,19 @@ export abstract class Orchestrator {
     return { ok: true };
   }
 
+  /**
+   * The kernel's only intent responsibility: mirror standing author intents
+   * into bound targets' inboxes, and execute envelope verbs. No acks — what an
+   * actor does with an inbox entry is the actor's own decision, observable (if
+   * at all) through the report stream and the durable plane. Every sweep is a
+   * full re-derivation, which is what makes the edge cases free: front-run
+   * intents land once their target binds (no refusal ledger to reset), reshape
+   * is an in-place upsert, retraction is absence, and cancellations are
+   * idempotent because folding a terminal target is a no-op.
+   */
   admitIntents(): void {
     const intents = this.getAuthorIntents();
-    const liveIds = new Set(intents.map((i) => i.intentId));
-
-    for (const [intentId, ack] of this.#acks) {
-      if (liveIds.has(intentId)) continue;
-      this.#removeMailboxEntry(ack.target, intentId);
-      this.#acks.delete(intentId);
-    }
+    const steerTargets = new Map<string, Expectation>();
 
     for (const intent of intents) {
       if (intent.kind === "cancel") {
@@ -380,74 +374,42 @@ export abstract class Orchestrator {
         continue;
       }
 
-      const existing = this.#acks.get(intent.intentId);
-      if (existing !== undefined) {
-        // refused is not final while the intent stays authored (mid-load → bind)
-        if (existing.state.startsWith("refused:")) {
-          this.#acks.delete(intent.intentId);
-        } else {
-          const retargetedDuplicate = existing.target !== null && existing.target !== intent.target;
-          if (!retargetedDuplicate) {
-            this.#reshapeMailboxEntry(existing.target, intent);
-          }
-          continue;
-        }
-      }
-
       const target = intent.target;
-      if (isTerminal(target.state)) {
-        this.#acks.set(intent.intentId, { state: "refused:target_terminal", target: null });
-        continue;
-      }
-      const entry = this.table.get(target);
-      if (entry === undefined || target.state !== "running") {
-        this.#acks.set(intent.intentId, { state: "refused:target_unbound", target: null });
-        continue;
-      }
+      if (isTerminal(target.state)) continue;
+      if (this.table.get(target) === undefined || target.state !== "running") continue;
       const plan = this.resolvePlan(target.kind);
-      if (plan.status === "missing" || !plan.def.acceptsMessages) {
-        this.#acks.set(intent.intentId, { state: "refused:messages_not_accepted", target: null });
-        continue;
+      if (plan.status === "missing" || !plan.def.acceptsMessages) continue;
+
+      steerTargets.set(intent.intentId, target);
+      this.#upsertMailboxEntry(target, intent);
+    }
+
+    // Absence is retraction — drop entries whose intent left the author's
+    // presence (or moved to a different target).
+    for (const [boxTarget, box] of this.#mailboxes) {
+      for (let index = box.length - 1; index >= 0; index -= 1) {
+        if (steerTargets.get(box[index]!.intentId) !== boxTarget) box.splice(index, 1);
       }
-      this.#acks.set(intent.intentId, { state: "admitted", target });
-      this.#ensureMailbox(target).push({ intentId: intent.intentId, body: intent.body });
     }
     this.#publish();
   }
 
   /**
-   * Envelope verb — kernel-handled at admission, never the actor's mailbox.
+   * Envelope verb — kernel-handled at admission, never the actor's inbox.
    * Bypasses acceptsMessages and the running/bound gate: any open target is
-   * cancellable (declared work folds too). One execution per intentId.
+   * cancellable (declared work folds too).
    */
   #admitCancellation(intent: IntentRecord): void {
-    const existing = this.#acks.get(intent.intentId);
-    if (existing !== undefined) {
-      if (!existing.state.startsWith("refused:")) return;
-      this.#acks.delete(intent.intentId);
-    }
     const target = intent.target;
-    if (isTerminal(target.state)) {
-      this.#acks.set(intent.intentId, { state: "refused:target_terminal", target: null });
-      return;
-    }
+    if (isTerminal(target.state)) return;
     const body = (intent.body && typeof intent.body === "object" ? intent.body : {}) as {
       strength?: unknown;
       reason?: unknown;
     };
-    const result = this.requestCancellation(target, {
+    this.requestCancellation(target, {
       strength: body.strength === "cooperative" ? "cooperative" : "immediate",
       reason: typeof body.reason === "string" ? body.reason : undefined,
     });
-    this.#acks.set(intent.intentId, result.ok ? { state: "considered", target } : { state: "dropped", target: null });
-  }
-
-  #applyIntentOutcome(intentId: string, outcome: "considered" | "dropped"): void {
-    const ack = this.#acks.get(intentId);
-    if (ack?.state !== "admitted") return;
-    this.#acks.set(intentId, { state: outcome, target: ack.target });
-    this.#removeMailboxEntry(ack.target, intentId);
-    this.#publish();
   }
 
   #ensureMailbox(E: Expectation): MailboxEntry[] {
@@ -459,20 +421,13 @@ export abstract class Orchestrator {
     return box;
   }
 
-  #removeMailboxEntry(target: Expectation | null, intentId: string): void {
-    if (target === null) return;
-    const box = this.#mailboxes.get(target);
-    if (!box) return;
-    const index = box.findIndex((item) => item.intentId === intentId);
-    if (index !== -1) box.splice(index, 1);
-  }
-
-  #reshapeMailboxEntry(target: Expectation | null, intent: IntentRecord): void {
-    if (target === null) return;
-    const box = this.#mailboxes.get(target);
-    if (!box) return;
+  /** Add or reshape-in-place, keyed by intentId. */
+  #upsertMailboxEntry(target: Expectation, intent: IntentRecord): void {
+    const box = this.#ensureMailbox(target);
     const index = box.findIndex((item) => item.intentId === intent.intentId);
-    if (index !== -1 && box[index]!.body !== intent.body) {
+    if (index === -1) {
+      box.push({ intentId: intent.intentId, body: intent.body });
+    } else if (box[index]!.body !== intent.body) {
       box.splice(index, 1, { intentId: intent.intentId, body: intent.body });
     }
   }
@@ -537,7 +492,6 @@ export abstract class Orchestrator {
   claimPresence(): ClaimPresenceStatus {
     return {
       binds: [...this.table.keys()],
-      acks: [...this.#acks].map(([intentId, ack]) => ({ intentId, state: ack.state })),
     };
   }
 

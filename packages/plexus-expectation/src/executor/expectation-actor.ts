@@ -1,4 +1,4 @@
-import type { ActorHandle, ActorPresenceClient, IntentOutcome, LaunchContext, Settlement } from "./types.js";
+import type { ActorHandle, ActorPresenceClient, LaunchContext, Settlement } from "./types.js";
 import type { Expectation, ReportOf, ResultOf } from "../shared/models/Expectation.js";
 
 /**
@@ -22,8 +22,6 @@ export abstract class ExpectationActor<E extends Expectation<any, any, never> = 
   #resolveSettled!: (settlement: Settlement<ResultOf<E>>) => void;
   #rejectSettled!: (reason: unknown) => void;
   readonly #settled: Promise<Settlement<ResultOf<E>>>;
-  readonly #outcomeSinks: ((outcome: IntentOutcome) => void)[] = [];
-  readonly #pendingOutcomes: IntentOutcome[] = [];
 
   /** Surface fulfillments: no presence client. */
   protected readonly mintsPresence: boolean = true;
@@ -86,15 +84,6 @@ export abstract class ExpectationActor<E extends Expectation<any, any, never> = 
     this.#settle({ outcome: "fail", reason });
   }
 
-  protected outcome(intentId: string, outcome: "considered" | "dropped"): void {
-    const message: IntentOutcome = { intentId, outcome };
-    if (this.#outcomeSinks.length === 0) {
-      this.#pendingOutcomes.push(message);
-      return;
-    }
-    for (const sink of this.#outcomeSinks) sink(message);
-  }
-
   #settle(settlement: Settlement<ResultOf<E>>): void {
     if (this.#settlement !== null || this.#crashed) return;
     this.#settlement = settlement;
@@ -113,12 +102,6 @@ export abstract class ExpectationActor<E extends Expectation<any, any, never> = 
       clientId: this.clientId,
       settlement: () => this.#settlement,
       lastReport: () => (this.#lastReportJson === null ? null : (JSON.parse(this.#lastReportJson) as unknown)),
-      onControlOutcome: (sink) => {
-        this.#outcomeSinks.push(sink);
-        while (this.#pendingOutcomes.length > 0) {
-          sink(this.#pendingOutcomes.shift()!);
-        }
-      },
     };
   }
 }

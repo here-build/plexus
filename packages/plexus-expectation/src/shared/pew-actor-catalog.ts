@@ -9,7 +9,7 @@
 import { PlexusAwareness, removeAwarenessStates } from "@here.build/plexus";
 import { computed } from "mobx";
 
-import type { IntentAckState, IntentRecord } from "./control.js";
+import type { IntentRecord } from "./control.js";
 import { isTerminal } from "./lifecycle.js";
 import type { Expectation } from "./models/Expectation.js";
 import {
@@ -40,11 +40,9 @@ export class PEWActorCatalog {
       const client = reactive.clients.get(id);
       if (client.field("role") !== "kernel") continue;
       const binds = client.field("binds");
-      const acks = client.field("acks");
       out.push({
         clientId: id,
         binds: (Array.isArray(binds) ? binds : []) as readonly Expectation[],
-        acks: (Array.isArray(acks) ? acks : []) as readonly PewClaimRecord["acks"][number][],
       });
     }
     return out;
@@ -87,18 +85,11 @@ export class PEWActorCatalog {
     return out;
   }
 
-  ack(intentId: string): IntentAckState | undefined {
-    const rec = this.claim;
-    if (!rec) return undefined;
-    return rec.acks.find((a) => a.intentId === intentId)?.state;
-  }
-
-  /** Publish binds + acks on the stable claim client. */
+  /** Publish binds on the stable claim client. */
   publishClaim(status: ClaimPresenceStatus): void {
     const client = this.#ensureClaimClient();
     client.setField("role", "kernel");
     client.setField("binds", status.binds as never);
-    client.setField("acks", status.acks as never);
   }
 
   /**
@@ -129,7 +120,6 @@ export class PEWActorCatalog {
     const next = this.#ensureClaimClient();
     next.setField("role", "kernel");
     next.setField("binds", status.binds as never);
-    next.setField("acks", status.acks as never);
     old?.destroy();
   }
 
@@ -155,19 +145,15 @@ export class PEWActorCatalog {
   }
 
   /**
-   * `pew.request*` entry: prune settled records, mint an id unique across
-   * authors (pen clientID + local seq), append, republish. The prune IS the
-   * retract — a record leaves presence once acked terminally
-   * (considered/dropped) or once its target seals, and the kernel's
-   * ack-ledger cleanup keys on that disappearance (§8).
+   * `pew.request*` entry: prune records whose target ended, mint an id unique
+   * across authors (pen clientID + local seq), append, republish. The prune IS
+   * the retract — a standing record leaves presence once its target seals, and
+   * the kernel's inbox mirror keys on that disappearance (§8). No acks: a
+   * steer stands until its target ends or the author process dies.
    */
   submitRequest(target: Expectation, body: unknown, kind?: "cancel"): string {
     const client = this.#ensureAuthorClient();
-    this.#authored = this.#authored.filter((record) => {
-      if (isTerminal(record.target.state)) return false;
-      const state = this.ack(record.intentId);
-      return state !== "considered" && state !== "dropped";
-    });
+    this.#authored = this.#authored.filter((record) => !isTerminal(record.target.state));
     this.#requestSeq += 1;
     const intentId = `i${client.clientID}-${this.#requestSeq}`;
     this.#authored.push({ intentId, target, body, ...(kind === "cancel" ? { kind } : {}) });

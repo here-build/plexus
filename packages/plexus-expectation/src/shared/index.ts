@@ -34,9 +34,6 @@ export {
   type CancellationStrength,
   type SettleSurfaceDisposition,
   type IntentRecord,
-  type IntentRefusalCode,
-  type IntentAckState,
-  type IntentAck,
 } from "./control.js";
 
 export { ExpectationState } from "./expectation-state.js";

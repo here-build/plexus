@@ -83,9 +83,6 @@ export class ScriptedActor extends ExpectationActor<TestExpectation> {
     this.fail(reason);
   }
 
-  doOutcome(intentId: string, outcome: "considered" | "dropped"): void {
-    this.outcome(intentId, outcome);
-  }
 }
 
 export class TestLoader extends ExpectationLoader<TestExpectation> {

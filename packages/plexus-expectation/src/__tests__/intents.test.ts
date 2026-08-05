@@ -17,12 +17,8 @@ afterEach(() => {
   cleanup = [];
 });
 
-function ackOf(host: PewTestHost, intentId: string): string | undefined {
-  return host.lastClaim().acks.find((a) => a.intentId === intentId)?.state;
-}
-
-describe("steering intents", () => {
-  it("admits against a live bound execution and shows the entry in the actor's mailbox", async () => {
+describe("steering intents (inbox contract — no acks)", () => {
+  it("mirrors a standing intent into the bound actor's inbox", async () => {
     let mailbox: MailboxView | null = null;
     const { host, dispose } = makeHost((_actor, ctx) => {
       mailbox = ctx.mailbox;
@@ -33,13 +29,12 @@ describe("steering intents", () => {
 
     host.authorIntents = [{ intentId: "i1", target: E, body: { verb: "retry now" } }];
     host.admitIntents();
-    expect(ackOf(host, "i1")).toBe("admitted");
     expect(mailbox!.entries).toEqual([{ intentId: "i1", body: { verb: "retry now" } }]);
   });
 
-  it("actor outcome folds into the ack and clears the mailbox entry", async () => {
+  it("an entry stands across sweeps while the intent stays authored — what the actor does with it is its own business", async () => {
     let mailbox: MailboxView | null = null;
-    const { host, loader, dispose } = makeHost((_actor, ctx) => {
+    const { host, dispose } = makeHost((_actor, ctx) => {
       mailbox = ctx.mailbox;
     });
     cleanup.push(dispose);
@@ -47,14 +42,16 @@ describe("steering intents", () => {
     await activateThroughLoad(host);
     host.authorIntents = [{ intentId: "i1", target: E, body: 1 }];
     host.admitIntents();
-
-    loader.lastActor!.doOutcome("i1", "considered");
-    expect(ackOf(host, "i1")).toBe("considered");
-    expect(mailbox!.entries).toEqual([]);
+    host.admitIntents();
+    host.admitIntents();
+    expect(mailbox!.entries).toEqual([{ intentId: "i1", body: 1 }]);
   });
 
-  it("refuses: unknown target, terminal target, unbound target, messages not accepted", async () => {
-    const { host, loader, dispose } = makeHost();
+  it("never mirrors: unknown target, terminal target, unbound target", async () => {
+    let mailbox: MailboxView | null = null;
+    const { host, loader, dispose } = makeHost((_actor, ctx) => {
+      mailbox = ctx.mailbox;
+    });
     cleanup.push(dispose);
 
     const bound = host.mint(new TestExpectation());
@@ -73,15 +70,17 @@ describe("steering intents", () => {
       { intentId: "early", target: unbound, body: null },
     ];
     host.admitIntents();
-    expect(ackOf(host, "ghost")).toBe("refused:target_unbound");
-    expect(ackOf(host, "late")).toBe("refused:target_terminal");
-    expect(ackOf(host, "early")).toBe("refused:target_unbound");
+    expect(mailbox!.entries).toEqual([]);
+    expect(unbound.state).toBe("declared");
   });
 
-  it("refuses when the definition does not accept messages", async () => {
+  it("does not mirror when the definition does not accept messages", async () => {
     const host = new PewTestHost();
     cleanup.push(() => host.dispose());
-    const loader = new TestLoader();
+    let mailbox: MailboxView | null = null;
+    const loader = new TestLoader((_actor, ctx) => {
+      mailbox = ctx.mailbox;
+    });
     host.plan(TestExpectation.kind, new InProcessLaunchDefinition(), loader); // acceptsMessages: false
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
@@ -89,23 +88,26 @@ describe("steering intents", () => {
 
     host.authorIntents = [{ intentId: "i1", target: E, body: null }];
     host.admitIntents();
-    expect(ackOf(host, "i1")).toBe("refused:messages_not_accepted");
+    expect(mailbox!.entries).toEqual([]);
   });
 
-  it("a refusal is re-evaluated once the target binds (no sticky refuse across the load handshake)", async () => {
-    const { host, dispose } = makeHost();
+  it("front-run needs no ledger: an early intent lands once the target binds", async () => {
+    let mailbox: MailboxView | null = null;
+    const { host, dispose } = makeHost((_actor, ctx) => {
+      mailbox = ctx.mailbox;
+    });
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
     host.authorIntents = [{ intentId: "early-bird", target: E, body: "steer" }];
-    host.admitIntents(); // target declared, not bound yet
-    expect(ackOf(host, "early-bird")).toBe("refused:target_unbound");
+    host.admitIntents(); // target declared, not bound yet — nothing mirrored, nothing recorded
+    expect(mailbox).toBeNull();
 
-    await activateThroughLoad(host); // reconcile admits again after bind
+    await activateThroughLoad(host); // reconcile sweeps again after bind
     expect(E.state).toBe("running");
-    expect(ackOf(host, "early-bird")).toBe("admitted");
+    expect(mailbox!.entries).toEqual([{ intentId: "early-bird", body: "steer" }]);
   });
 
-  it("retract = record removed from the author's presence; ack and mailbox entry drop", async () => {
+  it("retract = absence: the entry drops when the intent leaves the author's presence", async () => {
     let mailbox: MailboxView | null = null;
     const { host, dispose } = makeHost((_actor, ctx) => {
       mailbox = ctx.mailbox;
@@ -119,13 +121,12 @@ describe("steering intents", () => {
 
     host.authorIntents = [];
     host.admitIntents();
-    expect(ackOf(host, "i1")).toBeUndefined();
     expect(mailbox!.entries).toEqual([]);
   });
 
-  it("reshape = in-place body edit; no epochs, outcome correlates by intentId only", async () => {
+  it("reshape = in-place upsert by intentId; no epochs", async () => {
     let mailbox: MailboxView | null = null;
-    const { host, loader, dispose } = makeHost((_actor, ctx) => {
+    const { host, dispose } = makeHost((_actor, ctx) => {
       mailbox = ctx.mailbox;
     });
     cleanup.push(dispose);
@@ -136,25 +137,21 @@ describe("steering intents", () => {
     host.authorIntents = [{ intentId: "i1", target: E, body: "v2" }];
     host.admitIntents();
     expect(mailbox!.entries).toEqual([{ intentId: "i1", body: "v2" }]);
-    expect(ackOf(host, "i1")).toBe("admitted");
-
-    loader.lastActor!.doOutcome("i1", "dropped");
-    expect(ackOf(host, "i1")).toBe("dropped");
   });
 
-  it("execution end reaps acks; a post-reap outcome folds into nothing", async () => {
-    const { host, loader, dispose } = makeHost();
+  it("reap empties the inbox: a captured view reads empty after the execution ends", async () => {
+    let mailbox: MailboxView | null = null;
+    const { host, dispose } = makeHost((_actor, ctx) => {
+      mailbox = ctx.mailbox;
+    });
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
     host.authorIntents = [{ intentId: "i1", target: E, body: 1 }];
     host.admitIntents();
-    const actor = loader.lastActor!;
+    expect(mailbox!.entries).toHaveLength(1);
 
     host.requestCancellation(E, { strength: "immediate" });
-    expect(ackOf(host, "i1")).toBeUndefined();
-
-    actor.doOutcome("i1", "considered");
-    expect(ackOf(host, "i1")).toBeUndefined();
+    expect(mailbox!.entries).toEqual([]);
   });
 });

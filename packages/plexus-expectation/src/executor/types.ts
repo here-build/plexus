@@ -14,11 +14,6 @@ export type Settlement<TResult> =
   | { readonly outcome: "complete"; readonly result: TResult }
   | { readonly outcome: "fail"; readonly reason: unknown };
 
-export type IntentOutcome = {
-  readonly intentId: string;
-  readonly outcome: "considered" | "dropped";
-};
-
 export type MailboxEntry<TIntent = unknown> = {
   readonly intentId: string;
   /** Current body; in-place reshape replaces it — no revision id. */
@@ -26,8 +21,11 @@ export type MailboxEntry<TIntent = unknown> = {
 };
 
 /**
- * Kernel-owned list, actor-read-only. Iterate a copy: the kernel splices in
- * the same turn an outcome lands.
+ * The actor's inbox: a kernel-maintained mirror of standing author intents
+ * targeting this execution. Actor-read-only; what the actor does with an
+ * entry is its own decision — there is no ack channel. Entries leave on
+ * retraction (the intent left the author's presence) or at reap. Iterate a
+ * copy: the kernel splices during admission sweeps.
  */
 export type MailboxView<TIntent = unknown> = {
   readonly entries: readonly MailboxEntry<TIntent>[];
@@ -53,7 +51,6 @@ export type ActorHandle = {
   settlement(): Settlement<unknown> | null;
   /** Last good serialized frame for the terminal fold. */
   lastReport(): unknown | null;
-  onControlOutcome(sink: (outcome: IntentOutcome) => void): void;
 };
 
 export type PlanResolution =

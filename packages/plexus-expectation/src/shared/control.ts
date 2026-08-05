@@ -2,9 +2,12 @@
  * Steering is ephemeral presence data, not durable model state.
  *
  * Admission is "target open + locally bound right now" + one-execution — so a
- * stale intent in an author's presence can never reach a future run. No epochs,
- * no revision correlation: outcomes key on intentId only. Retract = remove;
- * reshape = edit body in place. Rights = doc access; finer auth is host-layer.
+ * stale intent in an author's presence can never reach a future run. There are
+ * no acks: the kernel's only responsibility is mirroring standing intents into
+ * the actor's inbox; what the actor does with an entry is its own decision,
+ * observable through the report stream and durable plane. No epochs; retract =
+ * remove; reshape = edit body in place. Rights = doc access; finer auth is
+ * host-layer.
  */
 
 export type EndCause = "settled" | "surface" | "cancel" | "supervision" | "crash";
@@ -33,11 +36,3 @@ export type CancellationRequestData = {
   readonly [key: string]: unknown;
 };
 
-export type IntentRefusalCode = "target_terminal" | "target_unbound" | "messages_not_accepted";
-
-export type IntentAckState = "admitted" | "considered" | "dropped" | `refused:${IntentRefusalCode}`;
-
-export type IntentAck = {
-  readonly intentId: string;
-  readonly state: IntentAckState;
-};

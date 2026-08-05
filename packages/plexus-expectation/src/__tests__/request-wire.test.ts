@@ -3,10 +3,11 @@
  *
  * Named for what should happen, not how internals work. No session parameter —
  * the target carries its hub (`E.__doc__` → family → awareness), so a
- * cross-session mistake is unrepresentable. PEW owns the author bookkeeping:
- * records stay in presence until acked terminally (considered/dropped) or the
- * target seals, then prune on the next submission — the prune IS the retract,
- * which is what lets the kernel clean its ack ledger (§8).
+ * cross-session mistake is unrepresentable. No acks either: a steer stands in
+ * the author's presence until its target ends (the prune on next submission IS
+ * the retract), the kernel mirrors standing steers into the actor's inbox, and
+ * outcomes — if any — are observable through the report stream and the durable
+ * plane, nowhere else.
  *
  * Topology mirrors intents-wire.test.ts: the author is a SECOND PEW instance,
  * because the kernel's scan excludes its own pens by design.
@@ -15,6 +16,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { activateThroughLoad, flushMicrotasks, makeHost, TestExpectation } from "./_helpers/test-host.js";
+import { type MailboxView } from "../executor/index.js";
 import { PEW } from "../shared/index.js";
 
 let cleanup: (() => void)[] = [];
@@ -24,8 +26,11 @@ afterEach(() => {
 });
 
 describe("pew.request", () => {
-  it("round-trip: request → admit → actor outcome → prune on next submission", async () => {
-    const { host, loader, dispose } = makeHost();
+  it("round-trip: request lands in the actor's inbox and stands while the work runs", async () => {
+    let mailbox: MailboxView | null = null;
+    const { host, dispose } = makeHost((_actor, ctx) => {
+      mailbox = ctx.mailbox;
+    });
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
@@ -35,18 +40,34 @@ describe("pew.request", () => {
     expect(typeof first).toBe("string");
 
     host.admitIntents();
-    const ackOf = (id: string) => host.lastClaim().acks.find((a) => a.intentId === id)?.state;
-    expect(ackOf(first)).toBe("admitted");
+    expect(mailbox!.entries).toEqual([{ intentId: first, body: { note: "steer one" } }]);
 
-    loader.lastActor!.doOutcome(first, "considered");
-    expect(ackOf(first)).toBe("considered");
-
-    // Next submission prunes the acked record — the retract the kernel's
-    // ack-ledger cleanup keys on.
+    // A second steer joins — both stand; the actor decides what each means.
     const second = authorPew.request(E, { note: "steer two" });
     host.admitIntents();
-    expect(ackOf(first)).toBeUndefined();
-    expect(ackOf(second)).toBe("admitted");
+    expect(mailbox!.entries.map((entry) => entry.intentId)).toEqual([first, second]);
+  });
+
+  it("records prune once the target ends — the retract the inbox mirror keys on", async () => {
+    const { host, loader, dispose } = makeHost();
+    cleanup.push(dispose);
+    const E = host.mint(new TestExpectation());
+    await activateThroughLoad(host);
+
+    const authorPew = new PEW({ kernel: host.plexus });
+    authorPew.request(E, { note: "while running" });
+    expect(host.getAuthorIntents()).toHaveLength(1);
+
+    loader.lastActor!.doComplete({ value: "ok" });
+    await flushMicrotasks();
+    expect(E.state).toBe("sealed");
+
+    // Next submission prunes the sealed target's record.
+    const E2 = host.mint(new TestExpectation());
+    host.reconcile();
+    await flushMicrotasks();
+    const fresh = authorPew.request(E2, { note: "fresh" });
+    expect(host.getAuthorIntents().map((intent) => intent.intentId)).toEqual([fresh]);
   });
 
   it("request minted ids are distinct", async () => {
@@ -71,7 +92,7 @@ describe("pew.request", () => {
 });
 
 describe("pew.requestCancellation", () => {
-  it("running target: kernel folds to cancelled, ack considered", async () => {
+  it("running target: kernel folds to cancelled — the durable plane is the acknowledgment", async () => {
     const { host, dispose } = makeHost();
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
@@ -79,17 +100,16 @@ describe("pew.requestCancellation", () => {
     expect(E.state).toBe("running");
 
     const authorPew = new PEW({ kernel: host.plexus });
-    const id = authorPew.requestCancellation(E, { reason: "user abort" });
+    authorPew.requestCancellation(E, { reason: "user abort" });
 
     host.admitIntents();
     await flushMicrotasks();
     expect(E.state).toBe("cancelled");
     expect(E.endCause).toBe("cancel");
     expect(E.endDetail).toBe("user abort");
-    expect(host.lastClaim().acks.find((a) => a.intentId === id)?.state).toBe("considered");
   });
 
-  it("declared (not yet running) target is cancellable — envelope verb, not a mailbox message", async () => {
+  it("declared (not yet running) target is cancellable — envelope verb, not an inbox message", async () => {
     const { host, dispose } = makeHost();
     cleanup.push(dispose);
     // Never reconciled: E stays declared, no actor, no bind.
@@ -103,21 +123,20 @@ describe("pew.requestCancellation", () => {
     expect(E.state).toBe("cancelled");
   });
 
-  it("cooperative strength is not implemented: ack dropped, state untouched", async () => {
+  it("cooperative strength is not implemented: nothing happens, state untouched", async () => {
     const { host, dispose } = makeHost();
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
 
     const authorPew = new PEW({ kernel: host.plexus });
-    const id = authorPew.requestCancellation(E, { strength: "cooperative" });
+    authorPew.requestCancellation(E, { strength: "cooperative" });
 
     host.admitIntents();
     expect(E.state).toBe("running");
-    expect(host.lastClaim().acks.find((a) => a.intentId === id)?.state).toBe("dropped");
   });
 
-  it("terminal target: refused, then pruned on the author's next submission", async () => {
+  it("terminal target: a no-op, and the record prunes on the author's next submission", async () => {
     const { host, loader, dispose } = makeHost();
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
@@ -127,17 +146,14 @@ describe("pew.requestCancellation", () => {
     expect(E.state).toBe("sealed");
 
     const authorPew = new PEW({ kernel: host.plexus });
-    const late = authorPew.requestCancellation(E);
+    authorPew.requestCancellation(E);
     host.admitIntents();
-    expect(host.lastClaim().acks.find((a) => a.intentId === late)?.state).toBe("refused:target_terminal");
+    expect(E.state).toBe("sealed");
 
-    // Terminal-target records prune on next submission; the kernel then
-    // clears the refusal from its ledger.
     const E2 = host.mint(new TestExpectation());
     host.reconcile();
     await flushMicrotasks();
-    authorPew.request(E2, { note: "fresh" });
-    host.admitIntents();
-    expect(host.lastClaim().acks.find((a) => a.intentId === late)).toBeUndefined();
+    const fresh = authorPew.request(E2, { note: "fresh" });
+    expect(host.getAuthorIntents().map((intent) => intent.intentId)).toEqual([fresh]);
   });
 });

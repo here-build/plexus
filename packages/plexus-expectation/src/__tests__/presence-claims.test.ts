@@ -25,7 +25,7 @@ describe("claim records on the wire (§17.5)", () => {
     await activateThroughLoad(host); // own claim record published
 
     const rival = new PEW({ kernel: host.plexus });
-    rival.actors(host.plexus).publishClaim({ binds: [], acks: [] });
+    rival.actors(host.plexus).publishClaim({ binds: [] });
 
     expect(host.pew!.actors(host.plexus).hasDualClaim).toBe(true);
     expect(host.pew!.actors(host.plexus).claim).toBeNull(); // no sole claim under dual
@@ -52,7 +52,7 @@ describe("claim records on the wire (§17.5)", () => {
 
     // A dead predecessor's claim record (its process is gone; record lingers).
     const corpse = new PEW({ kernel: host.plexus });
-    corpse.actors(host.plexus).publishClaim({ binds: [], acks: [] });
+    corpse.actors(host.plexus).publishClaim({ binds: [] });
     expect(host.pew!.actors(host.plexus).hasDualClaim).toBe(true);
 
     host.pew!.actors(host.plexus).installClaim();
@@ -74,7 +74,7 @@ describe("claim records on the wire (§17.5)", () => {
     actors.retireClaim();
     expect(actors.claim).toBeNull(); // no sticky clientId cache
 
-    actors.publishClaim({ binds: [], acks: [] });
+    actors.publishClaim({ binds: [] });
     const after = actors.claim;
     expect(after).not.toBeNull();
     expect(after!.clientId).not.toBe(before!.clientId); // fresh identity, rediscovered
@@ -128,7 +128,7 @@ describe("two-doc topology (§17.1)", () => {
     // Split-brain PEW: kernel doc ≠ session doc (DO topology).
     const pew = new PEW({ kernel: kernelPlexus });
     pew.loaders.publish({ loaders: { "test.unit": "loaded" }, capabilities: {} });
-    pew.actors(host.plexus).publishClaim({ binds: [], acks: [] });
+    pew.actors(host.plexus).publishClaim({ binds: [] });
 
     // Catalog readable via the kernel hub; absent from the session hub's claim face.
     expect(pew.loaders.plan("test.unit")?.health).toBe("loaded");

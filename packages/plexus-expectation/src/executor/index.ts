@@ -6,7 +6,6 @@ export {
   type ActorPresenceClient,
   type CancellationErrorCode,
   type CancellationResult,
-  type IntentOutcome,
   type LaunchContext,
   type LoaderCapability,
   type LoaderHealth,

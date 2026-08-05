@@ -14,7 +14,7 @@ import "@here.build/plexus-mobx-awareness/register";
 import { DefaultedWeakMap } from "@here.build/collections";
 import { type AwarenessSerializable, type AwarenessShape, Plexus, PlexusAwareness } from "@here.build/plexus";
 
-import type { CancellationRequestData, IntentAck, IntentRecord } from "./control.js";
+import type { CancellationRequestData, IntentRecord } from "./control.js";
 import { ExpectationState } from "./expectation-state.js";
 import type { AnyExpectation, Expectation, IntentOf } from "./models/Expectation.js";
 import { PEWActorCatalog } from "./pew-actor-catalog.js";
@@ -39,12 +39,10 @@ export type PlanAvailability = {
 export type PewClaimRecord = {
   readonly clientId: number;
   readonly binds: readonly Expectation[];
-  readonly acks: readonly IntentAck[];
 };
 
 export type ClaimPresenceStatus = {
   readonly binds: readonly Expectation[];
-  readonly acks: readonly IntentAck[];
 };
 
 export type CatalogPresenceStatus = {
@@ -67,7 +65,6 @@ export type PewHubShape = AwarenessShape & {
   binds?: readonly Expectation[];
   loaders?: Readonly<Record<string, LoaderHealth>>;
   capabilities?: Readonly<Record<string, LoaderCapability>>;
-  acks?: readonly IntentAck[];
   report?: AwarenessSerializable;
   intents?: readonly IntentRecord[];
   kind?: string;

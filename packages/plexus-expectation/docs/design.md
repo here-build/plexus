@@ -31,7 +31,7 @@ PEW keeps one durable noun (Expectation), one kernel process face, and three iso
 | Plane | Substrate | Contents |
 |-------|-----------|----------|
 | **Durable** | Plexus CRDT | Expectation tree, LaunchDefinition registry, terminal records |
-| **Awareness** | Plexus presence (ephemeral) | Actor state updates, steering intents, kernel status (acks, binds, loader health), loader capability records |
+| **Awareness** | Plexus presence (ephemeral) | Actor state updates, steering intents, kernel status (binds, loader health), loader capability records |
 | **Process** | Claim-owner memory | Kernel table, loaders, actor handles |
 
 **ONE RECORD, ONE WRITER.** Every record has exactly one writer, fixed by plane and phase:
@@ -91,7 +91,7 @@ class ToolCallExpectation extends Expectation<ToolResult, ToolReport> {
 
 class ToolCallLaunchDefinition extends LaunchDefinition { /* durable config */ }
 
-class ToolCallActor extends ExpectationActor<ToolCallInput, ToolResult, ToolReport> {
+class ToolCallActor extends ExpectationActor<ToolCallExpectation> {
   /* internal logic — any shape: state machine, buffer, array */
 }
 ```
@@ -106,7 +106,7 @@ and definition are implementations OF its contract (`ExpectationLoader<E>` / `Ex
 | `TResult` | settlement → `applySettlement` | product outcome shape; each triad's own (dict, array, tuple — no shared shape imposed) |
 | `TReport` | awareness updates + `lastReportJson` | **must be JSON-serializable** — serialized at publish, so violations fail loudly at the first report, not at the terminal fold |
 | input | `snapshotInput` → `LaunchContext.input` | snapshot of declaration fields at spawn; typed by the subclass's own `snapshotInput` override (no separate parameter) |
-| `TIntent` | mailbox entries (`MailboxView<IntentOf<E>>`) | the steering intents this kind handles; default `never` — an expectation that declares none is unsteerable at compile time. Types only: wire bodies stay untrusted and the actor still answers `dropped` for shapes it can't parse |
+| `TIntent` | mailbox entries (`MailboxView<IntentOf<E>>`) | the steering intents this kind handles; default `never` — an expectation that declares none is unsteerable at compile time. Types only: wire bodies stay untrusted and the actor simply ignores shapes it cannot parse |
 
 The kernel owns **when** durable writes happen; the subclass owns **what** they mean.
 `applySettlement` runs inside the kernel's terminal transaction — entity-typed logic, kernel-held
@@ -194,9 +194,8 @@ plane.
 |---------|-----------|-------|---------|
 | Updates | actor → world | awareness | actor-shaped `TReport`; not durable while open; final frame folded at terminal |
 | Settlement | actor → kernel | process (once) | `complete(result)` \| `fail(reason)` — buffered synchronously on the handle at emit (§7), promise resolves after |
-| Control outcomes | actor → kernel | process | per-intent `considered` \| `dropped`; success-or-error, no payload, uncorrelated with updates |
 | Cancel | kernel → actor | AbortSignal | the only kernel-initiated signal |
-| Mailbox | kernel-maintained, actor-observed | process | read-only view of admitted live intents; data, not callbacks |
+| Inbox | kernel-maintained, actor-observed | process | read-only mirror of standing live intents; data, not callbacks. What the actor does with an entry is its own decision — there is no outcome channel back |
 
 The mailbox is a view the actor polls or observes — the alternative (delivery callbacks into the
 actor) is a duplex control channel that forces hook-forwarding boilerplate through every loader
@@ -208,11 +207,6 @@ and actor layer, plus bind-time flush choreography.
 type Settlement<TResult> =
   | { readonly outcome: "complete"; readonly result: TResult }
   | { readonly outcome: "fail"; readonly reason: unknown };
-
-type IntentOutcome = {
-  readonly intentId: string;
-  readonly outcome: "considered" | "dropped";
-};
 
 type MailboxEntry = {
   readonly intentId: string;
@@ -232,7 +226,6 @@ type ActorHandle = {
   readonly clientId: number;              // session-hub presence id; never 0 when minted; 0 = unassigned
   settlement(): Settlement<unknown> | null; // sync buffer, set at emit — folds consult it first
   lastReport(): unknown | null;             // kernel-side frame buffer — §6
-  onControlOutcome(sink: (o: IntentOutcome) => void): void;
 };
 ```
 
@@ -340,7 +333,7 @@ fold(root, terminal, endCause, endDetail?):
   for each open descendant, leaves-first:
     settleOrEnd(node, cancelled, supervision)
   settleOrEnd(root, terminal, endCause, endDetail)
-  reap subtree: drop table entries, release presence, drop mailboxes + acks
+  reap subtree: drop table entries, release presence, drop inboxes
 
 settleOrEnd(node, terminal, cause, detail?):
   s = table.get(node)?.settlement()
@@ -399,29 +392,26 @@ Protocol (each arrow is a presence write in the writer's OWN record, or a proces
 ```text
 author presence:  intents: [{ intentId, target /* Expectation model */, body }]
                        │  (kernel observes)
-kernel admission: target open + locally bound + definition.acceptsMessages
-                  (intentId collisions: first writer wins)   → admitted | refused:<code>
-claim presence:   acks: [{ intentId, state: admitted | refused:<code> | considered | dropped }]
-                       │  (mailbox view updates)
-actor:            observes mailbox at its own pace → emits considered | dropped
-kernel:           folds outcome into its claim-record ack
+kernel mirror:    target open + locally bound + definition.acceptsMessages
+                  → entry upserted into the target's inbox; else nothing
+actor:            observes its inbox at its own pace and does whatever it
+                  decides — there is no outcome channel back
 ```
 
-- **Acknowledged, no promises.** Admission means "the kernel accepted the request and routed it";
-  if the execution ends first, the intent dies with it — admission is not a delivery guarantee.
-  `considered` is the actor saying "taken into consideration"; what it did about it shows up (or
-  not) in the updates stream, uncorrelated.
-- **Retract** = the author removes the intent from their presence. **Reshape** = the author edits
-  the body in place. Both are observed as diffs; neither is an API call. There are **no epochs**
-  and **no revision correlation**: outcomes correlate by `intentId` only — an author needing to
-  know which revision was honored retracts and mints a new `intentId`. Versioning machinery on a
-  channel that promises nothing buys nothing.
-- Intents targeting a terminal or unbound Expectation are refused at admission — and refusals
-  are RE-EVALUATED on later sweeps while the intent stays authored: a target that was mid-load
-  ("unbound") admits once it binds. Only `considered`/`dropped` are final acks. Admitted intents
-  that outlive their execution vanish with the kernel's ack record at reap — an author observing
-  a terminal target and a reaped ack learns "the execution ended; no promise was broken, because
-  none was made." An actor's outcome emitted after reap folds into nothing, by the same clause.
+- **No acks, no promises.** The kernel's only responsibility is mirroring standing intents into
+  the bound actor's inbox. What the actor does with an entry is the actor's own decision;
+  effects — if any — are observable through the updates stream and the durable plane,
+  uncorrelated. A request whose target never binds simply never lands; nothing records that.
+- **Retract** = the author removes the intent from their presence — the entry drops from the
+  inbox on the next sweep. **Reshape** = the author edits the body in place — an in-place upsert
+  keyed by `intentId`. Both are observed as diffs; neither is an API call. There are **no
+  epochs**: an author needing to distinguish revisions retracts and mints a new `intentId`.
+  Versioning machinery on a channel that promises nothing buys nothing.
+- Every sweep is a **full re-derivation** of the inboxes from the currently-authored intents —
+  that is what makes the edge cases free. Front-run: an intent authored before its target binds
+  lands on the first sweep after bind, no refusal ledger to reset. Terminal or unbound targets:
+  nothing mirrored, nothing recorded. Reap: the inbox empties with the execution, and a standing
+  intent against the sealed target mirrors nowhere ever again (one-execution).
 - **Steering rights = doc access.** Admission is purely mechanical; any peer that can write the
   session's presence can author intents. Finer-grained authorization is a host-layer concern
   (host filters which peers' presence it feeds the kernel) — rationale for this cut belongs in
@@ -431,16 +421,16 @@ kernel:           folds outcome into its claim-record ack
   so there is no session parameter and a cross-session mistake is unrepresentable. Typed by the
   target's contract (`IntentOf<E>`; `TIntent = never` → unsteerable at compile time). PEW owns
   the author bookkeeping: `request` mints the `intentId` (author-pen clientID + local seq),
-  appends to a process-local authored set, and projects it onto the author pen; records prune on
-  the next submission once acked terminally (`considered`/`dropped`) or once the target seals —
-  **the prune is the retract** the kernel's ack-ledger cleanup keys on. Presence dying with the
-  process gives crash-retraction for free.
+  appends to a process-local authored set, and projects it onto the author pen. A record stands
+  until its target ends; the prune on the next submission **is** the retract the kernel's inbox
+  mirror keys on. Presence dying with the process gives crash-retraction for free.
 - **`pew.requestCancellation(target, additionalData?)`** rides the same wire with the envelope
-  verb `kind: "cancel"`. The kernel handles it at admission — it never reaches the actor's
-  mailbox, and it bypasses `acceptsMessages` and the running/bound gate: any open target is
-  cancellable, declared work included. `strength` defaults to immediate (`cooperative` acks
-  `dropped` until implemented); `reason` lands in `endDetail`. Ack on success is `considered`.
-  One execution per intentId; a refused cancellation re-evaluates like any refusal.
+  verb `kind: "cancel"`. The kernel handles it at the sweep — it never reaches the actor's
+  inbox, and it bypasses `acceptsMessages` and the running/bound gate: any open target is
+  cancellable, declared work included. `strength` defaults to immediate (`cooperative` is a
+  silent no-op until implemented); `reason` lands in `endDetail`. Idempotent by construction —
+  folding a terminal target is a no-op — so re-processing per sweep is harmless. **The durable
+  plane is the acknowledgment**: the author observes `state`/`endCause`, not a meta-channel.
 
 Example intents (product vocabulary, opaque to PEW): "retry now" (server stuck — steer the live
 actor to retry internally; the execution never ended, so one-execution holds), "break early to
@@ -544,7 +534,7 @@ supervision bargain.
   activation in flight.
 - The claim owner **self-registers** a presence record on the **session** hub under an
   **arbitrary client id** (not the hub base; never `0` — §17). That record carries binds, intent
-  acks, and the claim marker. Loader health / capability inventory live on the **orchestration**
+  and the claim marker. Loader health / capability inventory live on the **orchestration**
   hub instead (global catalog). Presence-based dual-claim detection is **advisory** — a tripwire
   for lease bugs, not the mutual exclusion itself: two live claim-marked peers freeze activation
   on both sides and surface a host error until one yields. During such a window, durable writes
@@ -609,7 +599,7 @@ Load-bearing invariants and the test that breaks when they break (unit unless no
 | LAST REPORT on every path | one test per end-trigger row asserting `lastReportJson` matches the final good frame; serialize-failure keeps prior frame and takes crash fold |
 | `applySettlement` throw | terminal + `endDetail` committed, fields partial, no zombie `running`; partial-apply marker pair readable |
 | Author cancel | `declared` entity cancelled by author without any kernel; kernel's first write ends the ability (post-`running` author cancel refused) |
-| Intent admission | refused on: terminal target, unbound target, `acceptsMessages: false`; refusal re-admits after bind; intentId collision = first writer wins; target is Expectation model identity |
+| Intent mirror | never mirrored: terminal target, unbound target, `acceptsMessages: false`; front-run lands after bind (full re-derivation per sweep); target is Expectation model identity |
 | No-epoch reshape | in-place body edit visible in mailbox; outcome folds by intentId regardless of revision |
 | Dual-claim freeze | two claim-marked presence records on one session hub freezes activation both ways |
 | Loader health | failing `load()` appears in orchestration catalog, work stays open, no hot loop; `missing`/`refused` move onward when definition/loader registered |
@@ -698,7 +688,7 @@ revision absorbs those findings. Reviews live under `docs/reviews/`.
 | Doc | Durable contents | Presence face |
 |-----|------------------|---------------|
 | **Orchestration (kernel)** | `Orchestration.plans` / LaunchDefinition home | **Global catalog** — loader health + capability inventory (kind-keyed; no session entity refs) |
-| **Session** | Expectation trees, openWork | **Execution** — claim record (binds, acks), actor `report`s, author intents |
+| **Session** | Expectation trees, openWork | **Execution** — claim record (binds), actor `report`s, author intents |
 
 Loaders are available **globally**. Execution only matters **to a specific session**. Putting
 session `Expectation`s onto the orchestration hub is forbidden — the substrate's serialization
@@ -766,7 +756,6 @@ No `binds`. No Expectation entity refs.
 |-------|---------|
 | `role` | `"kernel"` (claim marker) — **required** for discovery |
 | `binds` | `Expectation` models (substrate-serialized), same family as the hub |
-| `acks` | `{ intentId, state }[]` |
 
 Published under an **arbitrary** regular-range client id (`PlexusAwareness.createLocalClient`),
 **not** the hub base `clientID`. See §17.5.
@@ -841,7 +830,6 @@ type PlanAvailability = {
 type PewClaimRecord = {
   readonly clientId: number;
   readonly binds: readonly Expectation[];
-  readonly acks: readonly IntentAck[];
 };
 
 type ActorPresenceClient = {
@@ -869,7 +857,6 @@ class PEW {
     readonly hasDualClaim: boolean;
     /** Author intents on the hub — excludes this catalog's own claim + author pens. */
     readonly intents: readonly IntentRecord[];
-    ack(intentId: string): IntentAckState | undefined;
     publishClaim(status: ClaimPresenceStatus): void;
     /** Install under lease — evicts stale claim peers first (§17.5). */
     installClaim(): void;
@@ -892,7 +879,7 @@ class PEW {
 
   /**
    * Author face — entity-routed (hub from target.__doc__), typed by the
-   * target's contract. Returns the intentId; the ack ladder is readable via
+   * target's contract. Returns the intentId; outcomes are observable through
    * the hub's claim record. See §8.
    */
   request<E extends AnyExpectation>(target: E, intent: IntentOf<E>): string;
@@ -944,7 +931,7 @@ On **install** while holding the session writer lease, **before** publishing own
 1. Scan session hub for all `role: "kernel"` records (raw).
 2. **Evict** them via `removeAwarenessStates` (they are dead predecessors or lease bugs; if a
    live rival republishes, dual-claim re-arms correctly).
-3. Mint claim client, publish `role` + binds + acks.
+3. Mint claim client, publish `role` + binds.
 
 This prevents up-to-timeout self-freeze on a reborn lease-holder seeing its own corpse
 (`outdatedTimeout` is substrate-default; host may tune if plexus exposes it — PEW states the
@@ -957,7 +944,7 @@ evict-on-install rule so it does not depend on timeout).
 ```text
 reload:
   newClient = createLocalClient(hub)
-  publish role + binds + acks on newClient
+  publish role + binds on newClient
   destroy oldClient          // only after new is visible
 ```
 
@@ -1024,10 +1011,10 @@ pew.publishCatalog({ loaders, capabilities });
 // activate E
 const client = pew.mintActorClient(session);  // clientId ≠ 0
 // on reap: client.destroy(); processorClientId cleared to unassigned (0)
-pew.publishClaim(session, { binds: [...table.keys()], acks });
+pew.publishClaim(session, { binds: [...table.keys()] });
 
 // admission
-for (const intent of pew.readIntents(session)) { … tolerant target … }
+for (const intent of pew.readIntents(session)) { … mirror into inboxes … }
 
 // dispose lease
 pew.retireClaim(session);

@@ -48,18 +48,12 @@ export type MailboxView = {
   readonly entries: readonly MailboxEntry[];
 };
 
-/** Host audit sink; core never reads it back. */
-export type LogPort = {
-  append(line: string): void;
-};
-
 export type LaunchContext<TInput = unknown> = {
   readonly input: TInput;
   readonly definition: LaunchDefinitionSnapshot;
   readonly signal: AbortSignal;
   readonly presence: PresencePort;
   readonly mailbox: MailboxView;
-  readonly log?: LogPort;
 };
 
 /**

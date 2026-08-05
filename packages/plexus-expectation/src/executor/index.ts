@@ -10,7 +10,6 @@ export {
   type LaunchContext,
   type LoaderCapability,
   type LoaderHealth,
-  type LogPort,
   type MailboxEntry,
   type MailboxView,
   type OpResult,

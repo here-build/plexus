@@ -13,7 +13,6 @@ import type {
   LaunchContext,
   LoaderCapability,
   LoaderHealth,
-  LogPort,
   MailboxEntry,
   PlanResolution,
   PresencePort,
@@ -98,10 +97,6 @@ export abstract class Orchestrator {
   /** Host side-effect after catalog face is assembled (loaders + capabilities). PEW wire is separate. */
   protected onCatalogPresence(_status: CatalogPresenceStatus): void {}
 
-  getLogPort(): LogPort | undefined {
-    return undefined;
-  }
-
 
   resolvePlan(kind: string): PlanResolution {
     const def = this.getOrchestration().plans.get(kind);
@@ -153,7 +148,6 @@ export abstract class Orchestrator {
         signal: controller.signal,
         presence: presence.port,
         mailbox: { entries: mailbox },
-        log: this.getLogPort(),
       };
 
       let handle: ActorHandle;

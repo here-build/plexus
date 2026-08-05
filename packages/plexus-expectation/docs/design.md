@@ -219,7 +219,6 @@ type LaunchContext<TInput> = {
   readonly signal: AbortSignal;
   readonly presence: PresencePort;   // mints the actor's awareness client on the session hub
   readonly mailbox: MailboxView;     // observable readonly MailboxEntry[]
-  readonly log?: LogPort;            // host-provided sink (endpoint or fs path) — §8 audit
 };
 
 type ActorHandle = {
@@ -233,7 +232,7 @@ type ActorHandle = {
 
 Port contracts (one line each): `PresencePort` mints at most one awareness client per spawn, on
 the session hub; `MailboxView` is a read-only observable list whose entries the kernel adds and
-removes; `LogPort` is an opaque append sink the core never reads back.
+removes.
 
 ---
 
@@ -426,11 +425,11 @@ Example intents (product vocabulary, opaque to PEW): "retry now" (server stuck �
 actor to retry internally; the execution never ended, so one-execution holds), "break early to
 steer", "stop and quit as-is".
 
-**Audit is the actor's job, not the model's.** There is no durable intent log in the core: a
-synced log is a permanent CRDT commitment with no core consumer, and steering history is
-execution history — it belongs where the execution's other artifacts live. The kernel passes a
-host-provided `LogPort` (endpoint or fs path) in `LaunchContext`; loaders and actors that want an
-audit trail write to it.
+**There is no intent audit channel.** A synced intent log is a permanent CRDT commitment with
+no core consumer, and a process-side log sink is a second record of the world — the doc IS the
+record. What steering did to an execution shows up (or not) in the updates stream and the
+terminal fold; problems go to stderr. An actor that wants richer history appends inside its own
+`TReport` shape.
 
 ---
 
@@ -538,16 +537,13 @@ supervision bargain.
 
 ---
 
-## 13. Journal relationship
+## 13. There is no journal
 
-| | PEW | Journal (host) |
-|--|-----|----------------|
-| Open-work authority | Expectation tree | not a second lifecycle |
-| Progress | awareness | optional debug mirror |
-| Terminals | Expectation state + `endCause` + product fields + last report | optional observability |
-
-Hosts may dual-write during migration (the journal is the host's own record — §2 scope); product
-truth for "is this still owed?" is PEW.
+The yjs doc is the record. Open-work authority is the Expectation tree; progress is awareness;
+terminals carry `endCause`, product fields, and the last report. A host journal is a second book
+of the same facts, and every second book eventually disagrees with the first — the only channel
+PEW keeps besides the doc and awareness is **stderr, for faults**. A host still migrating off a
+journal treats it as debug output on a deletion path, never as a truth source.
 
 ---
 

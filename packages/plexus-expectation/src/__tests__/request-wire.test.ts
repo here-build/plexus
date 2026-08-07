@@ -1,16 +1,12 @@
 /**
  * The author face: `pew.request(target, intent)` / `pew.requestCancellation`.
  *
- * Named for what should happen, not how internals work. No session parameter —
- * the target carries its hub (`E.__doc__` → family → awareness), so a
- * cross-session mistake is unrepresentable. No acks either: a steer stands in
- * the author's presence until its target ends (the prune on next submission IS
- * the retract), the kernel mirrors standing steers into the actor's inbox, and
- * outcomes — if any — are observable through the report stream and the durable
- * plane, nowhere else.
+ * No session parameter — the target carries its hub. Steers write
+ * `expectation:${uuid}:intents`; cancels write `expectation:${uuid}:cancellation`.
+ * Actor mailbox is a live intents-lane lens (no admitIntents for steers).
+ * Claim-owner `admitIntents` folds open units that see cancellation-lane entries.
  *
- * Topology mirrors intents-wire.test.ts: the author is a SECOND PEW instance,
- * because the kernel's scan excludes its own pens by design.
+ * Topology: author is a SECOND PEW instance (different peer).
  */
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -39,16 +35,15 @@ describe("pew.request", () => {
     const first = authorPew.request(E, { note: "steer one" });
     expect(typeof first).toBe("string");
 
-    host.admitIntents();
+    // Live lane — no admitIntents for steers.
     expect(mailbox!.entries).toEqual([{ intentId: first, body: { note: "steer one" } }]);
 
     // A second steer joins — both stand; the actor decides what each means.
     const second = authorPew.request(E, { note: "steer two" });
-    host.admitIntents();
     expect(mailbox!.entries.map((entry) => entry.intentId)).toEqual([first, second]);
   });
 
-  it("records prune once the target ends — the retract the inbox mirror keys on", async () => {
+  it("records prune once the target ends — next submission clears the sealed lane", async () => {
     const { host, loader, dispose } = makeHost();
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
@@ -62,7 +57,7 @@ describe("pew.request", () => {
     await flushMicrotasks();
     expect(E.state).toBe("sealed");
 
-    // Next submission prunes the sealed target's record.
+    // Next submission prunes the sealed target's lane.
     const E2 = host.mint(new TestExpectation());
     host.reconcile();
     await flushMicrotasks();

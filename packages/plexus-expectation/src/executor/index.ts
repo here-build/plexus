@@ -22,6 +22,5 @@ export {
   PEW,
   type CatalogPresenceStatus,
   type ClaimPresenceStatus,
-  type PewClaimRecord,
   type PlanAvailability,
 } from "../shared/presence.js";

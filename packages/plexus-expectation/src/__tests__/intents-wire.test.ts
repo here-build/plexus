@@ -1,13 +1,9 @@
 /**
- * Steering intents over the REAL wire — the round-trip the fake-injection
- * tests never exercised: an author PEW publishes intents into its own presence
- * on the session hub (entity models, serialized by the membrane), the kernel's
- * PEW scan reads them back (models again, resolved on the authoring plane),
- * and the inbox mirror keys on instance identity against the kernel's table.
+ * Steering intents over the REAL wire: an author PEW writes the target's
+ * `expectation:${uuid}:intents` lane on its own pen; the bound actor's mailbox
+ * is a live lens over that lane — no kernel mirror, no admitIntents for steers.
  *
- * The author is a SECOND PEW instance — mirroring reality, where the author is
- * a different peer/process — because the kernel's scan excludes its own claim
- * and author pens by design.
+ * The author is a SECOND PEW instance — mirroring reality (different peer).
  */
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -23,7 +19,7 @@ afterEach(() => {
 });
 
 describe("steering intents over the wire", () => {
-  it("author publishes → kernel scan mirrors into the inbox → retract drops", async () => {
+  it("author publishes lane → live mailbox → retract drops", async () => {
     let mailbox: MailboxView | null = null;
     const { host, dispose } = makeHost((_actor, ctx) => {
       mailbox = ctx.mailbox;
@@ -33,21 +29,18 @@ describe("steering intents over the wire", () => {
     await activateThroughLoad(host);
     expect(E.state).toBe("running");
 
-    // Author side: separate PEW, same session — its author pen is a distinct
-    // wire client the kernel's scan must pick up.
     const authorPew = new PEW({ kernel: host.plexus });
-    authorPew.actors(host.plexus).publishIntents([{ intentId: "w1", target: E, body: { verb: "retry now" } }]);
+    authorPew.actors(host.plexus).setTargetIntents(E, [
+      { intentId: "w1", body: { verb: "retry now" } },
+    ]);
 
-    host.admitIntents();
     expect(mailbox!.entries).toEqual([{ intentId: "w1", body: { verb: "retry now" } }]);
 
-    // Retract = the author removes the record from their presence.
-    authorPew.actors(host.plexus).publishIntents([]);
-    host.admitIntents();
+    authorPew.actors(host.plexus).setTargetIntents(E, []);
     expect(mailbox!.entries).toEqual([]);
   });
 
-  it("wire intents targeting a terminal entity are never mirrored", async () => {
+  it("wire intents targeting a terminal entity are never surfaced", async () => {
     let mailbox: MailboxView | null = null;
     const { host, loader, dispose } = makeHost((_actor, ctx) => {
       mailbox = ctx.mailbox;
@@ -61,9 +54,8 @@ describe("steering intents over the wire", () => {
     expect(E.state).toBe("sealed");
 
     const authorPew = new PEW({ kernel: host.plexus });
-    authorPew.actors(host.plexus).publishIntents([{ intentId: "late", target: E, body: null }]);
+    authorPew.actors(host.plexus).setTargetIntents(E, [{ intentId: "late", body: null }]);
 
-    host.admitIntents();
     expect(mailbox!.entries).toEqual([]);
   });
 });

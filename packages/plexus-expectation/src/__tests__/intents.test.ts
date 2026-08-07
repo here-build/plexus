@@ -9,7 +9,12 @@ import {
   TestLoader,
 } from "./_helpers/test-host.js";
 import { type MailboxView } from "../executor/index.js";
-import { InProcessLaunchDefinition } from "../shared/index.js";
+import {
+  cancellationLaneField,
+  InProcessLaunchDefinition,
+  intentLaneField,
+  PEW,
+} from "../shared/index.js";
 
 let cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -17,8 +22,8 @@ afterEach(() => {
   cleanup = [];
 });
 
-describe("steering intents (inbox contract — no acks)", () => {
-  it("mirrors a standing intent into the bound actor's inbox", async () => {
+describe("steering intents (live lane — no kernel mirror)", () => {
+  it("standing intent on the target's lane lands in the bound actor's mailbox", async () => {
     let mailbox: MailboxView | null = null;
     const { host, dispose } = makeHost((_actor, ctx) => {
       mailbox = ctx.mailbox;
@@ -27,12 +32,12 @@ describe("steering intents (inbox contract — no acks)", () => {
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
 
-    host.authorIntents = [{ intentId: "i1", target: E, body: { verb: "retry now" } }];
-    host.admitIntents();
-    expect(mailbox!.entries).toEqual([{ intentId: "i1", body: { verb: "retry now" } }]);
+    const author = new PEW({ kernel: host.plexus });
+    const intentId = author.request(E, { note: "retry now" });
+    expect(mailbox!.entries).toEqual([{ intentId, body: { note: "retry now" } }]);
   });
 
-  it("an entry stands across sweeps while the intent stays authored — what the actor does with it is its own business", async () => {
+  it("an entry stands while the lane holds it — what the actor does is its own business", async () => {
     let mailbox: MailboxView | null = null;
     const { host, dispose } = makeHost((_actor, ctx) => {
       mailbox = ctx.mailbox;
@@ -40,14 +45,14 @@ describe("steering intents (inbox contract — no acks)", () => {
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
-    host.authorIntents = [{ intentId: "i1", target: E, body: 1 }];
-    host.admitIntents();
-    host.admitIntents();
-    host.admitIntents();
-    expect(mailbox!.entries).toEqual([{ intentId: "i1", body: 1 }]);
+    const author = new PEW({ kernel: host.plexus });
+    const intentId = author.request(E, { note: "x" } as never);
+    // Live lens — re-read is the same standing entry (no admit sweep).
+    expect(mailbox!.entries).toEqual([{ intentId, body: { note: "x" } }]);
+    expect(mailbox!.entries).toEqual([{ intentId, body: { note: "x" } }]);
   });
 
-  it("never mirrors: unknown target, terminal target, unbound target", async () => {
+  it("never surfaces: terminal target, unbound target (no actor mailbox yet)", async () => {
     let mailbox: MailboxView | null = null;
     const { host, loader, dispose } = makeHost((_actor, ctx) => {
       mailbox = ctx.mailbox;
@@ -56,25 +61,21 @@ describe("steering intents (inbox contract — no acks)", () => {
 
     const bound = host.mint(new TestExpectation());
     await activateThroughLoad(host);
-    const unbound = host.mint(new TestExpectation()); // minted after the sweep — still declared
+    const unbound = host.mint(new TestExpectation()); // declared — no actor
 
     loader.lastActor!.doComplete({ value: "done" });
-    await flushMicrotasks(); // bound is now terminal
+    await flushMicrotasks();
     expect(bound.state).toBe("sealed");
 
-    // Ghost target: unminted entity (never home'd into the forest).
-    const ghost = new TestExpectation();
-    host.authorIntents = [
-      { intentId: "ghost", target: ghost, body: null },
-      { intentId: "late", target: bound, body: null },
-      { intentId: "early", target: unbound, body: null },
-    ];
-    host.admitIntents();
+    const author = new PEW({ kernel: host.plexus });
+    author.request(bound, { note: "late" });
+    author.request(unbound, { note: "early" });
+    // Bound is terminal → live mailbox empty; unbound has no mailbox object.
     expect(mailbox!.entries).toEqual([]);
     expect(unbound.state).toBe("declared");
   });
 
-  it("does not mirror when the definition does not accept messages", async () => {
+  it("does not surface when the definition does not accept messages", async () => {
     const host = new PewTestHost();
     cleanup.push(() => host.dispose());
     let mailbox: MailboxView | null = null;
@@ -86,8 +87,8 @@ describe("steering intents (inbox contract — no acks)", () => {
     await activateThroughLoad(host);
     expect(E.state).toBe("running");
 
-    host.authorIntents = [{ intentId: "i1", target: E, body: null }];
-    host.admitIntents();
+    const author = new PEW({ kernel: host.plexus });
+    author.request(E, { note: "nope" } as never);
     expect(mailbox!.entries).toEqual([]);
   });
 
@@ -98,16 +99,16 @@ describe("steering intents (inbox contract — no acks)", () => {
     });
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
-    host.authorIntents = [{ intentId: "early-bird", target: E, body: "steer" }];
-    host.admitIntents(); // target declared, not bound yet — nothing mirrored, nothing recorded
-    expect(mailbox).toBeNull();
+    const author = new PEW({ kernel: host.plexus });
+    const intentId = author.request(E, { note: "steer" });
+    expect(mailbox).toBeNull(); // not activated yet
 
-    await activateThroughLoad(host); // reconcile sweeps again after bind
+    await activateThroughLoad(host);
     expect(E.state).toBe("running");
-    expect(mailbox!.entries).toEqual([{ intentId: "early-bird", body: "steer" }]);
+    expect(mailbox!.entries).toEqual([{ intentId, body: { note: "steer" } }]);
   });
 
-  it("retract = absence: the entry drops when the intent leaves the author's presence", async () => {
+  it("retract = absence: the entry drops when the author clears the lane", async () => {
     let mailbox: MailboxView | null = null;
     const { host, dispose } = makeHost((_actor, ctx) => {
       mailbox = ctx.mailbox;
@@ -115,16 +116,15 @@ describe("steering intents (inbox contract — no acks)", () => {
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
-    host.authorIntents = [{ intentId: "i1", target: E, body: 1 }];
-    host.admitIntents();
+    const author = new PEW({ kernel: host.plexus });
+    author.request(E, { note: "1" });
     expect(mailbox!.entries).toHaveLength(1);
 
-    host.authorIntents = [];
-    host.admitIntents();
+    author.actors(host.plexus).setTargetIntents(E, []);
     expect(mailbox!.entries).toEqual([]);
   });
 
-  it("reshape = in-place upsert by intentId; no epochs", async () => {
+  it("reshape = rewrite the lane list (same intentId, new body)", async () => {
     let mailbox: MailboxView | null = null;
     const { host, dispose } = makeHost((_actor, ctx) => {
       mailbox = ctx.mailbox;
@@ -132,14 +132,14 @@ describe("steering intents (inbox contract — no acks)", () => {
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
-    host.authorIntents = [{ intentId: "i1", target: E, body: "v1" }];
-    host.admitIntents();
-    host.authorIntents = [{ intentId: "i1", target: E, body: "v2" }];
-    host.admitIntents();
+    const actors = new PEW({ kernel: host.plexus }).actors(host.plexus);
+    actors.setTargetIntents(E, [{ intentId: "i1", body: "v1" }]);
+    expect(mailbox!.entries).toEqual([{ intentId: "i1", body: "v1" }]);
+    actors.setTargetIntents(E, [{ intentId: "i1", body: "v2" }]);
     expect(mailbox!.entries).toEqual([{ intentId: "i1", body: "v2" }]);
   });
 
-  it("reap empties the inbox: a captured view reads empty after the execution ends", async () => {
+  it("reap / terminal: live mailbox empties when the execution ends", async () => {
     let mailbox: MailboxView | null = null;
     const { host, dispose } = makeHost((_actor, ctx) => {
       mailbox = ctx.mailbox;
@@ -147,11 +147,42 @@ describe("steering intents (inbox contract — no acks)", () => {
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
     await activateThroughLoad(host);
-    host.authorIntents = [{ intentId: "i1", target: E, body: 1 }];
-    host.admitIntents();
+    const author = new PEW({ kernel: host.plexus });
+    author.request(E, { note: "1" });
     expect(mailbox!.entries).toHaveLength(1);
 
     host.requestCancellation(E, { strength: "immediate" });
     expect(mailbox!.entries).toEqual([]);
+  });
+
+  it("lane field names are expectation:${uuid}:intents and :cancellation", async () => {
+    const { host, dispose } = makeHost();
+    cleanup.push(dispose);
+    const E = host.mint(new TestExpectation());
+    await activateThroughLoad(host);
+    const author = new PEW({ kernel: host.plexus });
+    author.request(E, { note: "n" });
+    author.requestCancellation(E, { reason: "stop" });
+
+    const intentsKey = intentLaneField(E.uuid);
+    const cancelKey = cancellationLaneField(E.uuid);
+    expect(intentsKey).toBe(`expectation:${E.uuid}:intents`);
+    expect(cancelKey).toBe(`expectation:${E.uuid}:cancellation`);
+
+    const hub = host.plexus.awareness;
+    let foundIntents = false;
+    let foundCancel = false;
+    for (const id of hub.reactive.clientIds) {
+      const client = hub.reactive.clients.get(id);
+      const intents = client.field(intentsKey);
+      const cancels = client.field(cancelKey);
+      if (Array.isArray(intents) && intents.length > 0) foundIntents = true;
+      if (Array.isArray(cancels) && cancels.length > 0) foundCancel = true;
+    }
+    expect(foundIntents).toBe(true);
+    expect(foundCancel).toBe(true);
+
+    // Cancel is not mixed into the actor mailbox.
+    // (mailbox captured only when actor scripts; re-activate not needed — field check above)
   });
 });

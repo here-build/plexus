@@ -9,7 +9,7 @@ import {
   type ClaimPresenceStatus,
   type LaunchContext,
 } from "../../executor/index.js";
-import { Expectation, Orchestration, PEW, type IntentRecord, type LaunchDefinition } from "../../shared/index.js";
+import { Expectation, Orchestration, PEW, type LaunchDefinition } from "../../shared/index.js";
 import { InProcessLaunchDefinition } from "../../shared/models/index.js";
 
 /** Minimal triad + host for kernel tests. One forest model, scripted actors, a settable loader. */
@@ -131,9 +131,6 @@ export class PewTestHost extends Orchestrator {
   readonly awareness: PlexusAwareness | null;
   readonly loaders = new Map<unknown, ExpectationLoader>();
   claimOwner: boolean;
-  peerBinds = new Set<string>();
-  /** Injected intents (bypasses PEW hub scan). */
-  authorIntents: IntentRecord[] = [];
   candidates: Expectation[] = [];
   readonly #hubEnabled: boolean;
 
@@ -181,22 +178,12 @@ export class PewTestHost extends Orchestrator {
     return this.candidates;
   }
 
-  hasLiveClaimPeerBind(E: Expectation): boolean {
-    return this.peerBinds.has(E.uuid);
-  }
-
   getSessionPlexus(): Plexus<any> | null {
     return this.#hubEnabled ? this.plexus : null;
   }
 
   protected override createPew(): PEW | null {
     return this.#hubEnabled ? new PEW({ kernel: this.plexus }) : null;
-  }
-
-  override getAuthorIntents(): readonly IntentRecord[] {
-    // Injected intents bypass the wire for kernel-mechanics tests; when none
-    // are injected, the real PEW hub scan runs (wire round-trip tests).
-    return this.authorIntents.length > 0 ? this.authorIntents : super.getAuthorIntents();
   }
 
   lastClaim(): ClaimPresenceStatus {

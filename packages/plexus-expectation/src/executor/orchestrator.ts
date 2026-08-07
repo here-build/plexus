@@ -1,5 +1,4 @@
-import type { Plexus } from "@here.build/plexus";
-import { observable } from "mobx";
+import type { Plexus, PlexusAwareness } from "@here.build/plexus";
 
 import type { ExpectationLoader } from "./expectation-loader.js";
 import type {
@@ -11,17 +10,25 @@ import type {
   LoaderCapability,
   LoaderHealth,
   MailboxEntry,
+  MailboxView,
   PlanResolution,
   PresencePort,
   SettleSurfaceResult,
   Settlement,
 } from "./types.js";
-import type { CancellationStrength, EndCause, IntentRecord, SettleSurfaceDisposition } from "../shared/control.js";
+import type {
+  CancellationLaneEntry,
+  CancellationStrength,
+  EndCause,
+  IntentRecord,
+  SettleSurfaceDisposition,
+} from "../shared/control.js";
 import { isActivatable, isTerminal, type TerminalLifecycle } from "../shared/lifecycle.js";
 import { Expectation } from "../shared/models/Expectation.js";
 import { LaunchDefinition } from "../shared/models/LaunchDefinition.js";
 import type { Orchestration } from "../shared/models/Orchestration.js";
 import { SurfaceLaunchDefinition } from "../shared/models/SurfaceLaunchDefinition.js";
+import { collectCancellationLane, collectIntentLane } from "../shared/pew-actor-catalog.js";
 import { PEW } from "../shared/presence.js";
 
 type AnyPlexus = Plexus<any>;
@@ -32,8 +39,11 @@ type AnyPlexus = Plexus<any>;
  * Two critical sections are synchronous by contract (no await):
  *   1. activation: resolve → running → spawn → processorClientId → table
  *   2. fold: terminal check → snapshot → durable writes → reap
- * That is what makes first-writer-wins true without locks. Lease is mutual
- * exclusion; dual-claim presence is advisory. Optional PEW via createPew.
+ * That is what makes first-writer-wins true without locks.
+ *
+ * Singleton claim is product topology (singular pew-daemon), not dual-claim
+ * awareness defence. Optional PEW via createPew carries actor reports +
+ * per-expectation intent lanes + catalog pens — not a central intents bag.
  */
 export abstract class Orchestrator {
   readonly table: Map<Expectation, TableEntry> = new Map();
@@ -43,10 +53,8 @@ export abstract class Orchestrator {
   readonly #capabilities = new Map<string, LoaderCapability>();
   /** In-flight load() promises — waiters (warm / rebootstrap) join these. */
   readonly #loadPromises = new Map<string, Promise<void>>();
-  readonly #mailboxes = new Map<Expectation, MailboxEntry[]>();
 
   #pew: PEW | null | undefined = undefined;
-  #claimInstalled = false;
 
   abstract getOrchestration(): Orchestration;
 
@@ -59,8 +67,6 @@ export abstract class Orchestrator {
   abstract getOpenWorkRoots(): readonly Expectation[];
 
   abstract walkCandidates(): Iterable<Expectation>;
-
-  abstract hasLiveClaimPeerBind(E: Expectation): boolean;
 
   /** Null = process-local only (no presence wire). */
   abstract getSessionPlexus(): AnyPlexus | null;
@@ -75,15 +81,16 @@ export abstract class Orchestrator {
     return null;
   }
 
+  /**
+   * Standing author intents across the session hub (lane scan). Prefer
+   * per-target {@link collectIntentLane} / live mailboxes for product paths.
+   */
   getAuthorIntents(): readonly IntentRecord[] {
     const pew = this.pew;
     const session = this.getSessionPlexus();
     if (pew && session) return pew.actors(session).intents;
     return [];
   }
-
-  /** Host side-effect after claim face is assembled (binds). PEW wire is separate. */
-  protected onClaimPresence(_status: ClaimPresenceStatus): void {}
 
   /** Host side-effect after catalog face is assembled (loaders + capabilities). PEW wire is separate. */
   protected onCatalogPresence(_status: CatalogPresenceStatus): void {}
@@ -96,7 +103,6 @@ export abstract class Orchestrator {
 
   activate(E: Expectation): void {
     if (!this.isClaimOwner()) return;
-    if (this.#isDualClaimFrozen()) return;
     if (isTerminal(E.state)) return;
     if (E.state === "running") return;
     if (this.activating.has(E)) return;
@@ -130,7 +136,8 @@ export abstract class Orchestrator {
 
       const controller = new AbortController();
       const presence = this.#mintPresencePort();
-      const mailbox = this.#ensureMailbox(E);
+      // Live lane lens — no kernel mirror. Steers only; cancel is envelope.
+      const mailbox = this.#liveMailbox(E, def.acceptsMessages);
       // Kernel is type-agnostic: generics re-establish at the loader/actor
       // edge, so the mailbox crosses as the base contract's `never` intents.
       const ctx: LaunchContext = {
@@ -138,7 +145,7 @@ export abstract class Orchestrator {
         definition: def.toSnapshot(),
         signal: controller.signal,
         presence: presence.port,
-        mailbox: { entries: mailbox } as unknown as LaunchContext["mailbox"],
+        mailbox: mailbox as unknown as LaunchContext["mailbox"],
       };
 
       let handle: ActorHandle;
@@ -323,12 +330,6 @@ export abstract class Orchestrator {
     if (node.processorClientId !== 0) {
       node.processorClientId = 0;
     }
-    const mailbox = this.#mailboxes.get(node);
-    if (mailbox) {
-      // Splice clean so a captured MailboxView reads empty, then drop the box.
-      mailbox.splice(0);
-      this.#mailboxes.delete(node);
-    }
     this.activating.delete(node);
   }
 
@@ -355,54 +356,31 @@ export abstract class Orchestrator {
   }
 
   /**
-   * The kernel's only intent responsibility: mirror standing author intents
-   * into bound targets' inboxes, and execute envelope verbs. No acks — what an
-   * actor does with an inbox entry is the actor's own decision, observable (if
-   * at all) through the report stream and the durable plane. Every sweep is a
-   * full re-derivation, which is what makes the edge cases free: front-run
-   * intents land once their target binds (no refusal ledger to reset), reshape
-   * is an in-place upsert, retraction is absence, and cancellations are
-   * idempotent because folding a terminal target is a no-op.
+   * Admit envelope cancels from each open unit's **cancellation** lane
+   * (`expectation:${uuid}:cancellation`). Steers are not mirrored — the
+   * actor's mailbox is a live intents-lane lens. Cancellations are idempotent
+   * because folding a terminal target is a no-op.
    */
   admitIntents(): void {
-    const intents = this.getAuthorIntents();
-    const steerTargets = new Map<string, Expectation>();
+    const hub = this.#sessionHub();
+    if (!hub) return;
 
-    for (const intent of intents) {
-      if (intent.kind === "cancel") {
-        this.#admitCancellation(intent);
-        continue;
-      }
-
-      const target = intent.target;
+    for (const target of collectReachable(this.getOpenWorkRoots())) {
       if (isTerminal(target.state)) continue;
-      if (this.table.get(target) === undefined || target.state !== "running") continue;
-      const plan = this.resolvePlan(target.kind);
-      if (plan.status === "missing" || !plan.def.acceptsMessages) continue;
-
-      steerTargets.set(intent.intentId, target);
-      this.#upsertMailboxEntry(target, intent);
-    }
-
-    // Absence is retraction — drop entries whose intent left the author's
-    // presence (or moved to a different target).
-    for (const [boxTarget, box] of this.#mailboxes) {
-      for (let index = box.length - 1; index >= 0; index -= 1) {
-        if (steerTargets.get(box[index]!.intentId) !== boxTarget) box.splice(index, 1);
+      for (const entry of collectCancellationLane(hub, target.uuid)) {
+        this.#admitCancellation(target, entry);
       }
     }
-    this.#publish();
   }
 
   /**
-   * Envelope verb — kernel-handled at admission, never the actor's inbox.
+   * Envelope verb — claim-owner at admission, never the actor's inbox.
    * Bypasses acceptsMessages and the running/bound gate: any open target is
    * cancellable (declared work folds too).
    */
-  #admitCancellation(intent: IntentRecord): void {
-    const target = intent.target;
+  #admitCancellation(target: Expectation, entry: CancellationLaneEntry): void {
     if (isTerminal(target.state)) return;
-    const body = (intent.body && typeof intent.body === "object" ? intent.body : {}) as {
+    const body = (entry.body && typeof entry.body === "object" ? entry.body : {}) as {
       strength?: unknown;
       reason?: unknown;
     };
@@ -412,29 +390,34 @@ export abstract class Orchestrator {
     });
   }
 
-  #ensureMailbox(E: Expectation): MailboxEntry[] {
-    let box = this.#mailboxes.get(E);
-    if (!box) {
-      box = observable.array<MailboxEntry>([], { deep: false });
-      this.#mailboxes.set(E, box);
-    }
-    return box;
+  #sessionHub(): PlexusAwareness | null {
+    return this.getSessionPlexus()?.awareness ?? null;
   }
 
-  /** Add or reshape-in-place, keyed by intentId. */
-  #upsertMailboxEntry(target: Expectation, intent: IntentRecord): void {
-    const box = this.#ensureMailbox(target);
-    const index = box.findIndex((item) => item.intentId === intent.intentId);
-    if (index === -1) {
-      box.push({ intentId: intent.intentId, body: intent.body });
-    } else if (box[index]!.body !== intent.body) {
-      box.splice(index, 1, { intentId: intent.intentId, body: intent.body });
-    }
+  /**
+   * Live mailbox: scan `expectation:${E.uuid}:intents` across peers.
+   * Empty when terminal, unbound, or the plan rejects messages.
+   * Cancellation is a separate lane — never mixed into the mailbox.
+   */
+  #liveMailbox(E: Expectation, acceptsMessages: boolean): MailboxView {
+    const self = this;
+    return {
+      get entries(): readonly MailboxEntry[] {
+        if (!acceptsMessages) return [];
+        if (isTerminal(E.state)) return [];
+        if (E.state !== "running" || !self.table.has(E)) return [];
+        const hub = self.#sessionHub();
+        if (!hub) return [];
+        return collectIntentLane(hub, E.uuid).map((entry) => ({
+          intentId: entry.intentId,
+          body: entry.body,
+        }));
+      },
+    };
   }
 
   reconcile(): void {
     if (!this.isClaimOwner()) return;
-    if (this.#isDualClaimFrozen()) return;
 
     const reachable = collectReachable(this.getOpenWorkRoots());
 
@@ -450,13 +433,10 @@ export abstract class Orchestrator {
       this.fold(node, "cancelled", "supervision", "orphaned");
     }
 
+    // Single pew-daemon: no peer claim-bind shield. Running without a local
+    // actor is always claim_orphan (process-local table is sole truth).
     for (const node of collectReachable(this.getOpenWorkRoots())) {
-      if (
-        node.state === "running" &&
-        !this.table.has(node) &&
-        !this.activating.has(node) &&
-        !this.hasLiveClaimPeerBind(node)
-      ) {
+      if (node.state === "running" && !this.table.has(node) && !this.activating.has(node)) {
         this.fold(node, "failed", "supervision", "claim_orphan");
       }
     }
@@ -480,15 +460,12 @@ export abstract class Orchestrator {
       }
     }
     this.#publish();
-    const pew = this.pew;
-    const session = this.getSessionPlexus();
-    if (pew && session) {
-      pew.actors(session).retireClaim();
-    }
-    this.#claimInstalled = false;
   }
 
-  /** Process-local claim face — what `publishClaim` would write. */
+  /**
+   * Process-local held work — the claim table. Not published on awareness:
+   * actors carry their own pens; singleton claim is the singular pew-daemon.
+   */
   claimPresence(): ClaimPresenceStatus {
     return {
       binds: [...this.table.keys()],
@@ -504,34 +481,13 @@ export abstract class Orchestrator {
   }
 
   #publish(): void {
-    const claim = this.claimPresence();
     const catalog = this.catalogPresence();
-    this.onClaimPresence(claim);
     this.onCatalogPresence(catalog);
 
     const pew = this.pew;
     if (!pew) return;
 
     pew.loaders.publish(catalog);
-
-    const session = this.getSessionPlexus();
-    if (!session) return;
-
-    this.#ensureClaimInstalled(session, pew);
-    pew.actors(session).publishClaim(claim);
-  }
-
-  #ensureClaimInstalled(session: AnyPlexus, pew: PEW): void {
-    if (this.#claimInstalled) return;
-    pew.actors(session).installClaim();
-    this.#claimInstalled = true;
-  }
-
-  #isDualClaimFrozen(): boolean {
-    const pew = this.pew;
-    const session = this.getSessionPlexus();
-    if (!pew || !session) return false;
-    return pew.actors(session).hasDualClaim;
   }
 
   #mintPresencePort(): { port: PresencePort; destroy: () => void } {

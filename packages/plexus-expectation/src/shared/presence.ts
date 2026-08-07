@@ -5,8 +5,17 @@
  * substrate's: `awareness.reactive` (plexus-mobx-awareness/register), one lens
  * per hub, disposed with it. Serde is the substrate's too: models go into
  * `setField` and come back out of scans as live family instances
- * (plexus docs/awareness-coherence.md). PEW owns only its pens (claim /
- * author / catalog wire clients) and the domain scans over the lens.
+ * (plexus docs/awareness-coherence.md).
+ *
+ * PEW pens on the session hub:
+ *   - **actor** — per-unit `report` (minted by the claim-owner orchestrator)
+ *   - **author** — per-expectation lanes
+ *       `expectation:${uuid}:intents` and `expectation:${uuid}:cancellation`
+ *   - **catalog** — loaders + capabilities
+ *
+ * No flat intents bag and no claim-binds pen. Singleton claim is product
+ * topology (singular pew-daemon). Lanes are hermetic: authors write the
+ * target's field; actors / cancel admission read it.
  */
 
 import "@here.build/plexus-mobx-awareness/register";
@@ -14,7 +23,7 @@ import "@here.build/plexus-mobx-awareness/register";
 import { DefaultedWeakMap } from "@here.build/collections";
 import { type AwarenessSerializable, type AwarenessShape, Plexus, PlexusAwareness } from "@here.build/plexus";
 
-import type { CancellationRequestData, IntentRecord } from "./control.js";
+import type { CancellationRequestData } from "./control.js";
 import { ExpectationState } from "./expectation-state.js";
 import type { AnyExpectation, Expectation, IntentOf } from "./models/Expectation.js";
 import { PEWActorCatalog } from "./pew-actor-catalog.js";
@@ -36,11 +45,7 @@ export type PlanAvailability = {
   readonly source: "catalog" | "loader" | "both";
 };
 
-export type PewClaimRecord = {
-  readonly clientId: number;
-  readonly binds: readonly Expectation[];
-};
-
+/** Process-local held work snapshot (orchestrator table) — not an awareness bag. */
 export type ClaimPresenceStatus = {
   readonly binds: readonly Expectation[];
 };
@@ -63,17 +68,17 @@ export type ActorPresenceClient = {
 export type PewHubShape = AwarenessShape & {
   /**
    * Pen discriminator on the session hub.
-   * - `kernel` — claim owner (binds)
    * - `catalog` — loaders + capabilities (orchestrator publish after probe)
    * - `loader` — per-loader self-record escape hatch
    * Actor progress pens carry `report` without a role marker.
+   * Author pens carry `expectation:${uuid}:intents` and
+   * `expectation:${uuid}:cancellation` (open string keys on
+   * {@link AwarenessShape}) without a role marker.
    */
-  role?: "kernel" | "catalog" | "loader";
-  binds?: readonly Expectation[];
+  role?: "catalog" | "loader";
   loaders?: Readonly<Record<string, LoaderHealth>>;
   capabilities?: Readonly<Record<string, LoaderCapability>>;
   report?: AwarenessSerializable;
-  intents?: readonly IntentRecord[];
   kind?: string;
   capability?: LoaderCapability;
 };
@@ -104,36 +109,34 @@ export class PEW<P extends Plexus<any, PewHubShape> = Plexus<any, PewHubShape>> 
   }
 
   /**
-   * Ask the claim owner to steer this work. Entity-routed: the target carries
-   * its hub, so there is no session to name and no cross-session mistake to
-   * make. Typed by the target's contract — an expectation that declares no
-   * intents (`TIntent = never`) cannot be requested at compile time. Returns
-   * the intentId. No acks: the kernel mirrors the standing intent into the
-   * bound actor's inbox; what the actor does with it is its own decision.
+   * Publish a steer on the target's intents lane
+   * (`expectation:${uuid}:intents`). Entity-routed: the target carries its
+   * hub. Typed by the target's contract — `TIntent = never` cannot be requested.
+   * No acks: the bound actor reads the lane hermetically.
    */
   request<E extends AnyExpectation>(target: E, intent: IntentOf<E>): string {
-    return this.#submit(target, intent, undefined);
-  }
-
-  /**
-   * Ask the claim owner to cancel this work. An envelope verb — universal
-   * (not TIntent-gated), handled by the kernel at admission, never the
-   * actor's mailbox. `additionalData` rides as the body (`strength`
-   * defaults to immediate; `reason` lands in `endDetail`).
-   */
-  requestCancellation(target: AnyExpectation, additionalData?: CancellationRequestData): string {
-    return this.#submit(target, additionalData ?? {}, "cancel");
-  }
-
-  #submit(target: AnyExpectation, body: unknown, kind: "cancel" | undefined): string {
     const hub = this.of(target as Expectation).sessionHub;
     if (!hub) {
       throw new Error("PEW.request: target has no session hub — home the entity in a synced doc first");
     }
-    return this.actorsForHub(hub).submitRequest(target as Expectation, body, kind);
+    return this.actorsForHub(hub).appendIntent(target as Expectation, intent);
   }
 
-  /** Session-hub claim + intent lens. */
+  /**
+   * Publish a cancel on the target's cancellation lane
+   * (`expectation:${uuid}:cancellation`). Envelope verb — universal (not
+   * TIntent-gated); claim-owner admits from that lane (not the actor mailbox).
+   * `additionalData` rides as the body.
+   */
+  requestCancellation(target: AnyExpectation, additionalData?: CancellationRequestData): string {
+    const hub = this.of(target as Expectation).sessionHub;
+    if (!hub) {
+      throw new Error("PEW.requestCancellation: target has no session hub — home the entity in a synced doc first");
+    }
+    return this.actorsForHub(hub).appendCancellation(target as Expectation, additionalData ?? {});
+  }
+
+  /** Session-hub actor + intent lens. */
   actors(session: P): PEWActorCatalog {
     return this.#actorCatalogs.get(session.awareness as PlexusAwareness);
   }

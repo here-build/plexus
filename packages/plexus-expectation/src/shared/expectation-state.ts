@@ -1,13 +1,19 @@
 /**
- * Per-Expectation presence lens. Session hub from `E.__doc__`; claim/report
- * reads ride the ambient `awareness.reactive` lens and the hub's actor catalog.
+ * Per-Expectation presence lens. Session hub from `E.__doc__`; report / intents
+ * ride the ambient `awareness.reactive` lens.
+ *
+ * Intents / cancels are the target's own lanes across author pens:
+ *   `expectation:${uuid}:intents` / `expectation:${uuid}:cancellation`
+ * `isBound` is process-local lifecycle (running): singleton claim is the
+ * singular pew-daemon.
  */
 
 import { docPlexus, type PlexusAwareness } from "@here.build/plexus";
 import { computed } from "mobx";
 
-import type { IntentRecord } from "./control.js";
+import type { CancellationLaneEntry, IntentLaneEntry } from "./control.js";
 import type { Expectation } from "./models/Expectation.js";
+import { collectCancellationLane, collectIntentLane } from "./pew-actor-catalog.js";
 import type { PEW } from "./presence.js";
 
 export class ExpectationState {
@@ -43,23 +49,29 @@ export class ExpectationState {
     return v === null ? undefined : v;
   }
 
-  /** Sole-claim membership for this E on its session hub. */
+  /**
+   * Whether this unit is currently claimed for execution.
+   * Single pew-daemon: equivalent to lifecycle running (local table is sole truth).
+   */
   @computed
   get isBound(): boolean {
-    const hub = this.sessionHub;
-    if (!hub) return false;
-    const claims = this.pew.actorsForHub(hub).claims;
-    if (claims.length !== 1) return false;
-    return claims[0]!.binds.some((b) => b.uuid === this.expectation.uuid);
+    return this.expectation.state === "running";
   }
 
-  /** Author intents targeting this Expectation. */
+  /** Standing steers on this expectation's intents lane (all peers). */
   @computed
-  get intents(): readonly IntentRecord[] {
+  get intents(): readonly IntentLaneEntry[] {
     const hub = this.sessionHub;
     if (!hub) return [];
-    const uuid = this.expectation.uuid;
-    return this.pew.actorsForHub(hub).intents.filter((intent) => intent.target.uuid === uuid);
+    return collectIntentLane(hub, this.expectation.uuid);
+  }
+
+  /** Standing cancels on this expectation's cancellation lane (all peers). */
+  @computed
+  get cancellations(): readonly CancellationLaneEntry[] {
+    const hub = this.sessionHub;
+    if (!hub) return [];
+    return collectCancellationLane(hub, this.expectation.uuid);
   }
 }
 

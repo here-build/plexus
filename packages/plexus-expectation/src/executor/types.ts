@@ -21,11 +21,11 @@ export type MailboxEntry<TIntent = unknown> = {
 };
 
 /**
- * The actor's inbox: a kernel-maintained mirror of standing author intents
- * targeting this execution. Actor-read-only; what the actor does with an
- * entry is its own decision — there is no ack channel. Entries leave on
- * retraction (the intent left the author's presence) or at reap. Iterate a
- * copy: the kernel splices during admission sweeps.
+ * The actor's inbox: a live lens over author pens'
+ * `expectation:${uuid}:intents`. Cancellation is a separate lane and never
+ * appears here. Actor-read-only; no ack channel. Entries leave when the author
+ * retracts the lane (or the unit is terminal). Read inside MobX reactions to
+ * track hub field atoms.
  */
 export type MailboxView<TIntent = unknown> = {
   readonly entries: readonly MailboxEntry<TIntent>[];

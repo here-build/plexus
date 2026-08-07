@@ -1,132 +1,46 @@
 /**
- * Session-hub execution face: claim / author pens + reactive scans.
- * One instance per session awareness hub (via PEW). Observation rides the
- * ambient `awareness.reactive` lens; models cross the wire through the
- * substrate serde — no hand-built markers, no raw casts on the read side
- * beyond the wire-shape assertion.
+ * Session-hub execution face: author pens + actor report pens + reactive scans.
+ * One instance per session awareness hub (via PEW).
+ *
+ * Per-expectation lanes on the author pen:
+ *   `expectation:${uuid}:intents`       → {@link IntentLaneEntry}[]
+ *   `expectation:${uuid}:cancellation`  → {@link CancellationLaneEntry}[]
+ * No flat bag, no kernel routing table.
  */
 
-import { PlexusAwareness, removeAwarenessStates } from "@here.build/plexus";
-import { computed } from "mobx";
+import { PlexusAwareness } from "@here.build/plexus";
 
-import type { IntentRecord } from "./control.js";
+import {
+  cancellationLaneField,
+  intentLaneField,
+  type CancellationLaneEntry,
+  type IntentLaneEntry,
+  type IntentRecord,
+} from "./control.js";
 import { isTerminal } from "./lifecycle.js";
 import type { Expectation } from "./models/Expectation.js";
-import {
-  mintLocalNonZero,
-  type ActorPresenceClient,
-  type ClaimPresenceStatus,
-  type PEW,
-  type PewClaimRecord,
-} from "./presence.js";
+import { mintLocalNonZero, type ActorPresenceClient, type PEW } from "./presence.js";
+
+const LANE_PREFIX = "expectation:";
+const INTENTS_SUFFIX = ":intents";
+const CANCEL_SUFFIX = ":cancellation";
+
+type AuthoredLanes = {
+  target: Expectation;
+  intents: IntentLaneEntry[];
+  cancellations: CancellationLaneEntry[];
+};
 
 export class PEWActorCatalog {
-  #claimClient: PlexusAwareness | null = null;
   #authorClient: PlexusAwareness | null = null;
-  /** Author-side truth for `pew.request*` — presence is its projection. */
-  #authored: IntentRecord[] = [];
+  /** Author-side truth per target uuid — projected onto intent + cancel lanes. */
+  readonly #authored = new Map<string, AuthoredLanes>();
   #requestSeq = 0;
 
   constructor(
     readonly pew: PEW,
     readonly awareness: PlexusAwareness,
   ) {}
-
-  @computed
-  get claims(): readonly PewClaimRecord[] {
-    const reactive = this.awareness.reactive;
-    const out: PewClaimRecord[] = [];
-    for (const id of reactive.clientIds) {
-      const client = reactive.clients.get(id);
-      if (client.field("role") !== "kernel") continue;
-      const binds = client.field("binds");
-      out.push({
-        clientId: id,
-        binds: (Array.isArray(binds) ? binds : []) as readonly Expectation[],
-      });
-    }
-    return out;
-  }
-
-  /** Sole claim after scan; null if zero or dual. */
-  @computed
-  get claim(): PewClaimRecord | null {
-    const found = this.claims;
-    if (found.length !== 1) return null;
-    return found[0]!;
-  }
-
-  @computed
-  get hasDualClaim(): boolean {
-    return this.claims.length > 1;
-  }
-
-  /** Author intents on the hub — excludes this catalog's own claim + author pens. */
-  @computed
-  get intents(): readonly IntentRecord[] {
-    const reactive = this.awareness.reactive;
-    const own = new Set<number>();
-    if (this.#claimClient) own.add(this.#claimClient.clientID);
-    if (this.#authorClient) own.add(this.#authorClient.clientID);
-    const out: IntentRecord[] = [];
-    for (const id of reactive.clientIds) {
-      if (own.has(id)) continue;
-      const list = reactive.clients.get(id).field("intents");
-      if (!Array.isArray(list) || list.length === 0) continue;
-      for (const intent of list as IntentRecord[]) {
-        out.push({
-          intentId: intent.intentId,
-          target: intent.target,
-          body: intent.body,
-          ...(intent.kind === "cancel" ? { kind: "cancel" as const } : {}),
-        });
-      }
-    }
-    return out;
-  }
-
-  /** Publish binds on the stable claim client. */
-  publishClaim(status: ClaimPresenceStatus): void {
-    const client = this.#ensureClaimClient();
-    client.setField("role", "kernel");
-    client.setField("binds", status.binds as never);
-  }
-
-  /**
-   * Lease-holder install: evict stale claim peers, mint fresh claim client.
-   * Call before first publish under a new lease.
-   */
-  installClaim(): void {
-    const hub = this.awareness;
-    const toRemove: number[] = [];
-    for (const base of allBases(hub)) {
-      if (rawRole(hub, base) === "kernel") toRemove.push(base);
-    }
-    if (toRemove.length > 0) {
-      removeAwarenessStates(hub, toRemove, "pew-install-evict");
-    }
-    this.#claimClient?.destroy();
-    this.#claimClient = null;
-    // §17.5 install step 3: the role marker publishes NOW — a minted-but-silent
-    // pen would leave a claim gap until the first publishClaim, firing runner
-    // self-termination on observers that just saw the eviction.
-    this.#ensureClaimClient().setField("role", "kernel");
-  }
-
-  /** Mint+publish new claim before destroying old — no observer-visible gap. */
-  reloadClaim(status: ClaimPresenceStatus): void {
-    const old = this.#claimClient;
-    this.#claimClient = null;
-    const next = this.#ensureClaimClient();
-    next.setField("role", "kernel");
-    next.setField("binds", status.binds as never);
-    old?.destroy();
-  }
-
-  retireClaim(): void {
-    this.#claimClient?.destroy();
-    this.#claimClient = null;
-  }
 
   mintActorClient(): ActorPresenceClient {
     const client = mintLocalNonZero(this.awareness);
@@ -139,32 +53,119 @@ export class PEWActorCatalog {
     };
   }
 
-  publishIntents(intents: readonly IntentRecord[]): void {
-    const client = this.#ensureAuthorClient();
-    client.setField("intents", intents as never);
-  }
-
   /**
-   * `pew.request*` entry: prune records whose target ended, mint an id unique
-   * across authors (pen clientID + local seq), append, republish. The prune IS
-   * the retract — a standing record leaves presence once its target seals, and
-   * the kernel's inbox mirror keys on that disappearance (§8). No acks: a
-   * steer stands until its target ends or the author process dies.
+   * Append one steer to `expectation:${uuid}:intents`. Returns the minted id.
+   * Used by {@link PEW.request}.
    */
-  submitRequest(target: Expectation, body: unknown, kind?: "cancel"): string {
+  appendIntent(target: Expectation, body: unknown): string {
     const client = this.#ensureAuthorClient();
-    this.#authored = this.#authored.filter((record) => !isTerminal(record.target.state));
-    this.#requestSeq += 1;
-    const intentId = `i${client.clientID}-${this.#requestSeq}`;
-    this.#authored.push({ intentId, target, body, ...(kind === "cancel" ? { kind } : {}) });
-    client.setField("intents", this.#authored as never);
+    this.#pruneTerminalLanes(client);
+    const intentId = this.#nextIntentId(client);
+    const uuid = target.uuid;
+    const rec = this.#ensureAuthored(uuid, target);
+    rec.intents = [...rec.intents, { intentId, body }];
+    client.setField(intentLaneField(uuid) as never, rec.intents as never);
     return intentId;
   }
 
-  #ensureClaimClient(): PlexusAwareness {
-    if (this.#claimClient) return this.#claimClient;
-    this.#claimClient = mintLocalNonZero(this.awareness);
-    return this.#claimClient;
+  /**
+   * Append one cancel to `expectation:${uuid}:cancellation`. Returns the minted id.
+   * Used by {@link PEW.requestCancellation}.
+   */
+  appendCancellation(target: Expectation, body: unknown): string {
+    const client = this.#ensureAuthorClient();
+    this.#pruneTerminalLanes(client);
+    const intentId = this.#nextIntentId(client);
+    const uuid = target.uuid;
+    const rec = this.#ensureAuthored(uuid, target);
+    rec.cancellations = [...rec.cancellations, { intentId, body }];
+    client.setField(cancellationLaneField(uuid) as never, rec.cancellations as never);
+    return intentId;
+  }
+
+  /**
+   * Replace the standing intents lane for one target (retract = `[]`, reshape = new list).
+   */
+  setTargetIntents(target: Expectation, entries: readonly IntentLaneEntry[]): void {
+    const client = this.#ensureAuthorClient();
+    this.#pruneTerminalLanes(client);
+    const uuid = target.uuid;
+    const rec = this.#ensureAuthored(uuid, target);
+    rec.intents = [...entries];
+    if (rec.intents.length === 0) {
+      client.clearField(intentLaneField(uuid) as never);
+      this.#dropIfEmpty(uuid);
+      return;
+    }
+    client.setField(intentLaneField(uuid) as never, rec.intents as never);
+  }
+
+  /**
+   * Replace the standing cancellation lane for one target (retract = `[]`).
+   */
+  setTargetCancellations(target: Expectation, entries: readonly CancellationLaneEntry[]): void {
+    const client = this.#ensureAuthorClient();
+    this.#pruneTerminalLanes(client);
+    const uuid = target.uuid;
+    const rec = this.#ensureAuthored(uuid, target);
+    rec.cancellations = [...entries];
+    if (rec.cancellations.length === 0) {
+      client.clearField(cancellationLaneField(uuid) as never);
+      this.#dropIfEmpty(uuid);
+      return;
+    }
+    client.setField(cancellationLaneField(uuid) as never, rec.cancellations as never);
+  }
+
+  #nextIntentId(client: PlexusAwareness): string {
+    this.#requestSeq += 1;
+    return `i${client.clientID}-${this.#requestSeq}`;
+  }
+
+  /** Reactive scan of this uuid's intents lane across all peers. */
+  laneEntries(uuid: string): readonly IntentLaneEntry[] {
+    return collectIntentLane(this.awareness, uuid);
+  }
+
+  /** Reactive scan of this uuid's cancellation lane across all peers. */
+  cancellationEntries(uuid: string): readonly CancellationLaneEntry[] {
+    return collectCancellationLane(this.awareness, uuid);
+  }
+
+  /**
+   * All standing author steers + cancels on this hub (lane scan).
+   * Product cancel admission pairs openWork with {@link collectCancellationLane}.
+   */
+  get intents(): readonly IntentRecord[] {
+    return collectAllIntentRecords(this.awareness);
+  }
+
+  #ensureAuthored(uuid: string, target: Expectation): AuthoredLanes {
+    let rec = this.#authored.get(uuid);
+    if (rec === undefined) {
+      rec = { target, intents: [], cancellations: [] };
+      this.#authored.set(uuid, rec);
+    } else {
+      rec.target = target;
+    }
+    return rec;
+  }
+
+  #dropIfEmpty(uuid: string): void {
+    const rec = this.#authored.get(uuid);
+    if (rec === undefined) return;
+    if (rec.intents.length === 0 && rec.cancellations.length === 0) {
+      this.#authored.delete(uuid);
+    }
+  }
+
+  #pruneTerminalLanes(client: PlexusAwareness): void {
+    for (const [uuid, rec] of [...this.#authored]) {
+      if (!isTerminal(rec.target.state)) continue;
+      this.#authored.delete(uuid);
+      client.clearField(intentLaneField(uuid) as never);
+      client.clearField(cancellationLaneField(uuid) as never);
+    }
   }
 
   #ensureAuthorClient(): PlexusAwareness {
@@ -174,19 +175,73 @@ export class PEWActorCatalog {
   }
 }
 
-function allBases(hub: PlexusAwareness): number[] {
-  const bases = new Set<number>([hub.clientID, ...hub.getPeerIds()]);
-  for (const cid of hub.states.keys()) {
-    if (cid < PlexusAwareness.CHANNEL_STRIDE) bases.add(cid);
-  }
-  return [...bases];
+/** Reactive scan of one expectation's intents lane across all hub peers. */
+export function collectIntentLane(hub: PlexusAwareness, uuid: string): IntentLaneEntry[] {
+  return collectLane(hub, intentLaneField(uuid));
 }
 
-function rawRole(hub: PlexusAwareness, base: number): string | undefined {
-  // Raw path — install eviction must not touch entity refs it is about to evict.
-  const raw =
-    (hub.getRawPeer(base) as { role?: unknown } | null) ??
-    (base === hub.clientID ? (hub.getRawLocalState() as { role?: unknown } | null) : null);
-  const role = raw?.role;
-  return typeof role === "string" ? role : undefined;
+/** Reactive scan of one expectation's cancellation lane across all hub peers. */
+export function collectCancellationLane(hub: PlexusAwareness, uuid: string): CancellationLaneEntry[] {
+  return collectLane(hub, cancellationLaneField(uuid));
+}
+
+function collectLane(hub: PlexusAwareness, key: string): { intentId: string; body: unknown }[] {
+  const out: { intentId: string; body: unknown }[] = [];
+  const reactive = hub.reactive;
+  for (const id of reactive.clientIds) {
+    const raw = reactive.clients.get(id).field(key);
+    if (!Array.isArray(raw) || raw.length === 0) continue;
+    for (const item of raw) {
+      const entry = asLaneEntry(item);
+      if (entry !== null) out.push(entry);
+    }
+  }
+  return out;
+}
+
+/**
+ * Scan all peers for `expectation:*:intents` and `expectation:*:cancellation`.
+ * Targets are uuid-only stand-ins for intentId-list tests.
+ */
+export function collectAllIntentRecords(hub: PlexusAwareness): IntentRecord[] {
+  const out: IntentRecord[] = [];
+  const reactive = hub.reactive;
+  for (const id of reactive.clientIds) {
+    const client = reactive.clients.get(id);
+    for (const name of client.fields) {
+      if (!name.startsWith(LANE_PREFIX)) continue;
+      let kind: "cancel" | undefined;
+      let uuid: string;
+      if (name.endsWith(INTENTS_SUFFIX)) {
+        uuid = name.slice(LANE_PREFIX.length, name.length - INTENTS_SUFFIX.length);
+        kind = undefined;
+      } else if (name.endsWith(CANCEL_SUFFIX)) {
+        uuid = name.slice(LANE_PREFIX.length, name.length - CANCEL_SUFFIX.length);
+        kind = "cancel";
+      } else {
+        continue;
+      }
+      if (uuid.length === 0) continue;
+      const raw = client.field(name);
+      if (!Array.isArray(raw)) continue;
+      for (const item of raw) {
+        const entry = asLaneEntry(item);
+        if (entry === null) continue;
+        out.push({
+          intentId: entry.intentId,
+          target: { uuid } as Expectation,
+          body: entry.body,
+          ...(kind === "cancel" ? { kind: "cancel" as const } : {}),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+function asLaneEntry(item: unknown): { intentId: string; body: unknown } | null {
+  if (item === null || typeof item !== "object") return null;
+  const rec = item as { intentId?: unknown; body?: unknown };
+  if (typeof rec.intentId !== "string") return null;
+  return { intentId: rec.intentId, body: rec.body };
 }

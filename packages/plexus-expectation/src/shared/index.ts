@@ -29,16 +29,24 @@ export {
 } from "./models/index.js";
 
 export {
+  intentLaneField,
+  cancellationLaneField,
   type CancellationRequestData,
   type EndCause,
   type CancellationStrength,
   type SettleSurfaceDisposition,
+  type IntentLaneEntry,
+  type CancellationLaneEntry,
   type IntentRecord,
 } from "./control.js";
 
 export { ExpectationState } from "./expectation-state.js";
 export { PEWLoaderCatalog } from "./pew-loader-catalog.js";
-export { PEWActorCatalog } from "./pew-actor-catalog.js";
+export {
+  PEWActorCatalog,
+  collectIntentLane,
+  collectCancellationLane,
+} from "./pew-actor-catalog.js";
 
 export {
   PEW,
@@ -47,7 +55,7 @@ export {
   type ClaimPresenceStatus,
   type LoaderCapability,
   type LoaderHealth,
-  type PewClaimRecord,
+  type PewHubShape,
   type PewOpts,
   type PlanAvailability,
   type PresencePort,

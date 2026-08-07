@@ -19,8 +19,16 @@ describe("reconcile", () => {
     parent.transitionState("running");
     parent.applyTerminal("failed", "crash", "old crash", "null");
     child.transitionState("running");
+    // Hold in local table so claim_orphan does not win before the tree sweep.
+    host.table.set(child, {
+      handle: {
+        lastReport: () => undefined,
+        settlement: () => null,
+      } as never,
+      controller: new AbortController(),
+      releasePresence: () => {},
+    });
 
-    host.peerBinds.add(child.uuid); // not a claim orphan — the tree sweep must catch it
     host.reconcile();
     expect(child.state).toBe("cancelled");
     expect(child.endCause).toBe("supervision");
@@ -37,7 +45,7 @@ describe("reconcile", () => {
     expect(stray.endDetail).toBe("orphaned");
   });
 
-  it("claim orphans: running, unbound, no live peer bind → failed/supervision", async () => {
+  it("claim orphans: running with no local table entry → failed/supervision", async () => {
     const { host, dispose } = makeHost();
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
@@ -46,16 +54,6 @@ describe("reconcile", () => {
     expect(E.state).toBe("failed");
     expect(E.endCause).toBe("supervision");
     expect(E.endDetail).toBe("claim_orphan");
-  });
-
-  it("a live peer bind shields a running entity from claim-orphan failure", async () => {
-    const { host, dispose } = makeHost();
-    cleanup.push(dispose);
-    const E = host.mint(new TestExpectation());
-    E.transitionState("running");
-    host.peerBinds.add(E.uuid);
-    host.reconcile();
-    expect(E.state).toBe("running");
   });
 });
 
@@ -84,7 +82,7 @@ describe("lease dispose", () => {
     expect(second.state).toBe("sealed");
   });
 
-  it("publishes empty binds after dispose", async () => {
+  it("process-local claim table empties after dispose", async () => {
     const { host, dispose } = makeHost();
     cleanup.push(dispose);
     host.mint(new TestExpectation());
@@ -95,7 +93,7 @@ describe("lease dispose", () => {
   });
 });
 
-describe("dual-claim freeze", () => {
+describe("claim-owner gate", () => {
   it("a non-claim-owner kernel refuses all verbs", async () => {
     const { host, dispose } = makeHost();
     cleanup.push(dispose);

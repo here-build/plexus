@@ -131,41 +131,18 @@ describe("PEW §17 presence", () => {
     stop();
   });
 
-  it("isBound is true after claim publish for a running entity", async () => {
+  it("isBound follows running lifecycle (process-local; no claim-binds hub)", async () => {
     const { host, dispose } = makeHost();
     cleanup.push(dispose);
     const E = host.mint(new TestExpectation());
     expect(host.pew!.of(E).isBound).toBe(false);
     await activateThroughLoad(host);
     expect(host.pew!.of(E).isBound).toBe(true);
+    // Process-local table still tracks held work (not published on awareness).
     expect(host.lastClaim().binds.some((b) => b.uuid === E.uuid)).toBe(true);
 
     host.requestCancellation(E, { strength: "immediate" });
     expect(host.pew!.of(E).isBound).toBe(false);
-  });
-
-  it("claim/isBound/hasDualClaim share one computed claim snapshot (memoized)", async () => {
-    const { host, dispose } = makeHost();
-    cleanup.push(dispose);
-    const E = host.mint(new TestExpectation());
-    await activateThroughLoad(host);
-    const pew = host.pew!;
-    const session = host.plexus;
-    const actors = pew.actors(session);
-
-    // Same reaction: claim helpers share one claims computed snapshot.
-    let claimRef: (typeof actors)["claim"] | undefined;
-    let bound = false;
-    const stop = autorun(() => {
-      claimRef = actors.claim;
-      bound = pew.of(E).isBound;
-      void actors.hasDualClaim;
-    });
-    expect(claimRef).not.toBeNull();
-    expect(claimRef!.binds.some((b) => b.uuid === E.uuid)).toBe(true);
-    expect(bound).toBe(true);
-    expect(actors.hasDualClaim).toBe(false);
-    stop();
   });
 
   it("of(E).report works through PEW after activation (overlapping read path)", async () => {

@@ -61,6 +61,13 @@ export type ActorPresenceClient = {
 };
 
 export type PewHubShape = AwarenessShape & {
+  /**
+   * Pen discriminator on the session hub.
+   * - `kernel` — claim owner (binds)
+   * - `catalog` — loaders + capabilities (orchestrator publish after probe)
+   * - `loader` — per-loader self-record escape hatch
+   * Actor progress pens carry `report` without a role marker.
+   */
   role?: "kernel" | "catalog" | "loader";
   binds?: readonly Expectation[];
   loaders?: Readonly<Record<string, LoaderHealth>>;

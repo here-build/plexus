@@ -242,7 +242,7 @@ export abstract class Orchestrator {
    * re-runs `load()` against the current plan defs.
    *
    * Clears **all** kinds (not only sticky failed): plan replacement (e.g.
-   * LocalAcp → new LocalAcp with different baseUrl/credential) must not leave
+   * openai-compat plan → new plan with different baseUrl/credential) must not leave
    * health=`loaded` for a previous def while `getLoader` returns a fresh
    * un-loaded instance ("load() first" spawn crash).
    */

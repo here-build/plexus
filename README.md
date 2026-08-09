@@ -25,22 +25,24 @@ CRDT-native identity (no id generators, no coordination).
   composes with: per-resource `MessageChannel` allocation and small control
   messages. Yjs-agnostic.
 
-## Install
+## Install (this private repo)
 
 ```bash
-pnpm add @here.build/plexus yjs mobx
-# optional:
-pnpm add @here.build/plexus-mobx-awareness
-pnpm add @here.build/y-messageport @here.build/y-control-channel
-pnpm add @here.build/hono-plexus-do   # Cloudflare DO sync server
-pnpm add @here.build/plexus-vfs
+git clone git@github.com:here-build/plexus.git && cd plexus
+pnpm install
+pnpm build
+pnpm test
 ```
+
+Packages live under `packages/*` as a pnpm workspace. Depend on them from a
+sibling checkout via `workspace:` / path, or (once published) from npm as
+`@here.build/plexus`, etc.
 
 Peer dependencies: `yjs`, `y-protocols`, and `mobx` (see each package).
 
 Floor packages from [@here.build/commons](https://github.com/here-build/commons)
 (`collections`, `arrival-env`, `chunked-websocket`, `error-invariant`,
-`tsconfig`, `eslint-configs`) are ordinary semver dependencies on npm.
+`tsconfig`, `eslint-configs`) resolve from npm at `0.9.0`.
 
 ## Repository shape
 

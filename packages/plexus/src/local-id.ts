@@ -6,7 +6,7 @@
  * first-access order is fragile where creation order is deterministic.
  *
  * Kinship: this deliberately mirrors the `ordinal.id` protocol in
- * `commons/packages/collections/src/ordinal/` — the same idea of a
+ * `@here.build/collections ordinal/` — the same idea of a
  * process-local identity that is never serialized and crosses no process
  * boundary. It intentionally does NOT reuse ordinal's counter instance:
  * `resetLocalIDs()` exists as a test hook, and resetting the shared ordinal

@@ -226,7 +226,7 @@ Current references use documentGuid as the second tuple element. New references 
 
 ## Test Plan
 
-### Unit Tests (foundations/plexus)
+### Unit Tests (packages/plexus)
 
 1. **Basic add/resolve**: add dependency blob, resolve entities by UUID
 2. **Read-only enforcement**: dependency entities reject writes
@@ -240,13 +240,12 @@ Current references use documentGuid as the second tuple element. New references 
 10. **Multiple dependencies**: load A, B, C. Cross-references between them all resolve.
 11. **Blob round-trip**: create blob → load blob → verify all entities match original
 
-### Integration Tests (here.build/saas/studio/app)
+### Integration Tests (consumer apps)
 
-1. **Add package via studio**: add a dependency, verify components appear in picker
-2. **Use dependency component**: place TplComponent referencing dep component, verify render
-3. **Update dependency**: replace with newer version, verify components update
-4. **Token resolution**: dependency tokens resolve through CSS variable cascade
-5. **Compiler output**: verify `/dependencies/<name>/` folder structure with correct imports
+Consumers that mount multiple documents should cover: add/remove dependency,
+blob refresh after remote updates, and resolution of entities across the
+dependency edge. Keep those tests in the consumer repo — not here.
+
 
 ## Open Questions
 

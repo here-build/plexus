@@ -2,8 +2,8 @@
  * Date-keyed R2 spill helpers.
  *
  * R2 has no object versioning, so cold storage uses `${entityId}/${YYYY-MM-DD}`
- * keys plus bucket-wide age lifecycle — the same pattern as ProjectLogDO and
- * InhumanSyncDO. Archive DOs arm a one-shot midnight UTC alarm; the leader may
+ * keys plus bucket-wide age lifecycle — the same pattern as host log DOs and
+ * host sync DOs. Archive DOs arm a one-shot midnight UTC alarm; the leader may
  * spill inline on its own alarm when no archive follower owns cold duty.
  */
 

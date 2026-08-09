@@ -614,7 +614,7 @@ export class Plexus<
    * (callers that materialize a doc from disk typically pair load with dispose).
    *
    * NEVER call this on a doc anything else still holds a live reference to —
-   * a long-lived, peer-synced doc (the studio's collaborative session, for
+   * a long-lived, peer-synced doc (the collaborative session, for
    * instance) must outlive any single consumer; only a throwaway,
    * single-owner doc should ever be destroyed. Idempotent — safe to call more
    * than once (every underlying `.destroy()` here tolerates repeat calls).

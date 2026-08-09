@@ -9,8 +9,7 @@
  *
  * ## Why an adapter, not direct OTel
  *
- * Plexus is a foundations package — published OSS, consumed by here.build
- * studio + (eventually) external users. Direct dependency on `@opentelemetry/api`
+ * Plexus stays free of OpenTelemetry. Direct dependency on `@opentelemetry/api`
  * would force consumers into an OTel ecosystem they may not want. The
  * adapter interface lets each consumer wire their own metric backend (OTel,
  * Prometheus, Datadog, Plexus DevTools, in-memory test capture).
@@ -21,7 +20,7 @@
  * (bounded sets per attribute):
  *
  * - `entity_type` — model class name. Bounded by `@syncing`-decorated classes
- *   in the consuming package (~100 for here.build's model). Special value
+ *   in the consuming package (expect tens to hundreds of model classes). Special value
  *   `"_collection"` when the tracked subject is a proxy collection (owner
  *   plumbing comes in a later stream).
  * - `tracker_kind` — one of `{KEYS, VALUES, ENTRIES_LENGTH, ACCESS_ALL, named}`.

@@ -80,7 +80,7 @@ The same symbol is used for awareness updates.
 
 Default `pnpm test` runs the CI baseline in Node using the global `MessageChannel` (Node 15+ DOM-compatible surface): wire-protocol round-trip, two-Y.Doc sync, awareness propagation, port-per-doc isolation, destroy idempotency. Browser-free, fast, runs on every CI push.
 
-Cross-browser matrix lives in `src/__visual__/` and runs via `pnpm visual` (Playwright). Not part of the default CI gate — needs `pnpm exec playwright install`. The matrix is a cross-product of:
+Cross-browser matrix is planned under `src/__visual__/` (scaffold only; not wired yet) (Playwright). Not part of the default CI gate — needs `pnpm exec playwright install`. The matrix is a cross-product of:
 
 - **Transport host**: DedicatedWorker, SharedWorker, ServiceWorker, top-frame, cross-domain iframe
 - **Worker role**: wraps y-websocket / hosts the Y.Doc locally / persists Y.Doc to IndexedDB or OPFS
@@ -129,3 +129,7 @@ For future work above this transport — out of scope for this package, but info
 - **ReadableStream over MessagePort** — transferable streams give real backpressure on initial sync2. Native, not a polyfill.
 - **`scheduler.postTask`** — Chrome / Firefox 142+ / no Safari. Use with `queueMicrotask` fallback for prioritizing inbound `user-blocking` sync vs background outbound flushes.
 - **`crossOriginIsolated` + SAB** — only useful if the host page sets COOP/COEP. Probe and telemetry-log; do not require.
+
+## License
+
+[MIT](./LICENSE.md).

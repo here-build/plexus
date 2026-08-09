@@ -1,6 +1,6 @@
 # Liminal grounding — how shadow-primary realizes the liminal-state paper
 
-**Status:** explanatory map. The paper (`docs/thinking/papers/plexus/liminal-state.md`)
+**Status:** explanatory map. The paper (`(internal design notes)`)
 describes a session-scoped shadow; the implementation runs shadow-primary. This document
 names every place they diverge and states why each divergence computes the same algebra.
 The algebra is the authority: CRDT operations commute, delta changesets add and subtract
@@ -63,7 +63,7 @@ struct authorship), and the per-session liminal id (tentative struct authorship)
 to be register-partitioned and per-peer monotone within the liminal range — both hold.
 The extra separation is forced by the substrate: Yjs rerolls a doc whose own clientID is
 advanced by a non-local transaction, so prime and shadow can never share an id
-(`research/yjs-liminality/two-doc.test.ts`, REJECTED APPROACHES). Awareness identity
+(`yjs liminality research /two-doc.test.ts`, REJECTED APPROACHES). Awareness identity
 riding prime's id is then free — presence and struct authorship never collide.
 
 ## Divergence 4 — preview transport writes into the receiver's shadow

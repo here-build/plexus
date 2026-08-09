@@ -374,7 +374,7 @@ ids, no env var required.
 
 `.documentId` returns the Y.Doc guid (`undefined` for unmaterialized or dependency entities).
 
-> **Singletons & the ordinal protocol.** Plexus entities are guaranteed singletons — one object per entity, *including across materialization* — so an entity's **pointer identity never changes**. If you need to identify entities **within a session** without a doc-synced UUID (e.g. ephemeral, not-yet-materialized models, whose `.uuid` would throw), use the [`ordinal`](../common/collections/src/ordinal/) protocol (`ordinal.id(entity)`): a stable, process-local handle keyed off that pointer identity, available *before* materialization.
+> **Singletons & the ordinal protocol.** Plexus entities are guaranteed singletons — one object per entity, *including across materialization* — so an entity's **pointer identity never changes**. If you need to identify entities **within a session** without a doc-synced UUID (e.g. ephemeral, not-yet-materialized models, whose `.uuid` would throw), use the [`ordinal`](@here.build/collections (ordinal keys) — ) protocol (`ordinal.id(entity)`): a stable, process-local handle keyed off that pointer identity, available *before* materialization.
 
 #### `.localID` — process-local creation-order identity
 
@@ -401,7 +401,7 @@ The three identity surfaces, side by side:
 |---|---|---|---|
 | `.uuid` | doc-synced CRDT identity | after materialization (throws before) | cross-peer references, storage |
 | `.localID` | process-local, creation-order | always (minted at construction) | test determinism, ephemeral-safe identity, debug labels |
-| [`ordinal.id(obj)`](../common/collections/src/ordinal/) | process-local, first-use-order | any object, plexus or not | identity for arbitrary objects outside plexus |
+| [`ordinal.id(obj)`](@here.build/collections (ordinal keys) — ) | process-local, first-use-order | any object, plexus or not | identity for arbitrary objects outside plexus |
 
 `.localID` deliberately mirrors the ordinal protocol but keeps its **own counter domain**: resetting
 localIDs must never disturb ordinal ids (which canonicalize live path-map set keys elsewhere in the
@@ -734,7 +734,7 @@ walk(root, initialState, {
 Link data from other Y.Docs into the current document:
 
 ```typescript
-const depRoot = plexus.addDependency(otherDocId, stateVector);
+const depRoot = plexus.addDependency(projectId, dependencyBlob);
 ```
 
 Entity pointers remain stable after linking — dependencies are potentially upgradable
@@ -810,10 +810,10 @@ plexus.revertLiminality();                // discard all liminal writes
 plexus.isLiminal;                         // true if in liminal session
 
 // Cross-document
-plexus.addDependency(docId, stateVector); // link external doc
+plexus.addDependency(projectId, blob: Uint8Array); // link external doc
 ```
 
 ## License
 
-[MIT](./LICENSE.md) — Functional Source License 1.1, MIT Future License.
-Each version converts to MIT two years after its release date.
+[MIT](./LICENSE.md).
+

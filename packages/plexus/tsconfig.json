@@ -6,11 +6,17 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src/**/*"],
+  "include": [
+    "src/**/*"
+  ],
   "exclude": [
     "dist",
-    "node_modules"
+    "node_modules",
+    "src/__tests__/**",
+    "**/*.test.ts"
   ]
 }

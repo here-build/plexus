@@ -230,3 +230,7 @@ A production middleman receiving its tab port via `window.postMessage` MUST allo
 ## See also
 
 - `@here.build/y-messageport` — Yjs sync + awareness Provider over a single MessagePort.
+
+## License
+
+[MIT](./LICENSE.md).

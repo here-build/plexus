@@ -76,7 +76,7 @@ export interface SyncMirror {
    * strong reference across an `await` boundary — without one, the WebSocket
    * object can become unreachable and the peer sees a disconnect (an
    * empirically-hit Workers GC gotcha; see the field this backs in
-   * `InhumanRunnerDO`'s `mirrorWs`). Prefer `doc`/`pause`/`resume`/`close` for
+   * `host runner DO`'s `mirrorWs`). Prefer `doc`/`pause`/`resume`/`close` for
    * actual interaction.
    */
   readonly ws: WebSocket;

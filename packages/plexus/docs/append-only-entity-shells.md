@@ -10,8 +10,8 @@ updated: 2026-04-27
 # Append-Only Entity Shells: Undo/Redo Identity Preservation
 
 > **Status**: ✅ Shipped — `deleteFilter` + materialization clock live.
-> **Implementation**: `foundations/plexus/src/Plexus.ts:349` (deleteFilter setup). `isDematerialized` removed per plexus-undo-architecture rework (2026-04-08).
-> **Note**: document preserved as design record. Round 2 test-failure analysis below superseded by later work (see memory: plexus-undo-architecture).
+> **Implementation**: `packages/plexus/src/Plexus.ts:349` (deleteFilter setup). `isDematerialized` removed per plexus-undo-architecture rework (2026-04-08).
+> **Note**: document preserved as design record. Round 2 test-failure analysis below superseded by later work (see package undo/redo tests).
 
 ## Problem Statement
 
@@ -19,7 +19,7 @@ When Yjs UndoManager reverts entity creation, nested child entity UUIDs become u
 
 ### Evidence
 
-Tests confirm (see `public-packages/plexus/src/__tests__/6-history/uuid-stability-undo-redo.test.ts`):
+Tests confirm (see `packages/plexus/src/__tests__/6-history/uuid-stability-undo-redo.test.ts`):
 - Without deleteFilter: nested child UUIDs NOT stable on redo
 - With deleteFilter: 4/6 core tests pass, including nested children
 

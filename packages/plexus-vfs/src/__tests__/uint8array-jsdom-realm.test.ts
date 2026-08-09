@@ -19,7 +19,7 @@ import { PlexusFile } from "../models/PlexusFile.js";
 
 const makeFS = (): PlexusFS => Plexus.bootstrap(new PlexusFS(), undefined, new Y.Doc()).root;
 
-describe("jsdom realm — writes normalize on ingest (the studio-suite repro)", () => {
+describe("jsdom realm — writes normalize on ingest (foreign-realm repro)", () => {
   it("string write (jsdom TextEncoder path) round-trips", () => {
     const fs = makeFS();
     fs.writeFile("a.scm", "(x)");

@@ -19,6 +19,10 @@
   "pnpm": {
     "overrides": {
       "vite": "7.2.7"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "unrs-resolver"
+    ]
   }
 }

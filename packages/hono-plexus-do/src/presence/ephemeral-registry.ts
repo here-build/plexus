@@ -6,8 +6,8 @@
  * in RAM — hibernation clears the map; clients re-derive on reconnect. Alarm
  * runs expiry sweep and reschedules only while entries remain.
  *
- * Shared shape between ProjectPresenceDO (key = userId) and the presence
- * slice of UserDO (key = projectId).
+ * Shared shape between project presence DO (key = userId) and the presence
+ * slice of user presence DO (key = projectId).
  */
 
 import { DurableObject } from "cloudflare:workers";

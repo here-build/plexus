@@ -815,5 +815,5 @@ plexus.addDependency(docId, stateVector); // link external doc
 
 ## License
 
-[FSL-1.1-MIT](./LICENSE.md) — Functional Source License 1.1, MIT Future License.
+[MIT](./LICENSE.md) — Functional Source License 1.1, MIT Future License.
 Each version converts to MIT two years after its release date.

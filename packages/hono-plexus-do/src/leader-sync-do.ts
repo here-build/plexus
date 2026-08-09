@@ -17,7 +17,7 @@
  *
  * Identity: CF does not expose `idFromName` to the DO interior on the leader
  * path — `entityId` is persisted under {@link ENTITY_ID_STORAGE_KEY} via
- * `seed()` or `recordEntityId()` (inhuman's first `?project=` WS).
+ * `seed()` or `recordEntityId()` (first authenticated project WebSocket).
  *
  * Transport: all WS I/O routes through ChunkedDOTransport (>1 MiB safe).
  * Persist: {@link PersistScheduler} arms alarms only on peer-origined edits —

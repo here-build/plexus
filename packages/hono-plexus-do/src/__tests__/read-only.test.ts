@@ -11,8 +11,8 @@ import { FakeCtx, FakeServerWebSocket } from "./test-do-ctx.js";
  * `isReadOnlyConnection` hook: read-only peers keep the receive path
  * (syncStep1 answered, broadcasts delivered) while their inbound
  * syncStep2/update frames are dropped before touching the doc. The consumer
- * contract this pins: a viewer on an ephemeral inhuman room must never land
- * CRDT edits on the owner's disk (inhuman-sync-spec.md §4.3).
+ * contract this pins: a read-only viewer on an ephemeral room must never land
+ * CRDT edits on the owner's disk.
  */
 class RoleAwareLeaderDO extends ToyLeaderDO {
   protected override isReadOnlyConnection(ws: WebSocket): boolean {

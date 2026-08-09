@@ -2,7 +2,7 @@
   "name": "@here.build/plexus-vfs",
   "version": "0.9.0",
   "description": "Plexus-backed virtual filesystem — a drop-in `fs` for isomorphic-git. File content is stored directly as a CRDT-synced `Uint8Array` field, so arbitrary binary round-trips faithfully.",
-  "license": "FSL-1.1-MIT",
+  "license": "MIT",
   "author": "here.build",
   "publishConfig": {
     "access": "public"
@@ -49,8 +49,8 @@
     "@here.build/plexus": "workspace:^"
   },
   "devDependencies": {
-    "@here.build/eslint-configs": "workspace:^",
-    "@here.build/tsconfig": "workspace:^",
+    "@here.build/eslint-configs": "0.9.0",
+    "@here.build/tsconfig": "0.9.0",
     "@types/node": "24.0.0",
     "eslint": "9.39.2",
     "isomorphic-git": "1.38.5",

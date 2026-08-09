@@ -2,6 +2,9 @@ packages:
   - "packages/*"
 
 # Supply-chain defense: refuse to install any package published less than
-# 7 days ago. Blocks short-window attacks (e.g. axios March 2026 — malicious
-# versions were live on npm for ~3 hours before removal).
+# 7 days ago. Blocks short-window attacks (e.g. axios March 2026).
 minimumReleaseAge: 10080 # 7 days, in minutes
+# Our own floor packages may be published same-day as a plexus cut; allow them
+# through while still gating the rest of the registry.
+minimumReleaseAgeExclude:
+  - "@here.build/*"

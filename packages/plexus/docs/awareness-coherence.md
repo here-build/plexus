@@ -19,7 +19,7 @@ The membrane holds both halves of the promise:
   every entity reference in it is resolvable against the local doc**. Frames that arrive
   ahead of the doc are parked and released when the doc catches up.
 
-Consumers on top (reactive lenses, PEW scans, UI paint) therefore never see a dangling
+Consumers on top (reactive lenses and UI paint) therefore never see a dangling
 reference and never carry tolerance machinery. Hand-constructing `{"\0": [uuid]}` markers
 to bypass the write half is forbidden for the same reason reading `tuple[0]` out of a raw
 marker is: both forge or inspect a wire format whose guarantees live in this layer.

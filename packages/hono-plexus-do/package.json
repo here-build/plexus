@@ -1,7 +1,7 @@
 {
   "name": "@here.build/hono-plexus-do",
   "version": "0.9.0",
-  "description": "Cloudflare Durable Object substrate for Plexus/Yjs sync \u2014 leader WebSocket broker, archive follower, ephemeral presence registry, and Hono host wiring. Products extend abstract DOs; no product semantics here.",
+  "description": "Cloudflare Durable Object substrate for Plexus/Yjs sync — leader WebSocket broker, archive follower, ephemeral presence registry, and Hono host wiring. Products extend abstract DOs; no product semantics here.",
   "license": "FSL-1.1-MIT",
   "author": "here.build",
   "publishConfig": {
@@ -68,8 +68,8 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@here.build/chunked-websocket": "workspace:^",
-    "@here.build/error-invariant": "workspace:^",
+    "@here.build/chunked-websocket": "0.9.0",
+    "@here.build/error-invariant": "0.9.0",
     "lib0": "0.2.114",
     "y-protocols": "1.0.6",
     "yjs": "13.6.30"
@@ -84,8 +84,8 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "4.20250803.0",
-    "@here.build/eslint-configs": "workspace:^",
-    "@here.build/tsconfig": "workspace:^",
+    "@here.build/eslint-configs": "0.9.0",
+    "@here.build/tsconfig": "0.9.0",
     "@types/node": "24.0.0",
     "eslint": "9.39.2",
     "hono": "4.12.0",

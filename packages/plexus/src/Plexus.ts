@@ -611,7 +611,7 @@ export class Plexus<
    * one handle a one-shot bootstrap — mint a doc, read/write it, discard it;
    * no sync provider, no peer ever attaches — otherwise leaves lingering
    * forever, keeping a Node process alive long after its own work is done
-   * (see `@inhuman.tools/inhuman`'s `loadProjectFromDir`/`disposeProject`).
+   * (callers that materialize a doc from disk typically pair load with dispose).
    *
    * NEVER call this on a doc anything else still holds a live reference to —
    * a long-lived, peer-synced doc (the studio's collaborative session, for

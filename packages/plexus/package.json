@@ -11,7 +11,7 @@
     "mobx",
     "real-time"
   ],
-  "license": "FSL-1.1-MIT",
+  "license": "MIT",
   "author": "here.build",
   "publishConfig": {
     "access": "public"
@@ -69,16 +69,16 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
-    "@here.build/arrival-env": "workspace:^",
-    "@here.build/collections": "workspace:^",
+    "@here.build/arrival-env": "0.9.0",
+    "@here.build/collections": "0.9.0",
     "lib0": "0.2.114",
     "nanoid": "5.1.5",
     "tiny-invariant": "1.3.3",
     "type-fest": "5.4.4"
   },
   "devDependencies": {
-    "@here.build/eslint-configs": "workspace:^",
-    "@here.build/tsconfig": "workspace:^",
+    "@here.build/eslint-configs": "0.9.0",
+    "@here.build/tsconfig": "0.9.0",
     "@types/node": "24.0.0",
     "@types/ws": "8.18.1",
     "eslint": "9.39.2",

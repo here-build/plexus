@@ -1,9 +1,8 @@
 {
   "name": "@here.build/plexus-mobx-awareness",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.9.0",
   "description": "MobX reactive lens over PlexusAwareness — share one computed graph with plexus entity fields.",
-  "license": "FSL-1.1-MIT",
+  "license": "MIT",
   "author": "here.build",
   "type": "module",
   "sideEffects": [
@@ -37,7 +36,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@here.build/collections": "workspace:^",
+    "@here.build/collections": "0.9.0",
     "@here.build/plexus": "workspace:^",
     "tiny-invariant": "1.3.3"
   },
@@ -45,8 +44,8 @@
     "mobx": "^6.15.0"
   },
   "devDependencies": {
-    "@here.build/eslint-configs": "workspace:^",
-    "@here.build/tsconfig": "workspace:^",
+    "@here.build/eslint-configs": "0.9.0",
+    "@here.build/tsconfig": "0.9.0",
     "@types/node": "24.0.0",
     "eslint": "9.39.2",
     "mobx": "6.15.0",
@@ -60,5 +59,8 @@
     "type": "git",
     "url": "https://github.com/here-build/plexus.git",
     "directory": "packages/plexus-mobx-awareness"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

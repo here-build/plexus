@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// The REAL foreign-realm repro (found by inhuman-studio's suite, which runs
+// The REAL foreign-realm repro (found by a foreign-realm consumer suite, which runs
 // vitest environment:"jsdom"): jsdom's TextEncoder yields a Uint8Array from
 // jsdom's realm; plexus-core's value classifier dispatches on constructor
 // identity and rejects it with the deliberately self-contradictory

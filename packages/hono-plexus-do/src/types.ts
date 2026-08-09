@@ -50,7 +50,7 @@ export interface PersistPolicy {
   ceilingMs?: number;
 }
 
-/** Inline R2 spill from the leader alarm (inhuman). Archive DO owns cold duty in here.build. */
+/** Inline R2 spill from the leader alarm. Archive DO owns cold-storage duty when configured. */
 export interface SpillPolicy {
   bucket: R2Bucket;
   objectKey: (entityId: string, day: string) => string;
@@ -88,7 +88,7 @@ export interface AwarenessPlane {
 
 /**
  * Fire-and-forget presence projection into sibling DOs.
- * here.build wires `ProjectPresenceDO` + `UserDO`; inhuman omits until needed.
+ * Hosts may wire presence/user DOs; optional until a consumer needs them.
  */
 export interface PresenceProjector {
   onAwarenessDelta(changes: { added: number[]; updated: number[] }, ctx: PresenceContext): void;

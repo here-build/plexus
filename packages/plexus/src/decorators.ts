@@ -3,6 +3,7 @@ import invariant from "tiny-invariant";
 
 import { action } from "./action.js";
 import { emitOrDefer } from "./action-buffer.js";
+import { assertStage3Decorator } from "./decorator-mode.js";
 import {
   DiscriminateMap,
   type DiscriminatingIdentityDecorator,
@@ -84,6 +85,7 @@ const decoratedTracker = new WeakSet<PlexusConstructor>();
 function createClassDecorator(name: string) {
   invariant(name, `@syncing: model name is required`);
   return (target: PlexusConstructor, context: ClassDecoratorContext) => {
+    assertStage3Decorator(context);
     const proto = Reflect.getPrototypeOf(target)! as PlexusConstructor;
     if (proto !== PlexusModel) {
       invariant(
@@ -621,6 +623,7 @@ const createHandlers = <
 };
 
 const ensureSchema = (context: ClassAccessorDecoratorContext<PlexusModel, any>): GenericRecordSchema => {
+  assertStage3Decorator(context);
   /**
    * in inheriting classes, the first decorator sees that we HAVE context.metadata.schema,
    * but not own one - it is inherited from the parent class.

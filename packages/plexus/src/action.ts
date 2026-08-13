@@ -173,6 +173,7 @@
 import type * as Y from "yjs";
 
 import { isDeferring, isLiminalDoc, runAction } from "./action-buffer.js";
+import { assertStage3Decorator } from "./decorator-mode.js";
 import type { PlexusModel } from "./PlexusModel.js";
 import { isDocTransacting, transactionObserverHook } from "./utils/transacting.js";
 
@@ -333,6 +334,7 @@ function buildActionMethod<This extends PlexusModel, Args extends unknown[], Ret
   context: ClassMethodDecoratorContext<This, ActionMethod<This, Args, Return>>,
   rollbackIf: ((error: unknown) => boolean) | undefined,
 ): ActionMethod<This, Args, Return> {
+  assertStage3Decorator(context);
   const label = `@syncing.action: method "${String(context.name)}"`;
 
   // COMPILE-BAN BYPASS, decoration-time arm. `SyncActionMethod` rejects

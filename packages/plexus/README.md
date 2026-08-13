@@ -57,7 +57,9 @@ If you'd rather build collaboration with classes than with `Y.Map.set("key", val
 ## Quick Start
 
 > You will need to use **TypeScript** with **stage-3 decorators** specifically.
-> Make sure that `experimentalDecorators` in `tsconfig.json` is **disabled**.
+> `experimentalDecorators` in `tsconfig.json` must be **disabled**.
+> `@syncing` throws `stage-2 decorators are unsupported` when the compiler invokes it as a stage-2 decorator (`experimentalDecorators`, Babel legacy).
+> `@babel/plugin-proposal-decorators` (any `version`, including `"2023-11"`) still is not native stage-3: `@syncing` field construction will mis-fire, and MobX `@computed` on a model throws `TypeError: Cannot read properties of undefined (reading 'getObservablePropValue_')`.
 
 ```typescript
 import * as Y from "yjs";

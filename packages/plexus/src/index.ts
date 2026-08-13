@@ -21,6 +21,7 @@ export {
   type OriginKindLabel,
 } from "./telemetry.js";
 export * as YJS_GLOBALS from "./YJS_GLOBALS.js";
+export * from "./globals.js";
 export * from "./Plexus.js";
 export * from "./dependency-blob.js";
 export * from "./plexus-registry.js";

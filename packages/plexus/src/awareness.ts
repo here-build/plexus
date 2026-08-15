@@ -57,18 +57,18 @@ import { bucketCount, telemetry } from "./telemetry.js";
  * Every key stays below 2^52, so the arithmetic is exact for any legal base
  * and any lane. Lanes are 1-based — lane 0 would alias the enumeration key.
  *
- * The cost is that a lane key no longer decomposes on its own: `base + lane`
- * is one sum. Resolution is a bounded search over known bases, range-checked
- * against each one's DECLARED lane count (register 0 holds the schema array,
- * so its length is exactly how far that base's range reaches). See
- * {@link PlexusAwareness.resolveKey} — it fails closed rather than guessing.
+ * The cost is that a lane key does not decompose on its own — `base + lane` is
+ * one sum. Ownership comes from each base's DECLARED range instead: register 0
+ * holds the schema array, so its length is exactly how far that base reaches.
+ * See {@link PlexusAwareness.resolveKey} — it fails closed rather than guessing.
  */
 export const AWARENESS_LANE_REGISTER = 2 ** 51;
 
 /**
- * Lanes one base may declare. Bounds the resolution scan and the range check.
- * Raising it widens the window in which two bases' ranges could overlap
- * (~N²·lanes/2^51 — 2.7e-11 at 100 peers) and lengthens the scan.
+ * Lanes one base may declare. Two bases collide when their declared ranges
+ * overlap, which needs `|b1 - b2| <= lanes` — at 51-bit bases that is
+ * ~N²·lanes/2^51, or 2.7e-11 at 100 peers. Raising the ceiling widens that
+ * window linearly and grows the lane index by one entry per lane per peer.
  */
 export const AWARENESS_MAX_LANES = 64;
 
@@ -86,16 +86,18 @@ const channelId = awarenessChannelId;
 /**
  * The states map, versioned on exactly the mutations the lane index depends on.
  *
- * The index is a pure function of `{base -> declared lane count}`, so it can be
- * cached — but a cache is only as good as its invalidation, and `states` is
- * written from five places (local channel writes, remote apply, peer removal,
- * local teardown, explicit `removeAwarenessStates`). Rather than remember to
- * poke a counter at each one, the map itself bumps: any present or future
- * writer invalidates by construction.
+ * The index is a pure function of `{base -> declared lane count}`, so it caches.
+ * A stale index misattributes a lane to the wrong peer — the failure the two
+ * registers exist to eliminate — and `states` is written from five places
+ * (local channel writes, remote apply, peer removal, local teardown, explicit
+ * `removeAwarenessStates`). A counter poked at each site is one forgotten call
+ * away from that failure, so the map bumps itself instead: every present and
+ * future writer invalidates by construction.
  *
- * Only register-0 writes that CHANGE the declared range count. A heartbeat
- * rewrites channel 0 with a deep-equal schema every 15s and a lane write
- * touches register 1 — neither moves the index, and neither bumps the version.
+ * Only a register-0 write that CHANGES a declared lane count bumps the version.
+ * A heartbeat rewrites channel 0 with a deep-equal schema every
+ * `outdatedTimeout / 2` and a lane write lands in register 1 — neither moves
+ * the index, so neither pays for a rebuild.
  */
 class VersionedStates extends Map<number, any> {
   version = 0;

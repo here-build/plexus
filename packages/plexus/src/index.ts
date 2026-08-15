@@ -15,38 +15,14 @@
  */
 
 export {
-  type AllowedKeyPrimitive,
-  type AllowedPrimitive,
-  type AllowedVirtualMapKey,
-  type AllowedYJSKeyValue,
-  type AllowedYJSMapKey,
-  type AllowedYJSValue,
-  type AllowedYJSValueList,
-  type AllowedYJSValueMap,
-  type AllowedYJSValueSet,
-  type AllowedYValue,
   type AwarenessSerializable,
   type AwarenessShape,
-  type CrossProjectReferenceTuple,
-  type GenericRecordSchema,
-  type Internals,
-  type PlexusTagContainer,
   type PlexusUUID,
-  /** `declare class` — a nominal type with no runtime binding, never a value. */
-  type ReadonlyField,
-  type ReferenceTuple,
-  type Storageable,
   type VirtualMap,
-  type YPlexusNode,
 } from "./proxy-runtime-types.js";
 export { PLEXUS_CONTROLLED, PLEXUS_DERIVED } from "./sentinels.js";
 
-export {
-  getInternals,
-  PlexusModel,
-  type PlexusConstructor,
-  type PlexusInit,
-} from "./PlexusModel.js";
+export { PlexusModel, type PlexusConstructor, type PlexusInit } from "./PlexusModel.js";
 export { resetLocalIDs } from "./local-id.js";
 export { syncing } from "./decorators.js";
 export {
@@ -73,9 +49,7 @@ export {
   type TrackerKindLabel,
   type OriginKindLabel,
 } from "./telemetry.js";
-export * as YJS_GLOBALS from "./YJS_GLOBALS.js";
 export { Plexus, type PlexusOptions, type PlexusUndoMode } from "./Plexus.js";
-export { docPlexus, docTransactionOrigin } from "./plexus-registry.js";
 export {
   buildVisitor,
   type Visitor,

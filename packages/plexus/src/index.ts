@@ -37,6 +37,7 @@ export {
   modifyAwarenessUpdate,
   type PlexusAwarenessOptions,
 } from "./awareness.js";
+export { FieldAwareness, type FrozenAwareness, type ShapeOfAwareness } from "./field-awareness.js";
 export {
   LIMINAL_BASE,
   COMMITTED_BASE,

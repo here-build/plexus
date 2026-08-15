@@ -410,82 +410,18 @@ describe("PlexusAwareness: optional clientId + multi-instance per doc", () => {
     doc.destroy();
   });
 
-  it("createLocalClient shares hub states — two bases on one encode map", () => {
-    const doc = new Y.Doc();
-    const hub = new PlexusAwareness(doc);
-    const e1 = PlexusAwareness.createLocalClient(hub);
-    const e2 = PlexusAwareness.createLocalClient(hub);
+  it("getField(name, peerId) reads a remote base after apply", () => {
+    const { awA, awB, syncAtoB, docA, docB } = createPair();
+    awA.setField("user", "shell");
+    awB.setField("progress", { step: "a" });
+    syncAtoB();
+    applyAwarenessUpdate(awA, encodeAwarenessUpdate(awB, [...awB.states.keys()]), "remote");
 
-    expect(e1.clientID).not.toBe(hub.clientID);
-    expect(e2.clientID).not.toBe(hub.clientID);
-    expect(e1.clientID).not.toBe(e2.clientID);
-    expect(e1.states).toBe(hub.states);
-    expect(e2.states).toBe(hub.states);
+    expect(awA.getField("user")).toBe("shell");
+    expect(awA.getField("progress", awB.clientID)).toEqual({ step: "a" });
+    expect(awA.getField("user", awB.clientID)).toBeUndefined();
+    expect(awA.getPeer(awB.clientID)).toEqual({ progress: { step: "a" } });
 
-    e1.setField("progress", { step: "a" });
-    e2.setField("progress", { step: "b" });
-    hub.setField("user", "shell");
-
-    // Hub map holds all three bases
-    expect(hub.getField("user")).toBe("shell");
-    expect(e1.getField("progress")).toEqual({ step: "a" });
-    expect(e2.getField("progress")).toEqual({ step: "b" });
-
-    // Each local identity sees the others as peers
-    expect(e1.getPeer(e2.clientID)).toEqual({ progress: { step: "b" } });
-    expect(e1.getPeer(hub.clientID)).toEqual({ user: "shell" });
-    expect(hub.getPeer(e1.clientID)).toEqual({ progress: { step: "a" } });
-
-    // Single encode from hub includes every local base
-    const update = encodeAwarenessUpdate(hub, [...hub.states.keys()]);
-    const docR = new Y.Doc();
-    const remote = new PlexusAwareness(docR);
-    applyAwarenessUpdate(remote, update, "remote");
-    expect(remote.getPeer(e1.clientID)).toEqual({ progress: { step: "a" } });
-    expect(remote.getPeer(e2.clientID)).toEqual({ progress: { step: "b" } });
-    expect(remote.getPeer(hub.clientID)).toEqual({ user: "shell" });
-
-    e1.destroy();
-    e2.destroy();
-    doc.destroy();
-    docR.destroy();
-  });
-
-  it("destroying one local client only removes that base from the shared map", () => {
-    const doc = new Y.Doc();
-    const hub = new PlexusAwareness(doc);
-    const e1 = PlexusAwareness.createLocalClient(hub, 50_001);
-    const e2 = PlexusAwareness.createLocalClient(hub, 50_002);
-
-    e1.setField("progress", 1);
-    e2.setField("progress", 2);
-
-    e1.destroy();
-
-    expect(hub.states.has(50_001)).toBe(false);
-    expect(hub.getPeer(50_001)).toBeNull();
-    expect(e2.getField("progress")).toBe(2);
-    expect(hub.getPeer(50_002)).toEqual({ progress: 2 });
-
-    e2.destroy();
-    doc.destroy();
-  });
-
-  it("hub option requires same doc", () => {
-    const docA = new Y.Doc();
-    const docB = new Y.Doc();
-    const hub = new PlexusAwareness(docA);
-    expect(() => new PlexusAwareness(docB, { hub, clientId: 1 })).toThrow(/same Y.Doc/);
-    docA.destroy();
-    docB.destroy();
-  });
-
-  it("refuses clientId equal to hub.clientID", () => {
-    const doc = new Y.Doc();
-    const hub = new PlexusAwareness(doc);
-    expect(() => new PlexusAwareness(doc, { hub, clientId: hub.clientID })).toThrow(
-      /differ from hub/,
-    );
-    doc.destroy();
+    cleanup(docA, docB);
   });
 });

@@ -40,13 +40,18 @@ describe("awareness reads return the live family instance", () => {
     expect(plexus.awareness.getField("ref")).toBe(entity);
   });
 
-  it("a secondary client's frame read via getPeer returns the tree instance", () => {
+  it("a peer frame read via getPeer returns the tree instance", () => {
     const { plexus, root } = initTestPlexus(new IdentHost());
     const entity = new IdentItem({ name: "live" });
     root.items.push(entity);
 
-    const author = PlexusAwareness.createLocalClient(plexus.awareness);
+    const author = new PlexusAwareness(plexus.doc, { clientId: 42_001 });
     author.setField("ref", entity as never);
+    applyAwarenessUpdate(
+      plexus.awareness,
+      encodeAwarenessUpdate(author, [...author.states.keys()]),
+      "remote",
+    );
 
     const peer = plexus.awareness.getPeer(author.clientID) as { ref?: IdentItem };
     expect(peer?.ref).toBe(entity);

@@ -56,7 +56,7 @@ function handleSyncMessage(
       if (!readOnly) syncProtocol.readUpdate(decoder, doc, origin);
       break;
     default:
-      console.warn("[hono-plexus-do] unknown sync message type:", syncMessageType);
+      console.warn("[plexus-do] unknown sync message type:", syncMessageType);
   }
 }
 
@@ -86,7 +86,7 @@ export function handleYjsFrame(
 
   const lane = laneByMessageType(routing, messageType);
   if (!lane) {
-    console.warn("[hono-plexus-do] unknown message type:", messageType);
+    console.warn("[plexus-do] unknown message type:", messageType);
     return null;
   }
 

@@ -24,6 +24,6 @@ SOFTWARE.
 
 ## Exception
 
-`packages/hono-plexus-do` is licensed under
-[FSL-1.1-MIT](./packages/hono-plexus-do/LICENSE.md) (Functional Source License
+`packages/plexus-do` is licensed under
+[FSL-1.1-MIT](./packages/plexus-do/LICENSE.md) (Functional Source License
 1.1, MIT Future License), not MIT.

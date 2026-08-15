@@ -99,7 +99,7 @@ pretend persistence or providers were ever documented.
 
 - **`plexus`** — models, ownership, identity, undo, liminality, awareness.
   [`packages/plexus/README.md`](./packages/plexus/README.md)
-- **`hono-plexus-do`** — Cloudflare Durable Object sync: leader/follower
+- **`plexus-do`** — Cloudflare Durable Object sync: leader/follower
   lanes, persistence, presence, spill, archive. FSL-1.1-MIT; the rest of
   the family is MIT.
 - **`plexus-vfs`** — dirs, files, and entity paths as plexus models; an
@@ -128,5 +128,5 @@ from [@here.build/commons](https://github.com/here-build/commons)
 
 ## License
 
-[MIT](./LICENSE.md), except [`hono-plexus-do`](./packages/hono-plexus-do/LICENSE.md)
-which is [FSL-1.1-MIT](./packages/hono-plexus-do/LICENSE.md).
+[MIT](./LICENSE.md), except [`plexus-do`](./packages/plexus-do/LICENSE.md)
+which is [FSL-1.1-MIT](./packages/plexus-do/LICENSE.md).

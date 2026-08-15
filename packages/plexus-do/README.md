@@ -1,4 +1,4 @@
-# @here.build/hono-plexus-do
+# @here.build/plexus-do
 
 A **Worker draft** for Plexus/Yjs sync on Cloudflare Durable Objects — leader, archive follower, presence registry. It is not a Worker. Wrangler never deploys this package. A product becomes a Worker after it fills the holes the bases leave open and exports *that* class from its own entry.
 
@@ -12,11 +12,11 @@ A **Worker draft** for Plexus/Yjs sync on Cloudflare Durable Objects — leader,
 
 | Import | Ships |
 |---|---|
-| `@here.build/hono-plexus-do/leader` | `PlexusLeaderSyncDO` |
-| `@here.build/hono-plexus-do/archive` | `PlexusArchiveSyncDO` |
-| `@here.build/hono-plexus-do/presence` | `EphemeralRegistryDO` |
-| `@here.build/hono-plexus-do/client` | `mirrorSyncDoc` — Worker-to-Worker replica, not a browser provider |
-| `@here.build/hono-plexus-do` | types, constants, errors, the three bases |
+| `@here.build/plexus-do/leader` | `PlexusLeaderSyncDO` |
+| `@here.build/plexus-do/archive` | `PlexusArchiveSyncDO` |
+| `@here.build/plexus-do/presence` | `EphemeralRegistryDO` |
+| `@here.build/plexus-do/client` | `mirrorSyncDoc` — Worker-to-Worker replica, not a browser provider |
+| `@here.build/plexus-do` | types, constants, errors, the three bases |
 
 `persist` / `protocol` / `follower` / `spill` are internals. Do not import them.
 
@@ -28,7 +28,7 @@ New namespaces use SQLite. Persist talks the KV *API*, which SQLite-backed DOs s
 
 ```ts
 // src/index.ts
-import { PlexusLeaderSyncDO, type WebSocketHandshakeResult } from "@here.build/hono-plexus-do/leader";
+import { PlexusLeaderSyncDO, type WebSocketHandshakeResult } from "@here.build/plexus-do/leader";
 
 export interface Env {
   DOC_LEADER: DurableObjectNamespace<DocLeader>;

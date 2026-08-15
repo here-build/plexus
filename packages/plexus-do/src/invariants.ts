@@ -1,5 +1,5 @@
 /**
- * Invariant surface for `@here.build/hono-plexus-do`.
+ * Invariant surface for `@here.build/plexus-do`.
  *
  * Installs global `Error.invariant` via side-effect import. Substrate errors are
  * thrown through receiver-scoped `.invariant` so catch sites keep the failure

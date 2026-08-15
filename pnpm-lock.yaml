@@ -15,49 +15,6 @@ importers:
         specifier: ^2.9.0
         version: 2.10.9
 
-  packages/hono-plexus-do:
-    dependencies:
-      '@here.build/chunked-websocket':
-        specifier: 0.9.0
-        version: 0.9.0
-      '@here.build/error-invariant':
-        specifier: 0.9.0
-        version: 0.9.0
-      lib0:
-        specifier: 0.2.114
-        version: 0.2.114
-      y-protocols:
-        specifier: 1.0.6
-        version: 1.0.6(yjs@13.6.30)
-      yjs:
-        specifier: 13.6.30
-        version: 13.6.30
-    devDependencies:
-      '@cloudflare/workers-types':
-        specifier: 4.20250803.0
-        version: 4.20250803.0
-      '@here.build/eslint-configs':
-        specifier: 0.9.0
-        version: 0.9.0(@typescript-eslint/eslint-plugin@8.55.0(@typescript-eslint/parser@8.55.0(eslint@9.39.2)(typescript@6.0.2))(eslint@9.39.2)(typescript@6.0.2))(@typescript-eslint/utils@8.66.0(eslint@9.39.2)(typescript@6.0.2))(eslint@9.39.2)(typescript@6.0.2)
-      '@here.build/tsconfig':
-        specifier: 0.9.0
-        version: 0.9.0
-      '@types/node':
-        specifier: 24.0.0
-        version: 24.0.0
-      eslint:
-        specifier: 9.39.2
-        version: 9.39.2
-      tslib:
-        specifier: 2.8.1
-        version: 2.8.1
-      typescript:
-        specifier: 6.0.2
-        version: 6.0.2
-      vitest:
-        specifier: 4.1.0
-        version: 4.1.0(@types/node@24.0.0)(jsdom@26.1.0)(vite@7.2.7(@types/node@24.0.0))
-
   packages/plexus:
     dependencies:
       '@here.build/arrival-env':
@@ -124,6 +81,49 @@ importers:
       yjs:
         specifier: 13.6.30
         version: 13.6.30
+
+  packages/plexus-do:
+    dependencies:
+      '@here.build/chunked-websocket':
+        specifier: 0.9.0
+        version: 0.9.0
+      '@here.build/error-invariant':
+        specifier: 0.9.0
+        version: 0.9.0
+      lib0:
+        specifier: 0.2.114
+        version: 0.2.114
+      y-protocols:
+        specifier: 1.0.6
+        version: 1.0.6(yjs@13.6.30)
+      yjs:
+        specifier: 13.6.30
+        version: 13.6.30
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: 4.20250803.0
+        version: 4.20250803.0
+      '@here.build/eslint-configs':
+        specifier: 0.9.0
+        version: 0.9.0(@typescript-eslint/eslint-plugin@8.55.0(@typescript-eslint/parser@8.55.0(eslint@9.39.2)(typescript@6.0.2))(eslint@9.39.2)(typescript@6.0.2))(@typescript-eslint/utils@8.66.0(eslint@9.39.2)(typescript@6.0.2))(eslint@9.39.2)(typescript@6.0.2)
+      '@here.build/tsconfig':
+        specifier: 0.9.0
+        version: 0.9.0
+      '@types/node':
+        specifier: 24.0.0
+        version: 24.0.0
+      eslint:
+        specifier: 9.39.2
+        version: 9.39.2
+      tslib:
+        specifier: 2.8.1
+        version: 2.8.1
+      typescript:
+        specifier: 6.0.2
+        version: 6.0.2
+      vitest:
+        specifier: 4.1.0
+        version: 4.1.0(@types/node@24.0.0)(jsdom@26.1.0)(vite@7.2.7(@types/node@24.0.0))
 
   packages/plexus-vfs:
     dependencies:

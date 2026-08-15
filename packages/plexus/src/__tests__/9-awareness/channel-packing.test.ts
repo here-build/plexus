@@ -29,6 +29,7 @@ import {
   awarenessChannelId,
   encodeAwarenessUpdate,
   PlexusAwareness,
+  removeAwarenessStates,
 } from "../../awareness.js";
 import { newClientId } from "../../genesis-client.js";
 
@@ -207,5 +208,78 @@ describe("ambiguous lanes fail closed", () => {
     const aw = make(2_000_000);
     for (let i = 0; i < AWARENESS_MAX_LANES; i++) aw.setField(`f${i}`, i);
     expect(() => aw.setField("one-too-many", 1)).toThrow(/at most 64 lanes/);
+  });
+});
+
+/**
+ * The lane index is a cache, so its invalidation is the part worth testing.
+ * It is keyed on a version the states map bumps itself, so the question is
+ * whether that version moves exactly when the declared ranges move — no later
+ * (stale attribution) and no more often (a rebuild on every heartbeat).
+ */
+describe("lane index invalidation", () => {
+  const docs: Y.Doc[] = [];
+  afterEach(() => {
+    for (const d of docs) d.destroy();
+    docs.length = 0;
+  });
+
+  function make(clientId?: number): PlexusAwareness {
+    const doc = new Y.Doc();
+    docs.push(doc);
+    return new PlexusAwareness(doc, clientId === undefined ? undefined : { clientId });
+  }
+
+  const sync = (to: PlexusAwareness, from: PlexusAwareness): void =>
+    applyAwarenessUpdate(to, encodeAwarenessUpdate(from, [...from.states.keys()]), "remote");
+
+  it("sees a lane announced after the index was already built", () => {
+    const local = make();
+    const peer = make();
+    peer.setField("cursor", 1);
+    sync(local, peer);
+
+    // Build the index, then let the peer announce a second field.
+    expect(local.resolveKey(awarenessChannelId(peer.clientID, 1))).toEqual({ base: peer.clientID, lane: 1 });
+    peer.setField("selection", 2);
+    sync(local, peer);
+
+    expect(local.resolveKey(awarenessChannelId(peer.clientID, 2))).toEqual({ base: peer.clientID, lane: 2 });
+    expect(local.getField("selection", peer.clientID)).toBe(2);
+  });
+
+  it("stops resolving a departed peer's lanes", () => {
+    const local = make();
+    const peer = make();
+    peer.setField("cursor", 1);
+    sync(local, peer);
+    expect(local.resolveKey(awarenessChannelId(peer.clientID, 1))).not.toBeNull();
+
+    removeAwarenessStates(local, [peer.clientID], "test");
+    expect(local.resolveKey(awarenessChannelId(peer.clientID, 1))).toBeNull();
+  });
+
+  it("does not rebuild on heartbeats or lane writes", () => {
+    const local = make(3_000_000);
+    const peer = make(4_000_000);
+    peer.setField("cursor", 1);
+    sync(local, peer);
+
+    const states = local.states as Map<number, unknown> & { version: number };
+    const afterJoin = states.version;
+
+    // A heartbeat is channel 0 rewritten with a deep-equal schema.
+    applyAwarenessUpdate(local, encodeAwarenessUpdate(peer, [peer.clientID]), "remote");
+    // A lane write touches register 1 only.
+    peer.setField("cursor", 2);
+    sync(local, peer);
+
+    expect(states.version).toBe(afterJoin);
+    expect(local.getField("cursor", peer.clientID)).toBe(2);
+
+    // Announcing a NEW field does move it — that changes the declared range.
+    peer.setField("selection", 9);
+    sync(local, peer);
+    expect(states.version).toBeGreaterThan(afterJoin);
   });
 });

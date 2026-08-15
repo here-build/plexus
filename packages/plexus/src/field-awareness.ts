@@ -1,3 +1,32 @@
+/**
+ * MobX lens over ONE awareness field — a lane.
+ *
+ * Atoms are minted per (field, clientId). A reaction reading one lane is not
+ * woken by traffic on another lane, by another peer's cell, or by presence
+ * heartbeats. That isolation is the point: awareness is one flat map on the
+ * wire, so observing it wholesale re-runs every observer on every keystroke of
+ * every peer.
+ *
+ * CHANGE ONLY. The heartbeat rewrites channel 0 with a deep-equal
+ * schema every `outdatedTimeout / 2`, and `_writeChannel` routes deep-equal
+ * rewrites to `update` alone (awareness.ts). Adding an `update` listener so
+ * that "nothing is missed" wakes every lane of every peer twice a minute.
+ *
+ * A LANE IS THE MEMBERSHIP QUESTION. `clientIds` is who published THIS field,
+ * not who is present; there is no per-client bag of properties to enumerate.
+ * "Everyone who introduced themselves via `info`" is a lane, and asking it per
+ * field is the whole vocabulary.
+ *
+ * NO SELF IN `getOthers()`. It answers "who ELSE published this" and skips the
+ * local base deliberately; a caller wanting itself back composes it with
+ * `get()`. `clientIds` and `getOther(id)` do NOT filter — `clientIds` lists
+ * every base carrying the field, local one included.
+ *
+ * Reads are frozen deep, stopping at {@link PlexusModel}: a lens hands out a
+ * snapshot of wire state, and a mutable one invites edits that never reach the
+ * wire. Entity refs stay live because they are identities, not payload.
+ */
+
 import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
 import { createAtom, type IAtom, runInAction } from "mobx";
 
@@ -44,7 +73,7 @@ function wire(hub: PlexusAwareness): HubTrack {
   if (wiredHubs.has(hub)) return track;
   wiredHubs.add(hub);
 
-  // `change` only: heartbeats are update-only (equalityDeep on channel 0).
+  // see preamble, CHANGE ONLY
   const onChange = (changes: ChangePayload): void => {
     runInAction(() => {
       const seen = new Set<number>();
@@ -56,6 +85,11 @@ function wire(hub: PlexusAwareness): HubTrack {
         if (resolved.field === null) {
           for (const atoms of track.fields.values()) {
             atoms.membership.reportChanged();
+            // A departing peer's lane keys ride this same payload but resolve
+            // to nothing: removal deletes their base's schema first, so
+            // `fieldOfChannel` skipped them above. This branch is what wakes
+            // their cells — deleting it as redundant strands every observer of
+            // a peer that left.
             if (changes.removed.includes(raw) && atoms.cells.has(resolved.base)) {
               atoms.cells.get(resolved.base).reportChanged();
             }

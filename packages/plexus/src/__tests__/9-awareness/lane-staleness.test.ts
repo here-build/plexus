@@ -13,11 +13,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-// `lib0/time` is `export const getUnixTime = Date.now` — a reference captured at
-// import, so vitest's faked `Date` never reaches it and every elapsed-time check
-// inside awareness reads real wall-clock. Re-export it as a call-time lookup so
-// `advanceTimersByTime` actually drives the heartbeat and the GC. Without this
-// the tests below pass vacuously: the interval fires, every delta is ~0, and
+// `lib0/time.js:22` is `export const getUnixTime = Date.now` — the reference is
+// captured at import, so a faked `Date` never reaches it and every elapsed-time
+// check inside awareness reads real wall-clock. Re-export it as a call-time
+// lookup so `advanceTimersByTime` drives the heartbeat and the GC. Without this
+// the tests below pass VACUOUSLY: the interval fires, every delta is ~0, and
 // nothing is ever collected.
 vi.mock("lib0/time", async (importOriginal) => {
   const actual = await importOriginal<typeof import("lib0/time")>();

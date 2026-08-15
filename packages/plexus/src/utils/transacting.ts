@@ -68,6 +68,9 @@ export const flushNotifications = () => {
     telemetry.counter("plexus.tracking.flush");
   }
 
+  // One action for the whole batch: without it each `reportChanged` runs every
+  // dependent reaction immediately, so a transaction touching N fields re-renders
+  // its observers N times instead of once.
   runInAction(() => {
     for (const notify of toNotify) {
       try {

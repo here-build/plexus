@@ -1,9 +1,16 @@
 /**
- * Granular field-level MobX tracking, built into plexus core.
+ * Field-level MobX tracking. Decorators and collection proxies call
+ * {@link trackAccess} / {@link trackModification} on every field read and write.
  *
- * Decorators and collection proxies call {@link trackAccess} / {@link trackModification}
- * on every field read/write. Atoms are minted lazily per entity+field; there is
- * no register step and no second reactive backend.
+ * Minting is UNCONDITIONAL — there is no register step, no opt-out, and no
+ * second reactive backend. A first read of an entity+field allocates a
+ * `DefaultedMap` for the entity and an `IAtom` for the field, on every host
+ * including ones that never observe anything. That cost buys the guarantee
+ * that a value read anywhere is reactive without the caller arranging it;
+ * an opt-in flag instead means a host that forgets it sees silently dead
+ * reactivity rather than a slower one.
+ *
+ * Entity keys are held weakly, so atoms die with the entity.
  *
  * Field Access Types:
  * - val: root entity + field access

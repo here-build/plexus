@@ -1,13 +1,10 @@
 /**
  * Lane staleness — what survives 60s of silence.
  *
- * Only channel 0 heartbeats (every `outdatedTimeout / 2`). Field lanes sleep
- * until their value changes, so their `meta.lastUpdated` goes arbitrarily
- * stale. The GC must therefore time out on channel 0 ONLY: a lane that has
- * not been rewritten in an hour is not gone, it is merely quiet.
- *
- * The failure this guards: GC that walks all channels would evict a live
- * peer's cursor lane while the peer is still present and heartbeating.
+ * Only channel 0 heartbeats (every `outdatedTimeout / 2`). Lanes sleep until
+ * their value changes, so `meta.lastUpdated` on a lane goes arbitrarily stale
+ * while its owner is perfectly alive. The GC must therefore expire channel 0
+ * ONLY — walking all channels evicts a live peer's cursor mid-session.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

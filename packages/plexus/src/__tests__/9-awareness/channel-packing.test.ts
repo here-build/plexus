@@ -1,21 +1,16 @@
 /**
- * Channel packing — the states-map key algebra.
+ * The states-map key algebra (layout in awareness.ts, AWARENESS_LANE_REGISTER).
  *
- * A states-map key is `base + channel * AWARENESS_CHANNEL_STRIDE`. Two
- * invariants must hold for every key the protocol can mint:
+ * Three invariants, over every key the protocol can mint with 51-bit bases:
  *
- *   1. it is a SAFE integer — float64 represents consecutive integers only
- *      below 2^53; above it, `n` and `n + 1` can be the same value
- *   2. it round-trips — `parse(channelId(b, c))` gives back exactly `(b, c)`
+ *   1. it is a SAFE integer — float64 spaces consecutive integers only below
+ *      2^53; above it `n` and `n + 1` can be the same value
+ *   2. distinct bases never share a key on the same lane
+ *   3. an announced lane resolves to the base that announced it
  *
- * Break either and two users' lanes silently become one: no throw, no warning,
- * presence attributed to the wrong peer. These are the specification, not a
- * description of current behavior.
- *
- * The squeeze is that base and channel share one 53-bit budget. Plexus assigns
- * 51-bit bases (`Plexus.ts` overwrites `doc.clientID` with `newClientId()`),
- * which leaves 2 bits for the channel — so the ceiling is low and the failure
- * past it is silent rather than loud.
+ * Breaking any of them costs no throw and no warning — presence simply lands on
+ * the wrong peer — so these assert the algebra directly rather than waiting for
+ * a lens to misbehave downstream.
  */
 
 import fc from "fast-check";
@@ -117,13 +112,10 @@ describe("awareness channel packing", () => {
 });
 
 /**
- * The consequence that actually reaches users.
- *
- * `fieldOfChannel` maps a `change` payload id back to (base, field) to decide
- * which atom to invalidate. It does that with `parseAwarenessChannelId`. Once a
- * key stops round-tripping, the lookup lands on a base that is not there, the
- * cell atom is never reported changed, and the lens goes quiet — no error, no
- * stale value, just a reaction that stops firing.
+ * Resolution is what drives invalidation: `fieldOfChannel` maps a `change`
+ * payload id back to (base, field) to pick the atom. A key that resolves to the
+ * wrong base — or to none — costs no error and no stale value, only a reaction
+ * that stops firing, so these assert the lens actually wakes per lane.
  */
 describe("packing failure surfaces as lost reactivity", () => {
   const docs: Y.Doc[] = [];
@@ -164,12 +156,8 @@ describe("packing failure surfaces as lost reactivity", () => {
   });
 });
 
-/**
- * Overlap is the one case the register scheme cannot make impossible: two bases
- * close enough that their DECLARED ranges cover the same key. It must resolve to
- * nobody rather than to the wrong peer — a missing update self-heals on the next
- * reconnect, a misattributed one shows a stranger's cursor as yours.
- */
+/** Overlapping declared ranges are the one case the registers cannot rule out;
+ *  `resolveKey` answers nobody rather than guessing. */
 describe("ambiguous lanes fail closed", () => {
   const docs: Y.Doc[] = [];
   afterEach(() => {
@@ -211,12 +199,8 @@ describe("ambiguous lanes fail closed", () => {
   });
 });
 
-/**
- * The lane index is a cache, so its invalidation is the part worth testing.
- * It is keyed on a version the states map bumps itself, so the question is
- * whether that version moves exactly when the declared ranges move — no later
- * (stale attribution) and no more often (a rebuild on every heartbeat).
- */
+/** The version must move exactly when declared ranges move — no later (stale
+ *  attribution), no more often (a rebuild on every heartbeat). */
 describe("lane index invalidation", () => {
   const docs: Y.Doc[] = [];
   afterEach(() => {

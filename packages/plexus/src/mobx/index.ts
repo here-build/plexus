@@ -1,10 +1,9 @@
 /**
- * Compatibility entry. MobX field tracking is always on in `@here.build/plexus`;
- * calling {@link enableMobXIntegration} is a no-op.
+ * Compatibility entry. MobX field tracking is unconditional (see tracking.ts),
+ * so both exports here are inert — they exist only to keep call sites that
+ * still import the old opt-in switch compiling.
  */
 
-/** Always true — atoms are minted from the first field read. */
 export const isGlobalIntegrationEnabled = true;
 
-/** No-op. Kept so existing `import { enableMobXIntegration }` call sites compile. */
 export const enableMobXIntegration = (): void => {};

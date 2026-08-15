@@ -28,9 +28,10 @@ export * from "./plexus-registry.js";
 export * from "./walk.js";
 export {
   PlexusAwareness,
-  AWARENESS_CHANNEL_STRIDE,
+  AWARENESS_LANE_REGISTER,
+  AWARENESS_MAX_LANES,
   awarenessChannelId,
-  parseAwarenessChannelId,
+  isAwarenessEnumerationKey,
   encodeAwarenessUpdate,
   applyAwarenessUpdate,
   removeAwarenessStates,

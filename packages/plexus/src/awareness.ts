@@ -15,12 +15,12 @@
  * Wire format (unchanged from y-protocols):
  *   varUint(numClients) + repeated { varUint(clientID) varUint(clock) varString(JSON(state)) }
  *
- * Channel clientId derivation:
+ * Channel clientId derivation (two registers — see AWARENESS_LANE_REGISTER):
  *   channel 0: baseClientId                        (schema + heartbeat)
- *   channel N: baseClientId + N * 2^51              (field value)
+ *   channel N: 2^51 + baseClientId + N              (field value)
  *
- * Base clientIds must stay in the regular range [0, 2^51) so channel packing
- * does not collide with liminal/committed/genesis namespaces.
+ * Base clientIds must stay in the regular range [0, 2^51) so a base is never
+ * mistaken for a lane key.
  *
  * Construction:
  *   new PlexusAwareness(doc)                // base = doc.clientID
@@ -42,25 +42,46 @@ import type { AwarenessShape } from "./proxy-runtime-types.js";
 import { bucketCount, telemetry } from "./telemetry.js";
 
 /**
- * Multi-channel packing stride.
+ * Two registers, not a multiplied stride.
  *
- * One user occupies many keys in the awareness states map: channel 0 is the
- * schema (field-name list + heartbeat); channel N holds field N's value.
- * Keys are `base + channel * AWARENESS_CHANNEL_STRIDE` so field updates do not
- * collide with other bases' channel-0 heartbeats (y-protocols wire is flat).
+ * A user occupies many keys in the flat y-protocols states map. The naive
+ * packing — `base + channel * 2^51` — multiplies identity by lane, and since
+ * Plexus assigns 51-bit bases that exhausts the 53-bit safe-integer budget at
+ * the FOURTH lane: keys stop round-tripping and distinct users start sharing
+ * one key, silently. Registers separate the namespace from the identity
+ * instead:
+ *
+ *   register 0  `base`                       enumeration + heartbeat + schema
+ *   register 1  `2^51 + base + laneIndex`    one lane per announced field
+ *
+ * Every key stays below 2^52, so the arithmetic is exact for any legal base
+ * and any lane. Lanes are 1-based — lane 0 would alias the enumeration key.
+ *
+ * The cost is that a lane key no longer decomposes on its own: `base + lane`
+ * is one sum. Resolution is a bounded search over known bases, range-checked
+ * against each one's DECLARED lane count (register 0 holds the schema array,
+ * so its length is exactly how far that base's range reaches). See
+ * {@link PlexusAwareness.resolveKey} — it fails closed rather than guessing.
  */
-export const AWARENESS_CHANNEL_STRIDE = 2 ** 51;
+export const AWARENESS_LANE_REGISTER = 2 ** 51;
+
+/**
+ * Lanes one base may declare. Bounds the resolution scan and the range check.
+ * Raising it widens the window in which two bases' ranges could overlap
+ * (~N²·lanes/2^51 — 2.7e-11 at 100 peers) and lengthens the scan.
+ */
+export const AWARENESS_MAX_LANES = 64;
+
 export const outdatedTimeout = 30_000;
 
-export const awarenessChannelId = (base: number, channel: number): number => base + channel * AWARENESS_CHANNEL_STRIDE;
+/** Mint a key. Channel 0 is the enumeration key; channel N is lane N. */
+export const awarenessChannelId = (base: number, channel: number): number =>
+  channel === 0 ? base : AWARENESS_LANE_REGISTER + base + channel;
 
-export const parseAwarenessChannelId = (raw: number): { base: number; channel: number } => ({
-  base: raw % AWARENESS_CHANNEL_STRIDE,
-  channel: Math.floor(raw / AWARENESS_CHANNEL_STRIDE),
-});
+/** Register-0 test — pure and exact, no knowledge of peers required. */
+export const isAwarenessEnumerationKey = (raw: number): boolean => raw < AWARENESS_LANE_REGISTER;
 
 const channelId = awarenessChannelId;
-const parseChannelId = parseAwarenessChannelId;
 
 /** Options for {@link PlexusAwareness} construction. */
 export type PlexusAwarenessOptions = {
@@ -78,9 +99,10 @@ function resolveOptions(clientIdOrOptions?: number | PlexusAwarenessOptions): Pl
 }
 
 export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> extends Awareness {
-  static readonly CHANNEL_STRIDE = AWARENESS_CHANNEL_STRIDE;
+  static readonly LANE_REGISTER = AWARENESS_LANE_REGISTER;
+  static readonly MAX_LANES = AWARENESS_MAX_LANES;
   static readonly channelId = awarenessChannelId;
-  static readonly parseChannelId = parseAwarenessChannelId;
+  static readonly isEnumerationKey = isAwarenessEnumerationKey;
 
   /** Ordered field names — also the channel-0 wire payload for this base. */
   private readonly _schema: string[] = [];
@@ -128,8 +150,7 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
         const toRemove: number[] = [];
         for (const [cid, meta] of this.meta.entries()) {
           if (cid === this.clientID) continue;
-          const { channel } = parseChannelId(cid);
-          if (channel !== 0) continue;
+          if (!isAwarenessEnumerationKey(cid)) continue;
           if (outdatedTimeout <= now - meta.lastUpdated && this.states.has(cid)) {
             toRemove.push(cid);
           }
@@ -172,6 +193,10 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
     if (idx === undefined) {
       // New field — append to schema
       idx = this._schema.length + 1; // 1-based channel index
+      invariant(
+        idx <= AWARENESS_MAX_LANES,
+        `PlexusAwareness: cannot announce "${field}" — a base may declare at most ${AWARENESS_MAX_LANES} lanes (already has ${this._schema.length})`,
+      );
       this._schema.push(field);
       this._fieldIndex.set(field, idx);
       // Update channel 0 (schema)
@@ -206,17 +231,63 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
   }
 
   /**
-   * Packed states-map key (a `change` payload id) → base + field.
-   * Channel 0 is the schema slot — `field` is `null`. A field channel
-   * whose name is not yet in that base's channel-0 schema returns `null`
-   * (new fields cannot appear without that annotation).
+   * States-map key → owning base + lane index. Lane 0 is the enumeration key.
+   *
+   * A lane key is `LANE_REGISTER + base + lane`, one sum, so the owner cannot
+   * be read off the number alone. Instead each candidate base is range-checked
+   * against its DECLARED lane count — the length of its channel-0 schema array.
+   * A base only claims a key that falls inside the range it has announced, so
+   * a nearby base whose range does not reach cannot absorb someone else's lane.
+   *
+   * Fails closed. `null` means "not attributable", never a guess:
+   *   - no known base declares a range covering this key (schema not yet
+   *     received — the lane arrives after channel 0 on both the incremental
+   *     and snapshot paths, so this is transient), or
+   *   - two bases' declared ranges both cover it, which is the rare
+   *     `|b1 - b2| <= lanes` overlap. Reporting neither beats reporting the
+   *     wrong peer's presence.
+   */
+  resolveKey(raw: number): { base: number; lane: number } | null {
+    if (isAwarenessEnumerationKey(raw)) return { base: raw, lane: 0 };
+    const offset = raw - AWARENESS_LANE_REGISTER;
+
+    let found: { base: number; lane: number } | null = null;
+    for (let lane = 1; lane <= AWARENESS_MAX_LANES; lane++) {
+      const candidate = offset - lane;
+      if (candidate < 0) break;
+      const schema = this.states.get(candidate);
+      // Covers this key only if it has announced at least `lane` fields.
+      if (!Array.isArray(schema) || schema.length < lane) continue;
+      if (found !== null) {
+        if (telemetry.enabled) telemetry.counter("plexus.awareness.lane_ambiguous");
+        return null;
+      }
+      found = { base: candidate, lane };
+    }
+    return found;
+  }
+
+  /** Is this key one of MY keys? Exact and pure — own base and own lane count. */
+  ownsKey(raw: number): boolean {
+    if (isAwarenessEnumerationKey(raw)) return raw === this.clientID;
+    const lane = raw - AWARENESS_LANE_REGISTER - this.clientID;
+    return lane >= 1 && lane <= this._schema.length;
+  }
+
+  /**
+   * States-map key (a `change` payload id) → base + field name.
+   * The enumeration key is the schema slot — `field` is `null`. A lane whose
+   * name is not yet in its base's schema returns `null` (a lane cannot be
+   * named before the channel-0 announcement that declares it).
    */
   fieldOfChannel(raw: number): { base: number; field: string | null } | null {
-    const { base, channel } = parseChannelId(raw);
-    if (channel === 0) return { base, field: null };
+    const resolved = this.resolveKey(raw);
+    if (resolved === null) return null;
+    const { base, lane } = resolved;
+    if (lane === 0) return { base, field: null };
     const schema = this.states.get(base);
     if (!Array.isArray(schema)) return null;
-    const name = schema[channel - 1];
+    const name = schema[lane - 1];
     if (typeof name !== "string") return null;
     return { base, field: name };
   }
@@ -291,10 +362,7 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
 
   /** Get all peer base clientIds (excludes self). */
   getPeerIds(): number[] {
-    return [...this.states.keys()]
-      .map(parseChannelId)
-      .filter(({ base, channel }) => channel === 0 && base !== this.clientID)
-      .map(({ base }) => base);
+    return [...this.states.keys()].filter((cid) => isAwarenessEnumerationKey(cid) && cid !== this.clientID);
   }
 
   /** Write to a specific channel (local). */
@@ -474,7 +542,7 @@ function dropParkedForBase(awareness: PlexusAwareness, base: number): void {
   const gate = coherenceGates.get(awareness);
   if (!gate) return;
   for (const cid of gate.frames.keys()) {
-    if (parseChannelId(cid).base === base) gate.frames.delete(cid);
+    if (awareness.resolveKey(cid)?.base === base) gate.frames.delete(cid);
   }
   detachIfDrained(awareness, gate);
 }
@@ -537,8 +605,7 @@ function applyDecodedEntry(
   if (currClock < clock || (currClock === clock && state === null && awareness.states.has(clientID))) {
     if (state === null) {
       // Self-protection: refuse removal of any of our own channels
-      const { base } = parseChannelId(clientID);
-      if (base === awareness.clientID && awareness.states.has(clientID)) {
+      if (awareness.ownsKey(clientID) && awareness.states.has(clientID)) {
         clock++;
       } else {
         awareness.states.delete(clientID);
@@ -604,10 +671,10 @@ export const removeAwarenessStates = (awareness: PlexusAwareness, clients: numbe
   const removed: number[] = [];
   for (const clientID of clients) {
     // Explicit removal supersedes any frame still waiting on the coherence gate.
-    dropParkedForBase(awareness, parseChannelId(clientID).base);
+    dropParkedForBase(awareness, awareness.resolveKey(clientID)?.base ?? clientID);
     if (awareness.states.has(clientID)) {
       awareness.states.delete(clientID);
-      if (parseChannelId(clientID).base === awareness.clientID) {
+      if (awareness.ownsKey(clientID)) {
         const curMeta = awareness.meta.get(clientID);
         awareness.meta.set(clientID, { clock: (curMeta?.clock ?? 0) + 1, lastUpdated: time.getUnixTime() });
       }

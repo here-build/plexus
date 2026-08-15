@@ -99,7 +99,7 @@ export class FieldAwareness<
   A extends PlexusAwareness<AwarenessShape> = PlexusAwareness,
   K extends string & keyof ShapeOfAwareness<A> = string & keyof ShapeOfAwareness<A>,
 > {
-  #field: FieldAtoms;
+  readonly #field: FieldAtoms;
 
   constructor(
     readonly awareness: A,

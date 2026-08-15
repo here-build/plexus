@@ -17,11 +17,15 @@ without writing 500 lines of glue code per entity. **Plexus is the layer that ma
 Decorate fields with `@syncing`, get reactive replication, MobX integration, parents-of/children-of traversal,
 and append-only entity shells with native undo/redo, while keeping close to zero overhead over native Yjs structs.
 Yjs-compatible underneath; works with any Yjs provider you already trust.
-Rides MobX reactivity stack opt-in - both local and remote changes will trigger `observer()`, `reaction()` and `autorun()`.
+Rides the MobX reactivity stack — local and remote changes trigger `observer()`, `reaction()` and `autorun()`.
 
 If you'd rather build collaboration with classes than with `Y.Map.set("key", value)`, this is for you.
 
 ## Contents
+
+> All you need to start is to read the Quickstart and Defining Models. Maybe reactivity, if you need it.
+> 
+> Rest of README.md is concerned purely on explaining why you should not think about Plexus internals and just write idiomatic TypeScript. It is that large not because Plexus has complex API - it is that large explicitly because API is so simple it's hard to beleive that it actually works, and it needs the explanation _why_ it is actually possible to be that simple.
 
 - [Who this is for](#who-this-is-for)
 - [Quick Start](#quick-start)
@@ -457,15 +461,9 @@ You don't need a special "snapshot protocol" for UI serialization — spread syn
 
 ## Reactivity
 
-### MobX Integration
+Reactivity is MobX. Field reads inside `autorun` / `reaction` / `@computed` track; writes invalidate. There is no register step.
 
 ```typescript
-// Automatic register — recommended
-import "@here.build/plexus/mobx/register";
-
-// Or manual initialization
-import { enableMobXIntegration } from "@here.build/plexus/mobx";
-
 import { autorun } from "mobx";
 
 autorun(() => {
@@ -481,8 +479,6 @@ to those specific structural traits rather than the whole collection. An update 
 will not trigger a re-render for a component purely observing `.has('key')` or `.size`.
 
 ### MobX Reaction Tracking
-
-With MobX integration enabled, use `reaction` for fine-grained tracking:
 
 ```typescript
 import { reaction } from "mobx";

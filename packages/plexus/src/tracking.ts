@@ -1,14 +1,18 @@
 /**
- * Granular field-level tracking system built into plexus core.
+ * Granular field-level MobX tracking, built into plexus core.
  *
- * Provides trackAccess/trackModification primitives that Plexus decorators call
- * on every field read/write. External reactive systems (MobX) plug in via trackingHook.
+ * Decorators and collection proxies call {@link trackAccess} / {@link trackModification}
+ * on every field read/write. Atoms are minted lazily per entity+field; there is
+ * no register step and no second reactive backend.
  *
  * Field Access Types:
  * - val: root entity + field access
  * - map: root entity + field access + keyset access + property access + "access all"
  * - list: root entity + field access + length access + index access + "access all"
  */
+
+import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
+import { createAtom, type IAtom } from "mobx";
 
 import type { AllowedYJSMapKey } from "./proxy-runtime-types.js";
 import { COLLECTION_ENTITY_TYPE, telemetry, TRACKER_KIND, type TrackerKindLabel } from "./telemetry.js";
@@ -111,16 +115,31 @@ function entityTypeOf(entity: unknown): string {
   return COLLECTION_ENTITY_TYPE;
 }
 
-type TrackingHook = {
-  access?: (entity: any, field: Tracker) => void;
-  modification?: (entity: any, field: Tracker) => void;
-};
+const objectAllMap = new DefaultedWeakMap<object, IAtom>(() => createAtom(""));
+const objectFieldMap = new DefaultedWeakMap<object, DefaultedMap<Tracker, IAtom>>(
+  () => new DefaultedMap((key: Tracker) => createAtom(String(key))),
+);
 
-export const trackingHook: TrackingHook = {};
+function reportAccess(entity: object, field: Tracker): void {
+  const atom = field === ACCESS_ALL_SYMBOL ? objectAllMap.get(entity) : objectFieldMap.get(entity).get(field);
+  atom.reportObserved();
+}
 
-/** Report a field access — external reactive systems (MobX) track dependencies via the hook. */
+function reportModification(entity: object, field: Tracker): void {
+  if (field === ACCESS_ALL_SYMBOL) {
+    objectAllMap.get(entity).reportChanged();
+    for (const atom of objectFieldMap.get(entity).values()) {
+      atom.reportChanged();
+    }
+  } else {
+    if (objectAllMap.has(entity)) objectAllMap.get(entity).reportChanged();
+    objectFieldMap.get(entity).get(field).reportChanged();
+  }
+}
+
+/** Report a field access — MobX tracks the dependency on this entity+field atom. */
 export function trackAccess(entity: any, field: Tracker): void {
-  trackingHook.access?.(entity, field);
+  reportAccess(entity, field);
   if (telemetry.enabled) {
     telemetry.counter("plexus.tracking.access", {
       entity_type: entityTypeOf(entity),
@@ -129,7 +148,7 @@ export function trackAccess(entity: any, field: Tracker): void {
   }
 }
 
-/** Report a field modification — external reactive systems (MobX) invalidate dependents via the hook. */
+/** Report a field modification — MobX invalidates dependents of this entity+field atom. */
 export function trackModification(entity: any, field: Tracker): void {
   if (untracked) {
     if (telemetry.enabled) {
@@ -147,14 +166,12 @@ export function trackModification(entity: any, field: Tracker): void {
       batched: isTransacting ? "true" : "false",
     });
   }
-  if (trackingHook.modification) {
-    if (isTransacting) {
-      pendingNotifications.add(() => {
-        trackingHook.modification!(entity, field);
-      });
-    } else {
-      trackingHook.modification(entity, field);
-    }
+  if (isTransacting) {
+    pendingNotifications.add(() => {
+      reportModification(entity, field);
+    });
+  } else {
+    reportModification(entity, field);
   }
   if (!isTransacting) {
     flushNotifications();

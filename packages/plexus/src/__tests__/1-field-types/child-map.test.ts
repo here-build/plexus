@@ -4,11 +4,10 @@
  */
 
 import { reaction } from "mobx";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
-import { enableMobXIntegration } from "../../mobx/index.js";
 import { getInternals, PlexusModel } from "../../PlexusModel.js";
 import { serializeKey } from "../../proxies/key-serialization.js";
 import type { YPlexusNode } from "../../proxy-runtime-types.js";
@@ -16,10 +15,6 @@ import { AllowedYValue, referenceSymbol } from "../../proxy-runtime-types.js";
 import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 import { getModelsMap } from "../getModelsMap.js";
-
-beforeAll(() => {
-  enableMobXIntegration();
-});
 
 function getParentRef(element: YPlexusNode | undefined): string[] | undefined {
   if (!element) return undefined;

@@ -10,7 +10,6 @@ import { bytesProxyRawSymbol, referenceSymbol } from "../proxy-runtime-types.js"
 // live (`isTransacting` mutates inside transacting.ts).
 export {
   flushNotifications,
-  flushNotificationsHook,
   isTransacting,
   markEntityCreated,
   maybeTransacting,

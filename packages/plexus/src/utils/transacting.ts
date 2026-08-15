@@ -1,3 +1,4 @@
+import { runInAction } from "mobx";
 import type * as Y from "yjs";
 
 import { docPlexus, docTransactionOrigin } from "../plexus-registry.js";
@@ -12,7 +13,7 @@ import { telemetry } from "../telemetry.js";
  * reaches `PlexusModel`, the engine's evaluation can suspend inside its own
  * imports while the model's body runs — and the module-scope registration hits
  * the engine's uninitialized (TDZ) state. Keep runtime imports here restricted
- * to leaves (registry, telemetry); model-aware helpers live in `utils.ts`.
+ * to leaves (registry, telemetry, mobx); model-aware helpers live in `utils.ts`.
  */
 
 /**
@@ -46,8 +47,6 @@ export const isDocTransacting = (doc: Y.Doc): boolean => docInTransactionMotion.
 export let isTransacting = false;
 export const pendingNotifications: Set<() => void> = new Set();
 
-export const flushNotificationsHook: { wrapper?: (fn: () => void) => void } = {};
-
 /**
  * Optional observer fired exactly once each time a NEW outermost `doc.transact`
  * opens for a doc — NOT for nested/shadow sub-transactions. `@syncing.action`
@@ -55,8 +54,8 @@ export const flushNotificationsHook: { wrapper?: (fn: () => void) => void } = {}
  * while a region is deferring, routed sites only overlay (no transaction), so
  * any real transaction opening on a non-liminal doc — the receiver's or any
  * other — means some mutation kind bypassed the buffer and wrote yjs eagerly.
- * Mirrors `flushNotificationsHook` — an unset observer costs one optional-call
- * check on the cold (real-transact) path and nothing on the hot (nested) path.
+ * An unset observer costs one optional-call check on the cold (real-transact)
+ * path and nothing on the hot (nested) path.
  */
 export const transactionObserverHook: { observe?: (doc: Y.Doc) => void } = {};
 
@@ -69,7 +68,7 @@ export const flushNotifications = () => {
     telemetry.counter("plexus.tracking.flush");
   }
 
-  const doFlush = () => {
+  runInAction(() => {
     for (const notify of toNotify) {
       try {
         notify();
@@ -77,13 +76,7 @@ export const flushNotifications = () => {
         console.error("Error in notification callback:", error);
       }
     }
-  };
-
-  if (flushNotificationsHook.wrapper) {
-    flushNotificationsHook.wrapper(doFlush);
-  } else {
-    doFlush();
-  }
+  });
 };
 
 // Module-local counter tracking active transactions at the call-stack

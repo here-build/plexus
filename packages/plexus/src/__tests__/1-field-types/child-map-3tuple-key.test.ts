@@ -8,16 +8,11 @@
  * mirroring the proposal's `Map<[SVGFilterLayer, SVGFilterElement, string], string>`.
  */
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { syncing } from "../../decorators.js";
-import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
-
-beforeAll(() => {
-  enableMobXIntegration();
-});
 
 @syncing("Layer")
 class Layer extends PlexusModel {

@@ -2,18 +2,13 @@
  * Construct-time stub undo: no UndoManager allocation; undo/redo warn+no-op;
  * liminality throws. Default full mode stays covered by undo-redo.test.ts.
  */
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
-import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
-
-beforeAll(() => {
-  enableMobXIntegration();
-});
 
 @syncing("StubUndoModel")
 class StubUndoModel extends PlexusModel {

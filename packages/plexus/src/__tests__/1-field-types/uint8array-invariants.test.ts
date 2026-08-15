@@ -1,8 +1,7 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
-import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 
@@ -15,10 +14,6 @@ import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 // discipline reaches every layer (scalar set, container element, clone,
 // liminality) or only the scalar setter. Any non-green is a copy-on-set GAP.
 // (GC is out of scope.)
-
-beforeAll(() => {
-  enableMobXIntegration();
-});
 
 @syncing("BlobHolder")
 class BlobHolder extends PlexusModel {

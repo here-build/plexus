@@ -3,18 +3,13 @@
  */
 
 import { reaction } from "mobx";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
-import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
-
-beforeAll(() => {
-  enableMobXIntegration();
-});
 
 @syncing("TestModel")
 class TestModel extends PlexusModel {

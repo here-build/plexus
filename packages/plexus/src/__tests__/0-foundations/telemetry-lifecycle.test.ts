@@ -21,18 +21,13 @@
  *     never raw UUIDs / clientIDs / unbounded values.
  */
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { syncing } from "../../decorators.js";
-import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { ORIGIN_KIND, setTelemetryAdapter } from "../../telemetry.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 import { CapturingTelemetryAdapter } from "../_helpers/test-telemetry.js";
-
-beforeAll(() => {
-  enableMobXIntegration();
-});
 
 @syncing("Item")
 class Item extends PlexusModel {

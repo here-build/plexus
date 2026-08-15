@@ -53,12 +53,11 @@
  * peer too).
  */
 import { autorun } from "mobx";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
 import { entityClasses } from "../../globals.js";
-import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { maybeTransacting } from "../../utils/utils.js";
 import { connectTestPlexus, initTestPlexus, type TestPlexus } from "../_helpers/test-plexus.js";
@@ -146,11 +145,6 @@ describe("throw inside a transaction — complete behavior characterization", ()
   let plexus: TestPlexus<Foo>;
   let root: Foo;
   let cleanups: Array<() => void>;
-
-  // Local-observer assertions need the MobX tracking hook wired up. Idempotent + global.
-  beforeAll(() => {
-    enableMobXIntegration();
-  });
 
   beforeEach(() => {
     entityClasses.set("ThrowFoo", Foo);

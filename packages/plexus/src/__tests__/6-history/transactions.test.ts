@@ -1,19 +1,14 @@
 import type { Mock } from "vitest";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Y from "yjs";
 
 import { reaction } from "mobx";
 import { syncing } from "../../decorators.js";
 import { entityClasses } from "../../globals.js";
-import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { isTransacting, pendingNotifications } from "../../utils/utils.js";
 import type { TestPlexus } from "../_helpers/test-plexus.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
-
-beforeAll(() => {
-  enableMobXIntegration();
-});
 
 // Test entity class for basic transaction tests
 @syncing("TestEntity")

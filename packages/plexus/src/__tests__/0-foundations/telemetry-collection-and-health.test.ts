@@ -21,20 +21,15 @@
  *     on every emit.
  */
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
-import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { PlexusAwareness, encodeAwarenessUpdate, applyAwarenessUpdate } from "../../awareness.js";
 import { bucketBytes, bucketCount, setTelemetryAdapter } from "../../telemetry.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 import { CapturingTelemetryAdapter } from "../_helpers/test-telemetry.js";
-
-beforeAll(() => {
-  enableMobXIntegration();
-});
 
 @syncing("Item")
 class Item extends PlexusModel {

@@ -74,11 +74,10 @@ export const AWARENESS_MAX_LANES = 64;
 
 export const outdatedTimeout = 30_000;
 
-/** Mint a key. Channel 0 is the enumeration key; channel N is lane N. */
 export const awarenessChannelId = (base: number, channel: number): number =>
   channel === 0 ? base : AWARENESS_LANE_REGISTER + base + channel;
 
-/** Register-0 test — pure and exact, no knowledge of peers required. */
+/** Pure — unlike {@link PlexusAwareness.resolveKey}, needs no knowledge of peers. */
 export const isAwarenessEnumerationKey = (raw: number): boolean => raw < AWARENESS_LANE_REGISTER;
 
 const channelId = awarenessChannelId;

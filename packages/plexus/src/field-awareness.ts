@@ -22,9 +22,9 @@
  * `get()`. `clientIds` and `getOther(id)` do NOT filter — `clientIds` lists
  * every base carrying the field, local one included.
  *
- * Reads are frozen deep, stopping at {@link PlexusModel}: a lens hands out a
- * snapshot of wire state, and a mutable one invites edits that never reach the
- * wire. Entity refs stay live because they are identities, not payload.
+ * Reads are frozen: a lens hands out a snapshot of wire state, and a mutable
+ * one invites edits that never reach the wire. See {@link FrozenAwareness} for
+ * where the freeze stops.
  */
 
 import { DefaultedMap, DefaultedWeakMap } from "@here.build/collections";
@@ -158,8 +158,7 @@ export class FieldAwareness<
     this.#field.cells.get(clientId).reportObserved();
     const value = this.awareness.getField(this.name, clientId);
     if (value === undefined || value === null) return value;
-    // `A` is constrained to `PlexusAwareness<AwarenessShape>`, so `getField` widens
-    // to the whole value union; re-narrow to this lens's own field type.
+    // `A` is constrained to the base shape, so `getField` widens to the whole union.
     return freezeAwarenessValue(value) as FrozenAwareness<ShapeOfAwareness<A>[K]>;
   }
 

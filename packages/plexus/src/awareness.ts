@@ -83,6 +83,44 @@ export const isAwarenessEnumerationKey = (raw: number): boolean => raw < AWARENE
 
 const channelId = awarenessChannelId;
 
+/**
+ * The states map, versioned on exactly the mutations the lane index depends on.
+ *
+ * The index is a pure function of `{base -> declared lane count}`, so it can be
+ * cached — but a cache is only as good as its invalidation, and `states` is
+ * written from five places (local channel writes, remote apply, peer removal,
+ * local teardown, explicit `removeAwarenessStates`). Rather than remember to
+ * poke a counter at each one, the map itself bumps: any present or future
+ * writer invalidates by construction.
+ *
+ * Only register-0 writes that CHANGE the declared range count. A heartbeat
+ * rewrites channel 0 with a deep-equal schema every 15s and a lane write
+ * touches register 1 — neither moves the index, and neither bumps the version.
+ */
+class VersionedStates extends Map<number, any> {
+  version = 0;
+
+  override set(key: number, value: any): this {
+    if (isAwarenessEnumerationKey(key)) {
+      const previous = super.get(key);
+      const before = Array.isArray(previous) ? previous.length : -1;
+      const after = Array.isArray(value) ? value.length : -1;
+      if (before !== after) this.version++;
+    }
+    return super.set(key, value);
+  }
+
+  override delete(key: number): boolean {
+    if (isAwarenessEnumerationKey(key) && super.has(key)) this.version++;
+    return super.delete(key);
+  }
+
+  override clear(): void {
+    this.version++;
+    super.clear();
+  }
+}
+
 /** Options for {@link PlexusAwareness} construction. */
 export type PlexusAwarenessOptions = {
   /**
@@ -110,6 +148,12 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
   /** Field name → 1-based channel index. */
   private readonly _fieldIndex = new Map<string, number>();
 
+  /** Same object as `this.states`, typed so the version counter is reachable. */
+  #states!: VersionedStates;
+
+  #laneIndexCache: Map<number, number | null> | null = null;
+  #laneIndexVersion = -1;
+
   /**
    * @param doc - Yjs document (wire identity for entity serde; not necessarily clientId source)
    * @param clientIdOrOptions - optional base clientId, or `{ clientId? }`
@@ -121,6 +165,14 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
     clearInterval(this._checkInterval);
 
     const opts = resolveOptions(clientIdOrOptions);
+
+    // Swap in the versioned map before anything can capture a reference to the
+    // parent's plain one — providers reach it via `getStates()`, which returns
+    // whatever `this.states` is at call time.
+    const versioned = new VersionedStates();
+    for (const [key, value] of this.states) versioned.set(key, value);
+    this.states = versioned;
+    this.#states = versioned;
 
     // super() left a single-blob {} under doc.clientID — not multi-channel schema.
     this.states.delete(doc.clientID);
@@ -249,22 +301,40 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
    */
   resolveKey(raw: number): { base: number; lane: number } | null {
     if (isAwarenessEnumerationKey(raw)) return { base: raw, lane: 0 };
-    const offset = raw - AWARENESS_LANE_REGISTER;
-
-    let found: { base: number; lane: number } | null = null;
-    for (let lane = 1; lane <= AWARENESS_MAX_LANES; lane++) {
-      const candidate = offset - lane;
-      if (candidate < 0) break;
-      const schema = this.states.get(candidate);
-      // Covers this key only if it has announced at least `lane` fields.
-      if (!Array.isArray(schema) || schema.length < lane) continue;
-      if (found !== null) {
-        if (telemetry.enabled) telemetry.counter("plexus.awareness.lane_ambiguous");
-        return null;
-      }
-      found = { base: candidate, lane };
+    const base = this.#laneIndex().get(raw);
+    if (base === undefined) return null;
+    if (base === null) {
+      if (telemetry.enabled) telemetry.counter("plexus.awareness.lane_ambiguous");
+      return null;
     }
-    return found;
+    return { base, lane: raw - AWARENESS_LANE_REGISTER - base };
+  }
+
+  /**
+   * Lane key → owning base, or `null` where two bases' declared ranges collide.
+   *
+   * Rebuilt only when some base's declared lane count changes — a peer joining
+   * or leaving, or a field being announced. Heartbeats and lane writes leave the
+   * version untouched, so the steady state is a single `Map.get` per resolution
+   * instead of a scan per changed key on every presence tick.
+   */
+  #laneIndex(): Map<number, number | null> {
+    if (this.#laneIndexCache !== null && this.#laneIndexVersion === this.#states.version) {
+      return this.#laneIndexCache;
+    }
+    const index = new Map<number, number | null>();
+    for (const [key, value] of this.#states) {
+      if (!isAwarenessEnumerationKey(key) || !Array.isArray(value)) continue;
+      const lanes = Math.min(value.length, AWARENESS_MAX_LANES);
+      for (let lane = 1; lane <= lanes; lane++) {
+        const laneKey = AWARENESS_LANE_REGISTER + key + lane;
+        // A second claimant poisons the entry — resolution fails closed.
+        index.set(laneKey, index.has(laneKey) ? null : key);
+      }
+    }
+    this.#laneIndexCache = index;
+    this.#laneIndexVersion = this.#states.version;
+    return index;
   }
 
   /** Is this key one of MY keys? Exact and pure — own base and own lane count. */

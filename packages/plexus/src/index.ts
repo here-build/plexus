@@ -1,17 +1,17 @@
 /**
  * The intended surface. Everything reachable from here is meant to be used.
  *
- * NAMED LISTS ONLY — no `export *`. A wildcard re-export makes the public
- * surface a side effect of what a sibling module happened to need from its
- * neighbour: `getInternals` carries "Module-internal — not re-exported from
- * index.ts" in its own doc comment and was public anyway, because
- * `PlexusModel.ts` exports it for `deref.ts` and the wildcard forwarded it.
- * An enumerated list makes adding to the surface a decision someone writes down.
+ * NAMED LISTS ONLY — no `export *`. A wildcard makes the surface a side effect
+ * of what a sibling module happened to need from its neighbour, and nothing in
+ * the diff says a surface changed. It also hides defects: `ReadonlyField` sat
+ * here as a value for as long as the wildcard did, and it is a `declare class`
+ * with no runtime binding — importing it as one always threw. Enumerating the
+ * list surfaced that on the first build.
  *
- * The complement is {@link file://./internals.ts} — the same package with
- * nothing withheld, deliberately undocumented. Reaching for it is allowed and
- * marks itself: the import specifier says the caller stepped outside what the
- * package intends, the way `@ts-expect-error` says it about a type.
+ * The complement is `./internals.ts` — the same package with nothing withheld,
+ * deliberately undocumented. Reaching for it is allowed and marks itself: the
+ * import specifier says the caller stepped outside what the package intends,
+ * the way `@ts-expect-error` says it about a type.
  */
 
 export {
@@ -27,39 +27,27 @@ export {
   type AllowedYValue,
   type AwarenessSerializable,
   type AwarenessShape,
-  bytesProxyRawSymbol,
   type CrossProjectReferenceTuple,
   type GenericRecordSchema,
-  informAdoptionSymbol,
-  informOrphanizationSymbol,
   type Internals,
-  materializationSymbol,
   type PlexusTagContainer,
   type PlexusUUID,
   /** `declare class` — a nominal type with no runtime binding, never a value. */
   type ReadonlyField,
-  referenceSymbol,
   type ReferenceTuple,
-  requestAdoptionSymbol,
-  requestEmancipationSymbol,
-  requestOrphanizationSymbol,
   type Storageable,
-  validateAdoptionSymbol,
   type VirtualMap,
   type YPlexusNode,
 } from "./proxy-runtime-types.js";
-export { PLEXUS_CONTROLLED, PLEXUS_DERIVED, PLEXUS_TEST_SENTINEL } from "./sentinels.js";
+export { PLEXUS_CONTROLLED, PLEXUS_DERIVED } from "./sentinels.js";
 
 export {
-  type ConcretePlexusConstructor,
   getInternals,
-  isBoundEntity,
   PlexusModel,
   type PlexusConstructor,
   type PlexusInit,
-  safeUuid,
 } from "./PlexusModel.js";
-export { mintLocalID, resetLocalIDs } from "./local-id.js";
+export { resetLocalIDs } from "./local-id.js";
 export { syncing } from "./decorators.js";
 export {
   PlexusCycleError,
@@ -71,16 +59,6 @@ export {
   PlexusTypedArrayAliasError,
   PlexusUnstorableValueError,
 } from "./errors.js";
-export {
-  ACCESS_ALL_SYMBOL,
-  ENTRIES_LENGTH_SYMBOL,
-  KEYS_SYMBOL,
-  type Tracker,
-  trackAccess,
-  trackModification,
-  __untracked__,
-  VALUES_SYMBOL,
-} from "./tracking.js";
 export {
   setTelemetryAdapter,
   telemetry,
@@ -96,21 +74,8 @@ export {
   type OriginKindLabel,
 } from "./telemetry.js";
 export * as YJS_GLOBALS from "./YJS_GLOBALS.js";
-export { entityClasses } from "./globals.js";
 export { Plexus, type PlexusOptions, type PlexusUndoMode } from "./Plexus.js";
-export {
-  type BlobEntity,
-  createBlobFromDoc,
-  decodeBlob,
-  type DecodedBlob,
-  encodeBlob,
-} from "./dependency-blob.js";
-export {
-  docAuthoring,
-  docLiminality,
-  docPlexus,
-  docTransactionOrigin,
-} from "./plexus-registry.js";
+export { docPlexus, docTransactionOrigin } from "./plexus-registry.js";
 export {
   buildVisitor,
   type Visitor,
@@ -121,10 +86,6 @@ export {
 } from "./walk.js";
 export {
   PlexusAwareness,
-  AWARENESS_LANE_REGISTER,
-  AWARENESS_MAX_LANES,
-  awarenessChannelId,
-  isAwarenessEnumerationKey,
   encodeAwarenessUpdate,
   applyAwarenessUpdate,
   removeAwarenessStates,
@@ -136,10 +97,8 @@ export {
   LIMINAL_BASE,
   COMMITTED_BASE,
   GENESIS_BASE,
-  MAX_UINT32,
   isRegularClientId,
   isLiminalClientId,
   isCommittedClientId,
   isGenesisClientId,
-  newClientId,
 } from "./genesis-client.js";

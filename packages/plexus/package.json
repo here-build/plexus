@@ -32,12 +32,6 @@
       "import": "./dist/internals.js",
       "require": "./dist/internals.js",
       "default": "./dist/internals.js"
-    },
-    "./mobx": {
-      "types": "./dist/mobx/index.d.ts",
-      "import": "./dist/mobx/index.js",
-      "require": "./dist/mobx/index.js",
-      "default": "./dist/mobx/index.js"
     }
   },
   "main": "./dist/index.js",

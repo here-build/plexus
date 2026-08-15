@@ -22,13 +22,9 @@
  * Base clientIds must stay in the regular range [0, 2^51) so channel packing
  * does not collide with liminal/committed/genesis namespaces.
  *
- * Multiple local identities per doc:
- *   new PlexusAwareness(doc)                              // base = doc.clientID
- *   new PlexusAwareness(doc, { clientId })                 // isolated maps, custom base
- *   new PlexusAwareness(doc, { clientId, hub: primary })   // share states/meta with hub
- *
- * Hub sharing is what makes multi-client-per-doc useful on the wire: secondaries
- * write into the hub map; network encode of hub.states sees every local base.
+ * Construction:
+ *   new PlexusAwareness(doc)                // base = doc.clientID
+ *   new PlexusAwareness(doc, { clientId })  // isolated maps, custom base
  */
 
 import * as decoding from "lib0/decoding";
@@ -41,7 +37,7 @@ import { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
 
 import { deserialize, hasUnsatisfiableRefs, REF_JSON_ESCAPE, serialize } from "./awareness-serde.js";
-import { isRegularClientId, newClientId } from "./genesis-client.js";
+import { isRegularClientId } from "./genesis-client.js";
 import type { AwarenessShape } from "./proxy-runtime-types.js";
 import { bucketCount, telemetry } from "./telemetry.js";
 
@@ -70,15 +66,9 @@ const parseChannelId = parseAwarenessChannelId;
 export type PlexusAwarenessOptions = {
   /**
    * Base awareness clientId for this identity. Defaults to `doc.clientID`.
-   * Must be a regular-range id (`[0, 2^51)`). When omitted with `hub`, a fresh
-   * id is minted via {@link newClientId}.
+   * Must be a regular-range id (`[0, 2^51)`).
    */
   clientId?: number;
-  /**
-   * Share `states` / `meta` with this hub on the same doc. Required for multiple
-   * local bases to appear on one encode/apply map (one Expectation = one client).
-   */
-  hub?: PlexusAwareness;
 };
 
 function resolveOptions(clientIdOrOptions?: number | PlexusAwarenessOptions): PlexusAwarenessOptions {
@@ -99,15 +89,8 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
   private readonly _fieldIndex = new Map<string, number>();
 
   /**
-   * When this instance is a secondary (`createLocalClient`), writes land in the shared
-   * hub map but `emit` would only fire on the secondary — wire listeners on the hub would
-   * miss claim/actor/author frames. Re-emit `update` on the hub.
-   */
-  private readonly _hub: PlexusAwareness | null = null;
-
-  /**
    * @param doc - Yjs document (wire identity for entity serde; not necessarily clientId source)
-   * @param clientIdOrOptions - optional base clientId, or `{ clientId?, hub? }`
+   * @param clientIdOrOptions - optional base clientId, or `{ clientId? }`
    */
   constructor(doc: Y.Doc, clientIdOrOptions?: number | PlexusAwarenessOptions) {
     super(doc);
@@ -117,29 +100,22 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
 
     const opts = resolveOptions(clientIdOrOptions);
 
-    if (opts.hub) {
-      invariant(opts.hub.doc === doc, "PlexusAwareness: hub must share the same Y.Doc");
-      // Drop isolated maps from super(); write into the hub wire map.
-      this.states = opts.hub.states;
-      this.meta = opts.hub.meta;
-      this._hub = opts.hub as PlexusAwareness;
-    } else {
-      // super() left a single-blob {} under doc.clientID — not multi-channel schema.
-      this.states.delete(doc.clientID);
-      this.meta.delete(doc.clientID);
-    }
+    // super() left a single-blob {} under doc.clientID — not multi-channel schema.
+    this.states.delete(doc.clientID);
+    this.meta.delete(doc.clientID);
 
-    const baseId = opts.clientId === undefined ? (opts.hub ? newClientId() : doc.clientID) : opts.clientId;
+    const baseId = opts.clientId === undefined ? doc.clientID : opts.clientId;
 
     invariant(isRegularClientId(baseId), `PlexusAwareness: clientId must be regular-range [0, 2^51); got ${baseId}`);
-    invariant(baseId !== opts.hub?.clientID, "PlexusAwareness: clientId must differ from hub.clientID");
 
     this.clientID = baseId;
 
     // Initialize channel 0 with empty schema for THIS base only
     this._writeChannel(0, [], "local");
 
-    // Heartbeat + stale cleanup (this base only for heartbeat; peers GC as usual)
+    // Heartbeat + stale cleanup (this base only for heartbeat; peers GC as usual).
+    // Channel 0 is native y-protocols presence. Field channels are auxiliary
+    // lanes: they do not heartbeat and are not timed out on their own.
     this._checkInterval = setInterval(
       () => {
         const now = time.getUnixTime();
@@ -169,31 +145,14 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
     doc.on("destroy", () => this.destroy());
   }
 
-  /**
-   * Additional local identity on the same doc, sharing the hub wire map.
-   * One Expectation = one client: mint a client per progressive invocation.
-   */
-  static createLocalClient<Shape extends AwarenessShape = AwarenessShape>(
-    hub: PlexusAwareness<Shape>,
-    clientId?: number,
-  ): PlexusAwareness<Shape> {
-    return new PlexusAwareness(hub.doc, {
-      clientId: clientId ?? newClientId(),
-      hub: hub as PlexusAwareness,
-    });
-  }
-
   override destroy(): void {
     disposeCoherenceGate(this);
     this.emit("destroy", [this]);
-    // Remove only this base's channels (shared hub keeps peers + other locals).
     const removed = this._removeLocalChannels();
     if (removed.length > 0) {
       const payload = { added: [] as number[], updated: [] as number[], removed };
       this.emit("change", [payload, "local"]);
       this.emit("update", [payload, "local"]);
-      // Secondaries must surface removals on the hub for plane wire listeners.
-      this._hub?.emit("update", [payload, "local"]);
     }
     clearInterval(this._checkInterval);
     // Parent destroy calls setLocalState(null) then clearInterval again.
@@ -228,14 +187,38 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
     this._writeChannel(idx, null, "local");
   }
 
-  /** Get a local field value. Entity reference markers are auto-deserialized to live PlexusModel instances. */
-  getField<K extends string & keyof Shape>(field: K): Shape[K] | null | undefined {
-    const idx = this._fieldIndex.get(field);
-    if (idx === undefined) return undefined;
-    const raw = this.states.get(channelId(this.clientID, idx));
-    if (raw === undefined) return null; // cleared field → null (not undefined)
-    if (raw === null) return null;
+  /**
+   * One field on any present base. `clientId` defaults to this instance.
+   *
+   * Channel 0 of that base is the schema (append-only field-name list).
+   * A field that is not in that array has never been announced — `undefined`.
+   * Announced but missing/cleared on its auxiliary lane — `null`.
+   * Snapshot; not observed.
+   */
+  getField<K extends string & keyof Shape>(field: K, clientId: number = this.clientID): Shape[K] | null | undefined {
+    const schema = this.states.get(clientId);
+    if (!Array.isArray(schema)) return undefined;
+    const idx = schema.indexOf(field);
+    if (idx === -1) return undefined;
+    const raw = this.states.get(channelId(clientId, idx + 1));
+    if (raw === undefined || raw === null) return null;
     return deserialize(raw, this.doc) as Shape[K];
+  }
+
+  /**
+   * Packed states-map key (a `change` payload id) → base + field.
+   * Channel 0 is the schema slot — `field` is `null`. A field channel
+   * whose name is not yet in that base's channel-0 schema returns `null`
+   * (new fields cannot appear without that annotation).
+   */
+  fieldOfChannel(raw: number): { base: number; field: string | null } | null {
+    const { base, channel } = parseChannelId(raw);
+    if (channel === 0) return { base, field: null };
+    const schema = this.states.get(base);
+    if (!Array.isArray(schema)) return null;
+    const name = schema[channel - 1];
+    if (typeof name !== "string") return null;
+    return { base, field: name };
   }
 
   /**
@@ -244,13 +227,7 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
    * serialized shape (e.g. JSON dedup) without triggering entity proxies.
    */
   getRawLocalState(): Record<string, unknown> | null {
-    if (!this.states.has(this.clientID)) return null;
-    const result: Record<string, unknown> = {};
-    for (const [name, idx] of this._fieldIndex) {
-      const val = this.states.get(channelId(this.clientID, idx));
-      if (val !== undefined && val !== null) result[name] = val;
-    }
-    return result;
+    return this.getRawPeer(this.clientID);
   }
 
   /** Get all local field values as a plain object. Entity references are auto-deserialized. */
@@ -358,11 +335,7 @@ export class PlexusAwareness<Shape extends AwarenessShape = AwarenessShape> exte
       this.emit("change", [{ added, updated: filteredUpdated, removed }, origin]);
     }
     if (added.length > 0 || updated.length > 0 || removed.length > 0) {
-      const updatePayload = { added, updated, removed };
-      this.emit("update", [updatePayload, origin]);
-      // Multi-client: secondaries share hub.states but would only emit here — forward
-      // update so a single hub listener (plane wire) sees every local base.
-      this._hub?.emit("update", [updatePayload, origin]);
+      this.emit("update", [{ added, updated, removed }, origin]);
     }
   }
 
@@ -500,7 +473,7 @@ function dropParkedUpTo(awareness: PlexusAwareness, clientID: number, clock: num
 function dropParkedForBase(awareness: PlexusAwareness, base: number): void {
   const gate = coherenceGates.get(awareness);
   if (!gate) return;
-  for (const cid of [...gate.frames.keys()]) {
+  for (const cid of gate.frames.keys()) {
     if (parseChannelId(cid).base === base) gate.frames.delete(cid);
   }
   detachIfDrained(awareness, gate);
@@ -509,7 +482,7 @@ function dropParkedForBase(awareness: PlexusAwareness, base: number): void {
 function releaseParkedFrames(awareness: PlexusAwareness): void {
   const gate = coherenceGates.get(awareness);
   if (!gate || gate.frames.size === 0) return;
-  for (const [clientID, frame] of [...gate.frames]) {
+  for (const [clientID, frame] of gate.frames) {
     if (hasUnsatisfiableRefs(frame.state, awareness.doc)) continue;
     gate.frames.delete(clientID);
     const buckets = emptyBuckets();

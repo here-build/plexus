@@ -115,7 +115,7 @@ export abstract class PlexusLeaderSyncDO<Env extends PlexusSyncEnv> extends Dura
     });
   }
 
-  /** Prime lane — `Plexus.connect(this.doc)` and Hono snapshot routes. */
+  /** Prime lane — `Plexus.connect(this.doc)` and HTTP snapshot routes. */
   get doc(): Y.Doc {
     return this.primeLane.doc;
   }

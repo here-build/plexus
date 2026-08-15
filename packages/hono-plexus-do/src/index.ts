@@ -46,7 +46,6 @@ export {
 export { PlexusSyncConfigError, UnknownLaneError, validateLaneDescriptors } from "./errors.js";
 export { pushDiffToFollower, regressFollowerSv, seedFollower } from "./follower.js";
 export { ensureMidnightSpillAlarm, nextMidnightUtc, spillDocToR2, utcDayKey } from "./spill.js";
-export { mountDocHost } from "./hono/host.js";
 
 export { PlexusArchiveSyncDO } from "./archive-sync-do.js";
 export { PlexusLeaderSyncDO, type WebSocketHandshakeResult } from "./leader-sync-do.js";

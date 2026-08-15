@@ -1,17 +1,12 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
 import { isLiminalClientId, isRegularClientId } from "../../genesis-client.js";
-import { enableMobXIntegration } from "../../mobx/index.js";
 import { Plexus } from "../../Plexus.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import type { VirtualMap } from "../../proxy-runtime-types.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
-
-beforeAll(() => {
-  enableMobXIntegration();
-});
 
 /**
  * Regression guard — the shadow-clientID partition invariant under virtual-genesis

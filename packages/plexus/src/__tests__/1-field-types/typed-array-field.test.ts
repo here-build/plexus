@@ -1,12 +1,11 @@
 import { createHash } from "node:crypto";
 
 import { autorun, reaction } from "mobx";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
 import { PlexusTypedArrayAliasError, PlexusUnstorableValueError } from "../../errors.js";
-import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 
@@ -14,10 +13,6 @@ import { connectTestPlexus, initTestPlexus } from "../_helpers/test-plexus.js";
 // contents; `.sort()` exercises the proxy's mutating sort; sha1 proves the
 // detached copy has real TypedArray slots (not a security context).
 /* eslint-disable unicorn/prefer-spread, unicorn/no-array-sort, sonarjs/hashing */
-
-beforeAll(() => {
-  enableMobXIntegration();
-});
 
 @syncing("BlobHolder")
 class BlobHolder extends PlexusModel {

@@ -21,10 +21,9 @@
  */
 
 import { reaction } from "mobx";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { syncing } from "../../decorators.js";
-import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { COLLECTION_ENTITY_TYPE, setTelemetryAdapter, telemetry, TRACKER_KIND } from "../../telemetry.js";
 import {
@@ -38,10 +37,6 @@ import {
 } from "../../tracking.js";
 import { initTestPlexus } from "../_helpers/test-plexus.js";
 import { CapturingTelemetryAdapter } from "../_helpers/test-telemetry.js";
-
-beforeAll(() => {
-  enableMobXIntegration();
-});
 
 @syncing("Probe")
 class Probe extends PlexusModel<null> {

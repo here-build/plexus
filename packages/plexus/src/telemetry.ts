@@ -2,10 +2,9 @@
  * Plexus telemetry adapter.
  *
  * Plug-in seam for emitting Plexus-internal metrics, gauges, histograms,
- * and spans to a host-provided OTel/Prometheus/Datadog/etc backend. Mirrors
- * the `trackingHook` plug-in pattern: zero cost when disabled (default no-op
- * adapter), pay-per-use cost only when a host wires a real adapter via
- * `setTelemetryAdapter(adapter)`.
+ * and spans to a host-provided OTel/Prometheus/Datadog/etc backend. Zero
+ * cost when disabled (default no-op adapter); pay-per-use only when a host
+ * wires a real adapter via `setTelemetryAdapter(adapter)`.
  *
  * ## Why an adapter, not direct OTel
  *

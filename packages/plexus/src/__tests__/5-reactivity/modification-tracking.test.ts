@@ -1,13 +1,8 @@
 import { reaction } from "mobx";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { syncing } from "../../decorators.js";
-import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
-
-beforeAll(() => {
-  enableMobXIntegration();
-});
 
 @syncing("TestModel")
 class TestModel extends PlexusModel {

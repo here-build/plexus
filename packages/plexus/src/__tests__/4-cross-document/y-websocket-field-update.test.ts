@@ -34,10 +34,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 
-// Load mobx integration the way arrival-chain does — testing the
-// hypothesis that mobx integration changes accessor read behavior in a
-// way that breaks cross-doc updates over y-websocket.
-import "../../mobx/register.js";
 import { setupWSConnection } from "./_setup-ws-connection.js";
 import { WebSocket, WebSocketServer } from "ws";
 

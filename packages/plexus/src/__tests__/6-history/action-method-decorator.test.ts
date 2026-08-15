@@ -1,11 +1,10 @@
 import { autorun, reaction } from "mobx";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Y from "yjs";
 
 import { syncing } from "../../decorators.js";
 import { PlexusCycleError } from "../../errors.js";
 import { entityClasses } from "../../globals.js";
-import { enableMobXIntegration } from "../../mobx/index.js";
 import { PlexusModel } from "../../PlexusModel.js";
 import { maybeTransacting } from "../../utils/utils.js";
 import { initTestPlexus, type TestPlexus } from "../_helpers/test-plexus.js";
@@ -477,12 +476,6 @@ describe("@syncing.action method decorator", () => {
   let doc: Y.Doc;
   let plexus: TestPlexus<Foo>;
   let root: Foo;
-
-  // Needed for the notification-suppression assertion: reactions only observe
-  // Plexus mutations once the MobX tracking hook is wired up. Idempotent + global.
-  beforeAll(() => {
-    enableMobXIntegration();
-  });
 
   beforeEach(() => {
     entityClasses.set("AtomicFoo", Foo);

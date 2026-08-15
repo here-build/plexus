@@ -49,11 +49,13 @@ If you'd rather build collaboration with classes than with `Y.Map.set("key", val
 - [Undo / Redo](#undo--redo)
 - [Liminality (Ephemeral Gestures)](#liminality-ephemeral-gestures)
 - [Awareness (Presence)](#awareness-presence)
+  - [Reading a field reactively](#reading-a-field-reactively)
 - [Querying](#querying)
 - [Tree Walking](#tree-walking)
 - [Cross-Document Dependencies](#cross-document-dependencies)
 - [Telemetry](#telemetry)
 - [Internals](#internals)
+  - [The `/internals` entrypoint](#the-internals-entrypoint)
 - [Error Types](#error-types)
 - [API Reference](#api-reference)
 - [License](#license)
@@ -678,6 +680,34 @@ Peers time out after 30s without a channel-0 heartbeat, and all their channels a
 together. The wire codecs (`encodeAwarenessUpdate`, `applyAwarenessUpdate`,
 `removeAwarenessStates`, `modifyAwarenessUpdate`) are exported for provider integration.
 
+### Reading a field reactively
+
+`FieldAwareness` is a MobX lens over **one** field. Atoms are per (field, peer), so a reaction
+reading one lane is never woken by traffic on another lane, by another peer's cell, or by a
+heartbeat — which is the whole point, since awareness is one flat map on the wire and observing
+it wholesale re-runs every observer on every keystroke of every peer.
+
+```typescript
+import { FieldAwareness } from "@here.build/plexus";
+
+const cursors = new FieldAwareness(awareness, "cursor");
+
+cursors.set({ x: 10, y: 20 });   // writes the local lane
+cursors.clear();                  // retracts it
+cursors.get();                    // own value
+cursors.getOther(peerId);         // one peer's value
+cursors.getOthers();              // Map<clientId, value> — excludes self
+cursors.clientIds;                // every base publishing "cursor", self included
+```
+
+A lane answers membership per field, not per peer: *"everyone who introduced themselves via
+`info`"* is a lane, and asking it field by field is the entire vocabulary — there is no
+bag-of-properties to enumerate. `getOthers()` skips the local base deliberately; compose it with
+`get()` when you want yourself back.
+
+Reads are frozen. A lens hands out a snapshot of wire state, and a mutable one invites edits that
+never reach the wire. The freeze stops at `PlexusModel` — entity references stay live.
+
 ## Querying
 
 ```typescript
@@ -759,9 +789,30 @@ route updates between them (see the `Plexus.ts` header):
 
 Orientation map: `Plexus.ts` (routing, liminality, undo), `PlexusModel.ts` (materialization,
 ownership), `decorators.ts` (`@syncing` field wiring), `awareness.ts` / `awareness-serde.ts`
-(multi-channel presence), `genesis-client.ts` (clientId namespaces, deterministic scaffold),
-`plexus-registry.ts` (doc↔plexus registries), `tracking.ts` (MobX bridge), `deref.ts`
-(UUID → entity O(1) resolution).
+(multi-channel presence), `field-awareness.ts` (per-field MobX lens), `genesis-client.ts`
+(clientId namespaces, deterministic scaffold), `plexus-registry.ts` (doc↔plexus registries),
+`tracking.ts` (MobX bridge), `deref.ts` (UUID → entity O(1) resolution).
+
+### The `/internals` entrypoint
+
+```typescript
+import { docPlexus } from "@here.build/plexus/internals";
+```
+
+The root export is what Plexus intends you to use. `@here.build/plexus/internals` is the same
+package with **nothing withheld** — every registry, protocol symbol, wire codec and tracking
+primitive the implementation runs on.
+
+It exists because a library that hides the one handle you need leaves you forking it. Its
+contents are deliberately not listed here: being undocumented is what keeps reaching for it a
+deliberate act rather than a default.
+
+**The specifier is the marker.** An import from `/internals` is an acknowledged violation of the
+package's own ontology, in the sense `@ts-expect-error` acknowledges a type violation —
+permitted, visible in the diff, and obliged to carry a reason at the call site. `docPlexus.get(entity.__doc__)`
+is legal precisely because a Y.Doc is ontologically prior to the models bound to it; the call
+site just has to say so. Do not wrap it in an accessor to make it comfortable — the friction is
+the feature.
 
 ## Error Types
 

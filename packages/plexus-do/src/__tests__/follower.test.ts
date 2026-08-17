@@ -30,4 +30,29 @@ describe("regressFollowerSv", () => {
     expect(regressFollowerSv(prev, grown)).toBe(false);
     expect(regressFollowerSv(prev, shrunk)).toBe(true);
   });
+
+  it("resets the horizon so the next push carries the full doc", async () => {
+    const doc = new Y.Doc();
+    doc.getMap("root").set("k", 1);
+    const diffs: Uint8Array[] = [];
+    const reset = await pushDiffToFollower(doc, new Uint8Array([1, 2, 3, 4]), {
+      seed: async () => new Uint8Array(),
+      applyDiff: (diff) => {
+        diffs.push(diff);
+        return new Uint8Array([1]);
+      },
+    });
+    expect(reset.byteLength).toBe(0);
+
+    await pushDiffToFollower(doc, reset, {
+      seed: async () => new Uint8Array(),
+      applyDiff: (diff) => {
+        diffs.push(diff);
+        return new Uint8Array([9]);
+      },
+    });
+    const second = new Y.Doc();
+    Y.applyUpdate(second, diffs[1]!);
+    expect(second.getMap("root").get("k")).toBe(1);
+  });
 });

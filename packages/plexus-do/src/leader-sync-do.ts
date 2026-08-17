@@ -1,27 +1,23 @@
 /**
- * PlexusLeaderSyncDO — live Yjs leader on Cloudflare Durable Objects.
+ * Live Yjs leader on a Durable Object.
  *
- * Architecture: one DO instance holds the authoritative Y.Doc(s), brokers
- * hibernatable WebSockets, persists hot state to DO storage on a write-driven
- * alarm, and optionally mirrors diffs into a content-blind archive follower.
+ * One instance is the authoritative doc(s), the hibernatable socket broker,
+ * and the write-driven persist alarm. An archive follower, if configured,
+ * is a content-blind replica — never the other way around.
  *
- * Products subclass with declarative fields (`lanes`, `persistPolicy`, …) and
- * optional hooks (`getSeedState`, `archiveFollower`, `spillPolicy`). Docs are
- * spawned by the base — lane descriptors carry wire + persist metadata only.
+ * Docs are spawned here. Lane descriptors carry wire + persist metadata
+ * only; never a `doc`.
  *
- * Boot sequence (inside `blockConcurrencyWhile`):
- *   1. Rehydrate each lane from `persistKey` (origin `snapshot`)
- *   2. Else call `getSeedState(laneId)` → apply + persist (origin `genesis`)
- *   3. Reload `entityId` + follower horizon SV from storage
- *   4. Wire lane listeners + awareness (after replay — no origin races)
+ * Boot (inside `blockConcurrencyWhile`): rehydrate each lane from
+ * `persistKey` (origin `snapshot`), else `getSeedState` (origin `genesis`);
+ * reload `entityId` + follower horizon; then wire listeners. Listeners
+ * after replay, or replay would broadcast and mark dirty.
  *
- * Identity: CF does not expose `idFromName` to the DO interior on the leader
- * path — `entityId` is persisted under {@link ENTITY_ID_STORAGE_KEY} via
- * `seed()` or `recordEntityId()` (first authenticated project WebSocket).
+ * Cloudflare does not expose `idFromName` on the leader interior
+ * (`ctx.id.name` is empty). Identity arrives via `seed` / `recordEntityId`.
  *
- * Transport: all WS I/O routes through ChunkedDOTransport (>1 MiB safe).
- * Persist: {@link PersistScheduler} arms alarms only on peer-origined edits —
- * presence alone never defeats hibernation.
+ * Presence never arms persist. That is what lets the isolate hibernate.
+ * All WS I/O goes through ChunkedDOTransport (>1 MiB).
  */
 
 import { ChunkedDOTransport } from "@here.build/chunked-websocket/server";
@@ -55,10 +51,8 @@ export abstract class PlexusLeaderSyncDO<Env extends PlexusSyncEnv> extends Dura
   // ── Declarative substrate ────────────────────────────────────────────────────
 
   /**
-   * Wire + persist lanes. Override with a GETTER, never a field: a subclass field
-   * initializer runs after `super()`, too late for the base constructor to read —
-   * a getter lives on the prototype and resolves during construction. Docs are
-   * spawned by the base — never pass `doc`.
+   * Override with a getter, never a field. A subclass field initializer runs
+   * after `super()`, too late for this constructor to read.
    */
   protected get lanes(): readonly LaneDescriptor[] {
     return [{ id: "prime", messageType: MESSAGE_SYNC, persistKey: "yjs-state" }];
@@ -69,7 +63,6 @@ export abstract class PlexusLeaderSyncDO<Env extends PlexusSyncEnv> extends Dura
     ceilingMs: 30_000,
   };
 
-  /** DO storage key for the archive follower's last-known state vector. */
   protected readonly followerSvKey = "last-log-sv";
 
   protected awareness?: AwarenessPlane;
@@ -88,17 +81,16 @@ export abstract class PlexusLeaderSyncDO<Env extends PlexusSyncEnv> extends Dura
   protected abstract authorizeWebSocket(request: Request): Promise<WebSocketHandshakeResult | null>;
   protected abstract handleHttp(request: Request): Promise<Response | null>;
 
-  /** Read-only connections still receive every update and get syncStep1
-   *  answered (catch-up works), but their inbound syncStep2/update frames are
-   *  dropped before touching the doc. Default: nobody is read-only. */
+  /**
+   * Read-only sockets still receive updates and get syncStep1 answered.
+   * Their inbound syncStep2/update frames are dropped.
+   */
   protected isReadOnlyConnection(_ws: WebSocket): boolean {
     return false;
   }
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    // Read the subclass lane config via the `lanes` getter (prototype-resolved
-    // during super(); a subclass field would still be undefined here). Read once.
     const descriptors = this.lanes;
     validateLaneDescriptors(descriptors);
     this.resolvedLanes = this.spawnDocs(descriptors);
@@ -108,14 +100,11 @@ export abstract class PlexusLeaderSyncDO<Env extends PlexusSyncEnv> extends Dura
       await this.rehydrate();
       this.wireLaneListeners();
       this.wireAwareness();
-      // Hibernation resume: re-handshake peers already accepted on this instance.
-      for (const ws of ctx.getWebSockets()) {
-        this.sendSyncStep1(ws);
-      }
+      this.resumeHibernatedSockets();
     });
   }
 
-  /** Prime lane — `Plexus.connect(this.doc)` and HTTP snapshot routes. */
+  /** Prime lane — the doc `Plexus.connect` binds. */
   get doc(): Y.Doc {
     return this.primeLane.doc;
   }
@@ -124,18 +113,13 @@ export abstract class PlexusLeaderSyncDO<Env extends PlexusSyncEnv> extends Dura
     return this.resolvedLanes[0]!;
   }
 
-  /** Spawned doc for a sibling lane (e.g. `Plexus.connect(this.laneDoc("comments"))`). */
   protected laneDoc(id: string): Y.Doc {
     return this.lane(id).doc;
   }
 
   // ── Seed ─────────────────────────────────────────────────────────────────────
 
-  /**
-   * Genesis bytes when a lane's `persistKey` is empty on boot.
-   * Default: null (prime stays empty until external `seed()`).
-   * Non-prime lanes (comments) may bootstrap here.
-   */
+  /** Empty persistKey on boot. Prime stays empty until external `seed()`; sibling lanes may bootstrap here. */
   protected async getSeedState(_laneId: string): Promise<Uint8Array | null> {
     return null;
   }
@@ -144,7 +128,7 @@ export abstract class PlexusLeaderSyncDO<Env extends PlexusSyncEnv> extends Dura
 
   // ── Policy hooks ─────────────────────────────────────────────────────────────
 
-  /** Inline R2 spill on leader alarm. Default none — archive DO owns cold duty. */
+  /** Inline R2 spill on this alarm. Default none — the archive DO owns cold duty. */
   protected spillPolicy(_entityId: string): SpillPolicy | null {
     return null;
   }
@@ -177,9 +161,7 @@ export abstract class PlexusLeaderSyncDO<Env extends PlexusSyncEnv> extends Dura
   }
 
   /**
-   * External first-touch (clone route). Persists entity id, applies prime bytes
-   * with {@link GENESIS_ORIGIN}, optionally seeds archive follower before peers
-   * connect. First-touch only — caller must not invoke on a non-empty prime doc.
+   * External first-touch. Caller must not invoke on a non-empty prime doc.
    */
   async seed(entityId: string, yjsState: Uint8Array): Promise<void> {
     TypeError.invariant(yjsState.byteLength > 0, "PlexusLeaderSyncDO.seed: yjsState must not be empty");
@@ -343,7 +325,6 @@ export abstract class PlexusLeaderSyncDO<Env extends PlexusSyncEnv> extends Dura
         try {
           applyRehydrate(lane.doc, bytes);
         } catch (error) {
-          // Never brick boot on a poisoned snapshot — start empty; peers resync from clients.
           console.error(
             `[PlexusLeaderSyncDO] corrupt snapshot for lane "${lane.id}" — starting empty, peers will resync:`,
             error,
@@ -419,8 +400,7 @@ export abstract class PlexusLeaderSyncDO<Env extends PlexusSyncEnv> extends Dura
     const [client, server] = [pair[0], pair[1]];
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment(handshake.attachment);
-    // Prime lane only — sibling lanes (comments) sync when the client sends step1.
-    this.sendSyncStep1(server);
+    this.sendPrimeSyncStep1(server);
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -428,13 +408,18 @@ export abstract class PlexusLeaderSyncDO<Env extends PlexusSyncEnv> extends Dura
     });
   }
 
-  private sendSyncStep1(ws: WebSocket): void {
+  /** Hibernation keeps accepted sockets; they need a fresh sync step1. */
+  private resumeHibernatedSockets(): void {
+    for (const ws of this.ctx.getWebSockets()) this.sendPrimeSyncStep1(ws);
+  }
+
+  private sendPrimeSyncStep1(ws: WebSocket): void {
     this.transport.send(ws, encodeSyncStep1(this.primeLane.doc, MESSAGE_SYNC).buffer);
   }
 
   /**
    * Advance (never delay) the persist alarm. `waitUntil` so the RPC/WS handler
-   * returns before storage I/O; only moves alarm earlier when edits pin RPO.
+   * returns before storage I/O.
    */
   private schedulePersistAlarm(): void {
     if (this.isTestModeEnabled()) return;

@@ -1,13 +1,15 @@
-import "./errors.js";
+/**
+ * The intended surface. Everything reachable from here is meant to be used.
+ *
+ * NAMED LISTS ONLY — no `export *`. Classes live on their specifiers
+ * (`./leader`, `./archive`, `./presence`, `./client`). This entry is the
+ * types, wire constants, and errors a host names when subclassing.
+ *
+ * `persist` / `protocol` / `follower` / `spill` are internals. So are
+ * storage keys, Yjs origins, `ResolvedLane`, and `validateLaneDescriptors`.
+ */
 
-export {
-  ENTITY_ID_STORAGE_KEY,
-  GENESIS_ORIGIN,
-  MESSAGE_AWARENESS,
-  MESSAGE_COMMENTS_SYNC,
-  MESSAGE_SYNC,
-  REHYDRATE_ORIGIN,
-} from "./constants.js";
+export { MESSAGE_AWARENESS, MESSAGE_COMMENTS_SYNC, MESSAGE_SYNC } from "./constants.js";
 
 export type {
   ArchiveFollowerStub,
@@ -18,35 +20,8 @@ export type {
   PlexusSyncEnv,
   PresenceContext,
   PresenceProjector,
-  ResolvedLane,
   SpillPolicy,
   WebSocketAttachment,
 } from "./types.js";
 
-export {
-  encodeDiffSince,
-  encodeDocUpdate,
-  encodeFullState,
-  encodeStateVector,
-  encodeSyncStep1,
-  handleYjsFrame,
-  type HandleFrameOptions,
-  type ProtocolRouting,
-} from "./protocol.js";
-
-export {
-  PersistScheduler,
-  applyRehydrate,
-  persistLaneSnapshot,
-  shouldIgnoreUpdateOrigin,
-  type PersistLaneState,
-  type PersistSchedulerHooks,
-} from "./persist.js";
-
-export { PlexusSyncConfigError, UnknownLaneError, validateLaneDescriptors } from "./errors.js";
-export { pushDiffToFollower, regressFollowerSv, seedFollower } from "./follower.js";
-export { ensureMidnightSpillAlarm, nextMidnightUtc, spillDocToR2, utcDayKey } from "./spill.js";
-
-export { PlexusArchiveSyncDO } from "./archive-sync-do.js";
-export { PlexusLeaderSyncDO, type WebSocketHandshakeResult } from "./leader-sync-do.js";
-export { EphemeralRegistryDO } from "./presence/ephemeral-registry.js";
+export { PlexusSyncConfigError, UnknownLaneError } from "./errors.js";

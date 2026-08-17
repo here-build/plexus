@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import { REHYDRATE_ORIGIN } from "../constants.js";
-import { PersistScheduler, applyRehydrate, shouldIgnoreUpdateOrigin } from "../persist.js";
+import { GENESIS_ORIGIN, REHYDRATE_ORIGIN } from "../constants.js";
+import { PersistScheduler, applyRehydrate, encodeStateSince, shouldIgnoreUpdateOrigin } from "../persist.js";
 
 describe("PersistScheduler", () => {
   it("debounce target advances only when earlier than existing alarm", () => {
@@ -68,5 +68,35 @@ describe("rehydrate origin", () => {
     applyRehydrate(doc, Y.encodeStateAsUpdate(source));
     expect(seenOrigin).toBe(REHYDRATE_ORIGIN);
     expect(shouldIgnoreUpdateOrigin(seenOrigin)).toBe(true);
+    expect(shouldIgnoreUpdateOrigin(GENESIS_ORIGIN)).toBe(true);
+    expect(shouldIgnoreUpdateOrigin("peer")).toBe(false);
+  });
+});
+
+describe("encodeStateSince", () => {
+  it("treats an empty horizon as 'full doc', not a 0-byte state vector", () => {
+    const doc = new Y.Doc();
+    doc.getMap("root").set("k", 1);
+
+    expect(() => Y.encodeStateAsUpdate(doc, new Uint8Array())).toThrow();
+
+    const full = encodeStateSince(doc, new Uint8Array());
+    const decoded = new Y.Doc();
+    Y.applyUpdate(decoded, full);
+    expect(decoded.getMap("root").get("k")).toBe(1);
+  });
+
+  it("encodes only missing ops against a real state vector", () => {
+    const doc = new Y.Doc();
+    doc.getMap("root").set("a", 1);
+    const snapshot = Y.encodeStateAsUpdate(doc);
+    const horizon = Y.encodeStateVector(doc);
+    doc.getMap("root").set("b", 2);
+
+    const diff = encodeStateSince(doc, horizon);
+    const peer = new Y.Doc();
+    Y.applyUpdate(peer, snapshot);
+    Y.applyUpdate(peer, diff);
+    expect(peer.getMap("root").get("b")).toBe(2);
   });
 });

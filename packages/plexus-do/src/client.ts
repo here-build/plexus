@@ -1,22 +1,14 @@
 /**
- * Worker-side sync CLIENT — mirrors a `PlexusLeaderSyncDO`-shaped room (any
- * Durable Object speaking the leader's `/ws` upgrade + y-websocket protocol)
- * into a local `Y.Doc`. This is the DO-to-DO counterpart of a browser's
- * `WebsocketProvider`: a server-side actor (a runner DO evaluating live code,
- * a background job) that needs its own live, writable replica of a room
- * rather than a browser tab.
+ * Worker-side mirror of a leader room into a local `Y.Doc`.
  *
- * Reuses this package's canonical {@link handleYjsFrame}/{@link encodeSyncStep1}/
- * {@link encodeDocUpdate} codec — NOT a duplicate protocol implementation — by
- * wrapping the single `Y.Doc` in a minimal one-lane {@link ResolvedLane} /
- * `ProtocolRouting`, the same shape `PlexusLeaderSyncDO` itself routes frames
- * through (see `../__tests__/protocol.test.ts` for the same construction).
+ * The Durable-Object counterpart of a browser `WebsocketProvider`: a runner
+ * or job that needs a live, writable replica, not a tab.
  *
- * Chunk-safe: the raw internal WebSocket is wrapped in `ChunkedWebSocket`
- * (server-wrap mode) so an update spanning >1 MiB survives the same framing
- * `PlexusLeaderSyncDO`'s own `ChunkedDOTransport` speaks on the other end. A
- * bare (unwrapped) mirror would see orphan binary chunks, or the `y-pk-reset`
- * text sentinel, land as raw application frames.
+ * Speaks this package's y-websocket codec through one prime lane — not a
+ * second protocol. The raw internal socket is wrapped in `ChunkedWebSocket`
+ * so it survives the same >1 MiB framing `ChunkedDOTransport` uses on the
+ * leader. An unwrapped socket would treat orphan chunks and the
+ * `y-pk-reset` text sentinel as application frames.
  */
 
 import { ChunkedWebSocket, type RawWebSocketLike } from "@here.build/chunked-websocket/client";
@@ -26,65 +18,40 @@ import { MESSAGE_SYNC } from "./constants.js";
 import { encodeDocUpdate, encodeSyncStep1, handleYjsFrame, type ProtocolRouting } from "./protocol.js";
 import type { ResolvedLane } from "./types.js";
 
-/**
- * The minimal shape {@link mirrorSyncDoc} needs from its target — normally a
- * `DurableObjectStub` (e.g. `env.SOME_SYNC.get(id)`), but any fetch-shaped RPC
- * target (a test mock, a differently-hosted stub) satisfies it.
- */
+/** Anything `fetch`-shaped — usually a `DurableObjectStub`. */
 export interface SyncStubLike {
   fetch(request: Request): Promise<Response>;
 }
 
 export interface MirrorSyncDocOptions {
-  /** The `?project=` query VALUE on the internal `/ws` upgrade request — whatever
-   *  identifier the target's `authorizeWebSocket` expects (URL-encoded for you). */
+  /** `?project=` value on the internal `/ws` upgrade. URL-encoded here. */
   projectQuery: string;
-  /** Lane message type this mirror speaks on (default: the prime lane, `MESSAGE_SYNC`). */
   messageType?: number;
-  /** Mirror into an existing doc (e.g. one the caller already booted from a
-   *  snapshot) instead of minting a fresh one. */
   doc?: Y.Doc;
-  /** Deadline for `resume()`'s confirmation round-trip, in ms (default 5000). */
   confirmDeadlineMs?: number;
 }
 
 /**
- * A live mirror of one room: the (chunk-wrapped) WS to its leader DO plus a
- * sync GATE. While paused, local doc updates are buffered instead of pushed;
- * `resume` flushes the buffer and awaits the leader's confirmation via a
- * syncStep1 round-trip. WebSocket delivery is ordered, so when the reply to
- * that syncStep1 arrives the leader has already processed the buffered
- * updates sent before it — i.e. `resume()` resolving means the burst is
- * DURABLY synced, not merely applied to this replica.
+ * Live replica plus a sync gate. `pause` buffers local updates; `resume`
+ * flushes them and waits for the leader's syncStep1 reply. WebSocket
+ * delivery is ordered, so that reply means the burst is durable on the
+ * leader — not merely applied to this replica.
  */
 export interface SyncMirror {
-  /** The live mirrored document. Mutate it directly — local edits are picked up
-   *  by the update listener wired here and pushed out over the wire (buffered
-   *  while paused). */
   readonly doc: Y.Doc;
-  /** Buffer local doc updates instead of pushing them — for an atomic local
-   *  burst that should land as one round-trip on `resume()`. */
   pause(): void;
-  /** Flush the paused-update buffer as one send, then await a syncStep1
-   *  round-trip so the caller's success means DURABLY synced, not merely
-   *  applied to this replica. */
   resume(): Promise<void>;
-  /** Close the underlying connection. */
   close(): void;
   /**
-   * The raw internal WebSocket. Exposed ONLY so a caller can hold an explicit
-   * strong reference across an `await` boundary — without one, the WebSocket
-   * object can become unreachable and the peer sees a disconnect (an
-   * empirically-hit Workers GC gotcha; see the field this backs in
-   * `host runner DO`'s `mirrorWs`). Prefer `doc`/`pause`/`resume`/`close` for
-   * actual interaction.
+   * Strong-ref hook. Workerd can GC an unreferenced WebSocket across an
+   * `await`; the peer then sees a disconnect. Hold this if you await
+   * between `mirrorSyncDoc` and `close`.
    */
   readonly ws: WebSocket;
 }
 
 const DEFAULT_CONFIRM_DEADLINE_MS = 5000;
 
-/** Reject if `work` doesn't settle within `ms`. */
 async function withDeadline<T>(ms: number, work: () => Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
@@ -98,13 +65,8 @@ async function withDeadline<T>(ms: number, work: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Open an internal WS to `syncStub` and mirror it into a `Y.Doc` via the
- * y-websocket sync protocol, wrapped in `ChunkedWebSocket` (server-wrap mode)
- * so >1 MiB updates survive the same framing the leader's own
- * `ChunkedDOTransport` speaks. Returns once the initial `syncStep1` handshake
- * has been SENT (not necessarily answered) — same fire-and-forget timing as
- * the mirror this replaces; a caller that needs the doc populated before
- * proceeding gives the round-trip a brief settle window itself.
+ * Returns once the opening syncStep1 has been sent, not answered.
+ * A caller that needs the doc populated waits itself.
  */
 export async function mirrorSyncDoc(syncStub: SyncStubLike, opts: MirrorSyncDocOptions): Promise<SyncMirror> {
   const messageType = opts.messageType ?? MESSAGE_SYNC;
@@ -125,44 +87,33 @@ export async function mirrorSyncDoc(syncStub: SyncStubLike, opts: MirrorSyncDocO
   (ws as unknown as { binaryType: string }).binaryType = "arraybuffer";
   ws.accept();
 
-  // Server-wrap the raw internal WS in the chunked transport (this package's
-  // leader DOs speak it via ChunkedDOTransport on the other end) — reassembles
-  // any >1 MiB update split across frames, and transparently tolerates the
-  // `y-pk-reset` / batch-marker text sentinels (they never reach the `message`
-  // listener below; only fully-reassembled application frames do).
   const chunked = new ChunkedWebSocket(ws as RawWebSocketLike);
   ws.addEventListener("message", (ev: MessageEvent) => {
     chunked.feed(ev.data as ArrayBufferLike | string);
   });
 
-  // One lane, this package's canonical routing shape — reuses the SAME
-  // handleYjsFrame/encodeSyncStep1/encodeDocUpdate codec PlexusLeaderSyncDO
-  // routes through, not a duplicate protocol implementation. `persistKey` is
-  // inert here (only the leader's persistence layer ever reads it).
   const prime: ResolvedLane = { id: "prime", messageType, persistKey: "", doc };
   const routing: ProtocolRouting = { prime };
 
   let paused = false;
   const buffer: Uint8Array[] = [];
-  // One-shot, armed by `resume()`'s round-trip: the next frame from the peer
-  // confirms it processed everything sent before the syncStep1 (ordered delivery).
-  let confirm: (() => void) | undefined;
+  let resolveResumeConfirmation: (() => void) | undefined;
 
   chunked.addEventListener("message", (ev) => {
     const bytes = new Uint8Array(ev.data);
     const reply = handleYjsFrame(bytes, routing, ws);
     if (reply) chunked.send(reply);
-    if (confirm) {
-      const done = confirm;
-      confirm = undefined;
+    if (resolveResumeConfirmation) {
+      const done = resolveResumeConfirmation;
+      resolveResumeConfirmation = undefined;
       done();
     }
   });
 
   doc.on("update", (update: Uint8Array, origin: unknown) => {
-    if (origin === ws) return; // echo of a frame we just applied — don't re-send it
+    if (origin === ws) return;
     if (paused) {
-      buffer.push(update); // offline burst — flushed by resume()
+      buffer.push(update);
       return;
     }
     chunked.send(encodeDocUpdate(update, messageType));
@@ -179,14 +130,11 @@ export async function mirrorSyncDoc(syncStub: SyncStubLike, opts: MirrorSyncDocO
     async resume() {
       paused = false;
       for (const update of buffer.splice(0)) chunked.send(encodeDocUpdate(update, messageType));
-      // Round-trip: send our state vector, await the peer's reply (bounded — a
-      // wedged peer must not hang the caller). Ordered delivery makes the
-      // reply a durable-receipt confirmation.
       await withDeadline(
         confirmDeadlineMs,
         () =>
           new Promise<void>((resolve) => {
-            confirm = resolve;
+            resolveResumeConfirmation = resolve;
             chunked.send(encodeSyncStep1(doc, messageType));
           }),
       );

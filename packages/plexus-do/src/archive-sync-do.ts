@@ -1,27 +1,24 @@
 /**
- * PlexusArchiveSyncDO — content-blind `gc:false` archive follower.
+ * Content-blind `gc:false` archive follower.
  *
- * Purpose: append-only replica of the leader's Y.Doc for audit, publish-version
- * artifact retrieval, and disaster recovery. The leader pushes diffs via RPC;
- * this DO returns its state vector after each apply so the leader tracks sync
- * horizon without a separate `getStateVector` round-trip.
+ * Append-only replica of the leader's doc. The leader pushes diffs via RPC;
+ * each apply returns the new state vector so the leader can track horizon
+ * without a second round-trip. RPC-only — no WebSocket.
  *
- * Persistence:
- *   1. DO storage (`archiveStorageKey`) — primary hot replica; `applyDiff` /
- *      `seed` schedule persist via `waitUntil` so RPC returns the SV first.
- *   2. Optional R2 midnight spill — date-keyed cold copy; one-shot alarm.
+ * Hot replica is DO storage. Persist runs after the SV is returned (`seed`
+ * awaits it; `applyDiff` uses `waitUntil`). Optional R2 midnight spill is
+ * a date-keyed cold copy.
  *
- * Failure model: replica is disposable. Leader is authoritative for live state.
- * Yjs `applyUpdate` is idempotent — at-least-once push is safe. SV shrink
- * detection lives on the leader ({@link regressFollowerSv}).
- *
- * RPC-only — no WebSocket. Intentionally Plexus-agnostic.
+ * This replica is disposable. The leader is authoritative. `applyUpdate` is
+ * idempotent, so at-least-once push is safe. SV shrink is detected on the
+ * leader ({@link regressFollowerSv}).
  */
 
 import { DurableObject } from "cloudflare:workers";
 import * as Y from "yjs";
 
 import { REHYDRATE_ORIGIN } from "./constants.js";
+import { encodeStateSince } from "./persist.js";
 import { ensureMidnightSpillAlarm, spillDocToR2 } from "./spill.js";
 import type { ArchiveSpillPolicy, PlexusSyncEnv } from "./types.js";
 
@@ -55,7 +52,6 @@ export abstract class PlexusArchiveSyncDO<Env extends PlexusSyncEnv> extends Dur
       try {
         Y.applyUpdate(this.archive, stored, REHYDRATE_ORIGIN);
       } catch (error) {
-        // Replica is disposable — never brick boot; the leader reseeds via full-diff push.
         console.error("[PlexusArchiveSyncDO] corrupt archive snapshot — starting empty, leader will reseed:", error);
       }
     });
@@ -84,26 +80,20 @@ export abstract class PlexusArchiveSyncDO<Env extends PlexusSyncEnv> extends Dur
     return sv;
   }
 
-  /**
-   * Diff a peer needs to catch up. Empty `targetSV` → full encoded state
-   * (empty SV is NOT decoded as a 0-byte SV — lib0 would throw).
-   */
   getStateAtVector(targetSv: Uint8Array): Uint8Array {
-    return targetSv.byteLength === 0
-      ? Y.encodeStateAsUpdate(this.archive)
-      : Y.encodeStateAsUpdate(this.archive, targetSv);
+    return encodeStateSince(this.archive, targetSv);
   }
 
   getStateVector(): Uint8Array {
     return Y.encodeStateVector(this.archive);
   }
 
-  async markSnapshot(label: string, state: Uint8Array): Promise<void> {
-    await this.ctx.storage.put(`snapshot:${label}`, state);
+  markSnapshot(label: string, state: Uint8Array): Promise<void> {
+    return this.ctx.storage.put(`snapshot:${label}`, state);
   }
 
-  async getSnapshotState(label: string): Promise<Uint8Array | null> {
-    return (await this.ctx.storage.get<Uint8Array>(`snapshot:${label}`)) ?? null;
+  getSnapshotState(label: string): Promise<Uint8Array | undefined> {
+    return this.ctx.storage.get<Uint8Array>(`snapshot:${label}`);
   }
 
   async alarm(): Promise<void> {

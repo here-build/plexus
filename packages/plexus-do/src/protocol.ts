@@ -1,19 +1,15 @@
 /**
- * Unified y-websocket protocol handler for leader sync DOs.
+ * y-websocket framing: leading varuint message type, then per-lane sync
+ * steps or an awareness payload.
  *
- * Speaks the standard y-websocket framing: leading varuint message type,
- * then either y-protocols sync steps (per lane) or an awareness payload.
- * Products inject awareness via {@link AwarenessPlane} — this module does not
- * depend on `@here.build/plexus`.
- *
- * Inbound frames are assumed fully reassembled (ChunkedDOTransport boundary).
- * Outbound encoders mirror the same framing for broadcast + sync-step replies.
+ * Inbound frames are fully reassembled (ChunkedDOTransport boundary).
+ * Awareness is injected via {@link AwarenessPlane}.
  */
 
 import * as decoding from "lib0/decoding";
 import * as encoding from "lib0/encoding";
 import * as syncProtocol from "y-protocols/sync";
-import * as Y from "yjs";
+import type * as Y from "yjs";
 
 import { MESSAGE_AWARENESS, MESSAGE_SYNC } from "./constants.js";
 import type { AwarenessPlane, ResolvedLane } from "./types.js";
@@ -26,7 +22,7 @@ export interface ProtocolRouting {
 
 export interface HandleFrameOptions {
   readOnly?: boolean;
-  /** Fast-path gate before full decode (e.g. comments `allowInbound`). */
+  /** Drop the frame before decode. */
   allowMessageType?: (messageType: number, ws: WebSocket) => boolean;
 }
 
@@ -60,11 +56,7 @@ function handleSyncMessage(
   }
 }
 
-/**
- * Handle one fully-reassembled inbound application frame.
- * Returns a reply frame for the originating socket when the sync protocol
- * requires one (sync step1 → step2); awareness updates return null.
- */
+/** Reply only for sync step1 → step2. Awareness returns null. */
 export function handleYjsFrame(
   message: Uint8Array,
   routing: ProtocolRouting,
@@ -98,7 +90,6 @@ export function handleYjsFrame(
 
 // ── Outbound encoders ────────────────────────────────────────────────────────
 
-/** Handshake: server's state vector for a connecting peer (per lane message type). */
 export function encodeSyncStep1(doc: Y.Doc, messageType: number = MESSAGE_SYNC): Uint8Array {
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, messageType);
@@ -106,23 +97,10 @@ export function encodeSyncStep1(doc: Y.Doc, messageType: number = MESSAGE_SYNC):
   return encoding.toUint8Array(encoder);
 }
 
-/** Broadcast wrapper for a raw Yjs update on a given lane. */
 export function encodeDocUpdate(update: Uint8Array, messageType: number = MESSAGE_SYNC): Uint8Array {
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, messageType);
   encoding.writeVarUint(encoder, syncProtocol.messageYjsUpdate);
   encoding.writeVarUint8Array(encoder, update);
   return encoding.toUint8Array(encoder);
-}
-
-export function encodeFullState(doc: Y.Doc): Uint8Array {
-  return Y.encodeStateAsUpdate(doc);
-}
-
-export function encodeStateVector(doc: Y.Doc): Uint8Array {
-  return Y.encodeStateVector(doc);
-}
-
-export function encodeDiffSince(doc: Y.Doc, clientStateVector: Uint8Array): Uint8Array {
-  return Y.diffUpdate(Y.encodeStateAsUpdate(doc), clientStateVector);
 }

@@ -16,9 +16,11 @@ A **Worker draft** for Plexus/Yjs sync on Cloudflare Durable Objects — leader,
 | `@here.build/plexus-do/archive` | `PlexusArchiveSyncDO` |
 | `@here.build/plexus-do/presence` | `EphemeralRegistryDO` |
 | `@here.build/plexus-do/client` | `mirrorSyncDoc` — Worker-to-Worker replica, not a browser provider |
-| `@here.build/plexus-do` | types, constants, errors, the three bases |
+| `@here.build/plexus-do` | types, wire constants, errors |
 
-`persist` / `protocol` / `follower` / `spill` are internals. Do not import them.
+`persist` / `protocol` / `follower` / `spill` are internals. Do not import them. Classes are not on `.` — use the specifier.
+
+Runnable Workers live in [`examples/`](./examples): `bare` is fetch-only; `hono-workos` is the host-stamp flow with WorkOS `org_id === doc id`.
 
 The `class_name` in wrangler is the **product** class. Never bind `PlexusLeaderSyncDO` — `abstract` is erased, deploy succeeds, the first handshake throws.
 

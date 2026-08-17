@@ -80,4 +80,22 @@ describe("PlexusArchiveSyncDO", () => {
     Y.applyUpdate(decoded, full);
     expect(decoded.getMap("root").get("k")).toBe("v");
   });
+
+  it("markSnapshot / getSnapshotState store a labeled copy", async () => {
+    const { archive } = await bootArchive();
+    const bytes = new Uint8Array([1, 2, 3]);
+    await archive.markSnapshot("v1", bytes);
+    expect(await archive.getSnapshotState("v1")).toEqual(bytes);
+    expect(await archive.getSnapshotState("missing")).toBeUndefined();
+  });
+
+  it("corrupt stored archive starts empty so the leader can reseed", async () => {
+    const ctx = new FakeCtx();
+    await ctx.storage.put("archive-state", new Uint8Array([255, 255, 255]));
+    const archive = new ToyArchiveDO(ctx as unknown as DurableObjectState, { TEST_MODE: true });
+    await ctx.waitForBoot();
+    expect(archive.getStateVector().byteLength).toBeGreaterThanOrEqual(0);
+    expect(archive.archive.getMap("root").size).toBe(0);
+    expect(consoleSpy).toHaveBeenCalled();
+  });
 });

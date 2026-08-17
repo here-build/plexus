@@ -23,12 +23,11 @@ export function nextMidnightUtc(now: number = Date.now()): number {
   return Math.floor(now / DAY_MS) * DAY_MS + DAY_MS;
 }
 
-export async function spillDocToR2(doc: Y.Doc, entityId: string, policy: SpillPolicy): Promise<void> {
+export function spillDocToR2(doc: Y.Doc, entityId: string, policy: SpillPolicy): Promise<R2Object | null> {
   TypeError.invariant(entityId.length > 0, "spillDocToR2: entityId must not be empty");
   const fullState = Y.encodeStateAsUpdate(doc);
   const day = utcDayKey();
-  // Uint8Array is an ArrayBufferView — R2 put accepts it directly, no cast.
-  await policy.bucket.put(policy.objectKey(entityId, day), fullState);
+  return policy.bucket.put(policy.objectKey(entityId, day), fullState);
 }
 
 /**

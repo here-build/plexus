@@ -31,4 +31,22 @@ describe("validateLaneDescriptors", () => {
       ]),
     ).toThrow(/messageType/);
   });
+
+  it("rejects duplicate persistKey", () => {
+    expect(() =>
+      validateLaneDescriptors([
+        { id: "prime", messageType: MESSAGE_SYNC, persistKey: "same" },
+        { id: "other", messageType: MESSAGE_COMMENTS_SYNC, persistKey: "same" },
+      ]),
+    ).toThrow(/persistKey/);
+  });
+
+  it("rejects duplicate lane id", () => {
+    expect(() =>
+      validateLaneDescriptors([
+        { id: "prime", messageType: MESSAGE_SYNC, persistKey: "a" },
+        { id: "prime", messageType: MESSAGE_COMMENTS_SYNC, persistKey: "b" },
+      ]),
+    ).toThrow(/duplicate lane id/);
+  });
 });

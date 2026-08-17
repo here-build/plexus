@@ -1,83 +1,63 @@
 /**
- * Type contracts for Plexus sync Durable Objects.
- *
- * Product-agnostic shapes the substrate needs to broker Yjs over WebSocket,
- * persist lanes, push to archive followers, and optionally project awareness
- * into ephemeral presence DOs.
+ * Host-facing contracts. The leader, archive, and presence actors share
+ * these shapes; none of them carry a product model.
  */
 
 import type * as Y from "yjs";
 
-import type { MESSAGE_AWARENESS, MESSAGE_COMMENTS_SYNC, MESSAGE_SYNC } from "./constants.js";
+import type { MESSAGE_COMMENTS_SYNC, MESSAGE_SYNC } from "./constants.js";
 
-/** Env fields the substrate reads directly (alarms, test gating). */
 export interface PlexusSyncEnv {
   TEST_MODE?: boolean;
 }
 
 /**
- * Lane declaration — wire routing + persist key only.
- *
- * Products declare `protected readonly lanes = [...]`. The leader base spawns
- * a `Y.Doc` per descriptor; never pass `doc` here.
+ * Wire + persist metadata only. The leader spawns the `Y.Doc`; never pass one.
  */
 export interface LaneDescriptor {
   id: string;
   messageType: typeof MESSAGE_SYNC | typeof MESSAGE_COMMENTS_SYNC | number;
   persistKey: string;
-  /** Archive followers use `false`; live lanes default `true`. */
+  /** `false` for archive replicas (retain tombstones). Live lanes default `true`. */
   gc?: boolean;
-  /** Outbound gate — here.build comments uses `commentsAllowed` on the attachment. */
   broadcastFilter?: (ws: WebSocket) => boolean;
-  /** Inbound gate — drop frames before decode when false. */
+  /** Drop the frame before decode. */
   allowInbound?: (ws: WebSocket) => boolean;
 }
 
-/** Descriptor + spawned doc — internal to {@link PlexusLeaderSyncDO}. */
 export interface ResolvedLane extends LaneDescriptor {
   doc: Y.Doc;
 }
 
-/**
- * Write-driven persist cadence for leader DOs.
- *
- * Debounce coalesces typing bursts; optional ceiling bounds RPO during
- * continuous editing. The scheduler's dirty/persisted version counters
- * ensure edits arriving mid-persist are never lost to an alarm race.
- */
 export interface PersistPolicy {
+  /** Trailing-edge coalesce for typing bursts. */
   debounceMs: number;
+  /** RPO cap during continuous editing. */
   ceilingMs?: number;
 }
 
-/** Inline R2 spill from the leader alarm. Archive DO owns cold-storage duty when configured. */
+/** Inline R2 spill from the leader alarm. The archive DO owns cold duty when present. */
 export interface SpillPolicy {
   bucket: R2Bucket;
   objectKey: (entityId: string, day: string) => string;
 }
 
-/** Archive DO midnight spill — one-shot alarm, date-in-key (R2 has no object versioning). */
+/** Midnight UTC, once. R2 has no object versioning — the date is the version. */
 export interface ArchiveSpillPolicy extends SpillPolicy {
   schedule: "midnight-utc-once";
 }
 
-/**
- * Content-blind RPC surface of {@link PlexusArchiveSyncDO}.
- * Leader pushes diffs; follower returns its state vector after each apply.
- */
+/** Content-blind RPC. Each apply returns the follower's new state vector. */
 export interface ArchiveFollowerStub {
   seed(initialState: Uint8Array): Promise<Uint8Array>;
-  // Sync in-process; a Promise across a DO RPC boundary. The leader awaits either.
+  /** In-process sync; a Promise across a DO RPC. The leader awaits either. */
   applyDiff(diff: Uint8Array): Uint8Array | Promise<Uint8Array>;
 }
 
-/** Serialized on each accepted WebSocket via `serializeAttachment`. */
+/** Hibernatable socket state. Durable Object attachments are a 2 KiB class. */
 export type WebSocketAttachment = Record<string, unknown>;
 
-/**
- * Awareness adapter — keeps this package off `@here.build/plexus`.
- * Products wire `PlexusAwareness` (encode/apply/decode) here.
- */
+/** Host injects encode/apply/onChange. This package does not construct awareness. */
 export interface AwarenessPlane {
   applyUpdate(payload: Uint8Array, origin: unknown): void;
   encodeUpdate(clientIds: number[]): Uint8Array;
@@ -86,10 +66,7 @@ export interface AwarenessPlane {
   ): void;
 }
 
-/**
- * Fire-and-forget presence projection into sibling DOs.
- * Hosts may wire presence/user DOs; optional until a consumer needs them.
- */
+/** Fire-and-forget projection into a sibling presence DO. */
 export interface PresenceProjector {
   onAwarenessDelta(changes: { added: number[]; updated: number[] }, ctx: PresenceContext): void;
   onSocketClose(userId: string, ctx: PresenceContext): void;

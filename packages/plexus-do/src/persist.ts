@@ -58,7 +58,6 @@ export class PersistScheduler {
     return state;
   }
 
-  /** Peer-origined doc update — not {@link REHYDRATE_ORIGIN} / {@link GENESIS_ORIGIN}. */
   markDirty(laneId: string): void {
     this.laneState(laneId).dirtyVersion++;
   }
@@ -75,10 +74,6 @@ export class PersistScheduler {
     return false;
   }
 
-  /**
-   * Next alarm timestamp, or null when test mode / nothing dirty.
-   * Returns `existingAlarm` unchanged when the computed target would defer it.
-   */
   nextAlarmTarget(existingAlarm: number | null): number | null {
     if (this.hooks.testMode) return null;
     if (!this.hasAnyPendingWork()) return null;
@@ -105,7 +100,6 @@ export class PersistScheduler {
 
 // ── Lane persist helpers ─────────────────────────────────────────────────────
 
-/** Apply stored bytes on boot with the rehydrate origin tag. */
 export function applyRehydrate(doc: Y.Doc, bytes: Uint8Array): void {
   Y.applyUpdate(doc, bytes, REHYDRATE_ORIGIN);
 }
@@ -113,6 +107,14 @@ export function applyRehydrate(doc: Y.Doc, bytes: Uint8Array): void {
 /** Substrate-internal origins — must not broadcast or mark dirty. */
 export function shouldIgnoreUpdateOrigin(origin: unknown): boolean {
   return origin === REHYDRATE_ORIGIN || origin === GENESIS_ORIGIN;
+}
+
+/**
+ * Missing horizon (`byteLength === 0`) is not a 0-byte state vector.
+ * Passing the empty buffer to `Y.encodeStateAsUpdate(doc, sv)` makes lib0 throw.
+ */
+export function encodeStateSince(doc: Y.Doc, horizon: Uint8Array): Uint8Array {
+  return horizon.byteLength === 0 ? Y.encodeStateAsUpdate(doc) : Y.encodeStateAsUpdate(doc, horizon);
 }
 
 export async function persistLaneSnapshot(

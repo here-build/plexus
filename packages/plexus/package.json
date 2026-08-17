@@ -1,6 +1,6 @@
 {
   "name": "@here.build/plexus",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "Reactive state management with automatic replication: make TypeScript classes sync across clients via Yjs CRDT.",
   "keywords": [
     "crdt",
@@ -39,6 +39,14 @@
   "files": [
     "dist",
     "src",
+    "docs",
+    "i-cant-believe-its-not-local.png",
+    "!docs/append-only-entity-shells.md",
+    "!docs/awareness-coherence.md",
+    "!docs/error-handling-guide.md",
+    "!docs/liminal-grounding.md",
+    "!docs/plexus-dependency-spec.md",
+    "!docs/telemetry.md",
     "!**/__tests__",
     "!**/__research__",
     "!**/__benchmarks__",

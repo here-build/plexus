@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PlexusText · CodeMirror peer</title>
+    <style>
+      html,
+      body,
+      #app {
+        margin: 0;
+        height: 100%;
+        background: #0f1115;
+        color: #e8eaed;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      #app {
+        display: flex;
+        flex-direction: column;
+      }
+      .banner {
+        flex: 0 0 auto;
+        padding: 6px 10px;
+        font-size: 12px;
+        letter-spacing: 0.02em;
+        border-bottom: 1px solid #2a2f3a;
+        background: #161a22;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .banner .role {
+        font-weight: 600;
+      }
+      .banner .status {
+        opacity: 0.7;
+      }
+      #editor {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+      }
+      .cm-editor {
+        height: 100%;
+        font-size: 14px;
+      }
+      .cm-scroller {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="banner">
+        <span class="role" id="role">…</span>
+        <span class="status" id="status">waiting for bridge…</span>
+      </div>
+      <div id="editor"></div>
+    </div>
+    <script type="module" src="/src/iframe/cm-peer.ts"></script>
+  </body>
+</html>

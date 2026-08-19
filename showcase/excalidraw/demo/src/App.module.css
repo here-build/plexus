@@ -1,0 +1,43 @@
+.shell {
+  display: grid;
+  height: 100%;
+}
+
+.connecting {
+  place-items: center;
+  color: #888;
+  font-size: 13px;
+}
+
+.canvas {
+  position: relative;
+  isolation: isolate;
+  min-height: 0;
+  display: grid;
+}
+
+/*
+ * Presence addressing. `.clip` is the clipping element AND the
+ * containing block for chrome, which is why chrome nodes are appended straight
+ * into it rather than into a layer of their own: a positioned wrapper would
+ * become their containing block, and a containing block outside the anchor's
+ * chain disqualifies the anchor. Chrome is also `absolute` rather than `fixed`,
+ * so the clip is in its chain and off-canvas peers are clipped, not drawn.
+ */
+.clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Inside the camera transform. Carries anchors at raw scene coordinates. */
+.plane {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}

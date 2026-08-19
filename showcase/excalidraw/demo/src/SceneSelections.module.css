@@ -1,0 +1,10 @@
+.sel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  border-radius: 8px;
+  outline: 1.5px dashed var(--sel-color, #888);
+  outline-offset: 4px;
+  transform-origin: center center;
+}

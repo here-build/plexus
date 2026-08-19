@@ -1,5 +1,6 @@
 packages:
   - "packages/*"
+  - "showcase/excalidraw/*"
 
 # Supply-chain defense: refuse to install any package published less than
 # 7 days ago. Blocks short-window attacks (e.g. axios March 2026).

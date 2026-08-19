@@ -1,0 +1,17 @@
+{
+  "name": "plexus-excalidraw-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "durable_objects": {
+    "bindings": [{ "name": "DOC_LEADER", "class_name": "DocLeader" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DocLeader"] }],
+  "exports": {
+    "DocLeader": { "type": "durable-object", "storage": "sqlite" },
+  },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+  },
+}

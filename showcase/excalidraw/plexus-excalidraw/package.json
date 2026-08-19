@@ -1,0 +1,49 @@
+{
+  "name": "@here.build/plexus-excalidraw",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Excalidraw as a view of a Plexus Scene. Same React children and plugins; the document is the graph.",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./plexus": {
+      "types": "./src/ExcalidrawPlexus.ts",
+      "import": "./src/ExcalidrawPlexus.ts",
+      "default": "./src/ExcalidrawPlexus.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@excalidraw/excalidraw": "^0.18.0",
+    "@here.build/plexus": "workspace:*",
+    "@here.build/plexus-excalidraw-models": "workspace:*",
+    "mobx": "^6.15.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "yjs": "^13.6.0"
+  },
+  "devDependencies": {
+    "@excalidraw/excalidraw": "^0.18.0",
+    "@here.build/plexus": "workspace:*",
+    "@here.build/plexus-excalidraw-models": "workspace:*",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "mobx": "6.15.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "typescript": "6.0.2",
+    "vitest": "^4.1.0",
+    "yjs": "13.6.30"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "plexus-excalidraw-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:all": "pnpm --filter plexus-excalidraw-worker --filter plexus-excalidraw-demo --parallel dev",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.0",
+    "@here.build/plexus": "workspace:*",
+    "@here.build/plexus-excalidraw": "workspace:*",
+    "@here.build/plexus-excalidraw-models": "workspace:*",
+    "@here.build/y-messageport": "workspace:*",
+    "boring-avatars": "^2.0.4",
+    "mobx": "6.15.0",
+    "mobx-react": "^9.2.2",
+    "nanoid": "^6.0.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "sillyname": "^0.1.0",
+    "y-protocols": "^1.0.6",
+    "y-websocket": "3.0.0",
+    "yjs": "13.6.30"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "6.0.2",
+    "vite": "^7.1.0",
+    "vitest": "^4.1.0"
+  }
+}

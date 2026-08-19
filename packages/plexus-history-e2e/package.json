@@ -1,0 +1,26 @@
+{
+  "name": "@here.build/plexus-history-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Mini-e2e sketch: the here.build Plexus model + @here.build/plexus-history wired through toy Durable Objects under workerd (@cloudflare/vitest-pool-workers), producing a human-readable annotation of what changed over a cut range — a sketch for a future GitHub action.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@here.build/model": "workspace:^",
+    "@here.build/plexus": "workspace:^",
+    "@here.build/plexus-history": "workspace:^",
+    "@here.build/plexus-history-lens": "workspace:^",
+    "@here.build/project-plexus": "workspace:^",
+    "yjs": "13.6.30"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.13.2",
+    "@cloudflare/workers-types": "4.20250803.0",
+    "vite-tsconfig-paths": "5.1.4",
+    "vitest": "4.1.0",
+    "wrangler": "4.89.0"
+  }
+}

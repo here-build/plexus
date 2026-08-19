@@ -1,0 +1,20 @@
+# Toy wrangler for the plexus-history mini-e2e. Two Durable Objects — a collaboration
+# leader (ToyProjectDO) and a gc:false archive + side-API (ToyLogDO) — run under workerd
+# via @cloudflare/vitest-pool-workers. No R2/queues/DB/WorkOS: the toy needs none.
+[env.production]
+name = "plexus-history-e2e"
+main = "src/worker.ts"
+compatibility_date = "2026-03-17"
+compatibility_flags = ["nodejs_compat"]
+
+[[env.production.durable_objects.bindings]]
+name = "TOY_PROJECT"
+class_name = "ToyProjectDO"
+
+[[env.production.durable_objects.bindings]]
+name = "TOY_LOG"
+class_name = "ToyLogDO"
+
+[[env.production.migrations]]
+tag = "v1"
+new_classes = ["ToyProjectDO", "ToyLogDO"]

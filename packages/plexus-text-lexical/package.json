@@ -1,0 +1,47 @@
+{
+  "name": "@here.build/plexus-text-lexical",
+  "version": "0.1.0",
+  "description": "Lexical binding for PlexusText — collaborative inline rich text (text+format), PlexusAwareness presence, liminal peer re-render.",
+  "license": "FSL-1.1-MIT",
+  "author": "here.build",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "benchmarks": "vitest run --config vitest.benchmarks.config.ts"
+  },
+  "dependencies": {
+    "@here.build/plexus": "workspace:^",
+    "@here.build/plexus-text": "workspace:^",
+    "lexical": "0.45.0",
+    "mobx": "6.15.0",
+    "yjs": "13.6.30"
+  },
+  "devDependencies": {
+    "@here.build/eslint-configs": "workspace:^",
+    "@here.build/tsconfig": "workspace:^",
+    "@lexical/headless": "0.45.0",
+    "eslint": "9.39.2",
+    "lib0": "0.2.114",
+    "tslib": "2.8.1",
+    "typescript": "6.0.2",
+    "vitest": "4.1.0"
+  }
+}

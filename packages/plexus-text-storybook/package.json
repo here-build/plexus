@@ -1,0 +1,38 @@
+{
+  "name": "@here.build/plexus-text-storybook",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Storybook demos for PlexusText CodeMirror + Lexical bindings — cross-iframe sync via YMessagePortProvider (local MessageChannel bridge).",
+  "license": "FSL-1.1-MIT",
+  "author": "here.build",
+  "type": "module",
+  "scripts": {
+    "storybook": "storybook dev -p 6012",
+    "build-storybook": "storybook build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@codemirror/state": "6.7.1",
+    "@codemirror/view": "6.43.0",
+    "@here.build/plexus": "workspace:^",
+    "@here.build/plexus-text": "workspace:^",
+    "@here.build/plexus-text-codemirror": "workspace:^",
+    "@here.build/plexus-text-lexical": "workspace:^",
+    "@here.build/y-messageport": "workspace:^",
+    "@lexical/react": "0.45.0",
+    "codemirror": "6.0.2",
+    "lexical": "0.45.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "yjs": "13.6.30",
+    "tslib": "2.8.1"
+  },
+  "devDependencies": {
+    "@here.build/tsconfig": "workspace:^",
+    "@storybook/react": "10.3.3",
+    "@storybook/react-vite": "10.3.3",
+    "storybook": "10.3.3",
+    "typescript": "6.0.2",
+    "vite": "7.2.7"
+  }
+}

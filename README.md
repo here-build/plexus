@@ -80,6 +80,10 @@ a Durable Object sync server. It does not replace Yjs or MobX; Plexus is designe
 - **[`plexus-vfs`](./packages/plexus-vfs/README.md)** - dirs, files, and entity paths as plexus models; an `fs` for isomorphic-git
 - **[`y-messageport`](./packages/y-messageport/README.md)** + **[`y-control-channel`](./packages/y-control-channel/README.md)** - a Provider over `MessagePort`, and the port-routing control plane it composes with
 
+## Showcase
+
+- **[`showcase/excalidraw`](./showcase/excalidraw)** - Excalidraw's scene as a Plexus graph. Not a rewrite of the editor.
+
 ## Install
 
 ```bash
@@ -89,7 +93,7 @@ pnpm build
 pnpm test
 ```
 
-Workspace under `packages/*`. Depend via `workspace:` / path, or (once
+Workspace under `packages/*` and `showcase/excalidraw/*`. Depend via `workspace:` / path, or (once
 published) `@here.build/plexus` and siblings.
 
 Peers: `yjs`, `y-protocols`, `lib0`, `mobx` (see each package). Floor packages

@@ -1,0 +1,28 @@
+{
+  "name": "plexus-excalidraw-worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Exemplary plexus-do host for the Excalidraw showcase. First writer of the Scene; browsers only connect.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "dev": "wrangler dev --port 8787",
+    "deploy": "pnpm --filter plexus-excalidraw-demo build && rm -rf public && cp -R ../demo/dist public && wrangler deploy",
+    "types": "wrangler types",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@here.build/plexus": "workspace:*",
+    "@here.build/plexus-do": "workspace:*",
+    "@here.build/plexus-excalidraw-models": "workspace:*",
+    "mobx": "6.15.0",
+    "yjs": "13.6.30"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20250803.0",
+    "typescript": "6.0.2",
+    "vitest": "^4.1.0",
+    "wrangler": "4.28.0"
+  }
+}

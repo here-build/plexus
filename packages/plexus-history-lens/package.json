@@ -1,0 +1,47 @@
+{
+  "name": "@here.build/plexus-history-lens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The describing layer: here.build-specific consolidation of PlexusChange[] into human-readable IntentEvent[]. Recognizes the operations vocabulary but does not depend on it (lossy/total/retrospective). Consumes the domain-agnostic @here.build/plexus-history core; the clay tenet keeps model semantics here, not in core.",
+  "license": "UNLICENSED",
+  "author": "here.build",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist/**/*",
+    "src/**/*"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@here.build/plexus-history": "workspace:^"
+  },
+  "peerDependencies": {
+    "yjs": "^13.6.30"
+  },
+  "devDependencies": {
+    "@here.build/eslint-configs": "workspace:^",
+    "@here.build/tsconfig": "workspace:^",
+    "@types/node": "24.0.0",
+    "eslint": "9.39.2",
+    "prettier": "3.8.1",
+    "tslib": "2.8.1",
+    "typescript": "6.0.2",
+    "vitest": "4.1.0",
+    "yjs": "13.6.30"
+  }
+}

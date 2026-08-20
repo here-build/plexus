@@ -127,6 +127,8 @@ export type PlexusInit<T extends PlexusModel> = {
 };
 
 export abstract class PlexusModel<Parent extends PlexusModel | null = any> {
+  // @ts-expect-error Arrival sandbox integration
+  static readonly [Symbol.for("scheme:interop-boundary")] = true;
   // eslint-disable-next-line sonarjs/public-static-readonly
   static __forcedInternals__: Internals<any> | null = null;
   // eslint-disable-next-line sonarjs/public-static-readonly

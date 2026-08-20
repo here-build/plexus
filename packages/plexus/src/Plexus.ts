@@ -8,6 +8,7 @@
  * Origin-based routing controls what flows between docs:
  * - SHADOW_TO_MAIN: normal entity writes → forwarded to main (UndoManager tracks)
  * - LIMINAL: drag/scrub writes → held on shadow (not forwarded)
+ * - LIMINAL_UNDO: scaffolding removal on shadow → not forwarded
  * - COMMIT_DELTA: committed liminality → applied to main, forwarded to shadow
  * - FROM_SHADOW/FROM_MAIN: echo prevention markers
  *
@@ -17,7 +18,7 @@
  * 3. Apply to main FIRST (forwarding propagates to shadow while scaffolding is intact)
  * 4. Undo liminal Items on shadow (scaffolding removal — committed Items survive)
  * 5. Fresh clientId after commit (prevents clock gap on main)
- * 6. Block liminal UndoManager's origin from shadow→main forwarding (undo doesn't clobber main)
+ * 6. Block LIMINAL_UNDO from shadow→main forwarding (undo doesn't clobber main)
  */
 
 import { fromBase64, toBase64 } from "lib0/buffer";
@@ -62,6 +63,9 @@ const SHADOW_TO_MAIN = Symbol("shadow→main");
 /** Liminal write on shadow → NOT forwarded to main. */
 const LIMINAL_ORIGIN = Symbol("liminal");
 
+/** Liminal UndoManager scaffolding removal on shadow → NOT forwarded to main. */
+const LIMINAL_UNDO_ORIGIN = Symbol("liminal-undo");
+
 /** Committed delta applied to main + forwarded to shadow. */
 const COMMIT_DELTA_ORIGIN = Symbol("commit-delta");
 
@@ -83,6 +87,7 @@ function originKindOf(origin: unknown): OriginKindLabel {
   if (origin === FROM_SHADOW) return ORIGIN_KIND.FROM_SHADOW;
   if (origin === FROM_MAIN) return ORIGIN_KIND.FROM_MAIN;
   if (origin === LIMINAL_ORIGIN) return ORIGIN_KIND.LIMINAL;
+  if (origin === LIMINAL_UNDO_ORIGIN) return ORIGIN_KIND.UNDO_MANAGER;
   if (origin === COMMIT_DELTA_ORIGIN) return ORIGIN_KIND.COMMIT_DELTA;
   if (origin === GENESIS_ORIGIN) return ORIGIN_KIND.GENESIS;
   if (origin instanceof UndoManager) return ORIGIN_KIND.UNDO_MANAGER;
@@ -346,8 +351,8 @@ export class Plexus<
         telemetry.histogram("plexus.crdt.shadow_update_bytes", update.byteLength, { origin_kind: originKind });
       }
       if (origin === LIMINAL_ORIGIN) return;
+      if (origin === LIMINAL_UNDO_ORIGIN) return;
       if (origin === FROM_MAIN) return;
-      if (origin === this.__liminalUndoManager__) return;
       // Block per-peer preview origins and their UM undo artifacts.
       // GENESIS_ORIGIN is a plexus-internal origin that writes the virtual-map
       // key→ref epilogue (see virtual-children-genesis.ts line 327-329); it must
@@ -848,7 +853,9 @@ export class Plexus<
       const shadowCid = this.__liminalDocument__.clientID;
       const clockBefore = getMaxClock(this.__liminalDocument__, shadowCid);
       const limUm = this.__liminalUndoManager__!;
-      while (limUm.canUndo()) limUm.undo();
+      this.__liminalDocument__.transact(() => {
+        while (limUm.canUndo()) limUm.undo();
+      }, LIMINAL_UNDO_ORIGIN);
       const clockAfter = getMaxClock(this.__liminalDocument__, shadowCid);
       if (clockAfter > clockBefore) {
         Y.applyUpdate(
@@ -889,7 +896,9 @@ export class Plexus<
 
     const limId = this.__liminalDocument__.clientID;
     const limUm = this.__liminalUndoManager__!;
-    while (limUm.canUndo()) limUm.undo();
+    this.__liminalDocument__.transact(() => {
+      while (limUm.canUndo()) limUm.undo();
+    }, LIMINAL_UNDO_ORIGIN);
     // Restore the resting regular id — see commitLiminality for the gap argument.
     this.__liminalDocument__.clientID = this.__shadowRegularId__;
 

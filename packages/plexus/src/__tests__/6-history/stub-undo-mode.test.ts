@@ -13,6 +13,7 @@ import { initTestPlexus } from "../_helpers/test-plexus.js";
 @syncing("StubUndoModel")
 class StubUndoModel extends PlexusModel {
   @syncing accessor name: string = "";
+  @syncing.record accessor meta: Record<string, string> = {};
 }
 
 describe("stub undo mode", () => {
@@ -40,6 +41,17 @@ describe("stub undo mode", () => {
       root.name = "written";
     });
     expect(root.name).toBe("written");
+  });
+
+  it("lazy record first write reaches main (null-origin container genesis is forwarded)", () => {
+    // genesisApplyUpdate transacts with origin null. Skip origins are named
+    // symbols; dropping null-origin updates leaves the container genesis off
+    // main and the key in pendingStructs.
+    root.meta.k = "v";
+    const types = plexus.doc.getMap("types") as Y.Map<Y.Map<Y.XmlElement>>;
+    const meta = types.get("StubUndoModel")?.get(root.uuid)?.getAttribute("meta") as Y.Map<string> | undefined;
+    expect(meta?.get("k")).toBe("v");
+    expect(plexus.doc.store.pendingStructs).toBeNull();
   });
 
   it("undo/redo warn and do not reverse writes", () => {

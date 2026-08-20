@@ -410,6 +410,11 @@ const ALPHABET: Entry[] = [
 
   // ---- map.ts: VALUE map ---------------------------------------------------------
   {
+    name: "map(value): set first key on empty",
+    mutate: (r) => void r.vmap.set("k1", 1),
+    observe: seeVmap,
+  },
+  {
     name: "map(value): set (new key + overwrite)",
     setup: (r) => void (r.vmap.set("k1", 1), r.vmap.set("k2", 2)),
     mutate: (r) => void (r.vmap.set("k3", 3), r.vmap.set("k1", 10)),
@@ -473,6 +478,14 @@ const ALPHABET: Entry[] = [
   },
 
   // ---- record.ts: VALUE record ---------------------------------------------------
+  {
+    // Every other record entry pre-fills the container in `setup`. This one
+    // is the first write into an empty record — `describe()` must genesis the
+    // Y.Map inside the flush tx (`ensureYjsMap`).
+    name: "record(value): set first key on empty",
+    mutate: (r) => void (r.vrec.x = "1"),
+    observe: seeVrec,
+  },
   {
     name: "record(value): set (new key + overwrite)",
     setup: (r) => void (r.vrec.a = "1", (r.vrec.b = "2")),

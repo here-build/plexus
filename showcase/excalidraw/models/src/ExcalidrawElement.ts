@@ -27,7 +27,7 @@ export abstract class ExcalidrawElement<
     const scene = this.scene;
     if (!scene) return undefined as unknown as string;
     for (const [id, node] of scene.elements) {
-      if (node === this) return id;
+      if (node === (this as unknown)) return id;
     }
     return undefined as unknown as string;
   }

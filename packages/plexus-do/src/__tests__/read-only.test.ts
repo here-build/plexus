@@ -28,14 +28,19 @@ async function bootRoleAware(): Promise<{ leader: RoleAwareLeaderDO; ctx: FakeCt
   return { leader, ctx };
 }
 
+function ownedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const frame = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(frame).set(bytes);
+  return frame;
+}
+
 function updateFrame(value: string): ArrayBuffer {
   const source = new Y.Doc();
   source.getMap("root").set("k", value);
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, MESSAGE_SYNC);
   syncProtocol.writeUpdate(encoder, Y.encodeStateAsUpdate(source));
-  const bytes = encoding.toUint8Array(encoder);
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  return ownedArrayBuffer(encoding.toUint8Array(encoder));
 }
 
 function syncStep1Frame(): ArrayBuffer {
@@ -43,8 +48,7 @@ function syncStep1Frame(): ArrayBuffer {
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, MESSAGE_SYNC);
   syncProtocol.writeSyncStep1(encoder, empty);
-  const bytes = encoding.toUint8Array(encoder);
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  return ownedArrayBuffer(encoding.toUint8Array(encoder));
 }
 
 function socketWithAttachment(attachment: unknown): FakeServerWebSocket {

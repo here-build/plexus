@@ -2,7 +2,8 @@
  * Stage-2 compilers invoke `@syncing` as `(target, key)` or `(ctor)`.
  * Stage-3 passes a context object with `kind`. The throw is at the
  * decorator call — the two shapes are distinguishable without compiling
- * this file as legacy.
+ * this file as legacy. The probes go through `unknown` first: TypeScript
+ * 6.0.2 TS2352 rejects a direct cast from the stage-3 signatures.
  */
 
 import { describe, expect, it } from "vitest";
@@ -28,19 +29,19 @@ describe("stage-3 decorator mode", () => {
 
   it("legacy class decorator call throws", () => {
     class Foo {}
-    expect(() => (syncing as (name: string) => (ctor: unknown) => unknown)("LegacyClass")(Foo)).to.throw(
-      STAGE2_DECORATORS_UNSUPPORTED,
-    );
+    expect(() =>
+      (syncing as unknown as (name: string) => (ctor: unknown) => unknown)("LegacyClass")(Foo),
+    ).to.throw(STAGE2_DECORATORS_UNSUPPORTED);
   });
 
   it("legacy field decorator call throws", () => {
-    expect(() => (syncing as (target: object, key: string) => unknown)({}, "name")).to.throw(
+    expect(() => (syncing as unknown as (target: object, key: string) => unknown)({}, "name")).to.throw(
       STAGE2_DECORATORS_UNSUPPORTED,
     );
   });
 
   it("legacy collection decorator call throws", () => {
-    expect(() => (syncing.list as (target: object, key: string) => unknown)({}, "items")).to.throw(
+    expect(() => (syncing.list as unknown as (target: object, key: string) => unknown)({}, "items")).to.throw(
       STAGE2_DECORATORS_UNSUPPORTED,
     );
   });

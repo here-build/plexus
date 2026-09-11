@@ -1,0 +1,17 @@
+{
+  "name": "plexus-do-example-hono-workos",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "durable_objects": {
+    "bindings": [{ "name": "DOC_LEADER", "class_name": "DocLeader" }],
+  },
+  "exports": {
+    "DocLeader": { "type": "durable-object", "storage": "sqlite" },
+  },
+  // WORKOS_CLIENT_ID is public. Put WORKOS_API_KEY in .dev.vars if you call the API.
+  // Optional Cloudflare Access: set TEAM_DOMAIN + POLICY_AUD to require a valid Access JWT.
+  "vars": {
+    "WORKOS_CLIENT_ID": "",
+    "WORKOS_ISSUER": "",
+  },
+}

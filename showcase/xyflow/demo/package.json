@@ -1,0 +1,38 @@
+{
+  "name": "plexus-xyflow-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5174",
+    "dev:all": "pnpm --filter plexus-xyflow-worker --filter plexus-xyflow-demo --parallel dev",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@here.build/plexus": "workspace:*",
+    "@here.build/plexus-xyflow": "workspace:*",
+    "@here.build/plexus-xyflow-models": "workspace:*",
+    "@here.build/y-messageport": "workspace:*",
+    "@xyflow/react": "^12.8.2",
+    "boring-avatars": "^2.0.4",
+    "mobx": "6.15.0",
+    "mobx-react": "^9.2.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "sillyname": "^0.1.0",
+    "lib0": "0.2.114",
+    "y-protocols": "^1.0.6",
+    "y-websocket": "3.0.0",
+    "yjs": "13.6.30"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "6.0.2",
+    "vite": "^7.1.0",
+    "vitest": "^4.1.0"
+  }
+}

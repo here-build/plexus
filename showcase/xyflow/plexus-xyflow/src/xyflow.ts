@@ -1,0 +1,35 @@
+/**
+ * Single import site for `@xyflow/react`. Handle, Provider, and the canvas
+ * must share one module instance or handle bounds never land in the store.
+ */
+export {
+  Background,
+  BackgroundVariant,
+  BaseEdge,
+  Controls,
+  Handle,
+  MarkerType,
+  MiniMap,
+  NodeResizer,
+  Panel,
+  Position,
+  ReactFlow as XYFlow,
+  ReactFlowProvider,
+  ViewportPortal,
+  addEdge,
+  useReactFlow,
+  useUpdateNodeInternals,
+  useViewport,
+  type Connection,
+  type Edge,
+  type EdgeChange,
+  type Node,
+  type NodeChange,
+  type NodeProps,
+  type NodeTypes,
+  type OnConnect,
+  type OnEdgesChange,
+  type OnNodesChange,
+  type ReactFlowInstance,
+  type ReactFlowProps,
+} from "@xyflow/react";

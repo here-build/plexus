@@ -1,13 +1,13 @@
 {
-  "name": "plexus-excalidraw-worker",
+  "name": "plexus-xyflow-worker",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Exemplary plexus-do host for the Excalidraw showcase. First writer of the Scene; browsers only connect.",
+  "description": "Exemplary plexus-do host for the xyflow showcase. First writer of the Flow; browsers only connect.",
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",
-    "dev": "wrangler dev --port 8787",
-    "deploy": "pnpm --filter plexus-excalidraw-demo build && rm -rf public && cp -R ../demo/dist public && wrangler deploy",
+    "dev": "wrangler dev --port 8788",
+    "deploy": "pnpm --filter plexus-xyflow-demo build && rm -rf public && cp -R ../demo/dist public && wrangler deploy",
     "types": "wrangler types",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -15,7 +15,7 @@
   "dependencies": {
     "@here.build/plexus": "workspace:*",
     "@here.build/plexus-do": "workspace:*",
-    "@here.build/plexus-excalidraw-models": "workspace:*",
+    "@here.build/plexus-xyflow-models": "workspace:*",
     "mobx": "6.15.0",
     "yjs": "13.6.30"
   },

@@ -1,0 +1,26 @@
+{
+  "name": "@here.build/plexus-do-example-hono-workos",
+  "version": "0.0.0",
+  "private": true,
+  "license": "FSL-1.1-MIT",
+  "description": "Hono plexus-do host. WorkOS org_id is the doc id; the DO trusts only host-stamped headers.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@here.build/plexus-do": "workspace:^",
+    "hono": "4.12.0",
+    "jose": "6.0.12",
+    "yjs": "13.6.30"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260910.1",
+    "typescript": "6.0.2",
+    "wrangler": "^4.106.0"
+  }
+}

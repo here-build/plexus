@@ -1,0 +1,152 @@
+.shell {
+  display: grid;
+  height: 100%;
+}
+
+.workspace,
+.workspaceLive,
+.workspacePeer {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+}
+
+.workspace {
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+
+.workspaceLive {
+  grid-template-columns: 260px minmax(0, 1fr) minmax(280px, 32%);
+}
+
+.workspacePeer {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (max-width: 1100px) {
+  .workspaceLive {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  .peerPane {
+    display: none;
+  }
+}
+
+.connecting {
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  color: #5c574e;
+  text-align: center;
+}
+
+.connectKicker {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: #1c1916;
+}
+
+.connectRoom {
+  margin: 0;
+  font-size: 13px;
+}
+
+.connectUrl {
+  max-width: 28rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #7a7468;
+}
+
+.canvas {
+  position: relative;
+  min-height: 0;
+  height: 100%;
+}
+
+.peerPane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  border-left: 1px solid rgb(28 25 22 / 0.1);
+  background: #d8d2c4;
+}
+
+.peerBar {
+  padding: 6px 12px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b655b;
+}
+
+.peerFrame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #e7e2d6;
+}
+
+.chrome {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  pointer-events: auto;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.live {
+  background: oklch(0.93 0.05 155);
+  color: oklch(0.32 0.08 155);
+}
+
+.peer {
+  background: oklch(0.93 0.05 80);
+  color: oklch(0.38 0.08 70);
+}
+
+.local {
+  background: oklch(0.93 0.04 25);
+  color: oklch(0.4 0.1 25);
+}
+
+.tool,
+.retry {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in oklch, currentColor 14%, #d8dde6);
+  border-radius: 999px;
+  background: oklch(1 0 0 / 0.86);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tool:hover,
+.retry:hover {
+  background: #fff;
+}
+
+.retry {
+  color: oklch(0.4 0.1 25);
+}

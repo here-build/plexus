@@ -1,0 +1,11 @@
+{
+  "name": "plexus-do-example-bare",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "durable_objects": {
+    "bindings": [{ "name": "DOC_LEADER", "class_name": "DocLeader" }]
+  },
+  "exports": {
+    "DocLeader": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

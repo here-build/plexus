@@ -83,6 +83,7 @@ a Durable Object sync server. It does not replace Yjs or MobX; Plexus is designe
 ## Showcase
 
 - **[`showcase/excalidraw`](./showcase/excalidraw)** - Excalidraw's scene as a Plexus graph. Not a rewrite of the editor.
+- **[`showcase/xyflow`](./showcase/xyflow)** - xyflow's graph as a Plexus document. Not a rewrite of the canvas.
 
 ## Install
 
@@ -93,7 +94,8 @@ pnpm build
 pnpm test
 ```
 
-Workspace under `packages/*` and `showcase/excalidraw/*`. Depend via `workspace:` / path, or (once
+Workspace under `packages/*`, `packages/plexus-do/examples/*`, and
+`showcase/{excalidraw,xyflow}/*`. Depend via `workspace:` / path, or (once
 published) `@here.build/plexus` and siblings.
 
 Peers: `yjs`, `y-protocols`, `lib0`, `mobx` (see each package). Floor packages

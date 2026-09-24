@@ -1,4 +1,4 @@
-import { useReactFlow, ViewportPortal } from "@here.build/plexus-xyflow";
+import { useReactFlow, useViewport, ViewportPortal } from "@here.build/plexus-xyflow";
 import { observer } from "mobx-react";
 import { useEffect, type RefObject } from "react";
 
@@ -34,6 +34,7 @@ export function CursorTracker({
 
 export const RemoteCursors = observer(function RemoteCursors({ plexus }: { plexus: DemoPlexus }) {
   const others = plexus.awareness.cursor.getOthers();
+  const { zoom } = useViewport();
   return (
     <ViewportPortal>
       {[...others.entries()].map(([clientId, cursor]) => {
@@ -44,8 +45,9 @@ export const RemoteCursors = observer(function RemoteCursors({ plexus }: { plexu
             key={clientId}
             className={styles.cursor}
             style={{
-              transform: `translate(${cursor.x}px, ${cursor.y}px)`,
-              color,
+              transform: `translate(${cursor.x}px, ${cursor.y}px) scale(${1 / zoom})`,
+              transformOrigin: "0 0",
+              "--cursor": color,
             }}
           >
             <svg className={styles.pointer} viewBox="0 0 16 20" aria-hidden="true">

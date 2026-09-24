@@ -3,23 +3,33 @@ import { YMessagePortProvider } from "@here.build/y-messageport";
 import generateSillyName from "sillyname";
 import * as Y from "yjs";
 
+import { DEFAULT_ROOM, bindRoom } from "../room.js";
 import { defaultRoot } from "../seed.js";
+import { isPeerView } from "../view.js";
 import { DemoPlexus } from "./DemoPlexus.js";
-import { DOC_GUID } from "./guid.js";
 
 /** Providers live with the tab. The Plexus is the document; this is just the wire. */
 const attachments = new Set<{ destroy(): void }>();
 
 const WARMUP_MS = 2000;
 
+export type Transport = "durable-object" | "shared-worker" | "local";
+
+export type ConnectedScene = {
+  plexus: DemoPlexus;
+  transport: Transport;
+  room: string;
+};
+
 function roomId(): string {
-  if (typeof location === "undefined") return DOC_GUID;
-  return new URLSearchParams(location.search).get("room") ?? DOC_GUID;
+  if (typeof location === "undefined") return DEFAULT_ROOM;
+  return bindRoom(location, (url) => history.replaceState(null, "", url));
 }
 
 function userId(): string {
   if (typeof sessionStorage === "undefined") return generateSillyName();
-  const key = "plexus-excalidraw-user";
+  const peer = typeof location !== "undefined" && isPeerView(location.search);
+  const key = peer ? "plexus-excalidraw-user-peer" : "plexus-excalidraw-user";
   const existing = sessionStorage.getItem(key);
   if (existing) return existing;
   const next = generateSillyName();
@@ -33,10 +43,10 @@ function claimName(plexus: DemoPlexus): void {
   }
 }
 
-function localOnly(): DemoPlexus {
-  const plexus = DemoPlexus.bootstrap(defaultRoot(), roomId()) as DemoPlexus;
+function localOnly(room: string): ConnectedScene {
+  const plexus = DemoPlexus.bootstrap(defaultRoot(), room) as DemoPlexus;
   claimName(plexus);
-  return plexus;
+  return { plexus, transport: "local", room };
 }
 
 function bindAwareness(doc: Y.Doc, serverUrl: string, path: string, user: string, plexus: DemoPlexus): void {
@@ -67,13 +77,12 @@ function waitSynced(provider: WebsocketProvider, ms: number): Promise<boolean> {
 /**
  * Warm up the plexus-do host, then bind Plexus.
  *
- * The Worker is the first writer (Scene seed). After the Y.Doc is synced,
- * `DemoPlexus.connect(doc)`. SharedWorker / local bootstrap only if the host
- * is unreachable — two local bootstraps are two trees.
+ * Local bootstrap is a last resort and a different document — the UI must
+ * say so. Two `local` tabs on the same URL do not share a scene.
  */
-export function connectScene(): Promise<DemoPlexus> {
+export function connectScene(): Promise<ConnectedScene> {
   if (typeof location === "undefined") {
-    return Promise.resolve(localOnly());
+    return Promise.resolve(localOnly(DEFAULT_ROOM));
   }
 
   const room = roomId();
@@ -86,34 +95,46 @@ export function connectScene(): Promise<DemoPlexus> {
   const warmup = new WebsocketProvider(serverUrl, path, doc, { params: { user } });
 
   return waitSynced(warmup, WARMUP_MS).then((ok) => {
+    const dropWarmup = () => {
+      try {
+        warmup.destroy();
+      } catch {
+        /* y-websocket can throw on a half-applied dual-yjs doc */
+      }
+    };
     if (!ok) {
-      warmup.destroy();
+      dropWarmup();
       return sharedWorkerOrLocal(doc, room);
     }
     try {
       const plexus = DemoPlexus.connect(doc) as DemoPlexus;
+      void plexus.root.children.length;
       claimName(plexus);
-      warmup.destroy();
+      dropWarmup();
       bindAwareness(doc, serverUrl, path, user, plexus);
-      return plexus;
+      return { plexus, transport: "durable-object", room };
     } catch {
-      warmup.destroy();
+      dropWarmup();
       return sharedWorkerOrLocal(doc, room);
     }
   });
 }
 
 /** Local hub when the Worker is down. Isolated tab bootstraps. */
-function sharedWorkerOrLocal(failedDoc: Y.Doc, room: string): Promise<DemoPlexus> {
-  failedDoc.destroy();
+function sharedWorkerOrLocal(failedDoc: Y.Doc, room: string): Promise<ConnectedScene> {
+  try {
+    failedDoc.destroy();
+  } catch {
+    /* same dual-yjs destroy trap as warmup */
+  }
   if (typeof SharedWorker === "undefined") {
-    return Promise.resolve(localOnly());
+    return Promise.resolve(localOnly(room));
   }
 
   const doc = new Y.Doc({ guid: room });
   const worker = new SharedWorker(new URL("./scene.worker.ts", import.meta.url), {
     type: "module",
-    name: "plexus-excalidraw-scene",
+    name: `plexus-excalidraw-scene:${room}`,
   });
   const handshake = new YMessagePortProvider(doc, worker.port);
 
@@ -122,7 +143,7 @@ function sharedWorkerOrLocal(failedDoc: Y.Doc, room: string): Promise<DemoPlexus
       claimName(plexus);
       handshake.destroy();
       attachments.add(new YMessagePortProvider(doc, worker.port, { awareness: plexus.awareness }));
-      resolve(plexus);
+      resolve({ plexus, transport: "shared-worker", room });
     };
 
     const onSync = (synced: boolean) => {
@@ -133,7 +154,7 @@ function sharedWorkerOrLocal(failedDoc: Y.Doc, room: string): Promise<DemoPlexus
       } catch {
         handshake.destroy();
         worker.port.close();
-        resolve(localOnly());
+        resolve(localOnly(room));
       }
     };
 
@@ -148,7 +169,7 @@ function sharedWorkerOrLocal(failedDoc: Y.Doc, room: string): Promise<DemoPlexus
       handshake.off("sync", onSync);
       handshake.destroy();
       worker.port.close();
-      resolve(localOnly());
+      resolve(localOnly(room));
     });
   });
 }

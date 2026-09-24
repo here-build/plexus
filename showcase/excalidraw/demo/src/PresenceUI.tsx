@@ -5,8 +5,6 @@ import type { ExcalidrawAwareness } from "@here.build/plexus-excalidraw/plexus";
 
 import styles from "./PresenceUI.module.css";
 
-export const presenceInviteClass = styles.invite;
-
 const Face = observer(function Face({
   awareness,
   clientId,

@@ -5,8 +5,14 @@ import { DemoPlexus } from "./DemoPlexus.js";
 import { fanOutPeerUpdates } from "./fanout.js";
 import { DOC_GUID } from "./guid.js";
 
-/** Authority. After storage warmup this is `DemoPlexus.bootstrap(root, guid, doc)`. */
-const plexus = DemoPlexus.bootstrap(defaultRoot(), DOC_GUID);
+const PREFIX = "plexus-excalidraw-scene:";
+const workerName = (self as unknown as { name?: string }).name ?? "";
+const room =
+  workerName.startsWith(PREFIX) && workerName.slice(PREFIX.length)
+    ? workerName.slice(PREFIX.length)
+    : DOC_GUID;
+
+const plexus = DemoPlexus.bootstrap(defaultRoot(), room);
 
 const peers = new Set<YMessagePortProvider>();
 fanOutPeerUpdates(plexus.doc, peers);

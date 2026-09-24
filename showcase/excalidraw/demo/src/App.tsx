@@ -1,22 +1,51 @@
 import type { AppState, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { Excalidraw, MainMenu } from "@here.build/plexus-excalidraw";
 import type { Scene } from "@here.build/plexus-excalidraw-models";
-import { use, useRef, useState } from "react";
+import { use, useMemo, useRef, useState } from "react";
 
 import styles from "./App.module.css";
-import { PresenceUI, presenceInviteClass } from "./PresenceUI.js";
+import { PresenceUI } from "./PresenceUI.js";
 import { SceneCursors } from "./SceneCursors.js";
 import { SceneSelections } from "./SceneSelections.js";
-import { connectScene } from "./sync/connect.js";
+import { connectScene, type Transport } from "./sync/connect.js";
 import type { DemoPlexus } from "./sync/DemoPlexus.js";
+import { hrefWithView, isPeerView } from "./view.js";
 
 const ready = connectScene();
 
-function Canvas({ scene, plexus }: { scene: Scene; plexus: DemoPlexus }) {
+const TRANSPORT: Record<Transport, { label: string; tone: "live" | "peer" | "local" }> = {
+  "durable-object": { label: "live · Durable Object", tone: "live" },
+  "shared-worker": { label: "live · this browser", tone: "peer" },
+  local: { label: "this tab only", tone: "local" },
+};
+
+function Canvas({
+  scene,
+  plexus,
+  transport,
+  room,
+  peer,
+}: {
+  scene: Scene;
+  plexus: DemoPlexus;
+  transport: Transport;
+  room: string;
+  peer: boolean;
+}) {
   const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const clipRef = useRef<HTMLDivElement | null>(null);
   const planeRef = useRef<HTMLDivElement | null>(null);
+  const live = transport !== "local";
+  const status = TRANSPORT[transport];
+  const [copied, setCopied] = useState(false);
+
+  const copyInvite = async () => {
+    const href = hrefWithView(location.href, null);
+    await navigator.clipboard.writeText(href);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1400);
+  };
 
   return (
     <div ref={hostRef} className={styles.canvas}>
@@ -34,17 +63,29 @@ function Canvas({ scene, plexus }: { scene: Scene; plexus: DemoPlexus }) {
           plexus.awareness.setSelection(scene, models.length ? models : null);
         }}
         renderTopRightUI={(isMobile) => (
-          <PresenceUI awareness={plexus.awareness} compact={isMobile}>
-            <button
-              type="button"
-              className={presenceInviteClass}
-              title="Open another tab"
-              aria-label="Open another tab"
-              onClick={() => window.open(location.href, "_blank")}
-            >
-              +
-            </button>
-          </PresenceUI>
+          <div className={styles.chrome}>
+            {isMobile ? null : (
+              <span className={`${styles.pill} ${styles[status.tone]}`} title={`room ${room}`}>
+                {status.label}
+              </span>
+            )}
+            <PresenceUI awareness={plexus.awareness} compact={isMobile}>
+              {peer || isMobile ? null : live ? (
+                <button type="button" className={styles.tool} onClick={() => void copyInvite()}>
+                  {copied ? "Copied" : "Copy link"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.retry}
+                  title="This tab is its own document. Reload after starting the worker."
+                  onClick={() => location.reload()}
+                >
+                  retry
+                </button>
+              )}
+            </PresenceUI>
+          </div>
         )}
       >
         <MainMenu>
@@ -54,10 +95,14 @@ function Canvas({ scene, plexus }: { scene: Scene; plexus: DemoPlexus }) {
           <MainMenu.Item onSelect={() => plexus.redo()} shortcut="Ctrl+Shift+Z">
             Redo
           </MainMenu.Item>
-          <MainMenu.Separator />
-          <MainMenu.Item onSelect={() => window.open(location.href, "_blank")}>
-            Open another tab
-          </MainMenu.Item>
+          {peer ? null : (
+            <>
+              <MainMenu.Separator />
+              <MainMenu.Item onSelect={() => window.open(hrefWithView(location.href, null), "_blank")}>
+                Open another tab
+              </MainMenu.Item>
+            </>
+          )}
           <MainMenu.Separator />
           <MainMenu.DefaultItems.ToggleTheme />
           <MainMenu.DefaultItems.ChangeCanvasBackground />
@@ -85,18 +130,45 @@ function Canvas({ scene, plexus }: { scene: Scene; plexus: DemoPlexus }) {
 }
 
 export function Connecting() {
+  const href = typeof location === "undefined" ? "" : location.href;
+  const room =
+    typeof location === "undefined"
+      ? ""
+      : (new URLSearchParams(location.search).get("room") ?? "");
   return (
     <div className={`${styles.shell} ${styles.connecting}`}>
-      <span>connecting…</span>
+      <p className={styles.connectKicker}>Opening the scene</p>
+      <p className={styles.connectRoom}>{room ? `room ${room}` : "assigning a room"}</p>
+      {href ? <code className={styles.connectUrl}>{href}</code> : null}
     </div>
   );
 }
 
 export function App() {
-  const plexus = use(ready);
+  const session = use(ready);
+  const peer = typeof location !== "undefined" && isPeerView(location.search);
+  const live = session.transport !== "local";
+  const peerSrc = useMemo(
+    () => (typeof location === "undefined" ? "" : hrefWithView(location.href, "peer")),
+    [],
+  );
+  const layout = peer ? styles.workspacePeer : live ? styles.workspaceLive : styles.workspace;
+
   return (
-    <div className={styles.shell}>
-      <Canvas scene={plexus.root} plexus={plexus} />
+    <div className={layout}>
+      <Canvas
+        scene={session.plexus.root}
+        plexus={session.plexus}
+        transport={session.transport}
+        room={session.room}
+        peer={peer}
+      />
+      {!peer && live ? (
+        <aside className={styles.peerPane}>
+          <div className={styles.peerBar}>peer</div>
+          <iframe className={styles.peerFrame} src={peerSrc} title="Peer client on this room" />
+        </aside>
+      ) : null}
     </div>
   );
 }

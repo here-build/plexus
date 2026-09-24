@@ -56,24 +56,6 @@
   display: block;
 }
 
-.invite {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px dashed color-mix(in oklch, currentColor 35%, transparent);
-  border-radius: 999px;
-  background: oklch(1 0 0 / 0.55);
-  color: inherit;
-  font: inherit;
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.invite:hover {
-  background: oklch(1 0 0 / 0.85);
-}
-
 .compact {
   /* Below the mobile shape island, left of the right-rail tools. */
   position: fixed;
@@ -91,8 +73,4 @@
 .compact .self {
   width: 24px;
   height: 24px;
-}
-
-.compact .invite {
-  display: none;
 }

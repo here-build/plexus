@@ -67,8 +67,8 @@ root.scores.set(task.title, 10);
 task.done = true; // computed updates; so do peers
 ```
 
-Class API, seed vs join, collections, contagion:
-[`packages/plexus`](./packages/plexus/README.md).
+Docs: [here-build.github.io/plexus](https://here-build.github.io/plexus/).
+Local: `pnpm --filter plexus-docs dev`.
 
 The rest of the family covers the adjacent surprises - transports, routing,
 a Durable Object sync server. It does not replace Yjs or MobX; Plexus is designed to be non-owning, integrating into production-tested infrastructure rather then inventing one. 
@@ -94,9 +94,9 @@ pnpm build
 pnpm test
 ```
 
-Workspace under `packages/*`, `packages/plexus-do/examples/*`, and
-`showcase/{excalidraw,xyflow}/*`. Depend via `workspace:` / path, or (once
-published) `@here.build/plexus` and siblings.
+Workspace under `packages/*`, `packages/plexus-do/examples/*`,
+`showcase/{excalidraw,xyflow}/*`, and `docs`. Depend via `workspace:` / path, or
+(once published) `@here.build/plexus` and siblings.
 
 Peers: `yjs`, `y-protocols`, `lib0`, `mobx` (see each package). Floor packages
 from [@here.build/commons](https://github.com/here-build/commons)

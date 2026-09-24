@@ -1,0 +1,16 @@
+{
+  "name": "plexus-docs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Eleventy book for Plexus, with the Excalidraw and xyflow canvases as static subpaths",
+  "scripts": {
+    "dev": "eleventy --serve --port 4321",
+    "dev:with-demos": "node ./scripts/build-demos.mjs && eleventy --serve --port 4321",
+    "build:site": "node ./scripts/build-demos.mjs && eleventy",
+    "preview": "eleventy --serve --port 4321"
+  },
+  "dependencies": {
+    "@11ty/eleventy": "3.1.6"
+  }
+}

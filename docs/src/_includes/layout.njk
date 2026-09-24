@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% if title and title != siteTitle %}{{ title }} · {{ siteTitle }}{% else %}{{ siteTitle }}{% endif %}</title>
+    {% if description %}
+    <meta name="description" content="{{ description }}" />
+    {% endif %}
+    <link rel="stylesheet" href="/css/site.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="banner">
+        <a class="wordmark" href="/">Plexus</a>
+        <a class="gh" href="https://github.com/here-build/plexus">GitHub</a>
+      </header>
+      <div class="body">
+        <nav class="nav" aria-label="Docs">
+          {% for section in nav %}
+            {% if section.items %}
+              <p class="nav-label">{{ section.label }}</p>
+              <ul>
+                {% for item in section.items %}
+                  <li>
+                    <a href="{{ item.href }}"{% if page.url == item.href %} aria-current="page"{% endif %}>{{ item.label }}</a>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p>
+                <a href="{{ section.href }}"{% if page.url == section.href %} aria-current="page"{% endif %}>{{ section.label }}</a>
+              </p>
+            {% endif %}
+          {% endfor %}
+        </nav>
+        <main class="main">
+          {% if title and page.filePathStem != "/index" %}
+            <h1>{{ title }}</h1>
+          {% endif %}
+          {{ content | safe }}
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

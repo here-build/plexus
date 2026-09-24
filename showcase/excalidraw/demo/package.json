@@ -17,6 +17,7 @@
     "@here.build/plexus-excalidraw-models": "workspace:*",
     "@here.build/y-messageport": "workspace:*",
     "boring-avatars": "^2.0.4",
+    "lib0": "0.2.114",
     "mobx": "6.15.0",
     "mobx-react": "^9.2.2",
     "nanoid": "^6.0.1",

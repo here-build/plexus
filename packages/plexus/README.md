@@ -51,7 +51,7 @@ const provider = new WebsocketProvider("wss://your-server", "room", doc);
 Plexus.bootstrap(new Counter(), doc.guid, doc);
 ```
 
-Joining a room that already has a root is `connect`, not `bootstrap`. Those are separate flows: `bootstrap` produces the initial root (not an authority); `connect` never does — [bootstrap vs connect](./docs/bootstrap.md).
+Joining a room that already has a root is `connect`, not `bootstrap`. Those are separate flows: `bootstrap` produces the initial root (not an authority); `connect` never does — [seed](https://here-build.github.io/plexus/laws/seed/).
 
 ## Rich Data Structures and Contagious Materialization
 
@@ -102,18 +102,7 @@ task.done = true; // computed updates; so do peers
 
 ## Docs
 
-- [bootstrap](./docs/bootstrap.md) — blank doc writes the seed; prefilled doc uses `connect`
-- [fields](./docs/fields.md) — `@syncing` field kinds, ownership vs reference
-- [shape](./docs/shape.md) — constructors and inheritance
-- [lifecycle](./docs/lifecycle.md) — materialization is contagious; identity, detach, clone
-- [time](./docs/time.md) — MobX, `@syncing.action`, undo
-- [find](./docs/find.md) — `loadEntity`, `getAllOfType`, `parentsOf`
-- [goodies](./docs/goodies.md) — virtual maps, `declare`, lazy containers
-- [awareness](./docs/awareness.md) — presence
-- [walk](./docs/walk.md) — schema-aware tree walk
-- [errors](./docs/errors.md) — error types
-- [api](./docs/api.md) — API wrap-up
-- [internals](./docs/internals.md) — `/internals`
+The book is [here-build.github.io/plexus](https://here-build.github.io/plexus/). Start, laws, guides, walkthroughs, and the intended API live there.
 
 ## License
 

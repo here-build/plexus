@@ -2,7 +2,7 @@
   "name": "@here.build/plexus-do-example-bare",
   "version": "0.0.0",
   "private": true,
-  "license": "FSL-1.1-MIT",
+  "license": "MIT",
   "description": "Fetch-only plexus-do host. ?user= stamps identity; that is not auth.",
   "type": "module",
   "scripts": {

@@ -2,7 +2,7 @@
   "name": "@here.build/plexus-do-example-hono-workos",
   "version": "0.0.0",
   "private": true,
-  "license": "FSL-1.1-MIT",
+  "license": "MIT",
   "description": "Hono plexus-do host. WorkOS org_id is the doc id; the DO trusts only host-stamped headers.",
   "type": "module",
   "scripts": {

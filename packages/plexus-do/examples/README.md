@@ -1,7 +1,7 @@
 # plexus-do examples
 
 Two finished Workers. The package is the draft; these files are the deployable.
-They live under `packages/plexus-do` and inherit [FSL-1.1-MIT](../LICENSE.md).
+They live under `packages/plexus-do`.
 
 | Folder | Host | Auth |
 |---|---|---|

@@ -76,7 +76,7 @@ a Durable Object sync server. It does not replace Yjs or MobX; Plexus is designe
 ## Packages
 
 - **[`plexus`](./packages/plexus/README.md)** - models, ownership, identity, undo, awareness
-- **[`plexus-do`](./packages/plexus-do/README.md)** - Cloudflare Durable Object sync: leader, archive, presence. FSL-1.1-MIT; the rest of the family is MIT
+- **[`plexus-do`](./packages/plexus-do/README.md)** - Cloudflare Durable Object sync: leader, archive, presence
 - **[`plexus-vfs`](./packages/plexus-vfs/README.md)** - dirs, files, and entity paths as plexus models; an `fs` for isomorphic-git
 - **[`y-messageport`](./packages/y-messageport/README.md)** + **[`y-control-channel`](./packages/y-control-channel/README.md)** - a Provider over `MessagePort`, and the port-routing control plane it composes with
 
@@ -113,5 +113,4 @@ from [@here.build/commons](https://github.com/here-build/commons)
 
 ## License
 
-[MIT](./LICENSE.md), except [`plexus-do`](./packages/plexus-do/LICENSE.md)
-which is [FSL-1.1-MIT](./packages/plexus-do/LICENSE.md).
+[MIT](./LICENSE.md)

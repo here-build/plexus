@@ -4,7 +4,7 @@ A **Worker draft** for Plexus/Yjs sync on Cloudflare Durable Objects — leader,
 
 **The host names the object. The object does not name itself.** Cloudflare does not expose `idFromName` to the leader interior (`ctx.id.name` is empty). Identity crosses the actor boundary via `seed`. Authorization is the other required hole: `authorizeWebSocket` is abstract, and a missing implementation is a TypeScript error, not a README note.
 
-`yjs` / `lib0` / `y-protocols` are dependencies so the isolate bundles one copy. Types come from `wrangler types`, not a `@cloudflare/workers-types` peer. No Hono — `handleHttp` is a `Request` → `Response | null`.
+`yjs@^13.6.33` is a peer dependency: the host and this package must share one Yjs module instance when exchanging `Y.Doc` objects. `lib0@^0.2.119` and `y-protocols@^1.0.7` are runtime dependencies installed automatically. Types come from `wrangler types`, not a `@cloudflare/workers-types` peer. No Hono — `handleHttp` is a `Request` → `Response | null`.
 
 [FSL-1.1-MIT](./LICENSE.md).
 

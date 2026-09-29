@@ -1,7 +1,7 @@
 {
   "name": "@here.build/plexus-vfs",
   "version": "0.9.0",
-  "description": "Plexus-backed virtual filesystem — a drop-in `fs` for isomorphic-git. File content is stored directly as a CRDT-synced `Uint8Array` field, so arbitrary binary round-trips faithfully.",
+  "description": "Plexus-backed virtual filesystem \u2014 a drop-in `fs` for isomorphic-git. File content is stored directly as a CRDT-synced `Uint8Array` field, so arbitrary binary round-trips faithfully.",
   "license": "MIT",
   "author": "here.build",
   "publishConfig": {
@@ -46,25 +46,27 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@here.build/plexus": "workspace:^"
+    "tslib": "^2.8.1"
   },
   "peerDependencies": {
-    "lib0": "0.2.114",
-    "mobx": "^6.15.0",
-    "yjs": "^13.6.30"
+    "@here.build/plexus": "workspace:^",
+    "isomorphic-git": "^1.42.3",
+    "lib0": "^0.2.119",
+    "mobx": "^6.16.1",
+    "yjs": "^13.6.33"
   },
   "devDependencies": {
     "@here.build/eslint-configs": "0.9.0",
+    "@here.build/plexus": "workspace:^",
     "@here.build/tsconfig": "0.9.0",
     "@types/node": "24.0.0",
     "eslint": "9.39.2",
-    "isomorphic-git": "1.38.5",
-    "lib0": "0.2.114",
-    "mobx": "6.15.0",
-    "tslib": "2.8.1",
+    "isomorphic-git": "1.42.3",
+    "jsdom": "26.1.0",
+    "lib0": "0.2.119",
+    "mobx": "6.16.1",
     "typescript": "6.0.2",
     "vitest": "4.1.0",
-    "yjs": "13.6.30",
-    "jsdom": "26.1.0"
+    "yjs": "13.6.33"
   }
 }

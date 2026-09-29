@@ -57,25 +57,25 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "lib0": "0.2.114"
+    "lib0": "^0.2.119"
   },
   "devDependencies": {
     "@here.build/eslint-configs": "0.9.0",
     "@here.build/tsconfig": "0.9.0",
     "@types/node": "24.0.0",
     "eslint": "9.39.2",
-    "mobx": "6.15.0",
+    "mobx": "6.16.1",
     "prettier": "3.8.1",
     "tslib": "2.8.1",
     "typescript": "6.0.2",
     "vitest": "4.1.0",
-    "y-protocols": "1.0.6",
-    "yjs": "13.6.30"
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.33"
   },
   "peerDependencies": {
-    "mobx": "^6.15.0",
-    "y-protocols": "1.0.6",
-    "yjs": "^13.6.30"
+    "mobx": "^6.16.1",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.33"
   },
   "peerDependenciesMeta": {
     "mobx": {

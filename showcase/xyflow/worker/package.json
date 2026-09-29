@@ -16,8 +16,8 @@
     "@here.build/plexus": "workspace:*",
     "@here.build/plexus-do": "workspace:*",
     "@here.build/plexus-xyflow-models": "workspace:*",
-    "mobx": "6.15.0",
-    "yjs": "13.6.30"
+    "mobx": "^6.16.1",
+    "yjs": "^13.6.33"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260910.1",

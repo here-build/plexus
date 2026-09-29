@@ -3,11 +3,18 @@ title: Excalidraw
 description: Excalidraw's scene as a Plexus graph. The original editor remains the editor.
 ---
 
-**Excalidraw did not know Plexus existed. That is the point.**
-
-This showcase takes Excalidraw's existing scene model and makes the scene itself a reactive, replicated Plexus model. It is not a collaboration-shaped rewrite of Excalidraw, and it is not a `Y.Array` placed around an element list.
+Excalidraw's scene becomes a reactive, replicated Plexus graph: frames own shapes, arrows reference their endpoints, and images refer to file records. The integration keeps the existing editor surface.
 
 [Open the canvas](/excalidraw/).
+
+## Try this
+
+1. Open the canvas and check its transport indicator.
+2. Open the same room URL in another tab when SharedWorker or WebSocket transport is active.
+3. Add a shape in one client and edit it in the other. Watch the scene update.
+4. Put shapes inside a frame and move them between frames. The example models those relationships as ownership; arrow bindings remain references.
+
+**On GitHub Pages:** SharedWorker transport shares state within the same browser. Local mode is limited to one client. To collaborate across devices, run the WebSocket stack described below.
 
 ## Why this is a useful test
 
@@ -17,57 +24,29 @@ The Excalidraw CRDT RFC ([#3537](https://github.com/excalidraw/excalidraw/issues
 
 ## What is modeled
 
-<table>
-<thead>
-<tr>
-<th>Excalidraw concept</th>
-<th>Plexus representation</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Scene</td>
-<td>Root model</td>
-</tr>
-<tr>
-<td>Rectangle, text, arrow, frame, image, …</td>
-<td>Concrete TypeScript classes</td>
-</tr>
-<tr>
-<td>Scene element registry</td>
-<td>Synced `id → model` map</td>
-</tr>
-<tr>
-<td>Scene and frame children</td>
-<td>Exclusive ownership</td>
-</tr>
-<tr>
-<td>Arrow bindings</td>
-<td>Non-owning references</td>
-</tr>
-<tr>
-<td>Camera and local selection</td>
-<td>Local editor state</td>
-</tr>
-<tr>
-<td>Cursor, remote selection, name, avatar</td>
-<td>Reactive awareness</td>
-</tr>
-<tr>
-<td>Editor undo and redo</td>
-<td>Plexus document undo</td>
-</tr>
-</tbody>
-</table>
+| Excalidraw concept | Plexus representation |
+| --- | --- |
+| Scene | Root model |
+| Rectangle, text, arrow, frame, image, … | Concrete TypeScript classes |
+| Scene element registry | Synced `id → model` map |
+| Scene and frame children | Exclusive ownership |
+| Arrow bindings | Non-owning references |
+| Camera and local selection | Local editor state |
+| Cursor, remote selection, name, avatar | Reactive awareness |
+| Editor undo and redo | Plexus document undo |
 
 `@excalidraw/excalidraw` is a peer. It is not bundled or forked.
 
 A live peer pane is the same room in a second client.
 
-## This origin, and the socket
+## Run with a sync server
 
 The canvas speaks y-websocket at `/docs` on the current host. A `plexus-do` Worker on that path is the first writer. GitHub Pages is a file server, so that warmup fails here; the demo then uses a `SharedWorker` (tabs in this browser share a scene) or a local document (this tab only). Two local bootstraps are two trees. The transport pill names which of those happened.
 
 A missing `?room=` is written into the URL so the address is the invite.
 
 Local full stack, including the Durable Object: `pnpm --filter plexus-excalidraw-demo dev:all` from the repo.
+
+## Read the model
+
+See [Ownership and references](/guide/ownership/) for the rules behind these relationships, and [Presence and awareness](/guide/awareness/) for cursors and selections.

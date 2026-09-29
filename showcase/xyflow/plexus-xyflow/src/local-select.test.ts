@@ -25,7 +25,13 @@ describe("mergeLocalSelect", () => {
   });
 
   it("keeps measured across snapshots so a resize does not start from 0", () => {
-    const previous = [{ id: "a", width: 248, height: 320, measured: { width: 248, height: 320 }, selected: true }];
+    const previous: Array<{
+      id: string;
+      width: number;
+      height: number;
+      measured?: { width: number; height: number };
+      selected?: boolean;
+    }> = [{ id: "a", width: 248, height: 320, measured: { width: 248, height: 320 }, selected: true }];
     expect(mergeLocalSelect([{ id: "a", width: 248, height: 320 }], previous, [])).toEqual([
       { id: "a", width: 248, height: 320, selected: true, measured: { width: 248, height: 320 } },
     ]);

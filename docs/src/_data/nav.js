@@ -1,39 +1,48 @@
 export default [
-  { label: "Start", href: "/" },
+  { label: "Overview", href: "/" },
   {
-    label: "Demos",
+    label: "Getting started",
     items: [
-      { label: "Excalidraw", href: "/excalidraw/" },
-      { label: "xyflow", href: "/xyflow/" },
-      { label: "Excalidraw notes", href: "/showcase/excalidraw/" },
-      { label: "xyflow notes", href: "/showcase/xyflow/" },
-    ],
-  },
-  {
-    label: "Laws",
-    items: [
-      { label: "Seed", href: "/laws/seed/" },
-      { label: "Lifecycle", href: "/laws/lifecycle/" },
-      { label: "Shape", href: "/laws/shape/" },
+      { label: "Installation", href: "/start/installation/" },
+      { label: "From local to shared", href: "/start/first-model/" },
+      { label: "Connecting clients", href: "/start/connecting-clients/" },
     ],
   },
   {
     label: "Guide",
     items: [
-      { label: "Fields", href: "/guide/fields/" },
-      { label: "Reactivity", href: "/guide/time/" },
-      { label: "Awareness", href: "/guide/awareness/" },
-      { label: "Find", href: "/guide/find/" },
-      { label: "Walk", href: "/guide/walk/" },
+      { label: "Models and fields", href: "/guide/fields/" },
+      { label: "Constructors and inheritance", href: "/laws/shape/" },
+      { label: "Ownership and references", href: "/guide/ownership/" },
+      { label: "Document lifecycle", href: "/laws/lifecycle/" },
+      { label: "Reactivity and transactions", href: "/guide/time/" },
+      { label: "Undo and redo", href: "/guide/undo/" },
+      { label: "Presence and awareness", href: "/guide/awareness/" },
+      { label: "Finding models", href: "/guide/find/" },
+      { label: "Traversing a graph", href: "/guide/walk/" },
       { label: "Virtual maps", href: "/guide/virtual-maps/" },
-      { label: "Errors", href: "/guide/errors/" },
-      { label: "Goodies", href: "/guide/goodies/" },
+      { label: "Errors and troubleshooting", href: "/guide/errors/" },
     ],
   },
-  { label: "API", href: "/api/" },
+  {
+    label: "Examples",
+    items: [
+      { label: "Excalidraw", href: "/showcase/excalidraw/" },
+      { label: "React Flow", href: "/showcase/xyflow/" },
+    ],
+  },
+  {
+    label: "Reference",
+    items: [
+      { label: "API cheat sheet", href: "/api/" },
+      { label: "Advanced model features", href: "/guide/goodies/" },
+    ],
+  },
   {
     label: "Internals",
+    collapsed: true,
     items: [
+      { label: "The seed rule", href: "/laws/seed/" },
       { label: "Two-doc routing", href: "/internals/routing/" },
       { label: "Append-only shells", href: "/internals/append-only-shells/" },
       { label: "Liminal grounding", href: "/internals/liminal-grounding/" },

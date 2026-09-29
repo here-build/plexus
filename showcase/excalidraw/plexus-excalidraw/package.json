@@ -28,10 +28,10 @@
     "@excalidraw/excalidraw": "^0.18.0",
     "@here.build/plexus": "workspace:*",
     "@here.build/plexus-excalidraw-models": "workspace:*",
-    "mobx": "^6.15.0",
+    "mobx": "^6.16.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "yjs": "^13.6.0"
+    "yjs": "^13.6.33"
   },
   "devDependencies": {
     "@excalidraw/excalidraw": "^0.18.0",
@@ -39,11 +39,11 @@
     "@here.build/plexus-excalidraw-models": "workspace:*",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "mobx": "6.15.0",
+    "mobx": "6.16.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "typescript": "6.0.2",
     "vitest": "^4.1.0",
-    "yjs": "13.6.30"
+    "yjs": "13.6.33"
   }
 }

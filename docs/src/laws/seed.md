@@ -1,9 +1,11 @@
 ---
-title: Seed
+title: The seed rule
 description: bootstrap plants the root on a blank doc; connect binds to a doc that already has one
 sidebar:
   order: 1
 ---
+
+For working connection code, follow [Connecting clients](/start/connecting-clients/). This page explains why document creation and joining are separate operations.
 
 ## Bootstrap vs Connect
 
@@ -16,16 +18,12 @@ That first write is the **seed**: the root entity and the root pointer in the do
 The two methods are separate flows, not ranks. `bootstrap` is the peer that produces the initial root — not an authority, not a leader, not the owner of the doc after the write. `connect` never writes a seed.
 
 ```typescript
-// First writer — blank doc
+// The designated creator, on a blank document:
 const doc = new Y.Doc();
-const provider = new WebsocketProvider("wss://your-server", "room", doc);
 Plexus.bootstrap(new Project({ name: "ship" }), doc.guid, doc);
 
-// Joiner — wait until the seed is on the wire
-const doc = new Y.Doc();
-const provider = new WebsocketProvider("wss://your-server", "room", doc);
-await provider.synced;
-const plexus = Plexus.connect(doc);
+// A joiner, after a provider has received that document's state:
+const plexus = Plexus.connect(synchronizedDoc);
 ```
 
 `connect` on a blank doc throws `no root found, await sync first`.
@@ -35,7 +33,7 @@ const plexus = Plexus.connect(doc);
 >
 > A CRDT merge cannot invent a distinguished root. If every peer creates "the document"
 > you get two trees that both look like the app. Someone has to write the seed once;
-> everyone else has to wait for it. `bootstrap` is that write. `connect` is that wait.
+> everyone else has to wait for it. `bootstrap` is that write. The provider handles synchronization; `connect` binds to the root after it arrives.
 
 This is the usual Yjs wound. Two first-writers look like "the doc is not syncing":
 

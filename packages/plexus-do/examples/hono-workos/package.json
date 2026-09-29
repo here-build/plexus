@@ -16,7 +16,7 @@
     "@here.build/plexus-do": "workspace:^",
     "hono": "4.12.0",
     "jose": "6.0.12",
-    "yjs": "13.6.30"
+    "yjs": "^13.6.33"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260910.1",

@@ -1,6 +1,6 @@
 ---
-title: Goodies
-description: virtual maps, declare, lazy containers, singleton cache
+title: Advanced model features
+description: TypeScript variance, lazy containers, and model instance identity.
 ---
 
 ### Virtual Maps

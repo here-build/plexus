@@ -1,6 +1,6 @@
 ---
-title: Reactivity
-description: MobX tracking, granular Map and Set reads
+title: Reactivity and transactions
+description: Observe local and remote edits with MobX, and group related writes into synchronous actions.
 ---
 
 ## Reactivity
@@ -115,15 +115,4 @@ You can wrap any granular helper mutation in a transaction without worrying abou
 
 ## Undo / Redo
 
-```typescript
-plexus.undo();
-plexus.redo();
-```
-
-Always use these wrappers — not the raw Yjs `UndoManager`.
-The wrappers set an internal tracking state so that operations triggered during undo/redo
-(observation re-bootstrap, parent pointer fixup) are not themselves recorded as undoable actions.
-Built on `UndoManager` internally with a 500ms capture window.
-
-Structural operations (entity creation, container materialization) are automatically excluded from the undo history —
-only content changes are reversible.
+Use `plexus.undo()` and `plexus.redo()` for document history. [Undo and redo](/guide/undo/) explains action grouping, capture windows, and what history records.

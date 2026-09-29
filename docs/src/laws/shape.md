@@ -1,8 +1,6 @@
 ---
-title: Shape
-description: PlexusInit, constructors, omittable fields
-sidebar:
-  order: 3
+title: Constructors and inheritance
+description: Initialize models, omit nullable fields, and extend a model with inherited behavior.
 ---
 
 ## Constructor Patterns

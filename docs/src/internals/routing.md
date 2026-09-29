@@ -14,47 +14,14 @@ Type-map scaffold, the root pointer, and dependency-map mutations write on main.
 
 Transaction-origin symbols route updates (`Plexus.ts` header):
 
-<table>
-<thead>
-<tr>
-<th>Origin</th>
-<th>Role</th>
-<th>Undo</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>`SHADOW_TO_MAIN`</td>
-<td>shadow write, forwarded to main under the same origin</td>
-<td>main UM</td>
-</tr>
-<tr>
-<td>`LIMINAL_ORIGIN`</td>
-<td>shadow write, not forwarded</td>
-<td>liminal UM</td>
-</tr>
-<tr>
-<td>`COMMIT_DELTA_ORIGIN`</td>
-<td>applied on main; shadow receives `FROM_MAIN`</td>
-<td>main UM</td>
-</tr>
-<tr>
-<td>`GENESIS_ORIGIN`</td>
-<td>shadow write, forwarded to main as `FROM_SHADOW`</td>
-<td>ignored</td>
-</tr>
-<tr>
-<td>`FROM_SHADOW`</td>
-<td>untracked stamp on the shadow→main hop (genesis, lazy containers); main drops it so the hop does not echo</td>
-<td>ignored</td>
-</tr>
-<tr>
-<td>`FROM_MAIN`</td>
-<td>untracked stamp on the main→shadow hop (remote sync, commit echo, peer preview); shadow drops it so the hop does not echo</td>
-<td>ignored</td>
-</tr>
-</tbody>
-</table>
+| Origin | Role | Undo |
+| --- | --- | --- |
+| `SHADOW_TO_MAIN` | shadow write, forwarded to main under the same origin | main UM |
+| `LIMINAL_ORIGIN` | shadow write, not forwarded | liminal UM |
+| `COMMIT_DELTA_ORIGIN` | applied on main; shadow receives `FROM_MAIN` | main UM |
+| `GENESIS_ORIGIN` | shadow write, forwarded to main as `FROM_SHADOW` | ignored |
+| `FROM_SHADOW` | untracked stamp on the shadow→main hop (genesis, lazy containers); main drops it so the hop does not echo | ignored |
+| `FROM_MAIN` | untracked stamp on the main→shadow hop (remote sync, commit echo, peer preview); shadow drops it so the hop does not echo | ignored |
 
 Orientation map: `Plexus.ts` (routing, liminality, undo), `PlexusModel.ts` (materialization,
 ownership), `decorators.ts` (`@syncing` field wiring), `awareness.ts` / `awareness-serde.ts`

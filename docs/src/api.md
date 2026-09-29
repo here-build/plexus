@@ -1,9 +1,13 @@
 ---
-title: API
-description: "Intended surface: Plexus, PlexusModel, @syncing"
+title: API cheat sheet
+description: "A compact index of the public model and document APIs, with links to their guides."
 ---
 
-## API Reference
+Use this page to look up a name once you know the model. For a runnable introduction, start with [From local to shared](/start/first-model/).
+
+## Plexus
+
+Document creation, connection, and transactions. See [Connecting clients](/start/connecting-clients/) and [Reactivity and transactions](/guide/time/).
 
 ```typescript
 // ── Plexus ──
@@ -25,6 +29,10 @@ plexus.commitLiminality();                  // one atomic undo step
 plexus.revertLiminality();                  // discard
 plexus.isLiminal;
 -->
+## PlexusModel
+
+Identity and operations on a model instance. See [Document lifecycle](/laws/lifecycle/).
+
 ```typescript
 // ── PlexusModel<Parent> — Parent types .parent; construct with PlexusInit<this> ──
 entity.localID;                             // process-local creation order; always present; never serialized
@@ -43,6 +51,10 @@ entity.parentsOf(ParentClass, field);       // yield parents that hold this enti
 Model.modelName;                            // registered type name
 Model.schema;                               // field → kind
 ```
+## @syncing
+
+Field kinds and action decorators. See [Models and fields](/guide/fields/), [Ownership and references](/guide/ownership/), and [Virtual maps](/guide/virtual-maps/).
+
 ```typescript
 // ── @syncing — stage-3 accessors only; @syncing("Name") required every hierarchy level; names unique ──
 @syncing("Name")

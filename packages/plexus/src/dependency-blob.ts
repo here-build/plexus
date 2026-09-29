@@ -30,7 +30,7 @@ export interface BlobEntity {
   type: string;
   /** Parent UUID only — key/metadata not serialized (immutable deps don't need field routing). */
   parentUuid: string | null;
-  attributes: Record<string, unknown>;
+  attributes: Record<string, encoding.AnyEncodable>;
 }
 
 export interface DecodedBlob {

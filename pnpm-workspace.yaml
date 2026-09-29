@@ -12,3 +12,7 @@ minimumReleaseAge: 10080 # 7 days, in minutes
 # through while still gating the rest of the registry.
 minimumReleaseAgeExclude:
   - "@here.build/*"
+  # Explicitly selected for the September 2026 dependency compatibility check.
+  - "yjs@13.6.33"
+  - "lib0@0.2.119"
+  - "isomorphic-git@1.42.3"

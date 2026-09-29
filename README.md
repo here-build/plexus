@@ -98,7 +98,15 @@ Workspace under `packages/*`, `packages/plexus-do/examples/*`,
 `showcase/{excalidraw,xyflow}/*`, and `docs`. Depend via `workspace:` / path, or
 (once published) `@here.build/plexus` and siblings.
 
-Peers: `yjs`, `y-protocols`, `lib0`, `mobx` (see each package). Floor packages
+Plexus uses peer ranges `yjs@^13.6.33`, `y-protocols@^1.0.7`,
+`lib0@^0.2.119`, and `mobx@^6.16.1` (see each package). Development copies
+are pinned to those tested versions; the lockfile records the resolved tree.
+MobX 7 needs an update to the `collections` peer contract first. See the
+[installation guide](./docs/src/start/installation.md) for setup commands
+and an explanation of the supported version ranges.
+Use the root manifest's `pnpm@10.34.6` when working in this repository.
+
+Floor packages
 from [@here.build/commons](https://github.com/here-build/commons)
 (`collections`, `arrival-env`, `chunked-websocket`, `error-invariant`,
 `tsconfig`, `eslint-configs`) resolve from npm at `0.9.0`.

@@ -22,12 +22,12 @@
   "peerDependencies": {
     "@excalidraw/excalidraw": "^0.18.0",
     "@here.build/plexus": "workspace:*",
-    "mobx": "^6.15.0"
+    "mobx": "^6.16.1"
   },
   "devDependencies": {
     "@excalidraw/excalidraw": "^0.18.0",
     "@here.build/plexus": "workspace:*",
-    "mobx": "6.15.0",
+    "mobx": "6.16.1",
     "typescript": "6.0.2",
     "vitest": "^4.1.0"
   }

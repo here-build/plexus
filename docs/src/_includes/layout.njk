@@ -3,44 +3,72 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{% if title and title != siteTitle %}{{ title }} · {{ siteTitle }}{% else %}{{ siteTitle }}{% endif %}</title>
-    {% if description %}
-    <meta name="description" content="{{ description }}" />
-    {% endif %}
+    <title>{{ title }} · {{ siteTitle }}</title>
+    {% if description %}<meta name="description" content="{{ description }}" />{% endif %}
     <link rel="stylesheet" href="/css/site.css" />
+    <script src="/js/site.js" defer></script>
   </head>
   <body>
-    <div class="shell">
-      <header class="banner">
-        <a class="wordmark" href="/">Plexus</a>
-        <a class="gh" href="https://github.com/here-build/plexus">GitHub</a>
-      </header>
-      <div class="body">
-        <nav class="nav" aria-label="Docs">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="banner">
+      <a class="wordmark" href="/">Plexus</a>
+      <a class="gh" href="https://github.com/here-build/plexus">GitHub <span aria-hidden="true">↗</span></a>
+    </header>
+    {% set context = nav | pageContext(page.url) %}
+    <div class="body">
+      <aside class="sidebar">
+        <button class="menu-toggle" aria-expanded="false" aria-controls="docs-nav" hidden>Browse documentation <span aria-hidden="true">☰</span></button>
+        <nav class="nav" id="docs-nav" aria-label="Documentation">
           {% for section in nav %}
             {% if section.items %}
-              <p class="nav-label">{{ section.label }}</p>
-              <ul>
-                {% for item in section.items %}
-                  <li>
-                    <a href="{{ item.href }}"{% if page.url == item.href %} aria-current="page"{% endif %}>{{ item.label }}</a>
-                  </li>
-                {% endfor %}
-              </ul>
+              <details class="nav-section"{% if not section.collapsed or context.section == section.label %} open{% endif %}>
+                <summary>{{ section.label }}</summary>
+                <ul>
+                  {% for item in section.items %}
+                    <li><a href="{{ item.href }}"{% if page.url == item.href %} aria-current="page"{% endif %}>{{ item.label }}</a></li>
+                  {% endfor %}
+                </ul>
+              </details>
             {% else %}
-              <p>
-                <a href="{{ section.href }}"{% if page.url == section.href %} aria-current="page"{% endif %}>{{ section.label }}</a>
-              </p>
+              <a class="nav-overview" href="{{ section.href }}"{% if page.url == section.href %} aria-current="page"{% endif %}>{{ section.label }}</a>
             {% endif %}
           {% endfor %}
         </nav>
-        <main class="main">
-          {% if title and page.filePathStem != "/index" %}
+      </aside>
+      <main class="main{% if page.filePathStem == '/index' %} overview{% endif %}" id="main" tabindex="-1">
+        {% if page.filePathStem != "/index" %}
+          <header class="page-header">
+            {% if context.section %}<p class="eyebrow">{{ context.section }}</p>{% endif %}
             <h1>{{ title }}</h1>
+            {% if description %}<p class="lead">{{ description }}</p>{% endif %}
+          </header>
+        {% endif %}
+        {% set headings = content | headings %}
+        <div class="reading-layout">
+          {% if page.filePathStem != "/index" and headings.length > 1 %}
+            <aside class="toc" aria-label="On this page">
+              <details open>
+                <summary>On this page</summary>
+                <ul>
+                  {% for heading in headings %}
+                    <li class="toc-level-{{ heading.level }}"><a href="#{{ heading.id }}">{{ heading.label | safe }}</a></li>
+                  {% endfor %}
+                </ul>
+              </details>
+            </aside>
           {% endif %}
-          {{ content | safe }}
-        </main>
-      </div>
+          <article class="article">
+            {{ content | safe }}
+            {% if context.previous or context.next %}
+              <nav class="page-links" aria-label="Continue reading">
+                {% if context.previous %}<a href="{{ context.previous.href }}"><span>Previous</span>{{ context.previous.label }}</a>{% endif %}
+                {% if context.next %}<a class="next" href="{{ context.next.href }}"><span>Next →</span>{{ context.next.label }}</a>{% endif %}
+              </nav>
+            {% endif %}
+            <footer class="page-footer"><a href="https://github.com/here-build/plexus/blob/main/docs/{{ page.inputPath | replace('./', '') }}">Edit this page on GitHub</a></footer>
+          </article>
+        </div>
+      </main>
     </div>
   </body>
 </html>

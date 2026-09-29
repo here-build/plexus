@@ -1,168 +1,132 @@
 ---
-title: Lifecycle
-description: materialization is contagious; entities never change docs
-sidebar:
-  order: 2
+title: Document lifecycle
+description: Understand when a model joins a document, what detaching means, and why identity survives a move.
 ---
 
-### The Doc-Boundary Law
+A local model is complete in its own environment: it has object identity, reactive fields, collections, and relationships. It can remain local for its entire lifetime. Joining a document enriches it with replicated state and identity that can be used across environments.
 
-Reparenting obeys one law: **materialization is contagious**. Whatever is potentially reachable
-from a doc is materialized into that doc — in both directions:
+The local instance remains the same object. Existing references, parent-child relationships, and observers continue to work.
 
-- doc-less child + doc-backed parent → the child (and its whole subtree) materializes **down**
-  into the parent's doc;
-- doc-backed child + doc-less parent → the parent materializes **up** into the child's doc
-  (it just became reachable via `child.parent`);
-- both doc-less → nothing materializes; both in the same doc → a plain reparent;
-- **already materialized in *different* docs → `PlexusDocMismatchError`.** Entities never
-  change docs once getting attributed.
+| Context | Capabilities |
+| --- | --- |
+| Local model | Object identity, fields, collections, ownership, references, and MobX reactivity |
+| Model in a document | All local behavior, plus replicated state, a UUID, and document membership |
+| Document with a provider | Exchange that state with other environments |
 
-The upward direction is what makes **wrap-in-place** legal:
+## A complete local model
 
-```typescript
-// wrap an existing group one level deeper, in place:
-root.groups.leaf = new Group({ name: "wrapper", groups: { leaf: root.groups.leaf } });
-```
-
-The Right-Hand side evaluates first: the fresh doc-less wrapper adopts the doc-backed child from its
-constructor bag — materializing upward and taking ownership of the subtree while itself still
-detached — then the assignment re-attaches it one level up. A short, legal frame of doc
-detachment; the inner group is the same object throughout (moved, never copied).
-
-## Entity Lifecycle
-
-### Doc-Free Usage
-
-Models can be used without a Y.Doc. Field access, mutation, parent tracking, and all collection operations
-work identically — backing storage runs independently; Yjs sync is skipped via null-guards.
+Models support field reads, writes, collections, and ownership before they belong to a Yjs document. Using the `Project` and `Task` definitions from [From local to shared](/start/first-model/):
 
 ```typescript
-const page = new Page({ name: "draft" });
-page.name = "updated";        // works
-project.pages.push(page);     // works, parent tracking works
-page.parent;                  // project
+const project = new Project({ name: "Draft" });
+const task = new Task({ title: "Write the docs" });
+project.tasks.push(task);
+
+task.title = "Review the docs";
+task.parent === project; // true; neither model needs a document yet
 ```
 
-There's only one exception that requires entity being materialized: **`.uuid`** (throws without doc; see [Identity & UUIDs](#identity--uuids))
+Locally, the instance itself provides identity: compare it with `===`, use it as a map key, or keep a reference to it. Parent-child relationships are useful here already; they do not require a shared document.
 
-> Non-accessible `.uuid` of ephemeral entity is a designed limitation. Plexus model instances are guaranteed to be singletons; for local handling you can use them as map keys directly. For rare edge cases - e.g. in tests - .localID can be used.
-> 
-> Since all local environment use-cases are covered by instances and `.localID`, `.uuid` only purpose is left as a cross-machine external pointers. Crash on `.uuid` access for entities that are not represented at least in local document guarantees that the entity this `.uuid` points at the entity that will be synced. 
+Properties that describe document context reflect its absence: `.rootAncestor` is `null` and `.isDetached` is `false`. Detachment describes reachability inside an existing document. [Identity & UUIDs](#identity--uuids) explains when cross-environment identity becomes relevant.
 
-Some introspection behaves differently without a doc:
-
-- `.rootAncestor` → `null` (correct: there is no Plexus root to reach)
-- `.isDetached` → `false` (ephemeral entities are not considered detached — detachment is a materialized-entity concept)
-
-Doc-free is a **one-way road**, not a symmetric mode: entities begin doc-free and materialize the
-moment they become reachable from a doc (see [The Doc-Boundary Law](#the-doc-boundary-law)); they
-never go back.
-
-### Identity & UUIDs
-
-Every model instance has a stable `.uuid`.
-UUIDs are **CRDT-native** — they encode the doc guid, client ID,
-and logical clock into a single string, enabling **O(1) entity resolution**.
-
-Because they're derived from CRDT state, accessing `.uuid` **throws without a doc**.
-This is fine in production (models are materialized), but tests that inspect UUIDs on ephemeral models will crash.
-
-**Deterministic tests.** UUIDs are always CRDT-native — there is no alternative UUID mode. For reproducible identity 
-in tests and fixtures, use [`.localID`](#localid--process-local-creation-order-identity): it is minted at construction from one global counter,
-exists on doc-less ephemerals (where `.uuid` throws), and `resetLocalIDs()` restarts it at 1 between tests —
-fixed creation order gives fixed ids, no env var required.
-
-`.documentId` returns the Y.Doc guid (`undefined` for unmaterialized or dependency entities).
-
-> **Singletons & the ordinal protocol.** Plexus entities are guaranteed singletons — one object per entity, *including across materialization* — so an entity's **pointer identity never changes**. If you need to identify entities **within a session** without a doc-synced UUID (e.g. ephemeral, not-yet-materialized models, whose `.uuid` would throw), use the ordinal keys protocol (`ordinal.id(entity)`) from `@here.build/collections`: a stable, process-local handle keyed off that pointer identity, available *before* materialization.
-
-#### `.localID` — process-local creation-order identity
-
-Every entity also carries a `.localID`: a plain number minted from one global counter, eagerly at
-construction. It exists for **every** entity — ephemeral, rehydrated, cloned — before and independent
-of materialization, and is **never serialized** (absent from `toJSON()`, the yjs wire state, and every
-CRDT document). Because it is minted at construction (never lazily on first access), it is
-deterministic under a fixed creation order — the identity to reach for in tests and fixtures.
-
-`resetLocalIDs()` restarts the counter at 1 — a test hook for reproducible ids between tests. Reset
-only between tests: entities surviving from before the reset can collide with new ones.
-
-The three identity surfaces, side by side:
-
-<table>
-<thead>
-<tr>
-<th>Surface</th>
-<th>Scope</th>
-<th>Available</th>
-<th>Use for</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>`.uuid`</td>
-<td>doc-synced CRDT identity</td>
-<td>after materialization (throws before)</td>
-<td>cross-peer references, storage</td>
-</tr>
-<tr>
-<td>`.localID`</td>
-<td>process-local, creation-order</td>
-<td>always (minted at construction)</td>
-<td>test determinism, ephemeral-safe identity, debug labels</td>
-</tr>
-<tr>
-<td>[`ordinal.id(obj)` ordinal keys (@here.build/collections)</td>
-<td>process-local, first-use-order</td>
-<td>any object, plexus or not</td>
-<td>identity for arbitrary objects outside plexus</td>
-</tr>
-</tbody>
-</table>
-
-`.localID` deliberately mirrors the ordinal protocol but keeps its **own counter domain**: resetting
-localIDs must never disturb ordinal ids (which canonicalize live path-map set keys elsewhere in the
-process).
-
-### Status
+## Join a document
 
 ```typescript
-entity.isRoot;      // true if this is the document root entity
-entity.isDetached;  // true if materialized but not reachable from root
+const plexus = Plexus.bootstrap(project);
+
+task.uuid;                      // now available
+task.rootAncestor === project; // true
 ```
 
-### Operations
+Bootstrapping the project materializes its owned tasks too. Materialization gives those existing objects a representation in the document. It preserves their JavaScript identity and existing observers. A new task pushed into the project later gains the same document context automatically.
+
+The models now have replicated identities and state. A provider can exchange that state with other clients; materialization itself does not require a network connection.
+
+An entity's document affiliation is permanent. Detaching it does not turn it back into a document-free object. The [doc-boundary law](#the-doc-boundary-law) also covers less common cases, such as constructing a new parent around a model that is already materialized.
+
+## Detach and reattach
 
 ```typescript
-entity.detach();                             // remove from parent, returns true if was attached. Still present in doc
-entity.clone({ title: "Copy" });             // deep clone of child subtree with optional overrides
-entity.toJSON();                             // plain object of all schema fields
+task.detach();             // removes it from project.tasks
+task.parent;               // null
+task.isDetached;           // true
+task.uuid;                 // unchanged
+
+project.tasks.push(task);  // reattach within the same document
+task.isDetached;           // false
 ```
 
-> **Deep Sub-Tree Cloning**: `.clone()` copies the **owned** subtree — children recurse, fresh
-identity everywhere (new UUIDs, new CRDT nodes), structure preserved. Non-owning refs follow the
-closure-conversion rule: a ref **rebinds** iff its target is inside the same top-level clone;
-otherwise it is **preserved** verbatim (free variables stay free). This is the only globally
-consistent rule. If a call site needs a free ref rebound, compose there: clone the owner that
-owns both (the mapping rebinds automatically), pass a prop override
-(`entity.clone({ ref: newTarget })`), or plainly assign after cloning (refs don't own —
-assignment never steals).
+Detaching an owner makes its owned subtree unreachable from the root. Plain references can still point to these models. See [Ownership and references](/guide/ownership/) for the distinction.
 
-Note that cloning and detaching is not decoupling the entities from the original doc.
-Avoid cross-doc movement of cloned entites.
+Use `.isRoot` to identify the document root and `.isDetached` to check whether a materialized model is unreachable through ownership from that root.
 
-> Detached node may still be present in non-child fields and structs;
-> and `.clone()` may return non-parented fields with other doc-materialized entities.
-> Despite being ephemeral (local) itself, when trying to materialize, 
-> materialization those non-owned fields will be still attempted, leading to crash.
-> Feeding refs harvested from a clone into an owning field of a
-> fresh entity is an **adoption**: within one doc it is legal and **moves** the original
-> (the fresh owner materializes upward — wrap-in-place contagion), so if you meant "copy" you just
-> stole the source's children; across docs it throws `PlexusDocMismatchError`. "Harvested from a
-> clone" ≠ "safe to own". Full derivation: [`src/clone.ts`](https://github.com/here-build/plexus/blob/main/packages/plexus/src/clone.ts) header.
+## Identity & UUIDs
 
-**Native Snapshotting**: Because Plexus cleanly manages JavaScript object internals without hiding them behind opaque wrappers,
-native JS utilities work flawlessly straight out of the box.
-You don't need a special "snapshot protocol" for UI serialization — spread syntax (`{...entity}`),
-`structuredClone(entity)`, and `JSON.stringify(entity)` natively extract everything you expect without crashing on CRDT symbols.
+Identity has a scope. In one environment, an object reference is enough to recognize a model, including as a key in a map or a member of a set.
+
+Within a replica, Plexus preserves a model's JavaScript identity across materialization and subsequent lookups. Repeated lookups of the same entity return the same live instance. Other clients have their own instances of that entity.
+
+Across environments, use `.uuid`: another process cannot use your JavaScript reference, but it can resolve the replicated identity. The UUID encodes the creating actor and logical clock. It becomes available when the model joins a document, before any provider needs to send its state to a peer.
+
+Reading `.uuid` on a local, document-free model throws because it has no document representation to identify. The object already has the identity it needs for local use.
+
+`.documentId` returns the Yjs document GUID, or `undefined` for an unmaterialized or dependency entity.
+
+### `.localID` — process-local creation-order identity
+
+Every model also has a `.localID` from the moment it is constructed. This number is local to the process and never serialized. It is useful when debug labels or deterministic test fixtures need a numeric creation-order identity.
+
+| Surface | Scope | Available | Use for |
+| --- | --- | --- | --- |
+| `.uuid` | Replicated entity identity | After materialization | Cross-client references and storage |
+| `.localID` | Process-local creation order | From construction | Tests, debug labels, local identity |
+| `ordinal.id(obj)` from `@here.build/collections` | Process-local first-use order | Any object | Identity for objects outside Plexus |
+
+`resetLocalIDs()` resets the model counter to 1 for tests. Use it only between tests: surviving models can otherwise collide with new IDs. This counter is separate from the ordinal protocol's counter; resetting it does not reset ordinal IDs.
+
+## Clone an owned subtree
+
+```typescript
+const copy = task.clone({ title: "Another task" });
+project.tasks.push(copy);
+```
+
+`.clone()` recursively copies owned children into new model instances. References to models inside the copied subtree are rebound to their copies. References to models outside that subtree keep pointing to the originals.
+
+Choose the clone boundary accordingly: clone the owner containing all the objects you want copied together. Override or reassign external references explicitly when you need a different target.
+
+**Cloning does not guarantee portability across documents.** References preserved from the source may still belong to its document. Trying to materialize those relationships in another document can throw `PlexusDocMismatchError`.
+
+Adopting a referenced original into a new owning field is a move of that original. Within the same document, its previous owner releases it; across documents, adoption throws. The [clone implementation](https://github.com/here-build/plexus/blob/main/packages/plexus/src/clone.ts) explains the reference-rebinding rules in detail.
+
+## Serialize model values
+
+```typescript
+const values = task.toJSON();
+const json = JSON.stringify(task);
+```
+
+`toJSON()` returns a plain object containing schema fields. Use `.clone()` when you need another Plexus model with an owned subtree; a plain serialized value is no longer a live model instance.
+
+## The Doc-Boundary Law
+
+**Materialization is contagious.** A relationship can materialize both newly adopted children and newly constructed owners:
+
+- A document-free child adopted by a document-backed parent joins the parent's document, with its reachable subtree.
+- A document-free parent adopting a document-backed child joins the child's document. It can briefly be detached until another owner adopts it.
+- Two document-free models can form a relationship while remaining local.
+- Two models in the same document can reparent normally.
+- Adoption between models already materialized in different documents throws `PlexusDocMismatchError`.
+
+This makes **wrap-in-place** possible. Given a document-backed group tree:
+
+```typescript
+const leaf = root.groups.leaf;
+root.groups.leaf = new Group({
+  name: "wrapper",
+  groups: { leaf },
+});
+```
+
+The constructor adopts the existing leaf. The wrapper joins the leaf's document, then the assignment attaches the wrapper to the root. The leaf moves without changing its identity.

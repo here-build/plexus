@@ -9,6 +9,12 @@ Just make TypeScript classes sync across clients via most popular JS CRDT protoc
 npm install @here.build/plexus
 ```
 
+Yjs, MobX, y-protocols, and lib0 are peers. Plexus declares
+`^13.6.33`, `^6.16.1`, `^1.0.7`, and `^0.2.119`, respectively, and was tested
+at those lower bounds.
+Keep a single Yjs instance across the application and its providers. MobX 7
+is outside the current `@here.build/collections` peer contract.
+
 ## Who this is for
 
 **Plexus is the layer that makes your TypeScript classes the CRDT** — MobX for reactivity, any Yjs provider you already trust.

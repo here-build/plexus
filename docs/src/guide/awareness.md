@@ -1,6 +1,6 @@
 ---
-title: Awareness
-description: presence on the y-protocols wire, with model-aware fields
+title: Presence and awareness
+description: Share cursors, selections, and other presence fields separately from document content.
 ---
 
 ## Awareness (Presence)
@@ -16,7 +16,7 @@ type Presence = { cursor: { x: number; y: number }; name: string };
 
 const awareness = new PlexusAwareness<Presence>(plexus.doc);
 awareness.setField("name", "User");                 // broadcast once, then sleeps
-awareness.setField("cursor", { canvas: new Canvas(), x: 10, y: 20 });  // only the cursor channel updates
+awareness.setField("cursor", { x: 10, y: 20 });  // only the cursor channel updates
 awareness.getField("cursor");
 awareness.clearField("cursor");
 

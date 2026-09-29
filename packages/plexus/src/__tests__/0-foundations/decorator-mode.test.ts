@@ -28,19 +28,19 @@ describe("stage-3 decorator mode", () => {
 
   it("legacy class decorator call throws", () => {
     class Foo {}
-    expect(() => (syncing as (name: string) => (ctor: unknown) => unknown)("LegacyClass")(Foo)).to.throw(
+    expect(() => (syncing as unknown as (name: string) => (ctor: unknown) => unknown)("LegacyClass")(Foo)).to.throw(
       STAGE2_DECORATORS_UNSUPPORTED,
     );
   });
 
   it("legacy field decorator call throws", () => {
-    expect(() => (syncing as (target: object, key: string) => unknown)({}, "name")).to.throw(
+    expect(() => (syncing as unknown as (target: object, key: string) => unknown)({}, "name")).to.throw(
       STAGE2_DECORATORS_UNSUPPORTED,
     );
   });
 
   it("legacy collection decorator call throws", () => {
-    expect(() => (syncing.list as (target: object, key: string) => unknown)({}, "items")).to.throw(
+    expect(() => (syncing.list as unknown as (target: object, key: string) => unknown)({}, "items")).to.throw(
       STAGE2_DECORATORS_UNSUPPORTED,
     );
   });

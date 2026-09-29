@@ -9,12 +9,12 @@ const repo = dirname(docs);
 const demos = [
   {
     filter: "plexus-excalidraw-demo",
-    base: "/plexus/excalidraw/",
+    base: "/excalidraw/",
     outDir: resolve(docs, "public/excalidraw"),
   },
   {
     filter: "plexus-xyflow-demo",
-    base: "/plexus/xyflow/",
+    base: "/xyflow/",
     outDir: resolve(docs, "public/xyflow"),
   },
 ];

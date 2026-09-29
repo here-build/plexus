@@ -20,6 +20,9 @@ importers:
       '@11ty/eleventy':
         specifier: 3.1.6
         version: 3.1.6
+      highlight.js:
+        specifier: 11.12.0
+        version: 11.12.0
 
   packages/plexus:
     dependencies:
@@ -28,7 +31,7 @@ importers:
         version: 0.9.0
       '@here.build/collections':
         specifier: 0.9.0
-        version: 0.9.0(mobx@6.15.0)
+        version: 0.9.0(mobx@6.16.1)
       nanoid:
         specifier: 5.1.5
         version: 5.1.5
@@ -58,11 +61,11 @@ importers:
         specifier: 4.8.0
         version: 4.8.0
       lib0:
-        specifier: 0.2.114
-        version: 0.2.114
+        specifier: 0.2.119
+        version: 0.2.119
       mobx:
-        specifier: 6.15.0
-        version: 6.15.0
+        specifier: 6.16.1
+        version: 6.16.1
       prettier:
         specifier: 3.8.1
         version: 3.8.1
@@ -79,14 +82,14 @@ importers:
         specifier: 8.18.3
         version: 8.18.3
       y-protocols:
-        specifier: 1.0.6
-        version: 1.0.6(yjs@13.6.30)
+        specifier: 1.0.7
+        version: 1.0.7(yjs@13.6.33)
       y-websocket:
         specifier: 3.0.0
-        version: 3.0.0(yjs@13.6.30)
+        version: 3.0.0(yjs@13.6.33)
       yjs:
-        specifier: 13.6.30
-        version: 13.6.30
+        specifier: 13.6.33
+        version: 13.6.33
 
   packages/plexus-do:
     dependencies:
@@ -97,14 +100,11 @@ importers:
         specifier: 0.9.0
         version: 0.9.0
       lib0:
-        specifier: 0.2.114
-        version: 0.2.114
+        specifier: ^0.2.119
+        version: 0.2.119
       y-protocols:
-        specifier: 1.0.6
-        version: 1.0.6(yjs@13.6.30)
-      yjs:
-        specifier: 13.6.30
-        version: 13.6.30
+        specifier: ^1.0.7
+        version: 1.0.7(yjs@13.6.33)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 4.20250803.0
@@ -130,6 +130,9 @@ importers:
       vitest:
         specifier: 4.1.0
         version: 4.1.0(@types/node@24.0.0)(jsdom@26.1.0)(vite@7.2.7(@types/node@24.0.0))
+      yjs:
+        specifier: 13.6.33
+        version: 13.6.33
 
   packages/plexus-do/examples/bare:
     dependencies:
@@ -137,8 +140,8 @@ importers:
         specifier: workspace:^
         version: link:../..
       yjs:
-        specifier: 13.6.30
-        version: 13.6.30
+        specifier: ^13.6.33
+        version: 13.6.33
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^5.20260910.1
@@ -162,8 +165,8 @@ importers:
         specifier: 6.0.12
         version: 6.0.12
       yjs:
-        specifier: 13.6.30
-        version: 13.6.30
+        specifier: ^13.6.33
+        version: 13.6.33
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^5.20260910.1
@@ -177,13 +180,16 @@ importers:
 
   packages/plexus-vfs:
     dependencies:
-      '@here.build/plexus':
-        specifier: workspace:^
-        version: link:../plexus
+      tslib:
+        specifier: ^2.8.1
+        version: 2.8.1
     devDependencies:
       '@here.build/eslint-configs':
         specifier: 0.9.0
         version: 0.9.0(@typescript-eslint/eslint-plugin@8.55.0(@typescript-eslint/parser@8.55.0(eslint@9.39.2)(typescript@6.0.2))(eslint@9.39.2)(typescript@6.0.2))(@typescript-eslint/utils@8.66.0(eslint@9.39.2)(typescript@6.0.2))(eslint@9.39.2)(typescript@6.0.2)
+      '@here.build/plexus':
+        specifier: workspace:^
+        version: link:../plexus
       '@here.build/tsconfig':
         specifier: 0.9.0
         version: 0.9.0
@@ -194,20 +200,17 @@ importers:
         specifier: 9.39.2
         version: 9.39.2
       isomorphic-git:
-        specifier: 1.38.5
-        version: 1.38.5
+        specifier: 1.42.3
+        version: 1.42.3
       jsdom:
         specifier: 26.1.0
         version: 26.1.0
       lib0:
-        specifier: 0.2.114
-        version: 0.2.114
+        specifier: 0.2.119
+        version: 0.2.119
       mobx:
-        specifier: 6.15.0
-        version: 6.15.0
-      tslib:
-        specifier: 2.8.1
-        version: 2.8.1
+        specifier: 6.16.1
+        version: 6.16.1
       typescript:
         specifier: 6.0.2
         version: 6.0.2
@@ -215,14 +218,14 @@ importers:
         specifier: 4.1.0
         version: 4.1.0(@types/node@24.0.0)(jsdom@26.1.0)(vite@7.2.7(@types/node@24.0.0))
       yjs:
-        specifier: 13.6.30
-        version: 13.6.30
+        specifier: 13.6.33
+        version: 13.6.33
 
   packages/y-control-channel:
     dependencies:
       lib0:
-        specifier: 0.2.114
-        version: 0.2.114
+        specifier: ^0.2.119
+        version: 0.2.119
     devDependencies:
       '@here.build/eslint-configs':
         specifier: 0.9.0
@@ -237,8 +240,8 @@ importers:
         specifier: 9.39.2
         version: 9.39.2
       mobx:
-        specifier: 6.15.0
-        version: 6.15.0
+        specifier: 6.16.1
+        version: 6.16.1
       prettier:
         specifier: 3.8.1
         version: 3.8.1
@@ -255,8 +258,8 @@ importers:
   packages/y-messageport:
     dependencies:
       lib0:
-        specifier: 0.2.114
-        version: 0.2.114
+        specifier: ^0.2.119
+        version: 0.2.119
     devDependencies:
       '@here.build/eslint-configs':
         specifier: 0.9.0
@@ -271,8 +274,8 @@ importers:
         specifier: 9.39.2
         version: 9.39.2
       mobx:
-        specifier: 6.15.0
-        version: 6.15.0
+        specifier: 6.16.1
+        version: 6.16.1
       prettier:
         specifier: 3.8.1
         version: 3.8.1
@@ -286,11 +289,11 @@ importers:
         specifier: 4.1.0
         version: 4.1.0(@types/node@24.0.0)(jsdom@26.1.0)(vite@7.2.7(@types/node@24.0.0))
       y-protocols:
-        specifier: 1.0.6
-        version: 1.0.6(yjs@13.6.30)
+        specifier: 1.0.7
+        version: 1.0.7(yjs@13.6.33)
       yjs:
-        specifier: 13.6.30
-        version: 13.6.30
+        specifier: 13.6.33
+        version: 13.6.33
 
   showcase/excalidraw/demo:
     dependencies:
@@ -313,14 +316,14 @@ importers:
         specifier: ^2.0.4
         version: 2.0.4(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       lib0:
-        specifier: 0.2.114
-        version: 0.2.114
+        specifier: ^0.2.119
+        version: 0.2.119
       mobx:
-        specifier: 6.15.0
-        version: 6.15.0
+        specifier: ^6.16.1
+        version: 6.16.1
       mobx-react:
         specifier: ^9.2.2
-        version: 9.2.2(mobx@6.15.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 9.2.2(mobx@6.16.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       nanoid:
         specifier: ^6.0.1
         version: 6.0.1
@@ -334,14 +337,14 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0
       y-protocols:
-        specifier: ^1.0.6
-        version: 1.0.6(yjs@13.6.30)
+        specifier: ^1.0.7
+        version: 1.0.7(yjs@13.6.33)
       y-websocket:
         specifier: 3.0.0
-        version: 3.0.0(yjs@13.6.30)
+        version: 3.0.0(yjs@13.6.33)
       yjs:
-        specifier: 13.6.30
-        version: 13.6.30
+        specifier: ^13.6.33
+        version: 13.6.33
     devDependencies:
       '@types/react':
         specifier: ^19.1.0
@@ -371,8 +374,8 @@ importers:
         specifier: workspace:*
         version: link:../../../packages/plexus
       mobx:
-        specifier: 6.15.0
-        version: 6.15.0
+        specifier: 6.16.1
+        version: 6.16.1
       typescript:
         specifier: 6.0.2
         version: 6.0.2
@@ -398,8 +401,8 @@ importers:
         specifier: ^19.1.0
         version: 19.2.4(@types/react@19.2.18)
       mobx:
-        specifier: 6.15.0
-        version: 6.15.0
+        specifier: 6.16.1
+        version: 6.16.1
       react:
         specifier: ^19.1.0
         version: 19.2.8
@@ -413,8 +416,8 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@24.0.0)(jsdom@26.1.0)(vite@7.2.7(@types/node@24.0.0))
       yjs:
-        specifier: 13.6.30
-        version: 13.6.30
+        specifier: 13.6.33
+        version: 13.6.33
 
   showcase/excalidraw/worker:
     dependencies:
@@ -428,11 +431,11 @@ importers:
         specifier: workspace:*
         version: link:../models
       mobx:
-        specifier: 6.15.0
-        version: 6.15.0
+        specifier: ^6.16.1
+        version: 6.16.1
       yjs:
-        specifier: 13.6.30
-        version: 13.6.30
+        specifier: ^13.6.33
+        version: 13.6.33
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^5.20260910.1
@@ -468,14 +471,14 @@ importers:
         specifier: ^2.0.4
         version: 2.0.4(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       lib0:
-        specifier: 0.2.114
-        version: 0.2.114
+        specifier: ^0.2.119
+        version: 0.2.119
       mobx:
-        specifier: 6.15.0
-        version: 6.15.0
+        specifier: ^6.16.1
+        version: 6.16.1
       mobx-react:
         specifier: ^9.2.2
-        version: 9.2.2(mobx@6.15.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 9.2.2(mobx@6.16.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react:
         specifier: ^19.1.0
         version: 19.2.8
@@ -486,14 +489,14 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0
       y-protocols:
-        specifier: ^1.0.6
-        version: 1.0.6(yjs@13.6.30)
+        specifier: ^1.0.7
+        version: 1.0.7(yjs@13.6.33)
       y-websocket:
         specifier: 3.0.0
-        version: 3.0.0(yjs@13.6.30)
+        version: 3.0.0(yjs@13.6.33)
       yjs:
-        specifier: 13.6.30
-        version: 13.6.30
+        specifier: ^13.6.33
+        version: 13.6.33
     devDependencies:
       '@types/react':
         specifier: ^19.1.0
@@ -523,8 +526,8 @@ importers:
         specifier: ^12.8.2
         version: 12.11.5(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       mobx:
-        specifier: 6.15.0
-        version: 6.15.0
+        specifier: 6.16.1
+        version: 6.16.1
       typescript:
         specifier: 6.0.2
         version: 6.0.2
@@ -550,8 +553,8 @@ importers:
         specifier: ^12.8.2
         version: 12.11.5(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       mobx:
-        specifier: 6.15.0
-        version: 6.15.0
+        specifier: 6.16.1
+        version: 6.16.1
       react:
         specifier: ^19.1.0
         version: 19.2.8
@@ -565,8 +568,8 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@24.0.0)(jsdom@26.1.0)(vite@7.2.7(@types/node@24.0.0))
       yjs:
-        specifier: 13.6.30
-        version: 13.6.30
+        specifier: 13.6.33
+        version: 13.6.33
 
   showcase/xyflow/worker:
     dependencies:
@@ -580,11 +583,11 @@ importers:
         specifier: workspace:*
         version: link:../models
       mobx:
-        specifier: 6.15.0
-        version: 6.15.0
+        specifier: ^6.16.1
+        version: 6.16.1
       yjs:
-        specifier: 13.6.30
-        version: 13.6.30
+        specifier: ^13.6.33
+        version: 13.6.33
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^5.20260910.1
@@ -1327,89 +1330,105 @@ packages:
     resolution: {integrity: sha512-0DaL0A6Xu6sQSQFwe4iVCrKWU2cCTItnRsYsCdxAMm9NF6twAA9BKnoqy4hqz4+azQ0JHuA26qiUKsf1XJ/v5A==}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@img/sharp-libvips-linux-arm@1.3.3':
     resolution: {integrity: sha512-3rbU4vqXXc3hY/OiXdl52xZvT0F1yEngWfvqudtPJg/KkyiaQw2DRsFrNzpmLvfavbwOq3qXn36GP8obHRULQA==}
     cpu: [arm]
     os: [linux]
+    libc: [glibc]
 
   '@img/sharp-libvips-linux-ppc64@1.3.3':
     resolution: {integrity: sha512-cdn1OvUBwsXhbC0zSzJnNzf5MZ/mTrobawDvNXBTxe8VtqKAm0sRuEY2Evzovb/w9JMk4TvRxqt1mekSuJz64w==}
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   '@img/sharp-libvips-linux-riscv64@1.3.3':
     resolution: {integrity: sha512-HjPVx7yKz+0lqdhDlTw1tt90wamBoxhiXpvl1XZpJLiHH4RCJ5yDTqH+VlYPv2fwFs89JFw4c1IexYOcQUi4IQ==}
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   '@img/sharp-libvips-linux-s390x@1.3.3':
     resolution: {integrity: sha512-neWLh+3yCNThxnfy3c4BbVBeGgt9aftno+XbT56iK28RgeDs3UOFWviLWlUu0bArYVYJaFDK+RRohbicUNCm8Q==}
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   '@img/sharp-libvips-linux-x64@1.3.3':
     resolution: {integrity: sha512-4vKmvAst9nrowcqquKFAyZJUDolUaIp8uRiN0mWFguJ1IplC9/pitXtlnnlU4aa/eJw3J7i67V+pwUL+wZGdsA==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@img/sharp-libvips-linuxmusl-arm64@1.3.3':
     resolution: {integrity: sha512-Y9kQaLMuNoB0bPYOOdcZMaseNrFpPodIWWMrx+CZyydf2xn68j9WYc6sWWRrDwNkzCQjKYfc68L7jKjGlHMibw==}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@img/sharp-libvips-linuxmusl-x64@1.3.3':
     resolution: {integrity: sha512-fj8Mv0HHfD1Rr+4I68+3agJynxDWtBFgicTbSOb9Bke6pIwzGcJ+RX/yHjmiEGFMCavY/dxvem7MyNaJF+wDiw==}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@img/sharp-linux-arm64@0.35.4':
     resolution: {integrity: sha512-De4jpEnAU8Hd5oT0j1G3uL4ZvTuipVMn7YC6vPaJhy6/7EwEae0SVAoBrUMYQbkLGDm85taVWwuPc1a44LTzCQ==}
     engines: {node: '>=20.9.0'}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@img/sharp-linux-arm@0.35.4':
     resolution: {integrity: sha512-7OAS8gI0EReKGVN2HssHlM6umJgxF5VI3xN0p9FA91p/YO+ou5hiNghLdZ5BEHztwaaK5+bLKRf8x/o2L2nk9A==}
     engines: {node: '>=20.9.0'}
     cpu: [arm]
     os: [linux]
+    libc: [glibc]
 
   '@img/sharp-linux-ppc64@0.35.4':
     resolution: {integrity: sha512-2oYZJeIl4kCcMGk4ouZVjnkCtFrpQFlNEtJ6GbxzhHQchwH0NH/qEb9ykmOl29dqwMq+JhFdZn+1ak2FKhI9fQ==}
     engines: {node: '>=20.9.0'}
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   '@img/sharp-linux-riscv64@0.35.4':
     resolution: {integrity: sha512-cPbNChoRURAWdebDIHSenxRpgEdy7JkPydSnUxRm9VvKD7m0/xVaR/8Fzlu81pk5nHEvHH87UZUA7cTtwnbJSA==}
     engines: {node: '>=20.9.0'}
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   '@img/sharp-linux-s390x@0.35.4':
     resolution: {integrity: sha512-RY0JFY8Fd6RonCBtHz+DvadaPkXDSI1AUn6yWL9TipqkZ1vY8w8evqdgyDFnkm4/K1ve1TvZiaePP5oSd4+WVQ==}
     engines: {node: '>=20.9.0'}
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   '@img/sharp-linux-x64@0.35.4':
     resolution: {integrity: sha512-9qvvEAuk8k89TfWUoX2htWjbAMX8p+NxCppjpcg5k6xMsjhBQPTsoIh36h9Qde4WRuGpJeYnOjdosDn/cnv+OA==}
     engines: {node: '>=20.9.0'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@img/sharp-linuxmusl-arm64@0.35.4':
     resolution: {integrity: sha512-KB5jxpfWQTr0nc3xdHtWChdbifHrBGsd2SM62Eyxrl8afikm+f5qGBU75SJIZBT/S1MC8XyacdlXBMSWq6OURA==}
     engines: {node: '>=20.9.0'}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@img/sharp-linuxmusl-x64@0.35.4':
     resolution: {integrity: sha512-f+eZJZIQNEEd26RPSW+76chwOf1XtA2Y/O+5ocVyLliHkeih3e+jhLVBdNTd2rS3IbNXK8+ug93Vf5ZXtF5Lxg==}
     engines: {node: '>=20.9.0'}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@img/sharp-wasm32@0.35.4':
     resolution: {integrity: sha512-zQnl4Kwp7Q6NHsENtU2T/00Zi+w3AQNwz3+UaTyVBy2FpXrzXzGjndpK61onhZjRtRpQXxCTeqw19bVyXOh7jA==}
@@ -1485,6 +1504,7 @@ packages:
     engines: {node: ^22.20 || ^24.12 || >=25}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@napi-rs/wasm-runtime@1.2.2':
     resolution: {integrity: sha512-JfB4kuJQjaoHuCTseIINHtHWeJnvgEcxjwA5t/Y00ZgaOO1Crz3fjT/p8kT28zA/Caz7oiUMn3d6H2yOVCVwuw==}
@@ -1825,66 +1845,79 @@ packages:
     resolution: {integrity: sha512-81wiiX3v7aqy+T+bT61TJ78yJjRquqFFTTbAPt08imfQQzkPIW8t6aJbkTagtCCrXMNc9D66+geqlK7ydLPNqA==}
     cpu: [arm]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm-musleabihf@4.62.4':
     resolution: {integrity: sha512-9kmDIvNZqdoHOBZgNtpTBeLWYO/LVipM3H/j62P8848/l/VPEQL6N3uxU9pvP1oZAsXyC2MEnFP3ovRjo7WYNQ==}
     cpu: [arm]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-arm64-gnu@4.62.4':
     resolution: {integrity: sha512-CcnXHWnXg69g+DX5VWL3FHts3qMRN2uVEHX+BZvGLdd07/gXkn3ePjYtO1LDJvxkGKVHMclKBRa1QUTH+6toYQ==}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm64-musl@4.62.4':
     resolution: {integrity: sha512-iFOibiHnTRuhrWLlRsOQFdZJJIa7S8OwkneJr4ocALP16u5yk6lWLINFwhHaEqBFMsKDUZofLkGos7+CPzGB3g==}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-loong64-gnu@4.62.4':
     resolution: {integrity: sha512-XnWYMI7euHlb5a871xPja+Gm7DRCFU+FGRrtS2sMq9N8FvqtpagUy6gD4YOemC5MRk9xbh8+jYMEJbigFQwsgA==}
     cpu: [loong64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-loong64-musl@4.62.4':
     resolution: {integrity: sha512-qGDAlO0U8xedCcsdRm9oaoQY8DAx/QT7uIxJWhCdx0ceIWX783UC9QSYkdpzAe29wNiVfp24+bZdQmn49o45SQ==}
     cpu: [loong64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-ppc64-gnu@4.62.4':
     resolution: {integrity: sha512-ru4H6ezD7ysA5EiEK6qkkaEb4modH8CTej6kUy/gQi20u3kB3G7Zn8snXXkeJSCOFKG/rbPPtM/+9Wgas1961w==}
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-ppc64-musl@4.62.4':
     resolution: {integrity: sha512-2W4MO5WQVJnbJaZdvDb9rhBDuFU1nKIepPFpJUBsTh2k1YY2g+ODViaWuyOAjQ5cOP7NvrvLzt3wvHOoiAvc7w==}
     cpu: [ppc64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-riscv64-gnu@4.62.4':
     resolution: {integrity: sha512-+fxjfuoAmVMCYV5QyjoIpu0cp5DOiOTeqYFk1AVaxGr+/ravWLX89XfQmptsoWcaVy/TGf2hexzbUOrCQIL1CQ==}
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-riscv64-musl@4.62.4':
     resolution: {integrity: sha512-jTn8JfHGL4djjFxPuM06LmNUJDsst2jeVlsd9OmIH6zc5sC9K6rIuO4YajXatLUpBmBKl6b35ro1QZocLi+tcA==}
     cpu: [riscv64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-s390x-gnu@4.62.4':
     resolution: {integrity: sha512-oCJCJL4pXsoDcP2QZ+JVlPTIRc6266zsIaeJJsWImmF7HO0W8nb6HuSgZlMWxJwaPf8ehbSw8yo0EUw925hKsA==}
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-gnu@4.62.4':
     resolution: {integrity: sha512-W69hukhZ3KKNRCaMIEzKvcFye42hh0FE1+YoYaf5+Ikacuftoco6yO/xouz0hc5d5W/s3yBro5jRiuEE/Q5vUw==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-musl@4.62.4':
     resolution: {integrity: sha512-qiXbGG2jkjXhzXpsFZSR2Xpb8DN/UaxYsbb/STbuR/6fpaDgRmmaq1B/LmtF2wQFOFOSsK2jdE0RZ3a0zHn4QA==}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-openbsd-x64@4.62.4':
     resolution: {integrity: sha512-nWeM//hxv8mIo6jD7Hu4o48DVmV9pbV6gsKaWU+4NFyqHoPKwrkRiZGLKUhOBk8qNmDmpwFtPKg80Bo/Tn4xiQ==}
@@ -2239,51 +2272,61 @@ packages:
     resolution: {integrity: sha512-zJc0H99FEPoFfSrNpa91HYfxzfAJCr502oxNK1cfdC9hlaFI43RT+JFCann9JUgZmLzzntChHyn13Sgn9ljHNg==}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@unrs/resolver-binding-linux-arm64-musl@1.12.2':
     resolution: {integrity: sha512-KQ3Lki6l+Pz1k/eBipN41ES+YUK30beLGb9YqcB1O542cyLCNE6GaxrfcY3T6EezmGGk84wb5XyO9loTM9tkcA==}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@unrs/resolver-binding-linux-loong64-gnu@1.12.2':
     resolution: {integrity: sha512-3SJGEh1DborhG6pyxvhPzCT4bbSIVihsvgJc13P1bHG7KLdNDaF9T3gsTwFc7Jw/5Y5/iWOjkEx7Zy0NvCGX3Q==}
     cpu: [loong64]
     os: [linux]
+    libc: [glibc]
 
   '@unrs/resolver-binding-linux-loong64-musl@1.12.2':
     resolution: {integrity: sha512-jiuG/Obbel7uw1PwHNFfrkiKhLAF6mnyZ6aWlOAVN9WqKm8v0OFGnciJIHu8+CMvXLQ8AD51LPzAoUfT21D5Ew==}
     cpu: [loong64]
     os: [linux]
+    libc: [musl]
 
   '@unrs/resolver-binding-linux-ppc64-gnu@1.12.2':
     resolution: {integrity: sha512-q7xRvVpmcfeL+LlZg8Pbbo6QaTZwDU5BaGZbwfhkEsXJn3Was8xYfE0RBH266xZt0rM6B7i8xAYIvjthuUIWHg==}
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   '@unrs/resolver-binding-linux-riscv64-gnu@1.12.2':
     resolution: {integrity: sha512-0CVdx6lcnT3Q9inOH8tsMIOJ6ImndllMjqJHg8RLVdB7Vq4SfkEXl9mCSsVNuNA4MCYycRicCUxPCabVHJRr6A==}
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   '@unrs/resolver-binding-linux-riscv64-musl@1.12.2':
     resolution: {integrity: sha512-iOwlRo9vnp6R6ohHQS11n0NnfdXx/omhkocmIfaPRpQhKZ+3BDMkkdRVh53qjkFkpPddf+FETA28NwGN7l5l+w==}
     cpu: [riscv64]
     os: [linux]
+    libc: [musl]
 
   '@unrs/resolver-binding-linux-s390x-gnu@1.12.2':
     resolution: {integrity: sha512-HYJtLfXq94q8iZNFT1lknx258wlkkWhZeUXJRqzKBBUJ00CvZ+N33zgbCqimLjsyw5Va6uUxhVa12mI+kaveEw==}
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   '@unrs/resolver-binding-linux-x64-gnu@1.12.2':
     resolution: {integrity: sha512-mPsUhunKKDih5O96Y6enDQyHc1SqBPlY1E/SfMWDM3EdJ95Z9CArPeCVwCCqbP45ljvivdEk8Fxn+SIb1rDAJQ==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@unrs/resolver-binding-linux-x64-musl@1.12.2':
     resolution: {integrity: sha512-azrt6+5ydLd8Vt210AAFis/lZevSfPw93EJRIJG+xPu4WCJ8K0kppCTpMyLPcKT7H15M4Jnt2tMp5bOvCkRC6A==}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@unrs/resolver-binding-openharmony-arm64@1.12.2':
     resolution: {integrity: sha512-YZ9hP4O0X9PQb8eO980qmLNGH4zT3I9+SZTdt0Pr0YyuGQhYKoOZkV02VzrzyOZJ5xIJ3UFIenKkUkGg8GjgWQ==}
@@ -3426,6 +3469,10 @@ packages:
   hermes-parser@0.25.1:
     resolution: {integrity: sha512-6pEjquH3rqaI6cYAXYPcz9MS4rY6R4ngRgrgfDshRptUZIc3lw0MCIJIGDj9++mfySOuPTHB4nrSW99BCvOPIA==}
 
+  highlight.js@11.12.0:
+    resolution: {integrity: sha512-nbfWpyRMcMrPMmDwJB+dhX/eiaPKtc2RB+0QZskqJ3WjRA/FDS0e9hZrx8EC/lbEv8gXy98FcDbNa/dspAaJMg==}
+    engines: {node: '>=12.0.0'}
+
   hono@4.12.0:
     resolution: {integrity: sha512-NekXntS5M94pUfiVZ8oXXK/kkri+5WpX2/Ik+LVsl+uvw+soj4roXIsPqO+XsWrAw20mOzaXOZf3Q7PfB9A/IA==}
     engines: {node: '>=16.9.0'}
@@ -3647,8 +3694,8 @@ packages:
     resolution: {integrity: sha512-ZFar/L4ngX7wZh2QX+Fiftmuf0igWJsrJtfizrovWifF1gAWkfmRa5Z1m0LQZbm0hKCHRDYhLRSLFrSqNe4EJA==}
     engines: {node: '>=6.0'}
 
-  isomorphic-git@1.38.5:
-    resolution: {integrity: sha512-4HBmx1UB+SdRaQh7+zN7lvFQxc4zl7s0oIM/1+5xveu6+QrOeFfx5QDeRNpqCzFHICISEdbK7GilsTsrgE006Q==}
+  isomorphic-git@1.42.3:
+    resolution: {integrity: sha512-OHr8jeIxQY9h06KK5wEcdYnuul9QokOoaBekWkfqAx8KhZRnQpseqfL1I4okC7gNMw9UZ3zfG/nuCnn631SDFw==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -3767,8 +3814,8 @@ packages:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
 
-  lib0@0.2.114:
-    resolution: {integrity: sha512-gcxmNFzA4hv8UYi8j43uPlQ7CGcyMJ2KQb5kZASw6SnAKAf10hK12i2fjrS3Cl/ugZa5Ui6WwIu1/6MIXiHttQ==}
+  lib0@0.2.119:
+    resolution: {integrity: sha512-vh+TiejVy8Xm+hCdnRfn9BthGNvNUZdEXltNjVZL3TzRIKP3s1lnQh8pWd/Q0wCgY0FPAGVVjFF4ZiHUV3LFgA==}
     engines: {node: '>=16'}
     hasBin: true
 
@@ -3913,8 +3960,8 @@ packages:
       react-native:
         optional: true
 
-  mobx@6.15.0:
-    resolution: {integrity: sha512-UczzB+0nnwGotYSgllfARAqWCJ5e/skuV2K/l+Zyck/H6pJIhLXuBnz+6vn2i211o7DtbE78HQtsYEKICHGI+g==}
+  mobx@6.16.1:
+    resolution: {integrity: sha512-syNcDdX3KT+Jq3je6eGjBhuc24Z68td2VG0zNFqRswaE433D9SNH5VRy/xrGbJsUixfppLLccXhAW9JSf6n+SQ==}
 
   moo@0.5.2:
     resolution: {integrity: sha512-iSAJLHYKnX41mKcJKjqvnAN9sf0LMDTXDEvFv+ffuRR9a1MIuXLjMNL6EsnDHSkKLTWNqQQ5uo61P4EbU4NU+Q==}
@@ -4911,8 +4958,8 @@ packages:
   xmlchars@2.2.0:
     resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
 
-  y-protocols@1.0.6:
-    resolution: {integrity: sha512-vHRF2L6iT3rwj1jub/K5tYcTT/mEYDUppgNPXwp8fmLpui9f7Yeq3OEtTLVF012j39QnV+KEQpNqoN7CWU7Y9Q==}
+  y-protocols@1.0.7:
+    resolution: {integrity: sha512-YSVsLoXxO67J6eE/nV4AtFtT3QEotZf5sK5BHxFBXso7VDUT3Tx07IfA6hsu5Q5OmBdMkQVmFZ9QOA7fikWvnw==}
     engines: {node: '>=16.0.0', npm: '>=8.0.0'}
     peerDependencies:
       yjs: ^13.0.0
@@ -4926,8 +4973,8 @@ packages:
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
 
-  yjs@13.6.30:
-    resolution: {integrity: sha512-vv/9h42eCMC81ZHDFswuu/MKzkl/vyq1BhaNGfHyOonwlG4CJbQF4oiBBJPvfdeCt/PlVDWh7Nov9D34YY09uQ==}
+  yjs@13.6.33:
+    resolution: {integrity: sha512-q/UYvr1gOk4XII+Cu1CW2dINjYqJJFifTzogEaIARznrvX7uOlHsdTEXcnOBMuIsrCGEEKdNxi74kyMLZlKVfw==}
     engines: {node: '>=16.0.0', npm: '>=8.0.0'}
 
   yocto-queue@0.1.0:
@@ -5572,9 +5619,9 @@ snapshots:
       tiny-invariant: 1.3.3
       typescript-event-target: 1.1.2
 
-  '@here.build/collections@0.9.0(mobx@6.15.0)':
+  '@here.build/collections@0.9.0(mobx@6.16.1)':
     optionalDependencies:
-      mobx: 6.15.0
+      mobx: 6.16.1
 
   '@here.build/error-invariant@0.9.0': {}
 
@@ -7904,6 +7951,8 @@ snapshots:
     dependencies:
       hermes-estree: 0.25.1
 
+  highlight.js@11.12.0: {}
+
   hono@4.12.0: {}
 
   html-encoding-sniffer@4.0.0:
@@ -8125,7 +8174,7 @@ snapshots:
 
   iso-639-1@3.1.6: {}
 
-  isomorphic-git@1.38.5:
+  isomorphic-git@1.42.3:
     dependencies:
       async-lock: 1.4.1
       clean-git-ref: 2.0.1
@@ -8254,7 +8303,7 @@ snapshots:
       prelude-ls: 1.2.1
       type-check: 0.4.0
 
-  lib0@0.2.114:
+  lib0@0.2.119:
     dependencies:
       isomorphic.js: 0.2.5
 
@@ -8386,23 +8435,23 @@ snapshots:
 
   minipass@7.1.3: {}
 
-  mobx-react-lite@4.1.1(mobx@6.15.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+  mobx-react-lite@4.1.1(mobx@6.16.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
     dependencies:
-      mobx: 6.15.0
+      mobx: 6.16.1
       react: 19.2.8
       use-sync-external-store: 1.6.0(react@19.2.8)
     optionalDependencies:
       react-dom: 19.2.8(react@19.2.8)
 
-  mobx-react@9.2.2(mobx@6.15.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+  mobx-react@9.2.2(mobx@6.16.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
     dependencies:
-      mobx: 6.15.0
-      mobx-react-lite: 4.1.1(mobx@6.15.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      mobx: 6.16.1
+      mobx-react-lite: 4.1.1(mobx@6.16.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react: 19.2.8
     optionalDependencies:
       react-dom: 19.2.8(react@19.2.8)
 
-  mobx@6.15.0: {}
+  mobx@6.16.1: {}
 
   moo@0.5.2: {}
 
@@ -9453,22 +9502,22 @@ snapshots:
 
   xmlchars@2.2.0: {}
 
-  y-protocols@1.0.6(yjs@13.6.30):
+  y-protocols@1.0.7(yjs@13.6.33):
     dependencies:
-      lib0: 0.2.114
-      yjs: 13.6.30
+      lib0: 0.2.119
+      yjs: 13.6.33
 
-  y-websocket@3.0.0(yjs@13.6.30):
+  y-websocket@3.0.0(yjs@13.6.33):
     dependencies:
-      lib0: 0.2.114
-      y-protocols: 1.0.6(yjs@13.6.30)
-      yjs: 13.6.30
+      lib0: 0.2.119
+      y-protocols: 1.0.7(yjs@13.6.33)
+      yjs: 13.6.33
 
   yallist@3.1.1: {}
 
-  yjs@13.6.30:
+  yjs@13.6.33:
     dependencies:
-      lib0: 0.2.114
+      lib0: 0.2.119
 
   yocto-queue@0.1.0: {}
 

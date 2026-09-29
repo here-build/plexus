@@ -1,9 +1,9 @@
 ---
-title: Fields
-description: synced accessors, collections, children, references
-sidebar:
-  order: 1
+title: Models and fields
+description: Define synchronized fields and collections, then choose which relationships own their values.
 ---
+
+A model is a TypeScript class with a registered name and reactive accessors. Its fields, collections, and relationships work locally; joining a document adds synchronization. If this is your first model, start with the [complete example](/start/first-model/).
 
 ## Defining Models
 
@@ -57,6 +57,8 @@ maintaining the underlying struct identity and preserving observers and object p
 
 ### Child Fields (Ownership)
 
+For a complete example of moving a child while references remain valid, see [Ownership and references](/guide/ownership/).
+
 Use `.child` decorators for parent-child relationships with automatic reparenting.
 Child fields confer ownership — a child can only have one parent at a time.
 
@@ -80,7 +82,7 @@ class Page extends PlexusModel<Project> {
 }
 ```
 
-Reverse relation can be resolved fia `.parent`, `.parentField` and `.parentFieldKey` (for list, record and map parentship).
+Reverse relation can be resolved via `.parent`, `.parentField` and `.parentFieldKey` (for list, record and map parentship).
 
 ```typescript
 entity.parent;          // parent model instance, or null
@@ -99,9 +101,9 @@ project2.pages.push(page);    // page.parent === project2, project1.pages is emp
 ```
 
 > **Child or plain reference?** A model-valued field is either owning (`.child` — one parent only,
-detaching the parent takes the subtree with it, cycles forbidden) or a plain reference
+detaching the parent makes its owned subtree unreachable from the root, cycles forbidden) or a plain reference
 (`@syncing` — a pointer to something owned elsewhere; lifecycle-neutral, cycles fine).
-Use `.child` when deleting the parent should delete the value; use a plain reference for
+Use `.child` when the value belongs to the parent’s document structure; use a plain reference for
 back-pointers, definition reuse, and anything that would otherwise create an ownership cycle.
 
 ### Map Keys
